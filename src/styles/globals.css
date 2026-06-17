@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  background: #000000;
+  font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  --nav-height: 72px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #000000;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+  background: #000000;
+  color: #f7f7f2;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(138, 215, 255, 0.28);
+  color: #ffffff;
+}
+
+.noise-surface {
+  position: relative;
+}
+
+.noise-surface::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.035;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.7) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.7) 1px, transparent 1px);
+  background-size: 74px 74px;
+  mask-image: linear-gradient(to bottom, black, transparent 76%);
+}
+
+.page-enter {
+  will-change: opacity, transform, filter;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.hero-logo-fusion {
+  position: relative;
+  isolation: isolate;
+  mix-blend-mode: screen;
+  filter:
+    drop-shadow(0 0 28px rgba(138, 215, 255, 0.18))
+    drop-shadow(0 0 54px rgba(255, 255, 255, 0.08));
+  opacity: 0.82;
+  -webkit-mask-image: radial-gradient(ellipse at center, black 58%, rgba(0, 0, 0, 0.72) 76%, transparent 100%);
+  mask-image: radial-gradient(ellipse at center, black 58%, rgba(0, 0, 0, 0.72) 76%, transparent 100%);
+}
+
+.hero-logo-fusion::before {
+  position: absolute;
+  inset: 16% 10%;
+  z-index: -1;
+  content: "";
+  background: radial-gradient(ellipse at center, rgba(138, 215, 255, 0.22), transparent 68%);
+  filter: blur(22px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
