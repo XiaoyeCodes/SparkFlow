@@ -19,6 +19,17 @@ export function Shell({ children }: { children: ReactNode }) {
             <span className="text-sm font-semibold">SparkFlow</span>
           </Link>
           <div className="hidden items-center gap-1 md:flex">
+            <NavLink
+              to="/market"
+              className={({ isActive }) =>
+                [
+                  'rounded-full px-3 py-2 text-xs font-medium text-white/52 transition hover:text-white',
+                  isActive ? 'bg-white/10 text-white' : ''
+                ].join(' ')
+              }
+            >
+              股票市场
+            </NavLink>
             {gateways.map((item) => (
               <NavLink
                 key={item.path}
