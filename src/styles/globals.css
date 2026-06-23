@@ -90,6 +90,50 @@ button {
   filter: blur(22px);
 }
 
+.orbital-home {
+  background:
+    linear-gradient(180deg, #000 0%, #030406 42%, #000 100%);
+  isolation: isolate;
+}
+
+.orbital-home::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.62;
+  background-image:
+    radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.62) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 74% 12%, rgba(138, 215, 255, 0.52) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 58% 76%, rgba(255, 255, 255, 0.42) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 86% 58%, rgba(255, 255, 255, 0.5) 0 1px, transparent 1.4px);
+  background-size: 360px 360px, 520px 520px, 430px 430px, 610px 610px;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 76%, transparent 100%);
+}
+
+.orbital-home::after {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.64), transparent 22%, transparent 76%, rgba(0, 0, 0, 0.46)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.46), transparent 24%, transparent 62%, #000 100%);
+}
+
+.orbital-home canvas {
+  display: block;
+}
+
+@media (max-width: 767px) {
+  .orbital-home::after {
+    background:
+      linear-gradient(180deg, rgba(0, 0, 0, 0.42), transparent 28%, rgba(0, 0, 0, 0.72) 78%, #000 100%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

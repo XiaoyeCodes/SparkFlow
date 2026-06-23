@@ -55,7 +55,13 @@ export function HeatmapPretextFlow({ obstacleRef }: { obstacleRef: RefObject<HTM
       };
     };
 
+    let lastDraw = 0;
+
     const tick = (time: number) => {
+      frame = window.requestAnimationFrame(tick);
+      if (document.hidden || time - lastDraw < 33) return;
+      lastDraw = time;
+
       ctx.clearRect(0, 0, width, height);
       drawFlowRows({
         ctx,
@@ -69,7 +75,6 @@ export function HeatmapPretextFlow({ obstacleRef }: { obstacleRef: RefObject<HTM
         scroll: time * 0.012,
         color: 'rgba(255,255,255,0.105)'
       });
-      frame = window.requestAnimationFrame(tick);
     };
 
     resize();

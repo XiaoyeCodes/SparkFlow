@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, ArrowUpRight, BrainCircuit, FileText, Sparkles, Target, Waves } from 'lucide-react';
+import { Activity, ArrowUpRight, BrainCircuit, FileText, Quote, Sparkles, Target, Waves } from 'lucide-react';
 import { HeatmapPretextFlow } from '../components/HeatmapPretextFlow';
 import { PageTransition } from '../components/PageTransition';
 import { TradingViewHeatmap } from '../components/TradingViewHeatmap';
@@ -40,6 +40,39 @@ const researchCards = [
   ['Core Thesis', '市场不是全面风险偏好，而是 AI 算力与少数高质量现金流资产在集中定价。'],
   ['Evidence', '热力图显示科技权重仍然贡献主要宽度，医疗与部分消费板块拖累指数内部质量。'],
   ['Action', '优先观察半导体、软件、电力设备的联动；回避单点事件驱动的弱势防御股。']
+];
+
+const investorPrinciples = [
+  {
+    name: 'Warren Buffett',
+    label: '估值与耐心',
+    quote: '别人贪婪时恐惧，别人恐惧时贪婪。',
+    lesson: '市场热度越高，越要回到企业质量、现金流和安全边际；恐慌时不要被价格波动夺走判断。'
+  },
+  {
+    name: 'Charlie Munger',
+    label: '反向思考',
+    quote: '反过来想，总是反过来想。',
+    lesson: '先问什么会毁掉这笔交易：高估值、坏资产、杠杆、流动性、情绪化加仓。'
+  },
+  {
+    name: 'Ray Dalio',
+    label: '原则与复盘',
+    quote: '痛苦加反思等于进步。',
+    lesson: '亏损不是结论，而是反馈；每一次回撤都要沉淀成可执行的规则。'
+  },
+  {
+    name: 'George Soros',
+    label: '盈亏比',
+    quote: '关键不是对错，而是对时赚多少，错时亏多少。',
+    lesson: '不要为了证明自己正确而持仓；市场确认你错时，先控制下行。'
+  },
+  {
+    name: 'Stanley Druckenmiller',
+    label: '开放与纠错',
+    quote: '保持开放，发现错了就迅速改变想法。',
+    lesson: '不要把观点当身份；热力图和价格一旦证明原假设失效，就先收缩风险，再重新评估。'
+  }
 ];
 
 export function Market() {
@@ -201,6 +234,7 @@ function ResearchDesk() {
           </motion.article>
         ))}
       </div>
+      <InvestorPrinciples />
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr]">
         <NewsTape />
         <div className="rounded-lg border border-white/10 bg-white/[0.045] p-5 backdrop-blur-2xl">
@@ -211,6 +245,36 @@ function ResearchDesk() {
             <p>3. 当前更适合建立观察清单，而不是追逐高开后的单点动量。</p>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function InvestorPrinciples() {
+  return (
+    <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] p-5 backdrop-blur-2xl">
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/38">Investor discipline</p>
+          <h3 className="mt-2 text-2xl font-semibold text-white">大师原则：看盘时真正要记住的事</h3>
+        </div>
+        <Quote className="hidden text-[#ffd27a]/70 md:block" size={24} />
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {investorPrinciples.map((item, index) => (
+          <motion.article
+            key={item.name}
+            className="rounded-lg border border-white/10 bg-black/24 p-4"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.36, delay: index * 0.04 }}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ffd27a]/72">{item.label}</p>
+            <h4 className="mt-2 text-lg font-semibold text-white">{item.name}</h4>
+            <p className="mt-4 font-serif text-base leading-6 text-white/74">“{item.quote}”</p>
+            <p className="mt-4 text-xs leading-6 text-white/48">{item.lesson}</p>
+          </motion.article>
+        ))}
       </div>
     </div>
   );
