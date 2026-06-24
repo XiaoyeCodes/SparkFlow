@@ -11,6 +11,7 @@ import {
   Target
 } from 'lucide-react';
 import { ModuleFrame } from '../components/ModuleFrame';
+import { SideRays } from '../components/SideRays';
 
 const growthPillars = [
   {
@@ -150,24 +151,58 @@ const thinkingCards = [
 export function Logs() {
   return (
     <ModuleFrame title="成长建议栏" kicker="Growth Notes">
-      <div className="space-y-10">
+      <div className="relative">
+        <div className="pointer-events-none absolute -right-8 -top-28 h-[560px] w-[min(760px,78vw)] overflow-hidden opacity-70 blur-[0.2px]">
+          <SideRays
+            speed={1.25}
+            rayColor1="#b9ffdc"
+            rayColor2="#8ad7ff"
+            intensity={1.28}
+            spread={1.65}
+            origin="top-right"
+            tilt={-8}
+            saturation={1.15}
+            blend={0.82}
+            falloff={1.85}
+            opacity={0.52}
+          />
+        </div>
+
+        <div className="relative z-10 space-y-10">
         <section className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
           <motion.div
-            className="rounded-lg border border-white/10 bg-[#080908] p-6 md:p-8"
+            className="relative overflow-hidden rounded-lg border border-white/10 bg-[#080908]/92 p-6 md:p-8"
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-[#8ad7ff]/24 bg-[#8ad7ff]/8 px-3 py-1 text-xs font-semibold text-[#8ad7ff]">
-              <Sparkles size={14} />
-              Personal operating system
+            <div className="pointer-events-none absolute inset-0 opacity-45">
+              <SideRays
+                speed={1.6}
+                rayColor1="#f3d6a0"
+                rayColor2="#96c8ff"
+                intensity={1.08}
+                spread={1.9}
+                origin="top-right"
+                tilt={-4}
+                saturation={1.2}
+                blend={0.72}
+                falloff={1.7}
+                opacity={0.42}
+              />
             </div>
-            <p className="max-w-3xl font-serif text-[clamp(2rem,5vw,4.7rem)] leading-[1.05] text-white/88">
-              成长不是突然开悟，而是持续校准身体、判断、职业与人生方向。
-            </p>
-            <p className="mt-7 max-w-2xl text-sm leading-7 text-white/56 md:text-base">
-              这个栏目记录一套可反复使用的成长框架：先把生活养稳，再把思维练清楚，随后用长期作品和复利能力建立职业位置，最后让人生选择服务于真正重要的目标。
-            </p>
+            <div className="relative z-10">
+              <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-[#8ad7ff]/24 bg-[#8ad7ff]/8 px-3 py-1 text-xs font-semibold text-[#8ad7ff]">
+                <Sparkles size={14} />
+                Personal operating system
+              </div>
+              <p className="max-w-3xl font-serif text-[clamp(2rem,5vw,4.7rem)] leading-[1.05] text-white/88">
+                成长不是突然开悟，而是持续校准身体、判断、职业与人生方向。
+              </p>
+              <p className="mt-7 max-w-2xl text-sm leading-7 text-white/56 md:text-base">
+                这个栏目记录一套可反复使用的成长框架：先把生活养稳，再把思维练清楚，随后用长期作品和复利能力建立职业位置，最后让人生选择服务于真正重要的目标。
+              </p>
+            </div>
           </motion.div>
 
           <motion.div
@@ -256,6 +291,7 @@ export function Logs() {
             ))}
           </div>
         </section>
+        </div>
       </div>
     </ModuleFrame>
   );

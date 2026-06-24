@@ -10,7 +10,7 @@ const gatewayItems = [
     title: '今日新闻',
     path: '/signals',
     eyebrow: 'SIGNALS',
-    meta: 'Live market and technology pulse',
+    meta: '每日市场、科技与 AI 信号流',
     tone: 'text-[#8ad7ff]',
     Icon: Newspaper
   },
@@ -18,7 +18,7 @@ const gatewayItems = [
     title: '股票ETF定投软件',
     path: '/trader',
     eyebrow: 'TRADER',
-    meta: 'All-weather allocation workspace',
+    meta: '全天候 ETF 配置与复盘工作台',
     tone: 'text-[#b9ffdc]',
     Icon: ChartNoAxesCombined
   },
@@ -26,7 +26,7 @@ const gatewayItems = [
     title: '推荐书籍',
     path: '/stack',
     eyebrow: 'STACK',
-    meta: 'Mental models and reading maps',
+    meta: '阅读地图、书单与思维模型',
     tone: 'text-[#f3d6a0]',
     Icon: BookOpenText
   },
@@ -34,7 +34,7 @@ const gatewayItems = [
     title: '个人项目集',
     path: '/artifacts',
     eyebrow: 'ARTIFACTS',
-    meta: 'Systems, products and shipped work',
+    meta: '产品、工具与数字系统作品',
     tone: 'text-[#d7dce5]',
     Icon: Boxes
   },
@@ -42,7 +42,7 @@ const gatewayItems = [
     title: '个人随笔',
     path: '/logs',
     eyebrow: 'LOGS',
-    meta: 'Essays, notes and field records',
+    meta: '长期写作、观察和成长记录',
     tone: 'text-white',
     Icon: PenLine
   }
@@ -50,98 +50,107 @@ const gatewayItems = [
 
 export function Home() {
   const sceneRef = useRef<HTMLElement | null>(null);
-  const { scrollYProgress } = useScroll({
-    target: sceneRef,
-    offset: ['start start', 'end start']
-  });
+  const { scrollY } = useScroll();
 
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.42, 0.66], [1, 0.82, 0.22]);
-  const heroY = useTransform(scrollYProgress, [0, 0.72], ['0vh', '-17vh']);
-  const heroX = useTransform(scrollYProgress, [0, 0.72], ['0vw', '-24vw']);
-  const heroScale = useTransform(scrollYProgress, [0, 0.72], [1, 0.74]);
-  const gatewayOpacity = useTransform(scrollYProgress, [0.3, 0.6], [0, 1]);
-  const gatewayY = useTransform(scrollYProgress, [0.3, 0.66], [72, 0]);
-  const telemetryOpacity = useTransform(scrollYProgress, [0, 0.48, 0.86], [0.1, 0.48, 0.16]);
+  const titleOpacity = useTransform(scrollY, [0, 70, 180], [1, 0.42, 0]);
+  const titleY = useTransform(scrollY, [0, 220], ['0vh', '-28vh']);
+  const titleScale = useTransform(scrollY, [0, 220], [1, 0.58]);
+  const panelOpacity = useTransform(scrollY, [90, 210], [0, 1]);
+  const panelX = useTransform(scrollY, [90, 260], [72, 0]);
+  const tabsOpacity = useTransform(scrollY, [150, 300], [0, 1]);
+  const tabsY = useTransform(scrollY, [150, 300], [36, 0]);
+  const telemetryOpacity = useTransform(scrollY, [0, 320, 720], [0.14, 0.48, 0.18]);
 
   return (
     <PageTransition>
       <section ref={sceneRef} className="orbital-home relative min-h-[220vh] overflow-clip bg-black">
         <div className="sticky top-0 h-screen overflow-hidden">
-          <div className="absolute inset-0 z-[1] bg-[radial-gradient(circle_at_73%_34%,rgba(102,188,255,0.18),transparent_18%),radial-gradient(circle_at_42%_44%,rgba(255,255,255,0.05),transparent_28%),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(0,0,0,0.28)_62%,#000_95%)]" />
+          <div className="absolute inset-0 z-[1] bg-[radial-gradient(circle_at_50%_48%,rgba(102,188,255,0.18),transparent_24%),radial-gradient(circle_at_82%_40%,rgba(255,255,255,0.05),transparent_24%),linear-gradient(180deg,rgba(0,0,0,0.03),rgba(0,0,0,0.22)_64%,rgba(0,0,0,0.08)_96%)]" />
           <EarthScene />
 
           <motion.div
-            className="pointer-events-none absolute inset-x-0 top-[24%] z-10 mx-auto w-[min(88vw,980px)] text-center md:top-[28%]"
-            style={{ opacity: heroOpacity, x: heroX, y: heroY, scale: heroScale }}
+            className="pointer-events-none absolute inset-x-0 top-[6.5%] z-10 mx-auto w-[min(82vw,720px)] text-center md:top-[3.5%]"
+            style={{ opacity: titleOpacity, y: titleY, scale: titleScale }}
           >
-            <motion.p
-              className="mb-5 text-[11px] font-semibold uppercase text-white/44"
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.12 }}
-            >
-              LUMENARY / PERSONAL ORBIT SYSTEM
-            </motion.p>
             <motion.h1
-              className="text-[clamp(4.7rem,14vw,13.5rem)] font-semibold leading-[0.82] text-white"
+              className="font-medium text-white/90"
+              style={{ fontSize: 'clamp(2.65rem, 5.9vw, 6.25rem)', lineHeight: 0.9 }}
               initial={{ opacity: 0, scale: 0.96, filter: 'blur(18px)' }}
               animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
               transition={{ duration: 1.1, ease: [0.19, 1, 0.22, 1] }}
             >
               SparkFlow
             </motion.h1>
-            <motion.p
-              className="mx-auto mt-8 max-w-2xl text-balance text-[clamp(1rem,2vw,1.45rem)] leading-[1.55] text-white/58"
-              initial={{ opacity: 0, y: 18 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.9, delay: 0.32 }}
-            >
-              Infrastructure for digital aesthetics, market signals, writing systems and long horizon decisions.
-            </motion.p>
           </motion.div>
 
-          <motion.div
-            className="absolute inset-x-5 bottom-8 z-20 mx-auto max-w-7xl md:bottom-auto md:left-[max(2rem,calc((100vw-80rem)/2+2rem))] md:right-auto md:top-[34%] md:mx-0 md:w-[min(46vw,620px)]"
-            style={{ opacity: gatewayOpacity, y: gatewayY }}
+          <motion.aside
+            className="pointer-events-none absolute z-20 px-5 md:px-0"
+            style={{
+              opacity: panelOpacity,
+              x: panelX,
+              top: 'clamp(9.5rem, 27vh, 15rem)',
+              right: '2rem',
+              width: 'min(720px, calc(100vw - 2.5rem))'
+            }}
           >
-            <div className="mb-6 hidden max-w-lg md:block">
-              <p className="text-[11px] font-semibold uppercase text-white/40">MISSION CONTROL</p>
-              <h2 className="mt-3 text-[clamp(2.1rem,4.2vw,4.6rem)] font-semibold leading-[0.96] text-white">
-                Signals, systems, and artifacts in one quiet orbit.
+            <div className="mx-auto max-w-xl border-l border-white/14 pl-5 md:pl-7">
+              <p className="text-[11px] font-semibold uppercase text-white/40">PROJECT BRIEF</p>
+              <h2
+                className="mt-4 text-balance font-semibold text-white"
+                style={{ fontSize: 'clamp(2.2rem, 4.6vw, 5.1rem)', lineHeight: 0.94 }}
+              >
+                一个安静但有轨道感的个人操作系统。
               </h2>
+              <p className="mt-6 max-w-lg text-balance text-base leading-7 text-white/58 md:text-lg">
+                SparkFlow 把新闻信号、ETF 定投、阅读书单、项目作品和长期随笔收束到同一个深色导航系统里。
+                首屏保留克制，滚动之后再展开工具入口。
+              </p>
             </div>
+          </motion.aside>
 
-            <div className="grid gap-2.5">
+          <motion.div
+            className="absolute z-30 px-5 md:px-0"
+            style={{
+              opacity: tabsOpacity,
+              y: tabsY,
+              left: 'auto',
+              right: '2rem',
+              bottom: '3rem',
+              width: 'min(720px, calc(100vw - 2.5rem))'
+            }}
+          >
+            <div className="flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-5 md:overflow-visible md:pb-0">
               {gatewayItems.map((item, index) => {
                 const Icon = item.Icon;
 
                 return (
                   <motion.div
                     key={item.path}
-                    initial={{ opacity: 0, y: 18 }}
+                    initial={{ opacity: 0, y: 16 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, margin: '-15% 0px' }}
-                    transition={{ delay: index * 0.045, duration: 0.48, ease: [0.19, 1, 0.22, 1] }}
+                    transition={{ delay: index * 0.04, duration: 0.44, ease: [0.19, 1, 0.22, 1] }}
                   >
                     <Link
                       to={item.path}
-                      className="group grid min-h-[76px] grid-cols-[auto_1fr_auto] items-center gap-4 rounded-lg border border-white/10 bg-white/[0.055] px-4 py-3 shadow-[0_20px_80px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition duration-500 hover:border-white/28 hover:bg-white/[0.085] md:min-h-[88px] md:px-5"
+                      className="group flex h-[96px] w-[178px] shrink-0 flex-col justify-between rounded-lg border border-white/10 bg-black/38 p-3.5 shadow-[0_20px_80px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition duration-500 hover:border-white/28 hover:bg-white/[0.075] md:h-[118px] md:w-auto"
                     >
-                      <span
-                        className={`flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-black/34 ${item.tone}`}
-                      >
-                        <Icon size={18} strokeWidth={1.6} />
+                      <span className="flex items-center justify-between">
+                        <span
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.045] ${item.tone}`}
+                        >
+                          <Icon size={16} strokeWidth={1.6} />
+                        </span>
+                        <ArrowUpRight
+                          size={15}
+                          strokeWidth={1.6}
+                          className="text-white/32 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-white"
+                        />
                       </span>
-                      <span className="min-w-0">
-                        <span className="block text-[10px] font-semibold uppercase text-white/36">{item.eyebrow}</span>
-                        <span className="mt-1 block text-base font-semibold text-white md:text-lg">{item.title}</span>
-                        <span className="mt-1 hidden truncate text-sm text-white/44 md:block">{item.meta}</span>
+                      <span>
+                        <span className="block text-[10px] font-semibold uppercase text-white/34">{item.eyebrow}</span>
+                        <span className="mt-1 block truncate text-sm font-semibold text-white">{item.title}</span>
                       </span>
-                      <ArrowUpRight
-                        size={18}
-                        strokeWidth={1.6}
-                        className="text-white/36 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-white"
-                      />
                     </Link>
                   </motion.div>
                 );
@@ -150,10 +159,10 @@ export function Home() {
           </motion.div>
 
           <motion.div
-            className="pointer-events-none absolute bottom-9 right-[max(1.25rem,calc((100vw-80rem)/2+2rem))] z-20 hidden w-64 text-right md:block"
+            className="pointer-events-none absolute bottom-9 left-[max(1.25rem,calc((100vw-80rem)/2+2rem))] z-20 hidden w-64 text-left md:block"
             style={{ opacity: telemetryOpacity }}
           >
-            <div className="mb-3 h-px w-full bg-gradient-to-r from-transparent via-white/26 to-white/8" />
+            <div className="mb-3 h-px w-full bg-gradient-to-r from-white/8 via-white/26 to-transparent" />
             <p className="font-mono text-[10px] uppercase leading-6 text-white/38">
               LOW EARTH ORBIT
               <br />
@@ -162,15 +171,6 @@ export function Home() {
               SURFACE ALBEDO NOMINAL
             </p>
           </motion.div>
-        </div>
-      </section>
-
-      <section className="relative border-t border-white/10 bg-black px-5 py-20 md:px-8 md:py-28">
-        <div className="mx-auto grid max-w-7xl gap-10 md:grid-cols-[0.8fr_1.2fr] md:items-end">
-          <p className="text-[11px] font-semibold uppercase text-white/36">SPARKFLOW INDEX</p>
-          <p className="max-w-3xl text-balance text-[clamp(1.55rem,3vw,3.25rem)] font-semibold leading-[1.05] text-white">
-            A restrained front door for the tools, reading, projects, and market intelligence that deserve your focus.
-          </p>
         </div>
       </section>
     </PageTransition>

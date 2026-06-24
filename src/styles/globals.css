@@ -102,13 +102,31 @@ button {
   z-index: 0;
   pointer-events: none;
   content: "";
-  opacity: 0.62;
+  opacity: 0.78;
   background-image:
-    radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.62) 0 1px, transparent 1.4px),
-    radial-gradient(circle at 74% 12%, rgba(138, 215, 255, 0.52) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 58% 76%, rgba(255, 255, 255, 0.42) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 86% 58%, rgba(255, 255, 255, 0.5) 0 1px, transparent 1.4px);
-  background-size: 360px 360px, 520px 520px, 430px 430px, 610px 610px;
+    radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.72) 0 1px, transparent 1.45px),
+    radial-gradient(circle at 74% 12%, rgba(138, 215, 255, 0.58) 0 1.15px, transparent 1.7px),
+    radial-gradient(circle at 58% 76%, rgba(255, 255, 255, 0.48) 0 0.95px, transparent 1.45px),
+    radial-gradient(circle at 86% 58%, rgba(255, 255, 255, 0.56) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 32% 64%, rgba(160, 214, 255, 0.4) 0 0.8px, transparent 1.25px),
+    radial-gradient(circle at 92% 28%, rgba(255, 255, 255, 0.42) 0 0.85px, transparent 1.35px),
+    radial-gradient(circle at 8% 72%, rgba(255, 234, 210, 0.32) 0 1px, transparent 1.5px);
+  background-position:
+    0 0,
+    140px 40px,
+    60px 180px,
+    240px 120px,
+    320px 70px,
+    80px 260px,
+    420px 210px;
+  background-size:
+    620px 620px,
+    880px 880px,
+    720px 720px,
+    1040px 1040px,
+    760px 760px,
+    1180px 1180px,
+    1320px 1320px;
   mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 76%, transparent 100%);
 }
 
@@ -119,8 +137,8 @@ button {
   pointer-events: none;
   content: "";
   background:
-    linear-gradient(90deg, rgba(0, 0, 0, 0.64), transparent 22%, transparent 76%, rgba(0, 0, 0, 0.46)),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.46), transparent 24%, transparent 62%, #000 100%);
+    linear-gradient(90deg, rgba(0, 0, 0, 0.52), transparent 22%, transparent 76%, rgba(0, 0, 0, 0.28)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.3), transparent 24%, transparent 100%);
 }
 
 .orbital-home canvas {
@@ -130,7 +148,7 @@ button {
 @media (max-width: 767px) {
   .orbital-home::after {
     background:
-      linear-gradient(180deg, rgba(0, 0, 0, 0.42), transparent 28%, rgba(0, 0, 0, 0.72) 78%, #000 100%);
+      linear-gradient(180deg, rgba(0, 0, 0, 0.36), transparent 32%, rgba(0, 0, 0, 0.12) 100%);
   }
 }
 

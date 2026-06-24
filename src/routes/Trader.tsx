@@ -5,23 +5,19 @@ import {
   Brain,
   ChartNoAxesCombined,
   Clock3,
-  ExternalLink,
-  Flame,
   Landmark,
   Layers3,
   LineChart,
-  Quote,
   Scale,
   ShieldCheck,
   Target,
   TrendingUp,
   X
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { HeatmapPretextFlow } from '../components/HeatmapPretextFlow';
+import { DcaRhythmFlow } from '../components/DcaRhythmFlow';
 import { ModuleFrame } from '../components/ModuleFrame';
-import { TradingViewHeatmap } from '../components/TradingViewHeatmap';
 
 const articleToc = [
   'r > g：为什么劳动收入需要转化为资本所有权',
@@ -37,42 +33,7 @@ const targetFunds = [
   ['纳指100 ETF', '513100 / Nasdaq-100', '创新增长暴露', '集中在大型非金融科技与成长型公司，弹性更高、波动也更高。']
 ];
 
-const whitepaperInvestorAdvice = [
-  {
-    name: '巴菲特',
-    role: '安全边际与长期耐心',
-    quote: '别人贪婪时恐惧，别人恐惧时贪婪。',
-    advice: '定投者不需要预测最低点，但必须在市场恐慌时保留继续买入的能力。下跌不是自动卖出的理由，而是检验资产质量、现金流和估值是否仍然成立的时刻。'
-  },
-  {
-    name: '芒格',
-    role: '反向思考',
-    quote: '反过来想，总是反过来想。',
-    advice: '先列出会毁掉复利的动作：高杠杆、频繁交易、追热门赛道、无法承受回撤、把短期价格波动当成长期判断。避免大错，比追求每次都买对更重要。'
-  },
-  {
-    name: '达里欧',
-    role: '原则化系统',
-    quote: '痛苦加反思等于进步。',
-    advice: '回撤不可避免，真正有价值的是把痛苦转化成规则：仓位上限、定投频率、再平衡阈值、止损条件和复盘记录。没有规则的反思，很容易变成下一次情绪交易。'
-  },
-  {
-    name: '索罗斯',
-    role: '盈亏比与纠错',
-    quote: '关键不是对错，而是对时赚多少，错时亏多少。',
-    advice: 'ETF 定投不是为了证明某个观点永远正确，而是让单次判断错误不会摧毁长期计划。宽基、分散和持续现金流，都是为了控制错误的代价。'
-  },
-  {
-    name: '德鲁肯米勒',
-    role: '开放心态与风险控制',
-    quote: '保持开放，发现错了就迅速改变想法。',
-    advice: '普通投资者最容易把观点当身份。更稳的方式是把宽基指数作为底仓，只在长期逻辑清晰、风险预算允许时提高少数高置信资产的比例；一旦事实变化，先收缩风险，再重新评估。'
-  }
-];
-
 export function Trader() {
-  const heatmapPanelRef = useRef<HTMLDivElement | null>(null);
-  const [heatmapMode, setHeatmapMode] = useState<'stocks' | 'etfs'>('stocks');
   const [isWhitepaperOpen, setWhitepaperOpen] = useState(false);
 
   useEffect(() => {
@@ -91,8 +52,8 @@ export function Trader() {
     };
   }, [isWhitepaperOpen]);
 
-  const revealHeatmap = () => {
-    document.getElementById('market-heatmap')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const revealRhythm = () => {
+    document.getElementById('dca-rhythm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   return (
@@ -128,17 +89,17 @@ export function Trader() {
                 >
                   <span className="inline-flex items-center gap-3">
                     <BookOpenText size={18} />
-                    阅读完整白皮书
+                    阅读完整文章
                   </span>
                   <ArrowRight size={18} />
                 </button>
                 <button
                   type="button"
-                  onClick={revealHeatmap}
+                  onClick={revealRhythm}
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.045] px-5 py-4 text-sm font-semibold text-white/68 transition hover:border-white/22 hover:text-white"
                 >
-                  <Flame size={16} />
-                  市场热力图
+                  <ChartNoAxesCombined size={16} />
+                  定投节奏流线
                 </button>
               </div>
             </div>
@@ -197,64 +158,13 @@ export function Trader() {
         </section>
 
         <motion.section
-          id="market-heatmap"
-          className="relative min-h-[660px] scroll-mt-24 overflow-hidden rounded-lg border border-white/10 bg-[#050506]"
+          id="dca-rhythm"
+          className="scroll-mt-24"
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.72, delay: 0.12, ease: [0.19, 1, 0.22, 1] }}
         >
-          <HeatmapPretextFlow obstacleRef={heatmapPanelRef} />
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(138,215,255,0.12),transparent_38%),linear-gradient(to_bottom,rgba(0,0,0,0.18),rgba(0,0,0,0.74))]" />
-
-          <div className="relative z-10 flex items-center justify-between gap-4 px-5 pt-5 md:px-7 md:pt-7">
-            <div>
-              <p className="text-[11px] font-semibold uppercase text-[#b9ffdc]/72">TradingView Heatmap</p>
-              <h2 className="mt-1 text-2xl font-semibold leading-none text-white md:text-4xl">Market heat field</h2>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex rounded-full border border-white/10 bg-black/35 p-1 backdrop-blur-xl">
-                {(['stocks', 'etfs'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setHeatmapMode(mode)}
-                    className={[
-                      'rounded-full px-3 py-1.5 text-xs font-semibold transition',
-                      heatmapMode === mode ? 'bg-white text-black' : 'text-white/52 hover:text-white'
-                    ].join(' ')}
-                  >
-                    {mode === 'stocks' ? 'Stocks' : 'ETFs'}
-                  </button>
-                ))}
-              </div>
-              <a
-                href={heatmapMode === 'stocks' ? 'https://www.tradingview.com/heatmap/stock/' : 'https://www.tradingview.com/heatmap/etf/'}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/60 transition hover:border-white/24 hover:text-white"
-                aria-label="Open TradingView"
-              >
-                <ExternalLink size={16} strokeWidth={1.8} />
-              </a>
-            </div>
-          </div>
-
-          <div className="relative z-10 mx-auto mt-8 w-[min(1040px,88vw)] px-4 pb-8 md:mt-10 md:px-0">
-            <div
-              ref={heatmapPanelRef}
-              className="heatmap-ambient-panel relative h-[390px] overflow-hidden rounded-lg border border-white/[0.06] bg-black/25 shadow-[0_0_92px_rgba(138,215,255,0.10)] md:h-[430px]"
-            >
-              <div className="absolute inset-0 opacity-68 brightness-[0.7] contrast-[1.08] saturate-[0.76] [mask-image:radial-gradient(ellipse_at_center,black_52%,rgba(0,0,0,0.72)_74%,transparent_100%)]">
-                <TradingViewHeatmap mode={heatmapMode} />
-              </div>
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_42%,rgba(0,0,0,0.34)_72%,rgba(0,0,0,0.78)_100%),linear-gradient(to_bottom,rgba(0,0,0,0.2),transparent_28%,rgba(0,0,0,0.32))]" />
-            </div>
-            <div className="mt-5 grid gap-3 text-sm text-white/54 md:grid-cols-3">
-              <p>热力图只作为宏观背景信号，不直接决定定投动作。</p>
-              <p>颜色提示市场宽度，真正的动作仍由现金流、定投周期和再平衡规则触发。</p>
-              <p>点击右上角外链可以进入 TradingView 原站做完整交互。</p>
-            </div>
-          </div>
+          <DcaRhythmFlow />
         </motion.section>
       </div>
 
@@ -378,7 +288,6 @@ function WhitepaperDialog({ onClose }: { onClose: () => void }) {
               <Figure title="错过最佳上涨日的代价" caption="1999-2019 年示意：持续持有标普 500 年化约 6.06%；错过最佳 10 天降至约 2.44%；错过最佳 20 天接近 0.08%。">
                 <BestDaysChart />
               </Figure>
-              <InvestorAdvicePanel />
             </ArticleSection>
 
             <ArticleSection id="wp-4" eyebrow="Part 04" title="定投机制：用制度对抗人性">
@@ -455,39 +364,6 @@ function Figure({ title, caption, children }: { title: string; caption: string; 
       <div className="p-4">{children}</div>
       <p className="border-t border-black/10 px-4 py-3 text-xs leading-5 text-black/48">{caption}</p>
     </figure>
-  );
-}
-
-function InvestorAdvicePanel() {
-  return (
-    <div className="my-8 overflow-hidden rounded-lg border border-black/10 bg-[#171715] text-[#f4eee1]">
-      <div className="grid gap-6 border-b border-white/10 p-5 md:grid-cols-[0.78fr_1.22fr] md:p-6">
-        <div>
-          <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#ffd27a]/32 bg-[#ffd27a]/10 text-[#ffd27a]">
-            <Quote size={18} />
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#ffd27a]/72">Investor discipline</p>
-          <h3 className="mt-3 text-3xl font-semibold leading-tight">投资大师给定投者的共同建议</h3>
-        </div>
-        <p className="self-end text-sm leading-7 text-white/58">
-          这些名言背后的共同逻辑不是“崇拜大师”，而是把长期投资拆成几条可执行纪律：不要在恐慌中退出，不要在狂热中加杠杆，不要频繁证明自己正确，用规则承受波动，用分散限制错误代价。
-        </p>
-      </div>
-      <div className="divide-y divide-white/10">
-        {whitepaperInvestorAdvice.map((item) => (
-          <article key={item.name} className="grid gap-4 p-5 md:grid-cols-[180px_1fr] md:p-6">
-            <div>
-              <p className="text-lg font-semibold">{item.name}</p>
-              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-[#ffd27a]/64">{item.role}</p>
-            </div>
-            <div>
-              <p className="font-serif text-xl leading-8 text-white/86">“{item.quote}”</p>
-              <p className="mt-3 text-sm leading-7 text-white/58">{item.advice}</p>
-            </div>
-          </article>
-        ))}
-      </div>
-    </div>
   );
 }
 
