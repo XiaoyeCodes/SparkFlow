@@ -1,5 +1,5 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { ArrowUpRight, BookOpenText, Boxes, ChartNoAxesCombined, Newspaper, PenLine } from 'lucide-react';
+import { ArrowUpRight, BookOpenText, Boxes, ChartNoAxesCombined, Newspaper, Orbit, PenLine, Radar } from 'lucide-react';
 import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { EarthScene } from '../components/EarthScene';
@@ -13,6 +13,22 @@ const gatewayItems = [
     meta: '每日市场、科技与 AI 信号流',
     tone: 'text-[#8ad7ff]',
     Icon: Newspaper
+  },
+  {
+    title: '星图情报',
+    path: '/starmap',
+    eyebrow: 'STARMAP',
+    meta: '信号网、主题雷达与情报扫描台',
+    tone: 'text-[#8ad7ff]',
+    Icon: Radar
+  },
+  {
+    title: '星河航道',
+    path: '/galaxy',
+    eyebrow: 'GALAXY',
+    meta: '漂浮灵感、长期主题与低噪想法池',
+    tone: 'text-[#d7dce5]',
+    Icon: Orbit
   },
   {
     title: '股票ETF定投软件',
@@ -119,7 +135,7 @@ export function Home() {
               width: 'min(720px, calc(100vw - 2.5rem))'
             }}
           >
-            <div className="flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-5 md:overflow-visible md:pb-0">
+            <div className="flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-7 md:overflow-visible md:pb-0">
               {gatewayItems.map((item, index) => {
                 const Icon = item.Icon;
 

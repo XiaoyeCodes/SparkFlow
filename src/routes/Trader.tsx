@@ -14,7 +14,7 @@ import {
   TrendingUp,
   X
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DcaRhythmFlow } from '../components/DcaRhythmFlow';
 import { ModuleFrame } from '../components/ModuleFrame';
@@ -32,6 +32,66 @@ const targetFunds = [
   ['标普500 ETF', 'S&P 500', '美国宽基核心', '覆盖美国大型公司利润池，是全球最重要的权益基准之一。'],
   ['纳指100 ETF', '513100 / Nasdaq-100', '创新增长暴露', '集中在大型非金融科技与成长型公司，弹性更高、波动也更高。']
 ];
+
+const ALL_WEATHER_URL = '/allweather/index.html';
+
+function AllWeatherWorkbench() {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const cleanupRef = useRef<null | (() => void)>(null);
+  const [frameHeight, setFrameHeight] = useState(2400);
+
+  const syncFrameHeight = useCallback(() => {
+    const frame = frameRef.current;
+    const doc = frame?.contentDocument;
+    if (!doc) return;
+
+    const nextHeight = Math.max(
+      1800,
+      doc.documentElement.scrollHeight,
+      doc.body?.scrollHeight || 0
+    );
+    setFrameHeight(nextHeight + 24);
+  }, []);
+
+  const handleLoad = useCallback(() => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    syncFrameHeight();
+
+    const refresh = () => window.requestAnimationFrame(syncFrameHeight);
+    window.addEventListener('resize', refresh);
+    const timers = [250, 800, 1600, 3200].map((delay) => window.setTimeout(refresh, delay));
+
+    cleanupRef.current = () => {
+      window.removeEventListener('resize', refresh);
+      timers.forEach(window.clearTimeout);
+    };
+  }, [syncFrameHeight]);
+
+  useEffect(() => {
+    return () => {
+      cleanupRef.current?.();
+    };
+  }, []);
+
+  return (
+    <motion.section
+      className="overflow-hidden rounded-lg border border-white/10 bg-black shadow-[0_30px_120px_rgba(0,0,0,0.52)]"
+      initial={{ opacity: 0, y: 18, scale: 0.992 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.62, delay: 0.06, ease: [0.19, 1, 0.22, 1] }}
+    >
+      <iframe
+        ref={frameRef}
+        title="AllWeather.Fix ETF 定投工作台"
+        src={ALL_WEATHER_URL}
+        onLoad={handleLoad}
+        className="block w-full border-0 bg-black"
+        style={{ height: frameHeight }}
+      />
+    </motion.section>
+  );
+}
 
 export function Trader() {
   const [isWhitepaperOpen, setWhitepaperOpen] = useState(false);
@@ -59,6 +119,8 @@ export function Trader() {
   return (
     <ModuleFrame title="股票 ETF 定投软件" kicker="ETF Research">
       <div className="space-y-5">
+        <AllWeatherWorkbench />
+
         <section className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
           <motion.article
             className="relative min-h-[620px] overflow-hidden rounded-lg border border-white/10 bg-[#090908] p-6 md:p-9"

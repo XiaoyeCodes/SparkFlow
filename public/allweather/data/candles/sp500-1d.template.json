@@ -1,0 +1,13 @@
+﻿{
+  "generatedAt": "2026-06-15T00:00:00.000Z",
+  "assetId": "sp500",
+  "name": "标普500基金",
+  "ticker": "SPY",
+  "proxy": "SPDR S&P 500 ETF Trust",
+  "timeframe": "1d",
+  "startDate": "2000-01-01",
+  "endDate": "2026-06-01",
+  "sources": "本地导入日线 OHLC",
+  "disclaimer": "请将日线 K 线填入 candles。",
+  "candles": []
+}

@@ -1,0 +1,15 @@
+﻿{
+  "generatedAt": "2026-06-15T00:00:00.000Z",
+  "startDate": "2000-01-01",
+  "endDate": "2026-06-01",
+  "monthCount": 0,
+  "frequency": "monthly",
+  "sources": "本地导入月度复权收盘价",
+  "disclaimer": "请将四类资产的月度历史价格填入 assets.*.prices。",
+  "assets": {
+    "sp500": { "name": "标普500基金", "ticker": "SPY", "proxy": "SPDR S&P 500 ETF Trust", "prices": [] },
+    "nasdaq": { "name": "纳指基金", "ticker": "QQQ", "proxy": "Invesco QQQ Trust", "prices": [] },
+    "bond": { "name": "长期国债基金", "ticker": "TLT", "proxy": "iShares 20+ Year Treasury Bond ETF", "prices": [] },
+    "gold": { "name": "黄金资产", "ticker": "GLD", "proxy": "SPDR Gold Shares", "prices": [] }
+  }
+}

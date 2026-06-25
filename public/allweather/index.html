@@ -1,0 +1,1733 @@
+<!doctype html>
+<html lang="zh-CN" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="全天候修复 全球多资产动态再平衡投研平台" />
+    <title>全天候修复｜动态再平衡平台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+              mono: ['JetBrains Mono', 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'monospace'],
+            },
+            boxShadow: {
+              glow: '0 0 36px rgba(59, 130, 246, 0.24), inset 0 1px 0 rgba(255,255,255,0.08)',
+              panel: '0 24px 80px rgba(0,0,0,0.6)',
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      * {
+        transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+        transition-duration: 500ms;
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      body {
+        background:
+          radial-gradient(circle at 18% 8%, rgba(29, 78, 216, 0.18), transparent 28rem),
+          radial-gradient(circle at 88% 22%, rgba(148, 163, 184, 0.12), transparent 30rem),
+          linear-gradient(180deg, #050505 0%, #000 48%, #04070c 100%);
+      }
+
+      .grid-noise {
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+        background-size: 72px 72px;
+        mask-image: linear-gradient(to bottom, rgba(0,0,0,0.9), rgba(0,0,0,0.12));
+      }
+
+      .glass {
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(24px);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+      }
+
+      .glass:hover,
+      .glass:focus-within {
+        border-color: rgba(59, 130, 246, 0.5);
+        box-shadow: 0 0 36px rgba(59, 130, 246, 0.24), inset 0 1px 0 rgba(255,255,255,0.08);
+      }
+
+      .input-field {
+        appearance: textfield;
+      }
+
+      .input-field::-webkit-outer-spin-button,
+      .input-field::-webkit-inner-spin-button {
+        appearance: none;
+        margin: 0;
+      }
+
+      .result-enter {
+        opacity: 0;
+        transform: translateY(18px) scale(0.985);
+      }
+
+      .result-enter-active {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      .mode-toggle[data-mode="full"] .toggle-knob {
+        transform: translateX(100%);
+      }
+
+      .mode-toggle[data-mode="full"] {
+        border-color: rgba(96, 165, 250, 0.65);
+      }
+
+      .side-drawer {
+        position: fixed;
+        left: 0;
+        top: 50%;
+        z-index: 30;
+        transform: translate(-260px, -50%);
+        width: 260px;
+      }
+
+      .side-drawer.is-open {
+        transform: translate(18px, -50%);
+      }
+
+      .side-drawer-handle {
+        position: absolute;
+        right: -44px;
+        top: 50%;
+        transform: translateY(-50%);
+        writing-mode: vertical-rl;
+      }
+
+      @media (max-width: 767px) {
+        .side-drawer {
+          left: 12px;
+          top: auto;
+          bottom: 16px;
+          width: min(300px, calc(100vw - 24px));
+          transform: translateY(calc(100% - 58px));
+        }
+
+        .side-drawer.is-open {
+          transform: translateY(0);
+        }
+
+        .side-drawer-handle {
+          right: 12px;
+          top: 0;
+          transform: translateY(-50%);
+          writing-mode: horizontal-tb;
+        }
+      }
+    </style>
+  </head>
+  <body class="overflow-x-hidden bg-black text-white antialiased">
+    <div class="grid-noise pointer-events-none fixed inset-0 z-0 opacity-60"></div>
+    <div class="pointer-events-none fixed inset-x-0 top-0 z-20 h-px bg-gradient-to-r from-transparent via-blue-400/60 to-transparent"></div>
+
+    <aside id="side-drawer" class="side-drawer">
+      <div class="glass relative rounded-lg p-4">
+        <button
+          id="side-drawer-toggle"
+          type="button"
+          class="side-drawer-handle rounded-r-lg border border-white/10 bg-white/[0.06] px-3 py-4 font-mono text-xs tracking-[0.16em] text-gray-200 hover:border-blue-400/60 hover:bg-blue-500/15 hover:text-white md:rounded-l-none"
+          aria-expanded="false"
+          aria-controls="side-drawer-panel"
+        >
+          菜单
+        </button>
+        <div id="side-drawer-panel" class="space-y-4">
+          <div>
+            <div>
+              <p class="font-mono text-xs uppercase tracking-[0.2em] text-blue-300">控制台</p>
+              <h2 class="mt-2 text-lg font-semibold text-white">系统工具</h2>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <button
+              id="ai-settings-button"
+              type="button"
+              class="w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-left text-sm font-semibold text-gray-200 hover:border-blue-400/60 hover:bg-blue-500/15 hover:text-white"
+            >
+              分析模型设置
+            </button>
+            <p class="text-xs leading-5 text-gray-500">配置接口地址、协议、密钥和模型名称。输入内容会自动保存。</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="relative z-10 mx-auto flex w-full max-w-7xl flex-col px-5 py-8 sm:px-8 lg:px-10">
+      <header class="mb-8 flex flex-col gap-6 border-b border-white/10 pb-8 lg:flex-row lg:items-end lg:justify-between">
+        <div class="max-w-4xl">
+          <div class="mb-4 flex items-center gap-3 font-mono text-xs uppercase tracking-[0.28em] text-blue-300/90">
+            <span class="h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_18px_rgba(96,165,250,0.9)]"></span>
+            全天候修复
+          </div>
+          <h1 class="bg-gradient-to-r from-white via-gray-200 to-gray-500 bg-clip-text text-4xl font-black leading-tight text-transparent sm:text-5xl lg:text-7xl">
+            越复杂的市场，越需要克制的算法。
+          </h1>
+        </div>
+        <div class="glass rounded-lg px-4 py-3 font-mono text-xs uppercase tracking-[0.18em] text-gray-300 sm:text-sm">
+          [ 系统就绪｜无服务器运行 ]
+        </div>
+      </header>
+
+      <section class="grid flex-1 gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+        <section class="glass rounded-lg p-5 sm:p-6">
+          <div class="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <p class="font-mono text-xs uppercase tracking-[0.22em] text-blue-300">参数录入</p>
+              <h2 class="mt-2 text-2xl font-semibold text-white">当前持仓与现金流</h2>
+            </div>
+            <div class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-xs text-gray-400">一期版本</div>
+          </div>
+
+          <form id="rebalance-form" class="space-y-4">
+            <div id="asset-inputs" class="space-y-3"></div>
+
+            <section class="rounded-lg border border-white/10 bg-black/30 p-4">
+              <div class="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <p class="text-sm font-medium text-gray-200">投资风格</p>
+                  <p id="strategy-copy" class="mt-1 text-sm text-gray-500">标准全天候配置，均衡进攻与防守</p>
+                </div>
+                <span id="strategy-sum" class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-xs text-gray-400">合计 100%</span>
+              </div>
+              <div id="strategy-options" class="grid gap-2 sm:grid-cols-2"></div>
+              <div id="custom-targets" class="mt-4 hidden rounded-lg border border-blue-400/20 bg-blue-500/[0.05] p-3"></div>
+            </section>
+
+            <label class="block rounded-lg border border-white/10 bg-black/30 p-4 hover:border-blue-500/50 hover:bg-blue-500/[0.04]">
+              <span class="mb-3 flex items-center justify-between gap-3">
+                <span class="text-sm font-medium text-gray-200">本月新增定投现金</span>
+                <span class="font-mono text-xs text-blue-300">新增资金</span>
+              </span>
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-lg text-gray-500">¥</span>
+                <input
+                  id="cash"
+                  class="input-field w-full bg-transparent font-mono text-2xl font-semibold text-white outline-none placeholder:text-gray-700"
+                  type="number"
+                  min="0"
+                  step="10"
+                  value="5000"
+                />
+              </div>
+            </label>
+
+            <div class="rounded-lg border border-white/10 bg-black/30 p-4">
+              <div class="mb-4 flex items-center justify-between gap-4">
+                <div>
+                  <p class="text-sm font-medium text-gray-200">再平衡模式</p>
+                  <p id="mode-copy" class="mt-1 text-sm text-gray-500">智能定投补仓，只买不卖</p>
+                </div>
+                <button
+                  id="mode-toggle"
+                  type="button"
+                  data-mode="smart"
+                  class="mode-toggle relative h-11 w-24 rounded-full border border-white/10 bg-white/[0.04] p-1 shadow-inner"
+                  aria-label="切换再平衡模式"
+                >
+                  <span class="toggle-knob block h-9 w-11 rounded-full bg-gradient-to-br from-white to-gray-500 shadow-[0_0_28px_rgba(255,255,255,0.22)]"></span>
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              class="group relative w-full overflow-hidden rounded-lg border border-blue-400/40 bg-blue-500 px-5 py-5 font-mono text-sm font-bold uppercase tracking-[0.2em] text-white shadow-[0_0_36px_rgba(37,99,235,0.45)] hover:-translate-y-0.5 hover:border-blue-200 hover:bg-white hover:text-black hover:shadow-[0_0_52px_rgba(147,197,253,0.45)]"
+            >
+              <span class="relative z-10">开始计算</span>
+              <span class="absolute inset-0 translate-x-[-120%] bg-gradient-to-r from-transparent via-white/50 to-transparent group-hover:translate-x-[120%]"></span>
+            </button>
+          </form>
+        </section>
+
+        <section class="glass flex min-h-[620px] flex-col rounded-lg p-5 sm:p-6">
+          <div class="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <p class="font-mono text-xs uppercase tracking-[0.22em] text-blue-300">交易账单</p>
+              <h2 class="mt-2 text-2xl font-semibold text-white">交易指令账单</h2>
+            </div>
+            <div id="portfolio-total" class="text-right font-mono">
+              <p class="text-xs uppercase tracking-[0.18em] text-gray-500">总资产</p>
+              <p class="mt-1 text-lg text-gray-300">--</p>
+            </div>
+          </div>
+
+          <div id="empty-state" class="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-black/25 px-6 text-center">
+            <div class="mb-6 h-20 w-20 rounded-full border border-blue-300/25 bg-blue-400/10 shadow-[0_0_46px_rgba(96,165,250,0.18)]"></div>
+            <p class="font-mono text-xs uppercase tracking-[0.22em] text-gray-500">等待输入持仓数据</p>
+            <p class="mt-3 max-w-md text-sm leading-6 text-gray-400">
+              输入当前基金市值与新增现金后，系统会生成买入或卖出的再平衡指令。
+            </p>
+          </div>
+
+          <div id="result-panel" class="hidden flex-1 flex-col gap-4 result-enter">
+            <div class="grid gap-3 sm:grid-cols-3">
+              <div class="rounded-lg border border-white/10 bg-black/30 p-4">
+                <p class="font-mono text-xs uppercase tracking-[0.14em] text-gray-500">模式</p>
+                <p id="summary-mode" class="mt-2 text-sm font-semibold text-white">--</p>
+              </div>
+              <div class="rounded-lg border border-white/10 bg-black/30 p-4">
+                <p class="font-mono text-xs uppercase tracking-[0.14em] text-gray-500">新增现金</p>
+                <p id="summary-cash" class="mt-2 font-mono text-sm font-semibold text-white">--</p>
+              </div>
+              <div class="rounded-lg border border-white/10 bg-black/30 p-4">
+                <p class="font-mono text-xs uppercase tracking-[0.14em] text-gray-500">最大偏离</p>
+                <p id="summary-drift" class="mt-2 font-mono text-sm font-semibold text-white">--</p>
+              </div>
+            </div>
+
+            <div id="trade-list" class="space-y-3"></div>
+
+            <div class="mt-auto rounded-lg border border-blue-400/20 bg-blue-500/[0.06] p-4">
+              <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-200">目标资产配置</p>
+              <div id="target-bars" class="mt-4 space-y-3"></div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="glass mt-6 rounded-lg p-5 sm:p-6">
+        <div class="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p class="font-mono text-xs uppercase tracking-[0.22em] text-blue-300">历史回测</p>
+            <h2 class="mt-2 text-2xl font-semibold text-white">使用真实 ETF 历史数据回测长期定投</h2>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-gray-400">
+              使用公开月度复权价格，按月投入并每月校准目标比例，展示累计投入、策略资产曲线与关键压力事件。
+            </p>
+          </div>
+          <button
+            id="run-backtest"
+            type="button"
+            class="rounded-lg border border-blue-400/40 bg-blue-500/20 px-5 py-3 font-mono text-xs font-bold tracking-[0.18em] text-blue-100 hover:-translate-y-0.5 hover:bg-blue-500 hover:text-white hover:shadow-[0_0_36px_rgba(59,130,246,0.35)]"
+          >
+            运行回测
+          </button>
+        </div>
+
+        <div class="mb-4 rounded-lg border border-blue-400/20 bg-blue-500/[0.06] p-4">
+          <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-200">AI 配置建议</p>
+              <h3 class="mt-2 text-xl font-semibold text-white">季度 / 年度组合审查</h3>
+              <p id="ai-config-summary" class="mt-2 text-sm leading-6 text-gray-400">
+                请先设置 API 基础地址、协议、Key 和模型。生成建议时会附带市场情报、当前持仓、策略比例与回测摘要。
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-3">
+              <button
+                id="ai-run-button"
+                type="button"
+                class="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-4 py-3 font-mono text-xs font-bold text-emerald-100 hover:-translate-y-0.5 hover:bg-emerald-500 hover:text-white"
+              >
+                生成 AI 建议
+              </button>
+            </div>
+          </div>
+          <div id="ai-output" class="mt-4 hidden max-h-[520px] overflow-auto rounded-lg border border-white/10 bg-black/40 p-4 text-sm leading-7 text-gray-200"></div>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-[320px_1fr]">
+          <div class="space-y-3">
+            <label class="block rounded-lg border border-white/10 bg-black/30 p-4">
+              <span class="mb-3 flex items-center justify-between gap-3">
+                <span class="text-sm font-medium text-gray-200">初始投入</span>
+                <span class="font-mono text-xs text-gray-500">最早共同月</span>
+              </span>
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-lg text-gray-500">¥</span>
+                <input id="backtest-initial" class="input-field w-full bg-transparent font-mono text-2xl font-semibold text-white outline-none" type="number" min="0" step="1000" value="100000" />
+              </div>
+            </label>
+
+            <label class="block rounded-lg border border-white/10 bg-black/30 p-4">
+              <span class="mb-3 flex items-center justify-between gap-3">
+                <span class="text-sm font-medium text-gray-200">每月定投</span>
+                <span class="font-mono text-xs text-gray-500">月末执行</span>
+              </span>
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-lg text-gray-500">¥</span>
+                <input id="backtest-monthly" class="input-field w-full bg-transparent font-mono text-2xl font-semibold text-white outline-none" type="number" min="0" step="100" value="5000" />
+              </div>
+            </label>
+
+            <div class="rounded-lg border border-white/10 bg-black/30 p-4">
+              <p class="font-mono text-xs uppercase tracking-[0.16em] text-gray-500">数据说明</p>
+              <p id="backtest-note" class="mt-3 text-sm leading-6 text-gray-400">
+                当前版本使用 SPY、QQQ、TLT、GLD 作为资产代理。最早可回测日期由四个 ETF 的共同历史数据决定。
+              </p>
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-white/10 bg-black/30 p-4">
+            <div id="backtest-metrics" class="mb-4 grid gap-3 sm:grid-cols-4">
+              <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p class="font-mono text-xs text-gray-500">最终资产</p>
+                <p class="mt-2 font-mono text-lg font-semibold text-white">--</p>
+              </div>
+              <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p class="font-mono text-xs text-gray-500">累计投入</p>
+                <p class="mt-2 font-mono text-lg font-semibold text-white">--</p>
+              </div>
+              <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p class="font-mono text-xs text-gray-500">总收益率</p>
+                <p class="mt-2 font-mono text-lg font-semibold text-white">--</p>
+              </div>
+              <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p class="font-mono text-xs text-gray-500">最大回撤</p>
+                <p class="mt-2 font-mono text-lg font-semibold text-white">--</p>
+              </div>
+            </div>
+            <div class="relative h-[360px] overflow-hidden rounded-lg border border-white/10 bg-black/40">
+              <canvas id="backtest-chart" class="h-full w-full cursor-crosshair"></canvas>
+              <div id="backtest-tooltip" class="pointer-events-none absolute hidden rounded-lg border border-white/10 bg-black/90 px-3 py-2 font-mono text-xs leading-5 text-gray-200 shadow-2xl"></div>
+              <div id="backtest-empty" class="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-gray-500">
+                点击“运行回测”生成累计投入与策略资产曲线
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 rounded-lg border border-white/10 bg-black/30 p-4">
+          <div class="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p class="font-mono text-xs uppercase tracking-[0.16em] text-blue-300">真实行情 K 线</p>
+              <h3 id="candle-title" class="mt-1 text-lg font-semibold text-white">标普500基金 · SPY</h3>
+            </div>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div id="candle-asset-tabs" class="grid grid-cols-2 gap-2 sm:flex">
+                <button type="button" data-asset="sp500" class="candle-asset rounded-lg border border-blue-400/50 bg-blue-500/20 px-3 py-2 font-mono text-xs text-blue-100">SPY</button>
+                <button type="button" data-asset="nasdaq" class="candle-asset rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-xs text-gray-300">QQQ</button>
+                <button type="button" data-asset="bond" class="candle-asset rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-xs text-gray-300">TLT</button>
+                <button type="button" data-asset="gold" class="candle-asset rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-xs text-gray-300">GLD</button>
+              </div>
+              <div id="candle-timeframe-tabs" class="grid grid-cols-4 gap-2">
+                <button type="button" data-timeframe="1d" class="candle-timeframe rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-xs text-gray-300">日</button>
+                <button type="button" data-timeframe="1w" class="candle-timeframe rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-xs text-gray-300">周</button>
+                <button type="button" data-timeframe="1mo" class="candle-timeframe rounded-lg border border-blue-400/50 bg-blue-500/20 px-3 py-2 font-mono text-xs text-blue-100">月</button>
+                <button type="button" data-timeframe="1y" class="candle-timeframe rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-xs text-gray-300">年</button>
+              </div>
+            </div>
+          </div>
+          <div class="relative h-[420px] overflow-hidden rounded-lg border border-white/10 bg-black/50">
+            <canvas id="candle-chart" class="h-full w-full cursor-crosshair"></canvas>
+            <div id="candle-tooltip" class="pointer-events-none absolute hidden rounded-lg border border-white/10 bg-black/90 px-3 py-2 font-mono text-xs leading-5 text-gray-200 shadow-2xl"></div>
+            <div id="candle-empty" class="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-gray-500">
+              正在读取真实 K 线行情...
+            </div>
+          </div>
+          <p id="candle-note" class="mt-3 text-sm leading-6 text-gray-400">
+            鼠标悬停查看 OHLC，滚轮缩放，按住拖拽平移。K线使用 ETF 代理的公开 OHLC 历史价格。
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <div id="ai-settings-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+      <div class="w-full max-w-2xl rounded-lg border border-white/10 bg-[#0b0d12] p-5 shadow-panel">
+        <div class="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-300">AI Provider</p>
+            <h2 class="mt-2 text-2xl font-semibold text-white">分析模型设置</h2>
+          </div>
+          <button id="ai-settings-close" type="button" class="rounded-lg border border-white/10 px-3 py-2 text-sm text-gray-300 hover:bg-white/10">关闭</button>
+        </div>
+        <div class="space-y-4">
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-gray-200">接口地址</span>
+            <input id="ai-base-url" class="w-full rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-blue-400" placeholder="例如 https://api.openai.com/v1" />
+          </label>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-gray-200">API 协议类型</span>
+            <select id="ai-protocol" class="w-full rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-blue-400">
+              <option value="chat">OpenAI Chat Completions / 兼容接口</option>
+              <option value="responses">OpenAI Responses API</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-gray-200">API Key</span>
+            <div class="flex rounded-lg border border-white/10 bg-black/30 focus-within:border-blue-400">
+              <input id="ai-api-key" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm text-white outline-none" type="password" placeholder="请输入 API Key" />
+              <button id="ai-key-toggle" type="button" class="border-l border-white/10 px-4 text-sm text-gray-400 hover:text-white">显示</button>
+            </div>
+          </label>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-gray-200">模型名称</span>
+            <input id="ai-model" class="w-full rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-blue-400" placeholder="例如 gpt-4.1 / gpt-4o / your-model" />
+          </label>
+        </div>
+        <div class="mt-6 flex justify-end gap-3">
+          <button id="ai-settings-cancel" type="button" class="rounded-lg border border-white/10 px-5 py-3 font-mono text-xs text-gray-300 hover:bg-white/10">关闭</button>
+          <button id="ai-settings-save" type="button" class="rounded-lg bg-blue-500 px-5 py-3 font-mono text-xs font-bold text-white hover:bg-blue-400">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const assets = [
+        { id: "sp500", name: "标普500基金", ticker: "美国大盘", target: 0.45, defaultValue: 45000 },
+        { id: "nasdaq", name: "纳指基金", ticker: "美国科技", target: 0.25, defaultValue: 25000 },
+        { id: "bond", name: "国债基金", ticker: "长期债券", target: 0.2, defaultValue: 20000 },
+        { id: "gold", name: "黄金基金", ticker: "黄金资产", target: 0.1, defaultValue: 10000 },
+      ];
+
+      const strategyProfiles = {
+        preservation: {
+          name: "保守型",
+          badge: "降落伞策略",
+          description: "以国债为核心，优先控制波动和回撤",
+          targets: { sp500: 0.15, nasdaq: 0.05, bond: 0.65, gold: 0.15 },
+        },
+        balanced: {
+          name: "稳健型",
+          badge: "标准全天候",
+          description: "标准全天候配置，均衡进攻与防守",
+          targets: { sp500: 0.45, nasdaq: 0.25, bond: 0.2, gold: 0.1 },
+        },
+        alpha: {
+          name: "激进型",
+          badge: "动量进攻",
+          description: "提高权益和科技资产比例，追求更高弹性",
+          targets: { sp500: 0.4, nasdaq: 0.5, bond: 0, gold: 0.1 },
+        },
+        custom: {
+          name: "自定义",
+          badge: "手动调参",
+          description: "自由设置每类资产目标比例",
+          targets: { sp500: 0.45, nasdaq: 0.25, bond: 0.2, gold: 0.1 },
+        },
+      };
+
+      const currencyFormatter = new Intl.NumberFormat("zh-CN", {
+        style: "currency",
+        currency: "CNY",
+        maximumFractionDigits: 0,
+      });
+
+      const percentFormatter = new Intl.NumberFormat("zh-CN", {
+        style: "percent",
+        maximumFractionDigits: 1,
+      });
+
+      const form = document.getElementById("rebalance-form");
+      const assetInputs = document.getElementById("asset-inputs");
+      const cashInput = document.getElementById("cash");
+      const modeToggle = document.getElementById("mode-toggle");
+      const modeCopy = document.getElementById("mode-copy");
+      const emptyState = document.getElementById("empty-state");
+      const resultPanel = document.getElementById("result-panel");
+      const tradeList = document.getElementById("trade-list");
+      const targetBars = document.getElementById("target-bars");
+      const portfolioTotal = document.getElementById("portfolio-total");
+      const summaryMode = document.getElementById("summary-mode");
+      const summaryCash = document.getElementById("summary-cash");
+      const summaryDrift = document.getElementById("summary-drift");
+      const strategyOptions = document.getElementById("strategy-options");
+      const strategyCopy = document.getElementById("strategy-copy");
+      const strategySum = document.getElementById("strategy-sum");
+      const customTargets = document.getElementById("custom-targets");
+      const runBacktestButton = document.getElementById("run-backtest");
+      const backtestInitialInput = document.getElementById("backtest-initial");
+      const backtestMonthlyInput = document.getElementById("backtest-monthly");
+      const backtestMetrics = document.getElementById("backtest-metrics");
+      const backtestChart = document.getElementById("backtest-chart");
+      const backtestTooltip = document.getElementById("backtest-tooltip");
+      const backtestEmpty = document.getElementById("backtest-empty");
+      const backtestNote = document.getElementById("backtest-note");
+      const sideDrawer = document.getElementById("side-drawer");
+      const sideDrawerToggle = document.getElementById("side-drawer-toggle");
+      const aiSettingsButton = document.getElementById("ai-settings-button");
+      const aiRunButton = document.getElementById("ai-run-button");
+      const aiOutput = document.getElementById("ai-output");
+      const aiConfigSummary = document.getElementById("ai-config-summary");
+      const aiSettingsModal = document.getElementById("ai-settings-modal");
+      const aiSettingsClose = document.getElementById("ai-settings-close");
+      const aiSettingsCancel = document.getElementById("ai-settings-cancel");
+      const aiSettingsSave = document.getElementById("ai-settings-save");
+      const aiBaseUrl = document.getElementById("ai-base-url");
+      const aiProtocol = document.getElementById("ai-protocol");
+      const aiApiKey = document.getElementById("ai-api-key");
+      const aiKeyToggle = document.getElementById("ai-key-toggle");
+      const aiModel = document.getElementById("ai-model");
+      const candleChart = document.getElementById("candle-chart");
+      const candleEmpty = document.getElementById("candle-empty");
+      const candleTooltip = document.getElementById("candle-tooltip");
+      const candleNote = document.getElementById("candle-note");
+      const candleTitle = document.getElementById("candle-title");
+      const candleAssetTabs = document.getElementById("candle-asset-tabs");
+      const candleTimeframeTabs = document.getElementById("candle-timeframe-tabs");
+
+      let mode = "smart";
+      let strategy = "balanced";
+      let backtestSeries = [];
+      let backtestHoverIndex = null;
+      let candleAsset = "sp500";
+      let candleTimeframe = "1mo";
+      let candlePayload = null;
+      let candleVisibleCount = 120;
+      let candleEndIndex = null;
+      let candleHoverIndex = null;
+      let candleDragStart = null;
+      let latestBacktestPayload = null;
+      const aiStorageKey = "allweather-ai-settings";
+      const defaultAiPrompt = `# 角色
+你是一位面向长期定投者的多资产量化投顾研究员。你必须基于应用提供的用户持仓、策略参数、回测摘要、ETF K线状态和“市场情报包”进行判断，不要假装自己实时联网。
+
+# 用户目标
+用户希望在追求美股长期复利的同时，利用长期国债和黄金的低相关性降低组合波动率与最大回撤。用户需要知道：当前是否应该维持策略，还是微调权益、债券、黄金比例。
+
+# 输出要求
+请用中文，结论先行，避免空话。必须输出以下部分：
+
+# 数据新鲜度规则
+只允许把最近 14 天内的数据称为“最新”；15-30 天内称为“近期”；超过 30 天或无法识别日期的信息只能作为背景材料。禁止用过时或未知日期的信息支撑高置信度调仓结论。若关键指标缺少最新数据，必须明确写出缺口，并将置信度降为中或低。
+
+## 1. 策略调整结论
+只能从以下四个动作中选择一个作为主结论：维持不变 / 小幅再平衡 / 降低风险 / 提高进攻性。
+说明当前选择策略是否适合当前宏观与估值环境，并给出置信度（高/中/低）。
+
+## 2. 当前持仓诊断
+基于用户当前持仓市值和目标比例，说明哪里超配、哪里低配，以及这是否是“需要立刻调整”的偏离。
+
+## 3. 宏观周期与估值判断
+结合市场情报包，分别判断：利率周期、收益率曲线、股票估值、盈利预期、债券吸引力、黄金配置价值。
+
+## 4. 建议目标比例
+给出一张总和 100% 的表格：标普500、纳指、长期国债、黄金。必须同时列出“当前目标比例”和“建议目标比例”，并解释每项变化。
+
+## 5. 执行方案
+给出未来 1-3 个月的具体执行建议：新增定投如何分配、是否需要卖出、再平衡阈值、需要观察的触发条件。
+
+## 6. 重要风险
+明确说明这不是投资建议；指出数据缺口、模型局限和最可能让建议失效的情形。`;
+      const candleCache = new Map();
+      const candleAssets = {
+        sp500: { label: "标普500基金", ticker: "SPY" },
+        nasdaq: { label: "纳指基金", ticker: "QQQ" },
+        bond: { label: "长期国债基金", ticker: "TLT" },
+        gold: { label: "黄金资产", ticker: "GLD" },
+      };
+      const timeframeLabels = {
+        "1d": "日线",
+        "1w": "周线",
+        "1mo": "月线",
+        "1y": "年线",
+      };
+
+      function formatCurrency(value) {
+        return currencyFormatter.format(Math.round(value));
+      }
+
+      function formatCompactCurrency(value) {
+        if (!Number.isFinite(value)) return "--";
+        if (Math.abs(value) >= 100000000) return `${(value / 100000000).toFixed(2)}亿`;
+        if (Math.abs(value) >= 10000) return `${(value / 10000).toFixed(1)}万`;
+        return formatCurrency(value);
+      }
+
+      function formatSignedPercent(value) {
+        if (!Number.isFinite(value)) return "--";
+        return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}%`;
+      }
+
+      function formatPrice(value) {
+        if (!Number.isFinite(value)) return "--";
+        return value >= 100 ? value.toFixed(2) : value.toFixed(3);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function setSideDrawerOpen(isOpen) {
+        sideDrawer.classList.toggle("is-open", isOpen);
+        sideDrawerToggle.setAttribute("aria-expanded", String(isOpen));
+        sideDrawerToggle.textContent = isOpen ? "收起" : "菜单";
+      }
+
+      function renderAiMarkdown(text) {
+        const escaped = escapeHtml(text);
+        return escaped
+          .replace(/^### (.*)$/gm, '<h4 class="mt-5 text-base font-semibold text-white">$1</h4>')
+          .replace(/^## (.*)$/gm, '<h3 class="mt-6 text-lg font-semibold text-blue-100">$1</h3>')
+          .replace(/^# (.*)$/gm, '<h2 class="mt-6 text-xl font-semibold text-white">$1</h2>')
+          .replace(/^\- (.*)$/gm, '<div class="my-1 pl-4 text-gray-200">• $1</div>')
+          .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
+          .replace(/\n/g, "<br />");
+      }
+
+      function readAiSettings() {
+        try {
+          return JSON.parse(localStorage.getItem(aiStorageKey) || "{}");
+        } catch {
+          return {};
+        }
+      }
+
+      function writeAiSettings(settings) {
+        localStorage.setItem(aiStorageKey, JSON.stringify(settings));
+      }
+
+      function collectAiSettingsFromForm() {
+        return {
+          baseUrl: aiBaseUrl.value.trim(),
+          protocol: aiProtocol.value,
+          apiKey: aiApiKey.value.trim(),
+          model: aiModel.value.trim(),
+        };
+      }
+
+      function updateAiConfigSummary(settings = readAiSettings()) {
+        aiConfigSummary.textContent = settings.model
+          ? `当前模型：${settings.model}；协议：${settings.protocol === "responses" ? "Responses API" : "Chat Completions 兼容接口"}。生成建议时会附带市场情报、当前持仓、策略比例与回测摘要。`
+          : "请先从左侧“设置”配置 API 地址、协议、Key 和模型。生成建议时会附带市场情报、当前持仓、策略比例与回测摘要。";
+      }
+
+      function persistAiSettingsDraft() {
+        const settings = collectAiSettingsFromForm();
+        writeAiSettings(settings);
+        updateAiConfigSummary(settings);
+      }
+
+      function syncAiSettingsForm() {
+        const settings = readAiSettings();
+        aiBaseUrl.value = settings.baseUrl || "https://api.openai.com/v1";
+        aiProtocol.value = settings.protocol || "chat";
+        aiApiKey.value = settings.apiKey || "";
+        aiModel.value = settings.model || "";
+        updateAiConfigSummary(settings);
+      }
+
+      function openAiSettings() {
+        syncAiSettingsForm();
+        aiSettingsModal.classList.remove("hidden");
+        aiSettingsModal.classList.add("flex");
+      }
+
+      function closeAiSettings() {
+        aiSettingsModal.classList.add("hidden");
+        aiSettingsModal.classList.remove("flex");
+      }
+
+      function saveAiSettings() {
+        writeAiSettings(collectAiSettingsFromForm());
+        syncAiSettingsForm();
+        closeAiSettings();
+      }
+
+      function buildAiPrompt(marketContext) {
+        const stats = backtestSeries.length ? getBacktestStats(backtestSeries) : null;
+        const currentValues = assets.map((asset) => ({ asset, value: readPositiveNumber(asset.id) }));
+        const currentTotal = currentValues.reduce((sum, item) => sum + item.value, 0);
+        const targetTable = assets
+          .map((asset) => `- ${asset.name}: ${asset.ticker}, 目标比例 ${percentFormatter.format(asset.target)}`)
+          .join("\n");
+        const holdingTable = currentValues
+          .map(({ asset, value }) => {
+            const actualWeight = currentTotal > 0 ? value / currentTotal : 0;
+            const drift = actualWeight - asset.target;
+            return `- ${asset.name}: 当前市值 ${formatCurrency(value)}，当前占比 ${percentFormatter.format(actualWeight)}，目标占比 ${percentFormatter.format(asset.target)}，偏离 ${formatSignedPercent(drift)}`;
+          })
+          .join("\n");
+        const sourceList = marketContext?.sources
+          ?.map((source) => {
+            const freshness = source.error
+              ? `获取失败：${source.error}`
+              : `新鲜度：${source.freshnessLabel || "未知日期"}${source.latestDate ? `，最近日期 ${source.latestDate}，距今 ${source.ageDays} 天` : ""}`;
+            return `- ${source.label}: ${source.url}（${freshness}）`;
+          })
+          .join("\n");
+        const backtestSummary =
+          stats && latestBacktestPayload
+            ? `回测区间：${latestBacktestPayload.startDate.slice(0, 7)} 至 ${latestBacktestPayload.endDate.slice(0, 7)}
+回测模式：${backtestSeries[0]?.mode === "full" ? "强力再平衡，允许卖出" : "智能补仓，只买不卖"}
+最终资产：${formatCompactCurrency(stats.finalValue)}
+累计投入：${formatCompactCurrency(stats.invested)}
+总收益率：${formatSignedPercent(stats.totalReturn)}
+最大回撤：${formatSignedPercent(stats.maxDrawdown)}`
+            : "用户尚未运行回测；请基于当前目标比例和一般市场背景给出建议，并提示用户先运行回测以获得更精确判断。";
+
+        return `${defaultAiPrompt}
+
+# Portfolio Data From This App
+当前投资风格：${strategyProfiles[strategy].name}
+当前再平衡模式：${mode === "full" ? "强力再平衡，允许卖出" : "智能补仓，只买不卖"}
+本月新增现金：${formatCurrency(readPositiveNumber("cash"))}
+
+当前目标比例：
+${targetTable}
+
+当前持仓：
+${holdingTable}
+
+当前回测摘要：
+${backtestSummary}
+
+# Market Intelligence Pack
+生成时间：${marketContext?.generatedAt || "未获取"}
+可用来源数量：${marketContext?.sourceCount ?? 0}
+最近 30 天有效来源数量：${marketContext?.freshSourceCount ?? 0}
+情报质量警告：${marketContext?.warning || "暂无"}
+来源列表：
+${sourceList || "暂无"}
+
+市场情报摘录：
+${marketContext?.promptText || "市场上下文获取失败；请降低结论置信度，并提示用户检查网络或稍后重试。"}
+
+# 约束
+- 必须优先使用 Market Intelligence Pack 中的信息，不要编造没有来源的数据。
+- 只允许把最近 14 天内的数据称为“最新”；15-30 天为“近期”；超过 30 天、抓取失败或未知日期的内容只能作为背景，不得支撑高置信度调仓。
+- 如果 Market Intelligence Pack 的最近 30 天有效来源数量为 0，必须把策略结论置信度设为“低”，且只能建议观察或维持，不要建议大幅调仓。
+- 如果某类信息缺失，例如券商研报、估值或利率数据缺失，请明确写出“缺失”，并降低置信度。
+- 必须给出“是否调整策略”的明确动作，而不是只做宏观描述。
+- 推荐比例总和必须等于 100%。
+- 请明确说明：这是研究和教育用途分析，不构成投资建议。`;
+      }
+
+      async function runAiAnalysis() {
+        const settings = readAiSettings();
+        if (!settings.baseUrl || !settings.apiKey || !settings.model) {
+          openAiSettings();
+          return;
+        }
+
+        aiRunButton.disabled = true;
+        aiRunButton.textContent = "采集情报中";
+        aiOutput.classList.remove("hidden");
+        aiOutput.innerHTML = '<p class="text-gray-400">正在抓取利率、估值、盈利预期和机构观点...</p>';
+
+        try {
+          const contextResponse = await fetch("/api/market-context");
+          const marketContext = await contextResponse.json();
+          if (!contextResponse.ok) throw new Error(marketContext.detail || marketContext.error || "市场上下文获取失败");
+
+          aiRunButton.textContent = "分析中";
+          const failedSources = marketContext.sources?.filter((source) => source.error).length || 0;
+          aiOutput.innerHTML = `<p class="text-gray-400">已获取 ${marketContext.sourceCount || 0} 个市场信息源，其中 ${marketContext.freshSourceCount || 0} 个为最近 30 天有效来源${failedSources ? `，${failedSources} 个来源暂时不可达` : ""}。${marketContext.warning ? `情报提示：${escapeHtml(marketContext.warning)}` : ""} 正在调用模型生成策略审查...</p>`;
+
+          const response = await fetch("/api/ai-analysis", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...settings,
+              prompt: buildAiPrompt(marketContext),
+            }),
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || payload.error || "AI 分析失败");
+          aiOutput.innerHTML = renderAiMarkdown(payload.text);
+        } catch (error) {
+          aiOutput.innerHTML = `<p class="text-red-300">${escapeHtml(error.message)}</p>`;
+        } finally {
+          aiRunButton.disabled = false;
+          aiRunButton.textContent = "生成 AI 建议";
+        }
+      }
+
+      function readPositiveNumber(id) {
+        const value = Number(document.getElementById(id).value);
+        return Number.isFinite(value) && value > 0 ? value : 0;
+      }
+
+      function getTargetTotal(targets) {
+        return assets.reduce((sum, asset) => sum + (targets[asset.id] || 0), 0);
+      }
+
+      function normalizeTargets(targets) {
+        const total = getTargetTotal(targets);
+        if (total <= 0) return strategyProfiles.balanced.targets;
+
+        return assets.reduce((normalized, asset) => {
+          normalized[asset.id] = (targets[asset.id] || 0) / total;
+          return normalized;
+        }, {});
+      }
+
+      function applyTargets(targets) {
+        const normalizedTargets = normalizeTargets(targets);
+        assets.forEach((asset) => {
+          asset.target = normalizedTargets[asset.id];
+        });
+      }
+
+      function renderStrategyOptions() {
+        strategyOptions.innerHTML = Object.entries(strategyProfiles)
+          .map(([id, profile]) => {
+            const isActive = strategy === id;
+            return `
+              <button
+                type="button"
+                data-strategy="${id}"
+                class="rounded-lg border p-3 text-left ${isActive ? "border-blue-400/60 bg-blue-500/10 shadow-[0_0_24px_rgba(59,130,246,0.18)]" : "border-white/10 bg-white/[0.02] hover:border-blue-500/50"}"
+              >
+                <span class="flex items-center justify-between gap-3">
+                  <span class="text-sm font-semibold ${isActive ? "text-white" : "text-gray-300"}">${profile.name}</span>
+                  <span class="font-mono text-[10px] text-blue-200">${profile.badge}</span>
+                </span>
+                <span class="mt-2 block text-xs leading-5 ${isActive ? "text-gray-300" : "text-gray-500"}">${profile.description}</span>
+              </button>
+            `;
+          })
+          .join("");
+      }
+
+      function renderCustomTargets() {
+        const profile = strategyProfiles.custom;
+        const rawTotal = getTargetTotal(profile.targets);
+        const totalPercent = Math.round(rawTotal * 1000) / 10;
+
+        customTargets.classList.toggle("hidden", strategy !== "custom");
+        customTargets.innerHTML = assets
+          .map((asset) => {
+            const value = Math.round((profile.targets[asset.id] || 0) * 1000) / 10;
+            return `
+              <label class="grid grid-cols-[1fr_92px] items-center gap-3 py-2">
+                <span class="text-sm text-gray-300">${asset.name}</span>
+                <span class="flex items-center gap-2 rounded-md border border-white/10 bg-black/30 px-2">
+                  <input
+                    class="custom-target-input input-field w-full bg-transparent py-2 text-right font-mono text-sm text-white outline-none"
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value="${value}"
+                    data-asset="${asset.id}"
+                  />
+                  <span class="font-mono text-xs text-gray-500">%</span>
+                </span>
+              </label>
+            `;
+          })
+          .join("");
+
+        strategySum.textContent = strategy === "custom" ? `合计 ${totalPercent}%` : "合计 100%";
+        strategySum.className =
+          strategy === "custom" && Math.abs(rawTotal - 1) > 0.001
+            ? "rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 font-mono text-xs text-amber-200"
+            : "rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-xs text-gray-400";
+      }
+
+      function setStrategy(nextStrategy) {
+        strategy = nextStrategy;
+        const profile = strategyProfiles[strategy];
+        applyTargets(profile.targets);
+        strategyCopy.textContent =
+          strategy === "custom" && Math.abs(getTargetTotal(profile.targets) - 1) > 0.001
+            ? "自定义比例会自动归一化后参与计算"
+            : profile.description;
+        renderStrategyOptions();
+        renderCustomTargets();
+        renderInputs();
+        renderTargetBars();
+      }
+
+      function renderInputs() {
+        const existingValues = assets.reduce((values, asset) => {
+          const field = document.getElementById(asset.id);
+          values[asset.id] = field ? field.value : asset.defaultValue;
+          return values;
+        }, {});
+
+        assetInputs.innerHTML = assets
+          .map(
+            (asset) => `
+              <label class="block rounded-lg border border-white/10 bg-black/30 p-4 hover:border-blue-500/50 hover:bg-blue-500/[0.04]">
+                <span class="mb-3 flex items-center justify-between gap-3">
+                  <span class="text-sm font-medium text-gray-200">${asset.name}</span>
+                  <span class="font-mono text-xs text-gray-500">目标 ${percentFormatter.format(asset.target)}</span>
+                </span>
+                <div class="flex items-center gap-3">
+                  <span class="font-mono text-lg text-gray-500">¥</span>
+                  <input
+                    id="${asset.id}"
+                    class="input-field w-full bg-transparent font-mono text-2xl font-semibold text-white outline-none placeholder:text-gray-700"
+                    type="number"
+                    min="0"
+                    step="10"
+                    value="${existingValues[asset.id]}"
+                  />
+                </div>
+              </label>
+            `
+          )
+          .join("");
+      }
+
+      function renderTargetBars() {
+        targetBars.innerHTML = assets
+          .map(
+            (asset) => `
+              <div>
+                <div class="mb-2 flex items-center justify-between gap-3 text-sm">
+                  <span class="text-gray-300">${asset.name}</span>
+                  <span class="font-mono text-blue-200">${percentFormatter.format(asset.target)}</span>
+                </div>
+                <div class="h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <div class="h-full rounded-full bg-gradient-to-r from-blue-300 to-white" style="width: ${asset.target * 100}%"></div>
+                </div>
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      function setMode(nextMode) {
+        mode = nextMode;
+        modeToggle.dataset.mode = mode;
+        modeCopy.textContent = mode === "smart" ? "智能定投补仓，只买不卖" : "全面强力再平衡，允许卖出";
+
+      }
+
+      function calculateFullRebalance(currentValues, cash) {
+        const newTotal = currentValues.reduce((sum, value) => sum + value, 0) + cash;
+        return assets.map((asset, index) => {
+          const targetValue = newTotal * asset.target;
+          const trade = targetValue - currentValues[index];
+          return { asset, trade, targetValue };
+        });
+      }
+
+      function calculateSmartBuy(currentValues, cash) {
+        const allocation = new Array(assets.length).fill(0);
+        let remainingCash = Math.max(0, cash);
+        const step = 10;
+
+        while (remainingCash > 0.0001) {
+          const chunk = Math.min(step, remainingCash);
+          const runningTotal = currentValues.reduce((sum, value, index) => sum + value + allocation[index], 0) + remainingCash;
+
+          let mostUnderweightIndex = 0;
+          let largestGap = -Infinity;
+
+          assets.forEach((asset, index) => {
+            const projectedValue = currentValues[index] + allocation[index];
+            const actualRatio = runningTotal > 0 ? projectedValue / runningTotal : 0;
+            const gap = asset.target - actualRatio;
+
+            if (gap > largestGap) {
+              largestGap = gap;
+              mostUnderweightIndex = index;
+            }
+          });
+
+          allocation[mostUnderweightIndex] += chunk;
+          remainingCash -= chunk;
+        }
+
+        const newTotal = currentValues.reduce((sum, value) => sum + value, 0) + cash;
+        return assets.map((asset, index) => ({
+          asset,
+          trade: allocation[index],
+          targetValue: newTotal * asset.target,
+        }));
+      }
+
+      function getMaxDeviation(currentValues, cash) {
+        const total = currentValues.reduce((sum, value) => sum + value, 0) + cash;
+        if (total <= 0) return 0;
+
+        return assets.reduce((maxDeviation, asset, index) => {
+          const ratio = currentValues[index] / total;
+          return Math.max(maxDeviation, Math.abs(asset.target - ratio));
+        }, 0);
+      }
+
+      function buildMonthlyRows(pricePayload) {
+        const priceMaps = assets.reduce((maps, asset) => {
+          const rows = pricePayload.assets?.[asset.id]?.prices || [];
+          maps[asset.id] = new Map(rows.map((row) => [row.date.slice(0, 7), row.close]));
+          return maps;
+        }, {});
+
+        const commonMonths = [...priceMaps.sp500.keys()]
+          .filter((month) => assets.every((asset) => priceMaps[asset.id].has(month)))
+          .sort();
+
+        return commonMonths.map((month) => ({
+          month,
+          prices: assets.reduce((prices, asset) => {
+            prices[asset.id] = priceMaps[asset.id].get(month);
+            return prices;
+          }, {}),
+        }));
+      }
+
+      function runBacktestSimulation(monthlyRows, initialInvestment, monthlyInvestment, rebalanceMode) {
+        if (!monthlyRows.length) return [];
+
+        const shares = assets.reduce((state, asset) => {
+          state[asset.id] = 0;
+          return state;
+        }, {});
+        const rows = [];
+        let invested = 0;
+
+        monthlyRows.forEach((row, index) => {
+          const contribution = index === 0 ? initialInvestment : monthlyInvestment;
+          invested += contribution;
+
+          const currentValues = assets.map((asset) => shares[asset.id] * row.prices[asset.id]);
+          const trades =
+            rebalanceMode === "full"
+              ? calculateFullRebalance(currentValues, contribution)
+              : calculateSmartBuy(currentValues, contribution);
+
+          trades.forEach(({ asset, trade }) => {
+            shares[asset.id] = Math.max(0, shares[asset.id] + trade / row.prices[asset.id]);
+          });
+
+          const currentValue = assets.reduce((sum, asset) => sum + shares[asset.id] * row.prices[asset.id], 0);
+          rows.push({
+            month: row.month,
+            value: currentValue,
+            invested,
+            mode: rebalanceMode,
+          });
+        });
+
+        return rows;
+      }
+
+      function getBacktestStats(rows) {
+        if (!rows.length) {
+          return { finalValue: 0, invested: 0, totalReturn: 0, maxDrawdown: 0 };
+        }
+
+        let peak = rows[0].value;
+        let maxDrawdown = 0;
+        rows.forEach((row) => {
+          peak = Math.max(peak, row.value);
+          maxDrawdown = Math.min(maxDrawdown, row.value / peak - 1);
+        });
+
+        const last = rows[rows.length - 1];
+        return {
+          finalValue: last.value,
+          invested: last.invested,
+          totalReturn: last.value / last.invested - 1,
+          maxDrawdown,
+        };
+      }
+
+      function renderBacktestMetrics(stats) {
+        backtestMetrics.innerHTML = `
+          <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <p class="font-mono text-xs text-gray-500">最终资产</p>
+            <p class="mt-2 font-mono text-lg font-semibold text-white">${formatCompactCurrency(stats.finalValue)}</p>
+          </div>
+          <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <p class="font-mono text-xs text-gray-500">累计投入</p>
+            <p class="mt-2 font-mono text-lg font-semibold text-white">${formatCompactCurrency(stats.invested)}</p>
+          </div>
+          <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <p class="font-mono text-xs text-gray-500">总收益率</p>
+            <p class="mt-2 font-mono text-lg font-semibold ${stats.totalReturn >= 0 ? "text-emerald-300" : "text-red-300"}">${formatSignedPercent(stats.totalReturn)}</p>
+          </div>
+          <div class="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+            <p class="font-mono text-xs text-gray-500">最大回撤</p>
+            <p class="mt-2 font-mono text-lg font-semibold text-red-300">${formatSignedPercent(stats.maxDrawdown)}</p>
+          </div>
+        `;
+      }
+
+      function drawBacktestChart(rows) {
+        const canvas = backtestChart;
+        const container = canvas.parentElement;
+        const context = canvas.getContext("2d");
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        canvas.width = Math.floor(width * pixelRatio);
+        canvas.height = Math.floor(height * pixelRatio);
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        context.clearRect(0, 0, width, height);
+
+        if (rows.length < 2) return;
+
+        const padding = { top: 42, right: 28, bottom: 54, left: 58 };
+        const values = rows.flatMap((row) => [row.value, row.invested]);
+        const minValue = 0;
+        const maxValue = Math.max(...values) * 1.08;
+        const plotWidth = width - padding.left - padding.right;
+        const plotHeight = height - padding.top - padding.bottom;
+        const xFor = (index) => padding.left + (index / (rows.length - 1)) * plotWidth;
+        const yFor = (value) => padding.top + (1 - (value - minValue) / (maxValue - minValue)) * plotHeight;
+        const monthTime = (month) => new Date(`${month}-01T00:00:00Z`).getTime();
+        const firstTime = monthTime(rows[0].month);
+        const lastTime = monthTime(rows[rows.length - 1].month);
+        const xForMonth = (month) => {
+          const progress = (monthTime(month) - firstTime) / (lastTime - firstTime);
+          return padding.left + progress * plotWidth;
+        };
+
+        context.strokeStyle = "rgba(255,255,255,0.08)";
+        context.lineWidth = 1;
+        context.font = "11px ui-monospace, SFMono-Regular, Consolas, monospace";
+        context.fillStyle = "rgba(156, 163, 175, 0.78)";
+
+        for (let index = 0; index <= 4; index += 1) {
+          const y = padding.top + (index / 4) * plotHeight;
+          context.beginPath();
+          context.moveTo(padding.left, y);
+          context.lineTo(width - padding.right, y);
+          context.stroke();
+          const label = formatCompactCurrency(maxValue * (1 - index / 4));
+          context.fillText(label, 12, y + 4);
+        }
+
+        const firstYear = Number(rows[0].month.slice(0, 4));
+        const lastYear = Number(rows[rows.length - 1].month.slice(0, 4));
+        const yearStep = width >= 920 ? 2 : width >= 640 ? 4 : 6;
+        const firstTickYear = Math.ceil(firstYear / yearStep) * yearStep;
+        context.textAlign = "center";
+        context.textBaseline = "top";
+        context.fillStyle = "rgba(156, 163, 175, 0.78)";
+
+        for (let year = firstTickYear; year <= lastYear; year += yearStep) {
+          const x = xForMonth(`${year}-01`);
+          context.strokeStyle = year % 10 === 0 ? "rgba(96, 165, 250, 0.16)" : "rgba(255,255,255,0.06)";
+          context.beginPath();
+          context.moveTo(x, padding.top);
+          context.lineTo(x, height - padding.bottom);
+          context.stroke();
+          context.fillText(String(year), x, height - padding.bottom + 14);
+        }
+
+        const stressEvents = [
+          { month: "2008-09", label: "08 次贷危机", tone: "rgba(248, 113, 113, 0.9)", guide: "rgba(248, 113, 113, 0.42)" },
+          { month: "2015-06", label: "15-16 A股异常波动", tone: "rgba(251, 191, 36, 0.92)", guide: "rgba(251, 191, 36, 0.42)" },
+          { month: "2020-03", label: "20 疫情冲击", tone: "rgba(96, 165, 250, 0.92)", guide: "rgba(96, 165, 250, 0.42)" },
+          { month: "2022-03", label: "22 加息通胀", tone: "rgba(192, 132, 252, 0.9)", guide: "rgba(192, 132, 252, 0.42)" },
+        ].filter((event) => monthTime(event.month) >= firstTime && monthTime(event.month) <= lastTime);
+
+        stressEvents.forEach((event, index) => {
+          const x = xForMonth(event.month);
+          const labelY = padding.top + 8 + (index % 2) * 22;
+          context.strokeStyle = event.guide;
+          context.setLineDash([4, 6]);
+          context.beginPath();
+          context.moveTo(x, padding.top);
+          context.lineTo(x, height - padding.bottom);
+          context.stroke();
+          context.setLineDash([]);
+
+          context.fillStyle = "rgba(0, 0, 0, 0.56)";
+          const labelWidth = context.measureText(event.label).width + 16;
+          const labelX = Math.min(Math.max(x, padding.left + labelWidth / 2), width - padding.right - labelWidth / 2);
+          context.fillRect(labelX - labelWidth / 2, labelY - 4, labelWidth, 18);
+          context.strokeStyle = event.tone;
+          context.strokeRect(labelX - labelWidth / 2, labelY - 4, labelWidth, 18);
+          context.fillStyle = event.tone;
+          context.fillText(event.label, labelX, labelY);
+        });
+
+        function drawLine(key, color, shadowColor) {
+          context.beginPath();
+          rows.forEach((row, index) => {
+            const x = xFor(index);
+            const y = yFor(row[key]);
+            index === 0 ? context.moveTo(x, y) : context.lineTo(x, y);
+          });
+          context.strokeStyle = color;
+          context.lineWidth = 2.4;
+          context.shadowColor = shadowColor;
+          context.shadowBlur = 18;
+          context.stroke();
+          context.shadowBlur = 0;
+        }
+
+        drawLine("invested", "rgba(156, 163, 175, 0.88)", "rgba(156, 163, 175, 0.18)");
+        drawLine("value", "rgba(96, 165, 250, 1)", "rgba(96, 165, 250, 0.42)");
+
+        if (backtestHoverIndex !== null && rows[backtestHoverIndex]) {
+          const row = rows[backtestHoverIndex];
+          const x = xFor(backtestHoverIndex);
+          const valueY = yFor(row.value);
+          const investedY = yFor(row.invested);
+
+          context.strokeStyle = "rgba(96, 165, 250, 0.45)";
+          context.setLineDash([4, 4]);
+          context.beginPath();
+          context.moveTo(x, padding.top);
+          context.lineTo(x, height - padding.bottom);
+          context.moveTo(padding.left, valueY);
+          context.lineTo(width - padding.right, valueY);
+          context.stroke();
+          context.setLineDash([]);
+
+          context.fillStyle = "rgba(96, 165, 250, 1)";
+          context.beginPath();
+          context.arc(x, valueY, 4, 0, Math.PI * 2);
+          context.fill();
+
+          context.fillStyle = "rgba(156, 163, 175, 0.95)";
+          context.beginPath();
+          context.arc(x, investedY, 3.5, 0, Math.PI * 2);
+          context.fill();
+        }
+
+        context.textAlign = "left";
+        context.textBaseline = "alphabetic";
+        context.fillStyle = "rgba(96, 165, 250, 1)";
+        context.fillRect(width - 168, 24, 18, 2);
+        context.fillText("策略资产", width - 142, 28);
+        context.fillStyle = "rgba(156, 163, 175, 0.88)";
+        context.fillRect(width - 168, 46, 18, 2);
+        context.fillText("累计投入", width - 142, 50);
+      }
+
+      function updateBacktestTooltip(event) {
+        if (!backtestSeries.length) return;
+
+        const rect = backtestChart.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const padding = { left: 58, right: 28 };
+        const plotWidth = rect.width - padding.left - padding.right;
+        const index = Math.round(((x - padding.left) / plotWidth) * (backtestSeries.length - 1));
+        const safeIndex = Math.min(Math.max(index, 0), backtestSeries.length - 1);
+        const row = backtestSeries[safeIndex];
+        const gain = row.invested > 0 ? row.value / row.invested - 1 : 0;
+
+        backtestHoverIndex = safeIndex;
+        backtestTooltip.innerHTML = `
+          <div class="text-blue-200">${row.month}</div>
+          <div>策略资产 ${formatCompactCurrency(row.value)}</div>
+          <div>累计投入 ${formatCompactCurrency(row.invested)}</div>
+          <div class="${gain >= 0 ? "text-emerald-300" : "text-red-300"}">累计收益 ${formatSignedPercent(gain)}</div>
+        `;
+        backtestTooltip.style.left = `${Math.min(rect.width - 170, Math.max(12, x + 14))}px`;
+        backtestTooltip.style.top = `${Math.max(12, event.clientY - rect.top - 56)}px`;
+        backtestTooltip.classList.remove("hidden");
+        drawBacktestChart(backtestSeries);
+      }
+
+      function getVisibleCandles() {
+        const candles = candlePayload?.candles || [];
+        if (!candles.length) return [];
+        const safeEnd = candleEndIndex === null ? candles.length - 1 : Math.min(candleEndIndex, candles.length - 1);
+        const safeCount = Math.min(candleVisibleCount, candles.length);
+        const start = Math.max(0, safeEnd - safeCount + 1);
+        return candles.slice(start, safeEnd + 1).map((candle, index) => ({ ...candle, sourceIndex: start + index }));
+      }
+
+      function setActiveButton(container, selector, key, activeValue) {
+        const baseClass = selector === ".candle-asset" ? "candle-asset" : "candle-timeframe";
+        const sharedClass = `${baseClass} rounded-lg border px-3 py-2 font-mono text-xs`;
+        const activeClass = "border-blue-400/50 bg-blue-500/20 text-blue-100";
+        const inactiveClass = "border-white/10 bg-white/[0.04] text-gray-300";
+
+        container.querySelectorAll(selector).forEach((button) => {
+          const isActive = button.dataset[key] === activeValue;
+          button.className = `${sharedClass} ${isActive ? activeClass : inactiveClass}`;
+        });
+      }
+
+      function drawCandleChart() {
+        const canvas = candleChart;
+        const container = canvas.parentElement;
+        const context = canvas.getContext("2d");
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        canvas.width = Math.floor(width * pixelRatio);
+        canvas.height = Math.floor(height * pixelRatio);
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        context.clearRect(0, 0, width, height);
+
+        const visible = getVisibleCandles();
+        if (!visible.length) return;
+
+        const padding = { top: 24, right: 74, bottom: 38, left: 18 };
+        const plotWidth = width - padding.left - padding.right;
+        const plotHeight = height - padding.top - padding.bottom;
+        const minLow = Math.min(...visible.map((candle) => candle.low));
+        const maxHigh = Math.max(...visible.map((candle) => candle.high));
+        const priceRange = Math.max(0.0001, maxHigh - minLow);
+        const minPrice = minLow - priceRange * 0.06;
+        const maxPrice = maxHigh + priceRange * 0.06;
+        const candleWidth = Math.max(3, Math.min(18, plotWidth / visible.length * 0.62));
+        const step = plotWidth / Math.max(1, visible.length - 1);
+        const yFor = (price) => padding.top + (1 - (price - minPrice) / (maxPrice - minPrice)) * plotHeight;
+        const xFor = (index) => padding.left + index * step;
+
+        context.strokeStyle = "rgba(255,255,255,0.07)";
+        context.lineWidth = 1;
+        context.font = "11px ui-monospace, SFMono-Regular, Consolas, monospace";
+        context.textAlign = "right";
+        context.textBaseline = "middle";
+
+        for (let index = 0; index <= 5; index += 1) {
+          const price = maxPrice - ((maxPrice - minPrice) * index) / 5;
+          const y = yFor(price);
+          context.beginPath();
+          context.moveTo(padding.left, y);
+          context.lineTo(width - padding.right, y);
+          context.stroke();
+          context.fillStyle = "rgba(156, 163, 175, 0.82)";
+          context.fillText(formatPrice(price), width - 12, y);
+        }
+
+        visible.forEach((candle, index) => {
+          const x = xFor(index);
+          const openY = yFor(candle.open);
+          const closeY = yFor(candle.close);
+          const highY = yFor(candle.high);
+          const lowY = yFor(candle.low);
+          const up = candle.close >= candle.open;
+          const color = up ? "rgba(52, 211, 153, 0.95)" : "rgba(248, 113, 113, 0.95)";
+          const bodyTop = Math.min(openY, closeY);
+          const bodyHeight = Math.max(1, Math.abs(closeY - openY));
+
+          context.strokeStyle = color;
+          context.fillStyle = up ? "rgba(52, 211, 153, 0.18)" : "rgba(248, 113, 113, 0.78)";
+          context.beginPath();
+          context.moveTo(x, highY);
+          context.lineTo(x, lowY);
+          context.stroke();
+          context.fillRect(x - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
+          context.strokeRect(x - candleWidth / 2, bodyTop, candleWidth, bodyHeight);
+        });
+
+        const dateTickCount = Math.min(6, visible.length);
+        context.textAlign = "center";
+        context.textBaseline = "top";
+        context.fillStyle = "rgba(156, 163, 175, 0.8)";
+        for (let tick = 0; tick < dateTickCount; tick += 1) {
+          const index = Math.round((visible.length - 1) * (tick / Math.max(1, dateTickCount - 1)));
+          const candle = visible[index];
+          const x = xFor(index);
+          context.fillText(candle.date.slice(0, candleTimeframe === "1y" ? 4 : 7), x, height - padding.bottom + 16);
+        }
+
+        if (candleHoverIndex !== null) {
+          const localIndex = visible.findIndex((candle) => candle.sourceIndex === candleHoverIndex);
+          if (localIndex >= 0) {
+            const candle = visible[localIndex];
+            const x = xFor(localIndex);
+            const y = yFor(candle.close);
+            context.strokeStyle = "rgba(96, 165, 250, 0.5)";
+            context.setLineDash([4, 4]);
+            context.beginPath();
+            context.moveTo(x, padding.top);
+            context.lineTo(x, height - padding.bottom);
+            context.moveTo(padding.left, y);
+            context.lineTo(width - padding.right, y);
+            context.stroke();
+            context.setLineDash([]);
+          }
+        }
+      }
+
+      async function fetchJsonWithFallback(primaryUrl, fallbackUrl, errorMessage) {
+        try {
+          const response = await fetch(primaryUrl);
+          if (response.ok) return await response.json();
+        } catch {}
+
+        if (fallbackUrl) {
+          const fallbackResponse = await fetch(fallbackUrl);
+          if (fallbackResponse.ok) return await fallbackResponse.json();
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      async function loadCandles() {
+        const cacheKey = `${candleAsset}:${candleTimeframe}`;
+        candleEmpty.classList.remove("hidden");
+        candleEmpty.textContent = "正在读取真实 K 线行情...";
+        candleTooltip.classList.add("hidden");
+        candleHoverIndex = null;
+        candleTitle.textContent = `${candleAssets[candleAsset].label} · ${candleAssets[candleAsset].ticker} · ${timeframeLabels[candleTimeframe]}`;
+        setActiveButton(candleAssetTabs, ".candle-asset", "asset", candleAsset);
+        setActiveButton(candleTimeframeTabs, ".candle-timeframe", "timeframe", candleTimeframe);
+
+        try {
+          if (!candleCache.has(cacheKey)) {
+            candleCache.set(
+              cacheKey,
+              await fetchJsonWithFallback(
+                `/api/candles?asset=${encodeURIComponent(candleAsset)}&timeframe=${encodeURIComponent(candleTimeframe)}`,
+                `data/candles/${candleAsset}-${candleTimeframe}.json`,
+                "K线行情获取失败"
+              )
+            );
+          }
+
+          candlePayload = candleCache.get(cacheKey);
+          const total = candlePayload.candles.length;
+          candleVisibleCount = Math.min(total, candleTimeframe === "1d" ? 180 : candleTimeframe === "1w" ? 160 : candleTimeframe === "1mo" ? 120 : 60);
+          candleEndIndex = total - 1;
+          candleEmpty.classList.add("hidden");
+          candleNote.textContent = `区间：${candlePayload.startDate} 至 ${candlePayload.endDate}。${candlePayload.sources}。${candlePayload.disclaimer}`;
+          drawCandleChart();
+        } catch (error) {
+          candleEmpty.textContent = error.message;
+          candleNote.textContent = "真实 K 线行情暂时不可用，请稍后重试或检查网络。";
+        }
+      }
+
+      function updateCandleTooltip(event) {
+        const visible = getVisibleCandles();
+        if (!visible.length) return;
+        const rect = candleChart.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const padding = { left: 18, right: 74 };
+        const plotWidth = rect.width - padding.left - padding.right;
+        const index = Math.round(((x - padding.left) / plotWidth) * (visible.length - 1));
+        const candle = visible[Math.min(Math.max(index, 0), visible.length - 1)];
+        candleHoverIndex = candle.sourceIndex;
+        candleTooltip.innerHTML = `
+          <div class="text-blue-200">${candle.date} · ${candleAssets[candleAsset].ticker}</div>
+          <div>开 ${formatPrice(candle.open)}　高 ${formatPrice(candle.high)}</div>
+          <div>低 ${formatPrice(candle.low)}　收 ${formatPrice(candle.close)}</div>
+          <div class="text-gray-400">量 ${new Intl.NumberFormat("zh-CN", { notation: "compact" }).format(candle.volume)}</div>
+        `;
+        candleTooltip.style.left = `${Math.min(rect.width - 180, Math.max(12, x + 14))}px`;
+        candleTooltip.style.top = `${Math.max(12, event.clientY - rect.top - 42)}px`;
+        candleTooltip.classList.remove("hidden");
+        drawCandleChart();
+      }
+
+      function zoomCandles(event) {
+        if (!candlePayload?.candles?.length) return;
+        event.preventDefault();
+        const direction = event.deltaY > 0 ? 1 : -1;
+        const nextCount = Math.round(candleVisibleCount * (direction > 0 ? 1.18 : 0.84));
+        candleVisibleCount = Math.min(candlePayload.candles.length, Math.max(24, nextCount));
+        drawCandleChart();
+      }
+
+      function panCandles(deltaX) {
+        if (!candlePayload?.candles?.length || !deltaX) return;
+        const step = Math.max(1, Math.round(candleVisibleCount / 80));
+        const direction = deltaX > 0 ? -step : step;
+        candleEndIndex = Math.min(candlePayload.candles.length - 1, Math.max(candleVisibleCount - 1, candleEndIndex + direction));
+        drawCandleChart();
+      }
+
+      async function runBacktest() {
+        runBacktestButton.disabled = true;
+        runBacktestButton.textContent = "计算回测中";
+        backtestEmpty.textContent = "正在生成月度路径并计算回测...";
+        backtestEmpty.classList.remove("hidden");
+
+        try {
+          const payload = await fetchJsonWithFallback("/api/backtest-prices", "data/backtest-prices.json", "历史行情获取失败");
+          latestBacktestPayload = payload;
+          const monthlyRows = buildMonthlyRows(payload);
+          const initialInvestment = readPositiveNumber("backtest-initial");
+          const monthlyInvestment = readPositiveNumber("backtest-monthly");
+          const backtestMode = mode;
+          backtestSeries = runBacktestSimulation(monthlyRows, initialInvestment, monthlyInvestment, backtestMode);
+          const stats = getBacktestStats(backtestSeries);
+
+          renderBacktestMetrics(stats);
+          drawBacktestChart(backtestSeries);
+          backtestEmpty.classList.add("hidden");
+          backtestNote.textContent = `回测区间：${payload.startDate.slice(0, 7)} 至 ${payload.endDate.slice(0, 7)}，共 ${payload.monthCount} 个月。模式：${backtestMode === "smart" ? "智能补仓，只买不卖" : "强力再平衡，允许卖出"}。数据源：${payload.sources}。${payload.disclaimer}`;
+        } catch (error) {
+          backtestEmpty.textContent = "真实历史行情暂时获取失败，请稍后重试或检查网络。";
+          backtestNote.textContent = error.message;
+        } finally {
+          runBacktestButton.disabled = false;
+          runBacktestButton.textContent = "运行回测";
+        }
+      }
+
+      function renderResults(results, currentValues, cash) {
+        const currentTotal = currentValues.reduce((sum, value) => sum + value, 0);
+        const newTotal = currentTotal + cash;
+
+        portfolioTotal.innerHTML = `
+          <p class="text-xs uppercase tracking-[0.18em] text-gray-500">总资产</p>
+          <p class="mt-1 text-lg text-gray-300">${formatCurrency(newTotal)}</p>
+        `;
+
+        summaryMode.textContent = `${strategyProfiles[strategy].name}｜${mode === "smart" ? "智能补仓" : "全面再平衡"}`;
+        summaryCash.textContent = formatCurrency(cash);
+        summaryDrift.textContent = percentFormatter.format(getMaxDeviation(currentValues, cash));
+
+        tradeList.innerHTML = results
+          .map(({ asset, trade, targetValue }) => {
+            const action = trade > 0 ? "买入" : trade < 0 ? "卖出" : "持有";
+            const actionText = trade > 0 ? "买入" : trade < 0 ? "卖出" : "持有";
+            const tone =
+              trade > 0
+                ? "border-emerald-400/20 bg-emerald-400/[0.06] text-emerald-300"
+                : trade < 0
+                  ? "border-red-400/20 bg-red-400/[0.06] text-red-300"
+                  : "border-white/10 bg-white/[0.04] text-gray-300";
+            const dot = trade > 0 ? "bg-emerald-300" : trade < 0 ? "bg-red-300" : "bg-gray-400";
+
+            return `
+              <article class="rounded-lg border border-white/10 bg-black/30 p-4 hover:border-blue-500/50 hover:bg-blue-500/[0.04]">
+                <div class="flex items-start justify-between gap-4">
+                  <div>
+                    <div class="flex items-center gap-3">
+                      <span class="h-2.5 w-2.5 rounded-full ${dot} shadow-[0_0_18px_currentColor]"></span>
+                      <h3 class="font-semibold text-white">${asset.name}</h3>
+                    </div>
+                    <p class="mt-2 font-mono text-xs uppercase tracking-[0.16em] text-gray-500">${asset.ticker}｜目标 ${percentFormatter.format(asset.target)}</p>
+                  </div>
+                  <span class="rounded-full border px-3 py-1 font-mono text-xs ${tone}">${action}</span>
+                </div>
+                <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <p class="font-mono text-xs uppercase tracking-[0.14em] text-gray-500">交易指令</p>
+                    <p class="mt-1 font-mono text-2xl font-bold ${trade < 0 ? "text-red-300" : trade > 0 ? "text-emerald-300" : "text-gray-300"}">${actionText} ${formatCurrency(Math.abs(trade))}</p>
+                  </div>
+                  <div>
+                    <p class="font-mono text-xs uppercase tracking-[0.14em] text-gray-500">目标市值</p>
+                    <p class="mt-1 font-mono text-lg text-gray-200">${formatCurrency(targetValue)}</p>
+                  </div>
+                </div>
+              </article>
+            `;
+          })
+          .join("");
+
+        emptyState.classList.add("hidden");
+        resultPanel.classList.remove("hidden");
+        resultPanel.classList.add("flex", "result-enter");
+        requestAnimationFrame(() => {
+          resultPanel.classList.add("result-enter-active");
+        });
+      }
+
+      modeToggle.addEventListener("click", () => setMode(mode === "smart" ? "full" : "smart"));
+      runBacktestButton.addEventListener("click", runBacktest);
+      sideDrawerToggle.addEventListener("click", () => {
+        setSideDrawerOpen(!sideDrawer.classList.contains("is-open"));
+      });
+      aiSettingsButton.addEventListener("click", () => {
+        openAiSettings();
+        setSideDrawerOpen(false);
+      });
+      aiSettingsClose.addEventListener("click", closeAiSettings);
+      aiSettingsCancel.addEventListener("click", closeAiSettings);
+      aiSettingsSave.addEventListener("click", saveAiSettings);
+      aiRunButton.addEventListener("click", runAiAnalysis);
+      [aiBaseUrl, aiProtocol, aiApiKey, aiModel].forEach((field) => {
+        field.addEventListener("input", persistAiSettingsDraft);
+        field.addEventListener("change", persistAiSettingsDraft);
+      });
+      aiKeyToggle.addEventListener("click", () => {
+        const shouldShow = aiApiKey.type === "password";
+        aiApiKey.type = shouldShow ? "text" : "password";
+        aiKeyToggle.textContent = shouldShow ? "隐藏" : "显示";
+      });
+      aiSettingsModal.addEventListener("click", (event) => {
+        if (event.target === aiSettingsModal) closeAiSettings();
+      });
+      backtestChart.addEventListener("mousemove", updateBacktestTooltip);
+      backtestChart.addEventListener("mouseleave", () => {
+        backtestHoverIndex = null;
+        backtestTooltip.classList.add("hidden");
+        if (backtestSeries.length) drawBacktestChart(backtestSeries);
+      });
+      window.addEventListener("resize", () => {
+        if (backtestSeries.length) drawBacktestChart(backtestSeries);
+        if (candlePayload) drawCandleChart();
+      });
+      candleAssetTabs.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-asset]");
+        if (!button) return;
+        candleAsset = button.dataset.asset;
+        loadCandles();
+      });
+      candleTimeframeTabs.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-timeframe]");
+        if (!button) return;
+        candleTimeframe = button.dataset.timeframe;
+        loadCandles();
+      });
+      candleChart.addEventListener("mousemove", updateCandleTooltip);
+      candleChart.addEventListener("mouseleave", () => {
+        candleHoverIndex = null;
+        candleTooltip.classList.add("hidden");
+        drawCandleChart();
+      });
+      candleChart.addEventListener("wheel", zoomCandles, { passive: false });
+      candleChart.addEventListener("mousedown", (event) => {
+        candleDragStart = { x: event.clientX };
+      });
+      window.addEventListener("mousemove", (event) => {
+        if (!candleDragStart) return;
+        const deltaX = event.clientX - candleDragStart.x;
+        if (Math.abs(deltaX) >= 8) {
+          panCandles(deltaX);
+          candleDragStart.x = event.clientX;
+        }
+      });
+      window.addEventListener("mouseup", () => {
+        candleDragStart = null;
+      });
+      strategyOptions.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-strategy]");
+        if (!button) return;
+        setStrategy(button.dataset.strategy);
+      });
+
+      customTargets.addEventListener("input", (event) => {
+        const field = event.target.closest(".custom-target-input");
+        if (!field) return;
+
+        const value = Number(field.value);
+        strategyProfiles.custom.targets[field.dataset.asset] = Number.isFinite(value) && value > 0 ? value / 100 : 0;
+        applyTargets(strategyProfiles.custom.targets);
+
+        const rawTotal = getTargetTotal(strategyProfiles.custom.targets);
+        const totalPercent = Math.round(rawTotal * 1000) / 10;
+        strategySum.textContent = `合计 ${totalPercent}%`;
+        strategySum.className =
+          Math.abs(rawTotal - 1) > 0.001
+            ? "rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 font-mono text-xs text-amber-200"
+            : "rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-xs text-gray-400";
+        strategyCopy.textContent =
+          Math.abs(rawTotal - 1) > 0.001
+            ? "自定义比例会自动归一化后参与计算"
+            : strategyProfiles.custom.description;
+        renderInputs();
+        renderTargetBars();
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        resultPanel.classList.remove("result-enter-active");
+
+        const currentValues = assets.map((asset) => readPositiveNumber(asset.id));
+        const cash = readPositiveNumber("cash");
+        const results =
+          mode === "smart"
+            ? calculateSmartBuy(currentValues, cash)
+            : calculateFullRebalance(currentValues, cash);
+
+        window.setTimeout(() => renderResults(results, currentValues, cash), 120);
+      });
+
+      setStrategy("balanced");
+      setMode("smart");
+      syncAiSettingsForm();
+      loadCandles();
+    </script>
+  </body>
+</html>
