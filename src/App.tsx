@@ -11,6 +11,7 @@ import { RouteScrollReset } from './components/RouteScrollReset';
 import { Market } from './routes/Market';
 import { Starmap } from './routes/Starmap';
 import { GalaxyRoute } from './routes/GalaxyRoute';
+import { Assistant } from './routes/Assistant';
 
 export default function App() {
   const location = useLocation();
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/signals" element={<Signals />} />
           <Route path="/trader" element={<Trader />} />
           <Route path="/market" element={<Market />} />
+          <Route path="/assistant" element={<Assistant />} />
           <Route path="/starmap" element={<Starmap />} />
           <Route path="/galaxy" element={<GalaxyRoute />} />
           <Route path="/stack" element={<Stack />} />

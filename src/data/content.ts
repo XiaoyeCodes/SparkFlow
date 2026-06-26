@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { BookOpenText, Boxes, ChartNoAxesCombined, Newspaper, Orbit, PenLine, Radar } from 'lucide-react';
+import { BookOpenText, Bot, Boxes, ChartNoAxesCombined, Newspaper, Orbit, PenLine, Radar } from 'lucide-react';
 
 export type Gateway = {
   title: string;
@@ -11,6 +11,7 @@ export type Gateway = {
 
 export const gateways: Gateway[] = [
   { title: '今日新闻', path: '/signals', eyebrow: '08:30 LIVE', Icon: Newspaper, tone: 'blue' },
+  { title: 'AI助手', path: '/assistant', eyebrow: 'ASSISTANT', Icon: Bot, tone: 'white' },
   { title: '星图情报', path: '/starmap', eyebrow: 'INTEL MAP', Icon: Radar, tone: 'blue' },
   { title: '星河航道', path: '/galaxy', eyebrow: 'GALAXY', Icon: Orbit, tone: 'silver' },
   { title: '股票ETF定投软件', path: '/trader', eyebrow: 'ETF CORE', Icon: ChartNoAxesCombined, tone: 'green' },
