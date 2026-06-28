@@ -15,8 +15,23 @@
               mono: ['JetBrains Mono', 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'monospace'],
             },
             boxShadow: {
-              glow: '0 0 36px rgba(59, 130, 246, 0.24), inset 0 1px 0 rgba(255,255,255,0.08)',
+              glow: '0 0 36px rgba(185, 255, 220, 0.22), inset 0 1px 0 rgba(255,255,255,0.08)',
               panel: '0 24px 80px rgba(0,0,0,0.6)',
+            },
+            colors: {
+              blue: {
+                50: '#effdf6',
+                100: '#d9fae9',
+                200: '#b9ffdc',
+                300: '#9af0ca',
+                400: '#72d9b0',
+                500: '#42b98d',
+                600: '#2e986f',
+                700: '#237759',
+                800: '#1e5f49',
+                900: '#194d3d',
+                950: '#0a2d23',
+              },
             },
           },
         },
@@ -29,11 +44,25 @@
         transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
       }
 
+      html,
+      body {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      html::-webkit-scrollbar,
+      body::-webkit-scrollbar,
+      *::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+      }
+
       body {
         background:
-          radial-gradient(circle at 18% 8%, rgba(29, 78, 216, 0.18), transparent 28rem),
-          radial-gradient(circle at 88% 22%, rgba(148, 163, 184, 0.12), transparent 30rem),
-          linear-gradient(180deg, #050505 0%, #000 48%, #04070c 100%);
+          radial-gradient(circle at 44% 9%, rgba(185, 255, 220, 0.16), transparent 30rem),
+          radial-gradient(circle at 82% 24%, rgba(138, 215, 255, 0.10), transparent 30rem),
+          radial-gradient(circle at 24% 72%, rgba(243, 214, 160, 0.035), transparent 28rem),
+          linear-gradient(180deg, #040505 0%, #000 48%, #020706 100%);
       }
 
       .grid-noise {
@@ -53,8 +82,8 @@
 
       .glass:hover,
       .glass:focus-within {
-        border-color: rgba(59, 130, 246, 0.5);
-        box-shadow: 0 0 36px rgba(59, 130, 246, 0.24), inset 0 1px 0 rgba(255,255,255,0.08);
+        border-color: rgba(185, 255, 220, 0.38);
+        box-shadow: 0 0 36px rgba(185, 255, 220, 0.18), inset 0 1px 0 rgba(255,255,255,0.08);
       }
 
       .input-field {
@@ -82,7 +111,7 @@
       }
 
       .mode-toggle[data-mode="full"] {
-        border-color: rgba(96, 165, 250, 0.65);
+        border-color: rgba(185, 255, 220, 0.46);
       }
 
       .side-drawer {
@@ -168,15 +197,12 @@
       <header class="mb-8 flex flex-col gap-6 border-b border-white/10 pb-8 lg:flex-row lg:items-end lg:justify-between">
         <div class="max-w-4xl">
           <div class="mb-4 flex items-center gap-3 font-mono text-xs uppercase tracking-[0.28em] text-blue-300/90">
-            <span class="h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_18px_rgba(96,165,250,0.9)]"></span>
+            <span class="h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_18px_rgba(185,255,220,0.72)]"></span>
             全天候修复
           </div>
           <h1 class="bg-gradient-to-r from-white via-gray-200 to-gray-500 bg-clip-text text-4xl font-black leading-tight text-transparent sm:text-5xl lg:text-7xl">
             越复杂的市场，越需要克制的算法。
           </h1>
-        </div>
-        <div class="glass rounded-lg px-4 py-3 font-mono text-xs uppercase tracking-[0.18em] text-gray-300 sm:text-sm">
-          [ 系统就绪｜无服务器运行 ]
         </div>
       </header>
 
@@ -243,7 +269,7 @@
 
             <button
               type="submit"
-              class="group relative w-full overflow-hidden rounded-lg border border-blue-400/40 bg-blue-500 px-5 py-5 font-mono text-sm font-bold uppercase tracking-[0.2em] text-white shadow-[0_0_36px_rgba(37,99,235,0.45)] hover:-translate-y-0.5 hover:border-blue-200 hover:bg-white hover:text-black hover:shadow-[0_0_52px_rgba(147,197,253,0.45)]"
+              class="group relative w-full overflow-hidden rounded-lg border border-blue-400/40 bg-blue-500 px-5 py-5 font-mono text-sm font-bold uppercase tracking-[0.2em] text-white shadow-[0_0_36px_rgba(185,255,220,0.28)] hover:-translate-y-0.5 hover:border-blue-200 hover:bg-white hover:text-black hover:shadow-[0_0_52px_rgba(185,255,220,0.34)]"
             >
               <span class="relative z-10">开始计算</span>
               <span class="absolute inset-0 translate-x-[-120%] bg-gradient-to-r from-transparent via-white/50 to-transparent group-hover:translate-x-[120%]"></span>
@@ -264,7 +290,7 @@
           </div>
 
           <div id="empty-state" class="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-black/25 px-6 text-center">
-            <div class="mb-6 h-20 w-20 rounded-full border border-blue-300/25 bg-blue-400/10 shadow-[0_0_46px_rgba(96,165,250,0.18)]"></div>
+            <div class="mb-6 h-20 w-20 rounded-full border border-blue-300/25 bg-blue-400/10 shadow-[0_0_46px_rgba(185,255,220,0.16)]"></div>
             <p class="font-mono text-xs uppercase tracking-[0.22em] text-gray-500">等待输入持仓数据</p>
             <p class="mt-3 max-w-md text-sm leading-6 text-gray-400">
               输入当前基金市值与新增现金后，系统会生成买入或卖出的再平衡指令。
@@ -298,6 +324,35 @@
       </section>
 
       <section class="glass mt-6 rounded-lg p-5 sm:p-6">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-200">AI 配置建议</p>
+            <h2 class="mt-2 text-2xl font-semibold text-white">专业 AI 组合审查智能体</h2>
+            <p id="ai-config-summary" class="mt-2 max-w-5xl text-sm leading-6 text-gray-400">
+              请先设置 API 基础地址、协议、Key 和模型。生成建议时优先使用东方财富、腾讯、新浪与本地校验行情交叉验证；关键数据不新鲜或不可验证时，不触发激进调仓。
+            </p>
+          </div>
+          <div class="flex shrink-0 flex-wrap gap-3">
+            <button
+              id="ai-run-button"
+              type="button"
+              class="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-4 py-3 font-mono text-xs font-bold text-emerald-100 hover:-translate-y-0.5 hover:bg-emerald-500 hover:text-white"
+            >
+              生成 AI 建议
+            </button>
+            <button
+              id="ai-apply-targets-button"
+              type="button"
+              class="hidden rounded-lg border border-blue-300/40 bg-blue-400/15 px-4 py-3 font-mono text-xs font-bold text-blue-100 hover:-translate-y-0.5 hover:bg-blue-400 hover:text-black"
+            >
+              一键导入建议比例并计算
+            </button>
+          </div>
+        </div>
+        <div id="ai-output" class="mt-5 hidden max-h-[520px] overflow-auto rounded-lg border border-white/10 bg-black/40 p-4 text-sm leading-7 text-gray-200"></div>
+      </section>
+
+      <section class="glass mt-6 rounded-lg p-5 sm:p-6">
         <div class="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p class="font-mono text-xs uppercase tracking-[0.22em] text-blue-300">历史回测</p>
@@ -313,28 +368,6 @@
           >
             运行回测
           </button>
-        </div>
-
-        <div class="mb-4 rounded-lg border border-blue-400/20 bg-blue-500/[0.06] p-4">
-          <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div>
-              <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-200">AI 配置建议</p>
-              <h3 class="mt-2 text-xl font-semibold text-white">季度 / 年度组合审查</h3>
-              <p id="ai-config-summary" class="mt-2 text-sm leading-6 text-gray-400">
-                请先设置 API 基础地址、协议、Key 和模型。生成建议时会附带市场情报、当前持仓、策略比例与回测摘要。
-              </p>
-            </div>
-            <div class="flex flex-wrap gap-3">
-              <button
-                id="ai-run-button"
-                type="button"
-                class="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-4 py-3 font-mono text-xs font-bold text-emerald-100 hover:-translate-y-0.5 hover:bg-emerald-500 hover:text-white"
-              >
-                生成 AI 建议
-              </button>
-            </div>
-          </div>
-          <div id="ai-output" class="mt-4 hidden max-h-[520px] overflow-auto rounded-lg border border-white/10 bg-black/40 p-4 text-sm leading-7 text-gray-200"></div>
         </div>
 
         <div class="grid gap-4 lg:grid-cols-[320px_1fr]">
@@ -548,6 +581,7 @@
       const sideDrawerToggle = document.getElementById("side-drawer-toggle");
       const aiSettingsButton = document.getElementById("ai-settings-button");
       const aiRunButton = document.getElementById("ai-run-button");
+      const aiApplyTargetsButton = document.getElementById("ai-apply-targets-button");
       const aiOutput = document.getElementById("ai-output");
       const aiConfigSummary = document.getElementById("ai-config-summary");
       const aiSettingsModal = document.getElementById("ai-settings-modal");
@@ -579,37 +613,75 @@
       let candleHoverIndex = null;
       let candleDragStart = null;
       let latestBacktestPayload = null;
+      let latestAiSuggestedTargets = null;
+      let aiAssistEnabled = false;
+      let latestMarketContext = null;
       const aiStorageKey = "allweather-ai-settings";
       const defaultAiPrompt = `# 角色
-你是一位面向长期定投者的多资产量化投顾研究员。你必须基于应用提供的用户持仓、策略参数、回测摘要、ETF K线状态和“市场情报包”进行判断，不要假装自己实时联网。
+你是“SparkFlow 全天候策略智能体”，一位面向长期定投者的多资产量化投顾研究员。你不是聊天助手，而是组合审查、风险诊断和执行计划生成器。你必须基于应用提供的用户持仓、策略参数、回测摘要、ETF K 线状态和“市场情报包”进行判断，不要假装自己实时联网。
+
+# 已启用的专业技能 / 工具
+你在本次报告中必须像调用以下内部技能一样工作：
+1. Market Data Auditor：审查 Market Intelligence Pack 的来源、新鲜度、可用性和缺失项。
+2. Portfolio Drift Checker：计算并解释当前持仓相对目标比例的超配、低配和最大偏离。
+3. Drawdown Trigger Engine：识别纳指/QQQ 的回撤区间，并判断是否触发深度回撤进攻规则。
+4. Rebalance Policy Engine：给出“智能补仓 / 全面再平衡 / 观察等待”的执行动作。
+5. Risk Officer：检查是否过度卖出债券和黄金、是否牺牲安全垫、是否存在汇率和流动性风险。
+6. Report Writer：输出结构化、表格化、结论先行的中文投研报告。
 
 # 用户目标
-用户希望在追求美股长期复利的同时，利用长期国债和黄金的低相关性降低组合波动率与最大回撤。用户需要知道：当前是否应该维持策略，还是微调权益、债券、黄金比例。
+用户的基础策略是全天候底仓：在追求美股长期复利的同时，利用长期国债和黄金降低组合波动率与最大回撤。
+用户额外希望：当纳指/QQQ 出现深度回撤时，可以把一部分黄金和债券再平衡到纳指中，但必须是阶梯式、有纪律、有上限的进攻，而不是一次性梭哈。
 
-# 输出要求
-请用中文，结论先行，避免空话。必须输出以下部分：
+# 纳指深度回撤进攻规则
+当 Market Intelligence Pack 或本地 QQQ 日线显示纳指/QQQ 相对高点回撤时，按以下规则评估建议目标比例：
+
+| QQQ 回撤区间 | 建议动作 | 纳指目标参考 | 资金来源原则 |
+|---|---|---:|---|
+| 0% 至 -24.9% | 不触发进攻规则 | 维持原目标 | 只用新增现金智能补仓 |
+| -25% 至 -34.9% | 第一档进攻 | 可提高到 35% 左右 | 优先减少债券，其次少量减少黄金 |
+| -35% 至 -39.9% | 第二档进攻 | 可提高到 42% 左右 | 分批从债券和黄金转入，不一次完成 |
+| -40% 及以下 | 第三档进攻 | 最高不超过 50% | 仍保留至少 5% 黄金和 5% 防守资产 |
+
+硬约束：
+- 不允许建议把债券和黄金全部卖光。
+- 不允许在数据新鲜度不足时触发大幅进攻。
+- 即使触发 -40%，也建议分 2-4 次执行，避免一次性买在下跌半途。
+- 若用户现金流不稳定、最大回撤承受能力不足，必须降低进攻档位。
+
+# 中国使用环境与数据准确性约束
+用户处于中国网络环境。不要依赖 Yahoo Finance 或 Stooq，不要要求用户手动访问国外网站。必须优先使用东方财富、腾讯证券、新浪财经、本地已校验 K 线、东方财富中国国债 ETF 数据进行交叉验证；FRED 仅用于美国利率背景，若不可达则标注缺失。关键回撤数据缺失、超过 30 天、来源不可验证或多源价格偏差明显时，不允许触发激进调仓。
 
 # 数据新鲜度规则
 只允许把最近 14 天内的数据称为“最新”；15-30 天内称为“近期”；超过 30 天或无法识别日期的信息只能作为背景材料。禁止用过时或未知日期的信息支撑高置信度调仓结论。若关键指标缺少最新数据，必须明确写出缺口，并将置信度降为中或低。
 
-## 1. 策略调整结论
-只能从以下四个动作中选择一个作为主结论：维持不变 / 小幅再平衡 / 降低风险 / 提高进攻性。
-说明当前选择策略是否适合当前宏观与估值环境，并给出置信度（高/中/低）。
+# 输出要求：少废话，像投委会结论页
+总长度控制在 900-1300 字。不要写长篇科普，不要复述用户目标。必须先给表格结论，再给必要分析。
 
-## 2. 当前持仓诊断
-基于用户当前持仓市值和目标比例，说明哪里超配、哪里低配，以及这是否是“需要立刻调整”的偏离。
+## 1. 调仓结论表
+第一部分必须是一张 Markdown 表格，列为：资产、当前持仓金额、当前持仓比例、当前目标、建议目标、动作、理由。
+资产只允许四项：标普500、纳指、长期国债、黄金。
+动作只能写：上调 / 下调 / 维持。
+必须基于 Portfolio Data From This App 里的当前持仓金额、当前占比、目标占比和偏离来填写表格；不得省略持仓金额和当前持仓比例。若某项金额为 0，也必须写 ¥0 和 0%。
 
-## 3. 宏观周期与估值判断
-结合市场情报包，分别判断：利率周期、收益率曲线、股票估值、盈利预期、债券吸引力、黄金配置价值。
+## 2. 总结论
+用 3-5 行说明：
+- 主动作：维持不变 / 智能补仓 / 小幅再平衡 / 降低风险 / 触发纳指回撤进攻
+- 置信度：高/中/低
+- 是否建议卖出债券或黄金转入纳指
+- 是否建议立刻执行，还是分批执行
 
-## 4. 建议目标比例
-给出一张总和 100% 的表格：标普500、纳指、长期国债、黄金。必须同时列出“当前目标比例”和“建议目标比例”，并解释每项变化。
+## 3. 专业分析
+只写 4 个小点：趋势与回撤、宏观利率、黄金与债券防守价值、主要风险。
+必须引用 Market Intelligence Pack 里的 6个月/1年/3年表现、QQQ 回撤、利率曲线或中国国债数据；缺什么就写缺失。
 
-## 5. 执行方案
-给出未来 1-3 个月的具体执行建议：新增定投如何分配、是否需要卖出、再平衡阈值、需要观察的触发条件。
+## 4. 执行方案
+给出未来 1-3 个月怎么做：新增现金买什么、是否卖出、再平衡阈值、复查日期。若触发纳指回撤进攻规则，说明第几档、分几次、从债券/黄金各转多少。
 
-## 6. 重要风险
-明确说明这不是投资建议；指出数据缺口、模型局限和最可能让建议失效的情形。`;
+## 5. 机器可读建议比例
+最后必须单独输出一行，格式严格如下，不要放进代码块：
+SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"action":"维持不变","executionMode":"smart","confidence":"中"}
+四个比例必须是小数，合计必须等于 1。executionMode 只能是 smart 或 full：若不建议卖出任何现有资产，必须写 smart；只有明确建议卖出、转仓、止盈、降低风险或从债券/黄金转入权益时，才写 full。`;
       const candleCache = new Map();
       const candleAssets = {
         sp500: { label: "标普500基金", ticker: "SPY" },
@@ -660,14 +732,133 @@
       }
 
       function renderAiMarkdown(text) {
-        const escaped = escapeHtml(text);
-        return escaped
-          .replace(/^### (.*)$/gm, '<h4 class="mt-5 text-base font-semibold text-white">$1</h4>')
-          .replace(/^## (.*)$/gm, '<h3 class="mt-6 text-lg font-semibold text-blue-100">$1</h3>')
-          .replace(/^# (.*)$/gm, '<h2 class="mt-6 text-xl font-semibold text-white">$1</h2>')
-          .replace(/^\- (.*)$/gm, '<div class="my-1 pl-4 text-gray-200">• $1</div>')
-          .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
-          .replace(/\n/g, "<br />");
+        const lines = String(text).split(/\r?\n/);
+        const blocks = [];
+        let tableRows = [];
+
+        const inline = (value) =>
+          escapeHtml(value)
+            .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
+            .replace(/`([^`]+)`/g, '<code class="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[0.82em] text-blue-100">$1</code>');
+
+        const flushTable = () => {
+          if (!tableRows.length) return;
+          const rows = tableRows.filter((row) => !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(row));
+          const parsedRows = rows.map((row) =>
+            row
+              .trim()
+              .replace(/^\|/, "")
+              .replace(/\|$/, "")
+              .split("|")
+              .map((cell) => inline(cell.trim()))
+          );
+          const [head, ...body] = parsedRows;
+          blocks.push(`
+            <div class="my-5 overflow-x-auto rounded-lg border border-white/10 bg-white/[0.03]">
+              <table class="min-w-full border-collapse text-left text-sm">
+                ${head ? `<thead class="bg-white/[0.06] text-blue-100"><tr>${head.map((cell) => `<th class="border-b border-white/10 px-3 py-2 font-semibold">${cell}</th>`).join("")}</tr></thead>` : ""}
+                <tbody>${body.map((row) => `<tr class="border-t border-white/10">${row.map((cell) => `<td class="px-3 py-2 align-top text-gray-200">${cell}</td>`).join("")}</tr>`).join("")}</tbody>
+              </table>
+            </div>
+          `);
+          tableRows = [];
+        };
+
+        lines.forEach((line) => {
+          if (/^\s*\|.*\|\s*$/.test(line)) {
+            tableRows.push(line);
+            return;
+          }
+
+          flushTable();
+
+          if (!line.trim()) {
+            blocks.push('<div class="h-2"></div>');
+          } else if (line.startsWith("### ")) {
+            blocks.push(`<h4 class="mt-5 text-base font-semibold text-white">${inline(line.slice(4))}</h4>`);
+          } else if (line.startsWith("## ")) {
+            blocks.push(`<h3 class="mt-6 border-t border-white/10 pt-5 text-lg font-semibold text-blue-100">${inline(line.slice(3))}</h3>`);
+          } else if (line.startsWith("# ")) {
+            blocks.push(`<h2 class="text-xl font-semibold text-white">${inline(line.slice(2))}</h2>`);
+          } else if (/^\s*[-*]\s+/.test(line)) {
+            blocks.push(`<div class="my-1 flex gap-2 text-gray-200"><span class="text-blue-300">•</span><span>${inline(line.replace(/^\s*[-*]\s+/, ""))}</span></div>`);
+          } else if (/^\s*\d+\.\s+/.test(line)) {
+            blocks.push(`<div class="my-1 pl-4 text-gray-200">${inline(line)}</div>`);
+          } else {
+            blocks.push(`<p class="my-2 text-gray-200">${inline(line)}</p>`);
+          }
+        });
+
+        flushTable();
+        return blocks.join("");
+      }
+
+      function extractSuggestedTargets(text) {
+        const match = String(text).match(/SUGGESTED_TARGETS_JSON\s*(\{[\s\S]*?\})/);
+        if (!match) return null;
+
+        try {
+          const payload = JSON.parse(match[1]);
+          const targets = {
+            sp500: Number(payload.sp500),
+            nasdaq: Number(payload.nasdaq),
+            bond: Number(payload.bond),
+            gold: Number(payload.gold),
+          };
+          const total = Object.values(targets).reduce((sum, value) => sum + value, 0);
+          const isValid = Object.values(targets).every((value) => Number.isFinite(value) && value >= 0) && total > 0;
+          if (!isValid) return null;
+
+          return {
+            targets: Object.fromEntries(Object.entries(targets).map(([key, value]) => [key, value / total])),
+            action: payload.action || "AI 建议",
+            executionMode: payload.executionMode === "full" ? "full" : payload.executionMode === "smart" ? "smart" : "",
+            confidence: payload.confidence || "未标注",
+          };
+        } catch {
+          return null;
+        }
+      }
+
+      function chooseModeForSuggestedTargets(suggestion) {
+        const actionText = String(suggestion?.action || "");
+        const explicitMode = suggestion?.executionMode;
+        const fullSignals = ["卖出", "转入", "转仓", "减仓", "下调", "降低风险", "全面", "强力", "再平衡", "回收", "止盈"];
+        const smartSignals = ["维持", "智能补仓", "只买不卖", "不卖", "无需卖出", "否", "观察", "新增现金", "自然稀释"];
+        const asksFull = fullSignals.some((word) => actionText.includes(word));
+        const asksSmart = smartSignals.some((word) => actionText.includes(word));
+
+        if (explicitMode === "smart" && !asksFull) return "smart";
+        if (explicitMode === "full") return "full";
+        if (asksSmart && !asksFull) return "smart";
+        if (asksFull) return "full";
+
+        const targets = suggestion?.targets || suggestion;
+        const currentValues = assets.map((asset) => readPositiveNumber(asset.id));
+        const cash = readPositiveNumber("cash");
+        const newTotal = currentValues.reduce((sum, value) => sum + value, 0) + cash;
+        if (newTotal <= 0) return "smart";
+
+        const normalizedTargets = normalizeTargets(targets);
+        const sellThreshold = Math.max(10, newTotal * 0.002);
+        const needsSelling = assets.some((asset, index) => {
+          const targetValue = newTotal * normalizedTargets[asset.id];
+          return currentValues[index] - targetValue > sellThreshold;
+        });
+
+        return needsSelling ? "full" : "smart";
+      }
+
+      function applyAiSuggestedTargets() {
+        if (!latestAiSuggestedTargets) return;
+        const suggestedMode = chooseModeForSuggestedTargets(latestAiSuggestedTargets);
+        strategyProfiles.custom.targets = { ...latestAiSuggestedTargets.targets };
+        setStrategy("custom");
+        setMode(suggestedMode);
+        window.setTimeout(() => {
+          form.requestSubmit();
+          resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
       }
 
       function readAiSettings() {
@@ -693,8 +884,8 @@
 
       function updateAiConfigSummary(settings = readAiSettings()) {
         aiConfigSummary.textContent = settings.model
-          ? `当前模型：${settings.model}；协议：${settings.protocol === "responses" ? "Responses API" : "Chat Completions 兼容接口"}。生成建议时会附带市场情报、当前持仓、策略比例与回测摘要。`
-          : "请先从左侧“设置”配置 API 地址、协议、Key 和模型。生成建议时会附带市场情报、当前持仓、策略比例与回测摘要。";
+          ? `当前模型：${settings.model}；协议：${settings.protocol === "responses" ? "Responses API" : "Chat Completions 兼容接口"}。智能体会调用市场情报、组合偏离、纳指回撤触发器和再平衡规则生成专业报告。`
+          : "请先从左侧“设置”配置 API 地址、协议、Key 和模型。智能体会优先使用东方财富、腾讯、新浪和本地校验行情；关键数据不可靠时不会触发激进调仓。";
       }
 
       function persistAiSettingsDraft() {
@@ -727,6 +918,162 @@
         writeAiSettings(collectAiSettingsFromForm());
         syncAiSettingsForm();
         closeAiSettings();
+      }
+
+      function cloneTargets(targets) {
+        return assets.reduce((next, asset) => {
+          next[asset.id] = targets[asset.id] || 0;
+          return next;
+        }, {});
+      }
+
+      function reduceDefensive(targets, amount, minBond = 0.05, minGold = 0.05) {
+        let remaining = Math.max(0, amount);
+        const bondCut = Math.min(Math.max(0, targets.bond - minBond), remaining * 0.7);
+        targets.bond -= bondCut;
+        remaining -= bondCut;
+        const goldCut = Math.min(Math.max(0, targets.gold - minGold), remaining);
+        targets.gold -= goldCut;
+        remaining -= goldCut;
+        if (remaining > 0) {
+          const extraBondCut = Math.min(Math.max(0, targets.bond - minBond), remaining);
+          targets.bond -= extraBondCut;
+        }
+      }
+
+      function fillDefensiveRemainder(targets, baseTargets, minBond = 0.05, minGold = 0.05) {
+        const remaining = Math.max(0, 1 - targets.sp500 - targets.nasdaq);
+        const defensiveBase = Math.max(0.0001, baseTargets.bond + baseTargets.gold);
+        targets.bond = Math.max(minBond, remaining * (baseTargets.bond / defensiveBase));
+        targets.gold = Math.max(minGold, remaining - targets.bond);
+        const total = targets.sp500 + targets.nasdaq + targets.bond + targets.gold;
+        if (total > 1) {
+          const excess = total - 1;
+          const bondCut = Math.min(excess, Math.max(0, targets.bond - minBond));
+          targets.bond -= bondCut;
+          targets.gold -= Math.min(excess - bondCut, Math.max(0, targets.gold - minGold));
+        }
+      }
+
+      function getActualWeights(currentValues) {
+        const total = currentValues.reduce((sum, value) => sum + value, 0);
+        return assets.reduce((weights, asset, index) => {
+          weights[asset.id] = total > 0 ? currentValues[index] / total : 0;
+          return weights;
+        }, {});
+      }
+
+      function getAiAssistTargets(marketContext, currentValues) {
+        const baseTargets = normalizeTargets(strategyProfiles[strategy].targets);
+        const nextTargets = cloneTargets(baseTargets);
+        const signals = marketContext?.strategySignals?.assets || {};
+        const actualWeights = getActualWeights(currentValues);
+        const nasdaqDrawdown = Number(signals.nasdaq?.drawdownFromPeak);
+        const sp500Drawdown = Number(signals.sp500?.drawdownFromPeak);
+        const nasdaqReturn1y = Number(signals.nasdaq?.return1y);
+        const sp500Return1y = Number(signals.sp500?.return1y);
+        const nasdaqReturn6m = Number(signals.nasdaq?.return6m);
+        const sp500Return6m = Number(signals.sp500?.return6m);
+        const signalAgeDays = marketContext?.strategySignals?.latestDate
+          ? Math.max(0, Math.floor((Date.now() - new Date(marketContext.strategySignals.latestDate).getTime()) / 86400000))
+          : Infinity;
+        const validationSummary = marketContext?.sources?.find((source) => source.label === "国内多源行情交叉验证")?.summary || "";
+        const validationPassed = !validationSummary.includes("需人工复核");
+        const hasReliableSignal = Number.isFinite(nasdaqDrawdown) && Number.isFinite(sp500Drawdown) && signalAgeDays <= 30 && validationPassed;
+        const qqq = hasReliableSignal ? nasdaqDrawdown : 0;
+        const spy = hasReliableSignal ? sp500Drawdown : 0;
+        const nasdaqOverweight = (actualWeights.nasdaq || 0) - baseTargets.nasdaq;
+        const sp500Overweight = (actualWeights.sp500 || 0) - baseTargets.sp500;
+        const isNasdaqHot = qqq > -0.05 && (nasdaqReturn1y >= 0.3 || nasdaqReturn6m >= 0.18);
+        const isSp500Hot = spy > -0.04 && (sp500Return1y >= 0.22 || sp500Return6m >= 0.12);
+        let label = "未触发：按当前风格比例计算";
+        let actionType = "hold";
+
+        if (!hasReliableSignal) {
+          label = validationPassed ? "数据不足：回撤信号缺失或超过30天，不触发智能调仓" : "数据复核：多源行情偏差异常，不触发智能调仓";
+        } else if (nasdaqOverweight >= 0.12 && isNasdaqHot) {
+          nextTargets.sp500 = baseTargets.sp500;
+          nextTargets.nasdaq = Math.max(baseTargets.nasdaq, Math.min(actualWeights.nasdaq - 0.08, baseTargets.nasdaq + 0.03));
+          fillDefensiveRemainder(nextTargets, baseTargets, 0.12, 0.08);
+          label = "纳指严重超配且高位：回收权益利润到债券/黄金";
+          actionType = "riskRecycle";
+        } else if (nasdaqOverweight >= 0.08 && isNasdaqHot) {
+          nextTargets.sp500 = baseTargets.sp500;
+          nextTargets.nasdaq = Math.max(baseTargets.nasdaq, Math.min(actualWeights.nasdaq - 0.05, baseTargets.nasdaq + 0.05));
+          fillDefensiveRemainder(nextTargets, baseTargets, 0.12, 0.08);
+          label = "纳指超配且接近高位：卖出超配部分，回补防守资产";
+          actionType = "riskRecycle";
+        } else if (sp500Overweight >= 0.1 && isSp500Hot) {
+          nextTargets.sp500 = Math.max(baseTargets.sp500, Math.min(actualWeights.sp500 - 0.06, baseTargets.sp500 + 0.03));
+          nextTargets.nasdaq = baseTargets.nasdaq;
+          fillDefensiveRemainder(nextTargets, baseTargets, 0.12, 0.08);
+          label = "标普超配且高位：回收部分大盘权益利润";
+          actionType = "riskRecycle";
+        } else if (qqq <= -0.4) {
+          nextTargets.nasdaq = Math.max(nextTargets.nasdaq, 0.5);
+          nextTargets.bond = Math.max(0.05, Math.min(nextTargets.bond, 0.08));
+          nextTargets.gold = Math.max(0.05, Math.min(nextTargets.gold, 0.07));
+          nextTargets.sp500 = Math.max(0, 1 - nextTargets.nasdaq - nextTargets.bond - nextTargets.gold);
+          label = "纳指深跌：第三档进攻，仍保留防守资产";
+          actionType = "offensiveRebalance";
+        } else if (qqq <= -0.35) {
+          const add = Math.max(0, 0.42 - nextTargets.nasdaq);
+          nextTargets.nasdaq += add;
+          reduceDefensive(nextTargets, add, 0.08, 0.05);
+          label = "纳指大跌：第二档进攻，分批转入纳指";
+          actionType = "offensiveRebalance";
+        } else if (qqq <= -0.25) {
+          const add = Math.max(0, 0.35 - nextTargets.nasdaq);
+          nextTargets.nasdaq += add;
+          reduceDefensive(nextTargets, add, 0.12, 0.07);
+          label = "纳指中大跌：第一档进攻，提高纳指目标";
+          actionType = "offensiveRebalance";
+        } else if (qqq <= -0.15 || spy <= -0.12) {
+          const addNasdaq = strategy === "preservation" ? 0.03 : 0.05;
+          const addSp500 = 0.02;
+          nextTargets.nasdaq += addNasdaq;
+          nextTargets.sp500 += addSp500;
+          reduceDefensive(nextTargets, addNasdaq + addSp500, 0.15, 0.08);
+          label = "中等回撤：权益小幅上调，防守仓轻微让渡";
+          actionType = "offensiveRebalance";
+        } else if (qqq <= -0.08 || spy <= -0.06) {
+          const addNasdaq = strategy === "preservation" ? 0.01 : 0.02;
+          const addSp500 = 0.01;
+          nextTargets.nasdaq += addNasdaq;
+          nextTargets.sp500 += addSp500;
+          reduceDefensive(nextTargets, addNasdaq + addSp500, 0.18, 0.09);
+          label = "小幅回撤：轻微提高本月补仓倾斜";
+          actionType = "buyTilt";
+        } else if (nasdaqOverweight >= 0.05 || sp500Overweight >= 0.05) {
+          label = "权益略有超配但未过热：先减少新增买入，不主动卖出";
+          actionType = "hold";
+        }
+
+        return { label, targets: normalizeTargets(nextTargets), qqq, spy, actionType };
+      }
+
+      async function applyAiAssistTargetsIfNeeded(currentValues) {
+        if (!aiAssistEnabled) return null;
+        const response = await fetch("/api/market-context");
+        latestMarketContext = await response.json();
+        if (!response.ok) throw new Error(latestMarketContext.detail || latestMarketContext.error || "市场信号获取失败");
+
+        const assisted = getAiAssistTargets(latestMarketContext, currentValues);
+        applyTargets(assisted.targets);
+        if (assisted.actionType === "riskRecycle" || assisted.actionType === "offensiveRebalance") {
+          setMode("full");
+        }
+        renderTargetBars();
+        return assisted;
+      }
+
+      function setAiAssistEnabled(enabled) {
+        aiAssistEnabled = enabled;
+        latestMarketContext = enabled ? latestMarketContext : null;
+        if (!enabled) {
+          applyTargets(strategyProfiles[strategy].targets);
+          renderTargetBars();
+        }
       }
 
       function buildAiPrompt(marketContext) {
@@ -766,12 +1113,14 @@
 # Portfolio Data From This App
 当前投资风格：${strategyProfiles[strategy].name}
 当前再平衡模式：${mode === "full" ? "强力再平衡，允许卖出" : "智能补仓，只买不卖"}
+当前持仓总额：${formatCurrency(currentTotal)}
 本月新增现金：${formatCurrency(readPositiveNumber("cash"))}
+计算后总资产参考：${formatCurrency(currentTotal + readPositiveNumber("cash"))}
 
 当前目标比例：
 ${targetTable}
 
-当前持仓：
+当前持仓明细（AI 报告第一张表必须引用这些金额和比例）：
 ${holdingTable}
 
 当前回测摘要：
@@ -782,6 +1131,7 @@ ${backtestSummary}
 可用来源数量：${marketContext?.sourceCount ?? 0}
 最近 30 天有效来源数量：${marketContext?.freshSourceCount ?? 0}
 情报质量警告：${marketContext?.warning || "暂无"}
+重点要求：优先使用东方财富、腾讯证券、新浪财经的行情交叉验证，本地多资产 6M/1Y/3Y 表现摘要，本地 QQQ 回撤计算，东方财富中国国债 ETF 数据。FRED 仅作美国利率背景；不得使用 Yahoo Finance 或 Stooq。
 来源列表：
 ${sourceList || "暂无"}
 
@@ -792,6 +1142,8 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
 - 必须优先使用 Market Intelligence Pack 中的信息，不要编造没有来源的数据。
 - 只允许把最近 14 天内的数据称为“最新”；15-30 天为“近期”；超过 30 天、抓取失败或未知日期的内容只能作为背景，不得支撑高置信度调仓。
 - 如果 Market Intelligence Pack 的最近 30 天有效来源数量为 0，必须把策略结论置信度设为“低”，且只能建议观察或维持，不要建议大幅调仓。
+- 如果关键回撤数据不是东方财富或本地已校验 K 线提供，或者超过 30 天，禁止建议卖出债券/黄金转入纳指。
+- 如果国内多源行情交叉验证显示价格偏差明显，必须建议人工复核，不得触发激进调仓。
 - 如果某类信息缺失，例如券商研报、估值或利率数据缺失，请明确写出“缺失”，并降低置信度。
 - 必须给出“是否调整策略”的明确动作，而不是只做宏观描述。
 - 推荐比例总和必须等于 100%。
@@ -807,8 +1159,10 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
 
         aiRunButton.disabled = true;
         aiRunButton.textContent = "采集情报中";
+        latestAiSuggestedTargets = null;
+        aiApplyTargetsButton.classList.add("hidden");
         aiOutput.classList.remove("hidden");
-        aiOutput.innerHTML = '<p class="text-gray-400">正在抓取利率、估值、盈利预期和机构观点...</p>';
+        aiOutput.innerHTML = '<p class="text-gray-400">正在调用市场情报工具：东方财富 / 腾讯证券 / 新浪财经 / 本地校验K线 / 中国国债ETF / FRED利率背景...</p>';
 
         try {
           const contextResponse = await fetch("/api/market-context");
@@ -830,6 +1184,11 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
           const payload = await response.json();
           if (!response.ok) throw new Error(payload.detail || payload.error || "AI 分析失败");
           aiOutput.innerHTML = renderAiMarkdown(payload.text);
+          latestAiSuggestedTargets = extractSuggestedTargets(payload.text);
+          aiApplyTargetsButton.classList.toggle("hidden", !latestAiSuggestedTargets);
+          if (latestAiSuggestedTargets) {
+            aiApplyTargetsButton.textContent = `一键导入建议比例并自动计算｜${latestAiSuggestedTargets.action}｜${latestAiSuggestedTargets.confidence}`;
+          }
         } catch (error) {
           aiOutput.innerHTML = `<p class="text-red-300">${escapeHtml(error.message)}</p>`;
         } finally {
@@ -1200,7 +1559,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
 
         for (let year = firstTickYear; year <= lastYear; year += yearStep) {
           const x = xForMonth(`${year}-01`);
-          context.strokeStyle = year % 10 === 0 ? "rgba(96, 165, 250, 0.16)" : "rgba(255,255,255,0.06)";
+          context.strokeStyle = year % 10 === 0 ? "rgba(185, 255, 220, 0.14)" : "rgba(255,255,255,0.06)";
           context.beginPath();
           context.moveTo(x, padding.top);
           context.lineTo(x, height - padding.bottom);
@@ -1211,7 +1570,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
         const stressEvents = [
           { month: "2008-09", label: "08 次贷危机", tone: "rgba(248, 113, 113, 0.9)", guide: "rgba(248, 113, 113, 0.42)" },
           { month: "2015-06", label: "15-16 A股异常波动", tone: "rgba(251, 191, 36, 0.92)", guide: "rgba(251, 191, 36, 0.42)" },
-          { month: "2020-03", label: "20 疫情冲击", tone: "rgba(96, 165, 250, 0.92)", guide: "rgba(96, 165, 250, 0.42)" },
+          { month: "2020-03", label: "20 疫情冲击", tone: "rgba(185, 255, 220, 0.86)", guide: "rgba(185, 255, 220, 0.34)" },
           { month: "2022-03", label: "22 加息通胀", tone: "rgba(192, 132, 252, 0.9)", guide: "rgba(192, 132, 252, 0.42)" },
         ].filter((event) => monthTime(event.month) >= firstTime && monthTime(event.month) <= lastTime);
 
@@ -1252,7 +1611,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
         }
 
         drawLine("invested", "rgba(156, 163, 175, 0.88)", "rgba(156, 163, 175, 0.18)");
-        drawLine("value", "rgba(96, 165, 250, 1)", "rgba(96, 165, 250, 0.42)");
+        drawLine("value", "rgba(185, 255, 220, 0.96)", "rgba(185, 255, 220, 0.36)");
 
         if (backtestHoverIndex !== null && rows[backtestHoverIndex]) {
           const row = rows[backtestHoverIndex];
@@ -1260,7 +1619,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
           const valueY = yFor(row.value);
           const investedY = yFor(row.invested);
 
-          context.strokeStyle = "rgba(96, 165, 250, 0.45)";
+          context.strokeStyle = "rgba(185, 255, 220, 0.42)";
           context.setLineDash([4, 4]);
           context.beginPath();
           context.moveTo(x, padding.top);
@@ -1270,7 +1629,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
           context.stroke();
           context.setLineDash([]);
 
-          context.fillStyle = "rgba(96, 165, 250, 1)";
+          context.fillStyle = "rgba(185, 255, 220, 0.95)";
           context.beginPath();
           context.arc(x, valueY, 4, 0, Math.PI * 2);
           context.fill();
@@ -1283,7 +1642,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
 
         context.textAlign = "left";
         context.textBaseline = "alphabetic";
-        context.fillStyle = "rgba(96, 165, 250, 1)";
+        context.fillStyle = "rgba(185, 255, 220, 0.95)";
         context.fillRect(width - 168, 24, 18, 2);
         context.fillText("策略资产", width - 142, 28);
         context.fillStyle = "rgba(156, 163, 175, 0.88)";
@@ -1422,7 +1781,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
             const candle = visible[localIndex];
             const x = xFor(localIndex);
             const y = yFor(candle.close);
-            context.strokeStyle = "rgba(96, 165, 250, 0.5)";
+            context.strokeStyle = "rgba(185, 255, 220, 0.42)";
             context.setLineDash([4, 4]);
             context.beginPath();
             context.moveTo(x, padding.top);
@@ -1561,7 +1920,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
           <p class="mt-1 text-lg text-gray-300">${formatCurrency(newTotal)}</p>
         `;
 
-        summaryMode.textContent = `${strategyProfiles[strategy].name}｜${mode === "smart" ? "智能补仓" : "全面再平衡"}`;
+        summaryMode.textContent = `${strategyProfiles[strategy].name}${aiAssistEnabled ? "+AI智能调仓" : ""}｜${mode === "smart" ? "智能补仓" : "全面再平衡"}`;
         summaryCash.textContent = formatCurrency(cash);
         summaryDrift.textContent = percentFormatter.format(getMaxDeviation(currentValues, cash));
 
@@ -1625,6 +1984,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
       aiSettingsCancel.addEventListener("click", closeAiSettings);
       aiSettingsSave.addEventListener("click", saveAiSettings);
       aiRunButton.addEventListener("click", runAiAnalysis);
+      aiApplyTargetsButton.addEventListener("click", applyAiSuggestedTargets);
       [aiBaseUrl, aiProtocol, aiApiKey, aiModel].forEach((field) => {
         field.addEventListener("input", persistAiSettingsDraft);
         field.addEventListener("change", persistAiSettingsDraft);
@@ -1709,25 +2069,36 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
         renderTargetBars();
       });
 
-      form.addEventListener("submit", (event) => {
-        event.preventDefault();
-
-        resultPanel.classList.remove("result-enter-active");
-
+      async function calculateAndRender({ delay = 120 } = {}) {
         const currentValues = assets.map((asset) => readPositiveNumber(asset.id));
         const cash = readPositiveNumber("cash");
+        resultPanel.classList.remove("result-enter-active");
+
+        try {
+          await applyAiAssistTargetsIfNeeded(currentValues);
+        } catch (error) {
+          console.warn(`智能调仓暂不可用：${error.message}`);
+        }
+
         const results =
           mode === "smart"
             ? calculateSmartBuy(currentValues, cash)
             : calculateFullRebalance(currentValues, cash);
 
-        window.setTimeout(() => renderResults(results, currentValues, cash), 120);
+        window.setTimeout(() => renderResults(results, currentValues, cash), delay);
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await calculateAndRender();
       });
 
       setStrategy("balanced");
       setMode("smart");
       syncAiSettingsForm();
       loadCandles();
+      calculateAndRender({ delay: 0 });
+      runBacktest();
     </script>
   </body>
 </html>

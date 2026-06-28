@@ -110,10 +110,13 @@ export function Market() {
             <HeatmapPretextFlow obstacleRef={heatmapRef} />
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_25%_15%,rgba(138,215,255,0.13),transparent_30%),radial-gradient(circle_at_78%_36%,rgba(255,82,82,0.09),transparent_30%),linear-gradient(to_bottom,rgba(0,0,0,0.10),rgba(0,0,0,0.58))]" />
 
-            <div className="relative z-10 grid gap-4 p-4 lg:grid-cols-[1.55fr_0.75fr] lg:p-5">
-              <div ref={heatmapRef} className="glass-market-panel h-[594px] overflow-hidden rounded-lg border border-white/10 bg-black/44">
+            <div className="relative z-10 grid gap-4 p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_340px] lg:p-5">
+              <div
+                ref={heatmapRef}
+                className="glass-market-panel h-[min(820px,calc(100vh-132px))] min-h-[640px] overflow-hidden rounded-lg border border-white/10 bg-black/44"
+              >
                 <MarketPanelHeader />
-                <div className="relative h-[520px] max-h-[520px] overflow-hidden bg-black">
+                <div className="relative h-[calc(100%-73px)] overflow-hidden bg-black">
                   <div className="absolute inset-0 opacity-100 brightness-[1.02] contrast-[1.06] saturate-[1.1] [mask-image:radial-gradient(ellipse_at_center,black_74%,rgba(0,0,0,0.88)_90%,transparent_100%)]">
                     <TradingViewHeatmap mode="stocks" />
                   </div>
@@ -121,7 +124,7 @@ export function Market() {
                 </div>
               </div>
 
-              <aside className="flex min-h-[600px] flex-col gap-4">
+              <aside className="flex min-h-[520px] flex-col gap-4">
                 <AIAnalystCard />
                 <ActionQueue />
                 <NewsTape compact />

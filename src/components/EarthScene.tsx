@@ -14,6 +14,7 @@ const INERTIA = 0.925;
 const PARALLAX_EASE = 0.1;
 const HOVER_EASE = 0.12;
 const PITCH_LIMIT = THREE.MathUtils.degToRad(26);
+const HIT_SPHERE_RADIUS = 1.54;
 
 function makeStarField(count: number) {
   const positions = new Float32Array(count * 3);
@@ -206,7 +207,7 @@ export function EarthScene() {
     globeRoot.add(innerGlow);
 
     const hitTarget = new THREE.Mesh(
-      new THREE.SphereGeometry(1.54, 64, 64),
+      new THREE.SphereGeometry(HIT_SPHERE_RADIUS, 64, 64),
       new THREE.MeshBasicMaterial({
         transparent: true,
         opacity: 0,
@@ -263,19 +264,28 @@ export function EarthScene() {
       renderer.setSize(width, height, false);
     };
 
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(mount);
+
     const getScrollProgress = () => {
       const vh = Math.max(window.innerHeight, 1);
       return THREE.MathUtils.clamp(window.scrollY / (vh * 0.94), 0, 1);
+    };
+
+    const getLayoutFrame = (ease: number) => {
+      const isNarrow = width < 760;
+      const centerXRatio = isNarrow ? 0.5 : THREE.MathUtils.lerp(0.5, 0.3, ease);
+      const centerYRatio = isNarrow ? THREE.MathUtils.lerp(0.5, 0.46, ease) : THREE.MathUtils.lerp(0.51, 0.54, ease);
+      const radiusRatio = isNarrow ? THREE.MathUtils.lerp(0.31, 0.23, ease) : THREE.MathUtils.lerp(0.39, 0.27, ease);
+
+      return { centerXRatio, centerYRatio, radiusRatio };
     };
 
     const getGlobeScreenBounds = () => {
       const rect = renderer.domElement.getBoundingClientRect();
       const progress = reducedMotion ? 0.78 : getScrollProgress();
       const ease = 1 - Math.pow(1 - progress, 3);
-      const isNarrow = width < 760;
-      const centerXRatio = isNarrow ? 0.5 : THREE.MathUtils.lerp(0.5, 0.3, ease);
-      const centerYRatio = isNarrow ? THREE.MathUtils.lerp(0.5, 0.46, ease) : THREE.MathUtils.lerp(0.51, 0.54, ease);
-      const radiusRatio = isNarrow ? THREE.MathUtils.lerp(0.31, 0.23, ease) : THREE.MathUtils.lerp(0.39, 0.27, ease);
+      const { centerXRatio, centerYRatio, radiusRatio } = getLayoutFrame(ease);
 
       return {
         centerX: rect.left + rect.width * centerXRatio,
@@ -357,11 +367,7 @@ export function EarthScene() {
       const elapsed = clock.getElapsedTime();
       const progress = reducedMotion ? 0.78 : getScrollProgress();
       const ease = 1 - Math.pow(1 - progress, 3);
-      const isNarrow = width < 760;
-
-      const targetX = isNarrow ? 0 : THREE.MathUtils.lerp(0, -1.86, ease);
-      const targetY = isNarrow ? THREE.MathUtils.lerp(0.02, 0.52, ease) : THREE.MathUtils.lerp(-0.03, 0.12, ease);
-      const targetScale = isNarrow ? THREE.MathUtils.lerp(0.82, 0.56, ease) : THREE.MathUtils.lerp(0.9, 0.62, ease);
+      const { centerXRatio, centerYRatio, radiusRatio } = getLayoutFrame(ease);
       const targetCameraZ = THREE.MathUtils.lerp(6.45, 6.9, ease) + zoomOffset;
 
       currentParallax.x += (targetParallax.x - currentParallax.x) * PARALLAX_EASE;
@@ -369,10 +375,17 @@ export function EarthScene() {
       currentHover.x += (targetHover.x - currentHover.x) * HOVER_EASE;
       currentHover.y += (targetHover.y - currentHover.y) * HOVER_EASE;
 
+      camera.position.z += (targetCameraZ - camera.position.z) * 0.06;
+
+      const visibleHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.position.z;
+      const visibleWidth = visibleHeight * camera.aspect;
+      const targetX = (centerXRatio - 0.5) * visibleWidth;
+      const targetY = (0.5 - centerYRatio) * visibleHeight;
+      const targetScale = (Math.min(width, height) * radiusRatio * visibleHeight) / (height * HIT_SPHERE_RADIUS);
+
       root.position.x += (targetX - root.position.x) * 0.075;
       root.position.y += (targetY - root.position.y) * 0.075;
       root.scale.setScalar(root.scale.x + (targetScale - root.scale.x) * 0.075);
-      camera.position.z += (targetCameraZ - camera.position.z) * 0.06;
 
       if (!drag.active) {
         manualRotation.x = THREE.MathUtils.clamp(manualRotation.x + velocity.x, -PITCH_LIMIT, PITCH_LIMIT);
@@ -417,6 +430,7 @@ export function EarthScene() {
 
     return () => {
       window.cancelAnimationFrame(raf);
+      resizeObserver.disconnect();
       window.removeEventListener('resize', resize);
       hitArea.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);

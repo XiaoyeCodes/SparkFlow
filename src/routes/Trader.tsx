@@ -24,13 +24,7 @@ const articleToc = [
   '资本的平均利率：国债、综合资本与权益资产',
   '行为价差：为什么市场赚钱，投资者不赚钱',
   '定投机制：用纪律替代择时幻觉',
-  '标的选择：沪深300、标普500、纳指100'
-];
-
-const targetFunds = [
-  ['沪深300 ETF', '510300', '中国核心资产', '承接人民币资产与中国大型上市公司的长期 beta。'],
-  ['标普500 ETF', 'S&P 500', '美国宽基核心', '覆盖美国大型公司利润池，是全球最重要的权益基准之一。'],
-  ['纳指100 ETF', '513100 / Nasdaq-100', '创新增长暴露', '集中在大型非金融科技与成长型公司，弹性更高、波动也更高。']
+  '全天候策略：动态计算、买卖与再平衡规则'
 ];
 
 const ALL_WEATHER_URL = '/allweather/index.html';
@@ -113,12 +107,22 @@ export function Trader() {
   }, [isWhitepaperOpen]);
 
   const revealRhythm = () => {
-    document.getElementById('dca-rhythm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('dca-rhythm')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   return (
-    <ModuleFrame title="股票 ETF 定投软件" kicker="ETF Research">
+    <ModuleFrame title="" kicker="">
       <div className="space-y-5">
+        <motion.section
+          id="dca-rhythm"
+          className="scroll-mt-24"
+          initial={{ opacity: 0, y: 22 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.78, ease: [0.19, 1, 0.22, 1] }}
+        >
+          <DcaRhythmFlow />
+        </motion.section>
+
         <AllWeatherWorkbench />
 
         <section className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
@@ -196,38 +200,6 @@ export function Trader() {
             </div>
           </motion.aside>
         </section>
-
-        <section className="rounded-lg border border-white/10 bg-[#090a09] p-6">
-          <div className="mb-5 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/34">Selected indexes</p>
-              <h2 className="mt-2 text-3xl font-semibold text-white md:text-4xl">三个标的，各自承担不同角色</h2>
-            </div>
-            <p className="max-w-xl text-sm leading-6 text-white/48">白皮书里会解释为什么不是追热门个股，而是用宽基指数承接长期经济增长、创新红利与区域分散。</p>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-3">
-            {targetFunds.map(([name, ticker, role, body], index) => (
-              <article key={name} className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8ad7ff]/72">{ticker}</p>
-                <h3 className="mt-3 text-2xl font-semibold text-white">{name}</h3>
-                <p className="mt-1 text-sm text-white/38">{role}</p>
-                <p className="mt-5 text-sm leading-7 text-white/54">{body}</p>
-                <div className="mt-5 h-px bg-white/10" />
-                <p className="mt-4 font-mono text-xs text-white/32">0{index + 1} / portfolio role</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <motion.section
-          id="dca-rhythm"
-          className="scroll-mt-24"
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.72, delay: 0.12, ease: [0.19, 1, 0.22, 1] }}
-        >
-          <DcaRhythmFlow />
-        </motion.section>
       </div>
 
       {typeof document !== 'undefined'
@@ -367,27 +339,38 @@ function WhitepaperDialog({ onClose }: { onClose: () => void }) {
               </p>
             </ArticleSection>
 
-            <ArticleSection id="wp-5" eyebrow="Part 05" title="为什么选择沪深300、标普500、纳指100">
+            <ArticleSection id="wp-5" eyebrow="Part 05" title="全天候策略：用动态计算器把定投变成可执行规则">
               <p>
-                ETF 标的选择不应该基于“最近谁涨得猛”，而应该基于资产角色。一个适合长期定投的标的，最好满足几个条件：指数规则透明、成分足够分散、长期有经济基础、费率可控、流动性较好。
+                我的全天候策略不是押注某一个市场方向，而是把组合拆成四个角色：标普 500 承担美国大盘利润池，纳指基金承担科技创新弹性，长期国债承担利率下行和风险收缩时的防守，黄金资产承担通胀、货币信用和极端不确定性的对冲。它的核心目标不是每一年都跑第一，而是在不同宏观环境里都保留继续留在牌桌上的能力。
               </p>
-              <Figure title="三个标的在组合里的角色" caption="示意图：沪深300提供中国权益暴露，标普500提供美国宽基核心，纳指100提供科技与创新增长暴露。">
-                <TargetMatrix />
+              <Figure title="全天候策略的动态计算闭环" caption="工具会读取当前持仓市值、新增现金、目标比例和再平衡模式，输出每类资产应买入、卖出或持有的金额。">
+                <AllWeatherPolicyMap />
               </Figure>
-              <h3>标普 500：美国大盘宽基核心</h3>
+              <h3>为什么这样设计</h3>
               <p>
-                标普 500 是美国最重要的大盘股票指数之一，通常被视为美国大型上市公司整体表现的代表。它采用自由流通市值加权，持有的是美国各行业头部企业的组合。它的意义不是某一家企业，而是一整套美国企业利润池。
-              </p>
-              <h3>纳指 100：科技与创新增长暴露</h3>
-              <p>
-                纳指 100 覆盖纳斯达克上市的 100 家大型非金融公司，科技、互联网、半导体、软件和创新型公司权重更高。它的长期弹性可能更强，但波动、估值敏感度和回撤也通常更大。
-              </p>
-              <h3>沪深 300：人民币资产与中国核心公司</h3>
-              <p>
-                沪深 300 代表 A 股中规模大、流动性较好的核心上市公司。它更适合作为中国权益资产底仓，用来承接中国经济、产业政策和人民币资产的长期变化。
+                标准稳健型配置采用 45% 标普 500、25% 纳指、20% 长期国债、10% 黄金。前 70% 是权益进攻端，用来承接长期资本回报、企业利润增长和科技创新；后 30% 是防守与对冲端，用来降低单一权益市场深度回撤对心态和现金流的破坏。这个比例的含义是：长期收益主要交给优秀企业，组合稳定性则交给债券与黄金。
               </p>
               <p>
-                三者合在一起，并不是为了“押中最强指数”，而是为了让组合同时拥有中国资产、美国宽基和全球科技创新的不同风险来源。定投的任务，是让这些资产在长期现金流里逐步积累，而不是每天判断谁明天会涨。
+                系统还保留了三种可切换风格：保守型更偏国债与黄金，适合现金流不稳、风险承受力较低或临近大额支出的人；稳健型是默认全天候，兼顾增长与回撤控制；激进型提高纳指权重，适合更年轻、现金流更强、能承受高波动的人。自定义模式则允许你手动调参，系统会把比例归一化后再参与计算。
+              </p>
+              <h3>如何操作：先录入，再让系统计算</h3>
+              <p>
+                每次执行前，只需要录入四类资产的当前市值和本月新增定投现金，然后选择投资风格与再平衡模式。工具会先计算当前组合与目标比例之间的偏离，再给出每个资产的目标市值和交易指令。这样做的价值在于：买什么、买多少、是否需要卖出，都由组合规则决定，而不是由当天新闻、涨跌幅或情绪决定。
+              </p>
+              <h3>如何买入：默认使用智能补仓</h3>
+              <p>
+                日常定投建议默认使用“智能补仓，只买不卖”。这个模式会把新增现金分成小步长，优先买入低于目标比例最多的资产。价格下跌、权重被动降低的资产会自然获得更多买入金额；价格上涨、权重已经偏高的资产会少买或不买。它相当于把“低位多买、高位少买”写进算法里，同时避免频繁卖出带来的税费、滑点和心理负担。
+              </p>
+              <h3>如何卖出与再平衡</h3>
+              <p>
+                卖出不应该是日常动作，而应该是风险校准动作。只有当某类资产明显超配、组合最大偏离超过约 6%，或季度/半年度复盘确认风险已经偏离目标时，再切换到“全面再平衡，允许卖出”。全面再平衡会用“当前持仓 + 新增现金”的总资产重新计算目标市值，高于目标的资产卖出，低于目标的资产买入，让组合回到设定比例附近。
+              </p>
+              <h3>推荐执行节奏</h3>
+              <p>
+                更适合普通人的节奏是：每月录入一次持仓与新增现金，执行智能补仓；每季度检查最大偏离、回撤和目标比例是否仍匹配自己的收入稳定性；每半年到一年做一次完整再平衡评估。若最大偏离超过 6%-8%、单一资产因暴涨暴跌显著改变组合风险，或个人现金流、负债、家庭计划发生变化，可以提前复盘。原则上，月度负责买入，季度负责检查，年度负责校准。
+              </p>
+              <p>
+                这套动态计算功能的真正意义，是把投资从“预测市场”改造成“维护系统”。系统告诉你当月最应该补哪里、当前偏离有多大、是否值得强制再平衡；你要做的不是每天猜涨跌，而是持续输入真实持仓，按规则把现金流导入组合，让时间、分散和再平衡一起工作。
               </p>
             </ArticleSection>
 
@@ -437,11 +420,11 @@ function RgSpreadChart() {
         <line key={y} x1="56" x2="670" y1={y} y2={y} stroke="rgba(244,238,225,0.12)" />
       ))}
       <path d="M70 78 C170 74, 250 86, 342 80 S520 70, 650 76" fill="none" stroke="#b9ffdc" strokeWidth="3" />
-      <path d="M70 168 C168 160, 236 184, 326 146 S520 152, 650 158" fill="none" stroke="#8ad7ff" strokeWidth="3" />
-      <path d="M252 154 C292 116, 340 96, 396 96 C448 98, 490 120, 520 150" fill="none" stroke="#ffd27a" strokeWidth="2" strokeDasharray="6 8" />
+      <path d="M70 168 C168 160, 236 184, 326 146 S520 152, 650 158" fill="none" stroke="#d9fae9" strokeWidth="3" opacity="0.82" />
+      <path d="M252 154 C292 116, 340 96, 396 96 C448 98, 490 120, 520 150" fill="none" stroke="#7fd8b3" strokeWidth="2" strokeDasharray="6 8" opacity="0.72" />
       <text x="72" y="42" fill="#f4eee1" fontSize="14" fontWeight="700">长期真实回报率示意</text>
       <text x="565" y="70" fill="#b9ffdc" fontSize="13" fontWeight="700">r: 4%-5%</text>
-      <text x="565" y="176" fill="#8ad7ff" fontSize="13" fontWeight="700">g: 1.5%-2%</text>
+      <text x="565" y="176" fill="#d9fae9" fontSize="13" fontWeight="700">g: 1.5%-2%</text>
       <text x="278" y="216" fill="rgba(244,238,225,0.55)" fontSize="12">1914-1970 附近曾出现罕见反转</text>
     </svg>
   );
@@ -449,9 +432,9 @@ function RgSpreadChart() {
 
 function AssetReturnBars() {
   const bars = [
-    ['国债', 2, '#8ad7ff'],
+    ['国债', 2, '#d9fae9'],
     ['综合资本', 5, '#b9ffdc'],
-    ['权益资产', 7, '#ffd27a']
+    ['权益资产', 7, '#7fd8b3']
   ] as const;
 
   return (
@@ -479,12 +462,12 @@ function BehaviorGapChart() {
     <svg className="h-[250px] w-full" viewBox="0 0 720 250" aria-label="behavior gap chart">
       <rect width="720" height="250" rx="8" fill="#f4eee1" />
       <path d="M80 178 C170 90, 260 132, 350 74 S540 94, 650 48" fill="none" stroke="#171715" strokeWidth="2.5" />
-      <path d="M80 178 C172 150, 232 204, 320 156 S510 176, 650 128" fill="none" stroke="#d15b45" strokeWidth="2.5" />
-      <path d="M514 92 V128" stroke="#d15b45" strokeWidth="2" strokeDasharray="4 6" />
+      <path d="M80 178 C172 150, 232 204, 320 156 S510 176, 650 128" fill="none" stroke="#7fd8b3" strokeWidth="2.5" opacity="0.82" />
+      <path d="M514 92 V128" stroke="#7fd8b3" strokeWidth="2" strokeDasharray="4 6" opacity="0.76" />
       <text x="86" y="44" fill="#171715" fontSize="15" fontWeight="800">市场收益与投资者收益之间的行为价差</text>
       <text x="548" y="52" fill="#171715" fontSize="13" fontWeight="700">市场</text>
-      <text x="548" y="142" fill="#d15b45" fontSize="13" fontWeight="700">普通投资者</text>
-      <text x="524" y="114" fill="#d15b45" fontSize="12">Gap</text>
+      <text x="548" y="142" fill="#2e986f" fontSize="13" fontWeight="700">普通投资者</text>
+      <text x="524" y="114" fill="#2e986f" fontSize="12">Gap</text>
     </svg>
   );
 }
@@ -505,7 +488,7 @@ function BestDaysChart() {
         const x = 124 + index * 180;
         return (
           <g key={label}>
-            <rect x={x} y={190 - height} width="86" height={height} rx="5" fill={index === 0 ? '#b9ffdc' : index === 1 ? '#ffd27a' : '#d15b45'} />
+            <rect x={x} y={190 - height} width="86" height={height} rx="5" fill={index === 0 ? '#b9ffdc' : index === 1 ? '#7fd8b3' : '#2e986f'} />
             <text x={x + 43} y={220} textAnchor="middle" fill="#f4eee1" fontSize="13" fontWeight="700">{label}</text>
             <text x={x + 43} y={176 - height} textAnchor="middle" fill="#f4eee1" fontSize="16" fontWeight="800">{value}%</text>
           </g>
@@ -524,7 +507,7 @@ function DcaDiagram() {
       {[90, 170, 250, 330, 410, 490, 570, 650].map((x, index) => (
         <g key={x}>
           <line x1={x} y1="52" x2={x} y2="196" stroke="rgba(0,0,0,0.12)" />
-          <circle cx={x} cy={index % 2 ? 154 : 116} r={index % 2 ? 8 : 5} fill={index % 2 ? '#b9ffdc' : '#8ad7ff'} stroke="#171715" />
+          <circle cx={x} cy={index % 2 ? 154 : 116} r={index % 2 ? 8 : 5} fill={index % 2 ? '#b9ffdc' : '#d9fae9'} stroke="#171715" />
         </g>
       ))}
       <text x="70" y="40" fill="#171715" fontSize="15" fontWeight="800">固定金额买入，份额随价格自动变化</text>
@@ -533,21 +516,36 @@ function DcaDiagram() {
   );
 }
 
-function TargetMatrix() {
+function AllWeatherPolicyMap() {
+  const assets = [
+    { name: '标普500', weight: '45%', role: '宽基利润池', x: 120, y: 82 },
+    { name: '纳指基金', weight: '25%', role: '创新弹性', x: 300, y: 82 },
+    { name: '长期国债', weight: '20%', role: '防守缓冲', x: 120, y: 178 },
+    { name: '黄金资产', weight: '10%', role: '极端对冲', x: 300, y: 178 }
+  ] as const;
+
   return (
-    <svg className="h-[280px] w-full" viewBox="0 0 720 280" aria-label="target matrix">
-      <rect width="720" height="280" rx="8" fill="#0d0e0c" />
-      <line x1="110" x2="640" y1="210" y2="210" stroke="rgba(244,238,225,0.2)" />
-      <line x1="110" x2="110" y1="54" y2="210" stroke="rgba(244,238,225,0.2)" />
-      <text x="112" y="36" fill="#f4eee1" fontSize="14" fontWeight="800">组合角色：区域分散 × 增长弹性</text>
-      <text x="498" y="238" fill="rgba(244,238,225,0.55)" fontSize="12">增长弹性</text>
-      <text x="42" y="78" fill="rgba(244,238,225,0.55)" fontSize="12" transform="rotate(-90 42 78)">波动 / 风险</text>
-      <circle cx="210" cy="152" r="34" fill="rgba(185,255,220,0.18)" stroke="#b9ffdc" />
-      <text x="210" y="157" textAnchor="middle" fill="#f4eee1" fontSize="12" fontWeight="800">沪深300</text>
-      <circle cx="360" cy="132" r="38" fill="rgba(138,215,255,0.18)" stroke="#8ad7ff" />
-      <text x="360" y="137" textAnchor="middle" fill="#f4eee1" fontSize="12" fontWeight="800">标普500</text>
-      <circle cx="520" cy="92" r="42" fill="rgba(255,210,122,0.18)" stroke="#ffd27a" />
-      <text x="520" y="97" textAnchor="middle" fill="#f4eee1" fontSize="12" fontWeight="800">纳指100</text>
+    <svg className="h-[300px] w-full" viewBox="0 0 720 300" aria-label="all weather strategy calculation loop">
+      <rect width="720" height="300" rx="8" fill="#0d0e0c" />
+      <rect x="28" y="28" width="420" height="224" rx="14" fill="rgba(185,255,220,0.04)" stroke="rgba(185,255,220,0.18)" />
+      {assets.map((asset) => (
+        <g key={asset.name}>
+          <rect x={asset.x} y={asset.y} width="142" height="62" rx="10" fill="rgba(217,250,233,0.06)" stroke="rgba(185,255,220,0.34)" />
+          <text x={asset.x + 16} y={asset.y + 24} fill="#f4eee1" fontSize="14" fontWeight="800">{asset.name}</text>
+          <text x={asset.x + 16} y={asset.y + 45} fill="#b9ffdc" fontSize="12" fontWeight="700">{asset.weight} / {asset.role}</text>
+        </g>
+      ))}
+      <path d="M448 140 C486 140, 498 140, 526 140" fill="none" stroke="#b9ffdc" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M516 130 L532 140 L516 150" fill="none" stroke="#b9ffdc" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="536" y="58" width="146" height="164" rx="16" fill="rgba(185,255,220,0.08)" stroke="#b9ffdc" />
+      <text x="609" y="88" textAnchor="middle" fill="#f4eee1" fontSize="14" fontWeight="800">动态计算器</text>
+      <line x1="560" x2="658" y1="104" y2="104" stroke="rgba(244,238,225,0.16)" />
+      <text x="560" y="130" fill="rgba(244,238,225,0.72)" fontSize="12">01 当前市值</text>
+      <text x="560" y="154" fill="rgba(244,238,225,0.72)" fontSize="12">02 新增现金</text>
+      <text x="560" y="178" fill="rgba(244,238,225,0.72)" fontSize="12">03 最大偏离</text>
+      <text x="560" y="202" fill="#b9ffdc" fontSize="12" fontWeight="700">输出买入 / 卖出 / 持有</text>
+      <path d="M104 252 C198 286, 356 286, 582 236" fill="none" stroke="rgba(185,255,220,0.52)" strokeWidth="2" strokeDasharray="7 9" />
+      <text x="68" y="274" fill="rgba(244,238,225,0.58)" fontSize="12">每月智能补仓，季度检查偏离，半年到一年评估强制再平衡。</text>
     </svg>
   );
 }

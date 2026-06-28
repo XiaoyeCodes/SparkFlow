@@ -1,9 +1,14 @@
 import { ArrowUpRight } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { gateways } from '../data/content';
+import { preloadTradingViewHeatmap } from './TradingViewHeatmap';
 
 export function Shell({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    preloadTradingViewHeatmap();
+  }, []);
+
   return (
     <div className="min-h-screen bg-black text-ink">
       <header className="fixed inset-x-0 top-0 z-50 h-[var(--nav-height)] border-b border-white/10 bg-black/45 backdrop-blur-2xl">
@@ -21,6 +26,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="hidden items-center gap-1 md:flex">
             <NavLink
               to="/market"
+              onFocus={preloadTradingViewHeatmap}
+              onPointerEnter={preloadTradingViewHeatmap}
               className={({ isActive }) =>
                 [
                   'rounded-full px-3 py-2 text-xs font-medium text-white/52 transition hover:text-white',

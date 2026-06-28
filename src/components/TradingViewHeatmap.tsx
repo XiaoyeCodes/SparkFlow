@@ -3,6 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 type HeatmapMode = 'stocks' | 'etfs';
 
+const HEATMAP_SCRIPT_URL = 'https://s3.tradingview.com/external-embedding/embed-widget-stock-heatmap.js';
+let heatmapWarmupStarted = false;
+let heatmapParkingLot: HTMLDivElement | null = null;
+const parkedHeatmaps: Partial<Record<HeatmapMode, HTMLDivElement>> = {};
+
 const heatmapConfig: Record<HeatmapMode, Record<string, unknown>> = {
   stocks: {
     dataSource: 'SPX500',
@@ -37,8 +42,103 @@ const heatmapConfig: Record<HeatmapMode, Record<string, unknown>> = {
   }
 };
 
+function getHeatmapParkingLot() {
+  if (heatmapParkingLot) return heatmapParkingLot;
+
+  heatmapParkingLot = document.createElement('div');
+  heatmapParkingLot.setAttribute('aria-hidden', 'true');
+  heatmapParkingLot.style.cssText =
+    'position:absolute;left:-10000px;top:0;width:1px;height:1px;overflow:hidden;visibility:hidden;pointer-events:none;';
+  document.body.appendChild(heatmapParkingLot);
+
+  return heatmapParkingLot;
+}
+
+function parkHeatmap(mode: HeatmapMode, mount: HTMLDivElement | null) {
+  if (!mount) return;
+
+  parkedHeatmaps[mode] = mount;
+  getHeatmapParkingLot().appendChild(mount);
+}
+
+function createHeatmapMount(mode: HeatmapMode, onReady: () => void, onError: () => void) {
+  const mount = document.createElement('div');
+  mount.className = 'tradingview-widget-container h-full max-h-full w-full overflow-hidden';
+
+  const widget = document.createElement('div');
+  widget.className = 'tradingview-widget-container__widget h-full w-full';
+
+  const copyright = document.createElement('div');
+  copyright.className = 'tradingview-widget-copyright sr-only';
+
+  const script = document.createElement('script');
+  script.src = HEATMAP_SCRIPT_URL;
+  script.type = 'text/javascript';
+  script.async = true;
+  script.innerHTML = JSON.stringify(heatmapConfig[mode]);
+  script.onload = onReady;
+  script.onerror = onError;
+
+  mount.appendChild(widget);
+  mount.appendChild(copyright);
+  mount.appendChild(script);
+
+  return mount;
+}
+
+export function preloadTradingViewHeatmap() {
+  if (typeof document === 'undefined' || heatmapWarmupStarted) return;
+
+  heatmapWarmupStarted = true;
+
+  const preconnect = document.createElement('link');
+  preconnect.rel = 'preconnect';
+  preconnect.href = 'https://s3.tradingview.com';
+  preconnect.crossOrigin = 'anonymous';
+  document.head.appendChild(preconnect);
+
+  const dnsPrefetch = document.createElement('link');
+  dnsPrefetch.rel = 'dns-prefetch';
+  dnsPrefetch.href = 'https://s3.tradingview.com';
+  document.head.appendChild(dnsPrefetch);
+
+  const preload = document.createElement('link');
+  preload.rel = 'preload';
+  preload.as = 'script';
+  preload.href = HEATMAP_SCRIPT_URL;
+  document.head.appendChild(preload);
+
+  const warmup = () => {
+    const holder = document.createElement('div');
+    holder.className = 'tradingview-widget-container';
+    holder.setAttribute('aria-hidden', 'true');
+    holder.style.cssText =
+      'position:absolute;left:-10000px;top:0;width:960px;height:540px;overflow:hidden;visibility:hidden;pointer-events:none;';
+
+    const widget = document.createElement('div');
+    widget.className = 'tradingview-widget-container__widget h-full w-full';
+
+    const script = document.createElement('script');
+    script.src = HEATMAP_SCRIPT_URL;
+    script.type = 'text/javascript';
+    script.async = true;
+    script.innerHTML = JSON.stringify(heatmapConfig.stocks);
+
+    holder.appendChild(widget);
+    holder.appendChild(script);
+    document.body.appendChild(holder);
+  };
+
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(warmup, { timeout: 2200 });
+  } else {
+    globalThis.setTimeout(warmup, 900);
+  }
+}
+
 export function TradingViewHeatmap({ mode }: { mode: HeatmapMode }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const activeMountRef = useRef<HTMLDivElement | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'slow'>('loading');
   const loadedAt = useMemo(
@@ -55,6 +155,7 @@ export function TradingViewHeatmap({ mode }: { mode: HeatmapMode }) {
     const container = containerRef.current;
     if (!container) return;
 
+    preloadTradingViewHeatmap();
     container.innerHTML = '';
     setLoadState('loading');
 
@@ -67,29 +168,34 @@ export function TradingViewHeatmap({ mode }: { mode: HeatmapMode }) {
       if (!liveContainer) return;
 
       liveContainer.innerHTML = '';
-      const widget = document.createElement('div');
-      widget.className = 'tradingview-widget-container__widget h-full w-full';
+      if (reloadKey > 0) {
+        parkedHeatmaps[mode]?.remove();
+        delete parkedHeatmaps[mode];
+      }
 
-      const copyright = document.createElement('div');
-      copyright.className = 'tradingview-widget-copyright sr-only';
+      const cachedMount = parkedHeatmaps[mode];
+      const mount =
+        cachedMount ??
+        createHeatmapMount(
+          mode,
+          () => setLoadState('ready'),
+          () => setLoadState('slow')
+        );
 
-      const script = document.createElement('script');
-      script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-stock-heatmap.js';
-      script.type = 'text/javascript';
-      script.async = true;
-      script.innerHTML = JSON.stringify(heatmapConfig[mode]);
-      script.onload = () => setLoadState('ready');
-      script.onerror = () => setLoadState('slow');
+      delete parkedHeatmaps[mode];
+      activeMountRef.current = mount;
+      liveContainer.appendChild(mount);
 
-      liveContainer.appendChild(widget);
-      liveContainer.appendChild(copyright);
-      liveContainer.appendChild(script);
+      if (cachedMount) {
+        setLoadState('ready');
+      }
     }, 0);
 
     return () => {
       window.clearTimeout(mountTimer);
       window.clearTimeout(slowTimer);
-      container.innerHTML = '';
+      parkHeatmap(mode, activeMountRef.current);
+      activeMountRef.current = null;
     };
   }, [mode, reloadKey]);
 
