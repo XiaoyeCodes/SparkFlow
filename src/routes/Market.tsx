@@ -16,7 +16,7 @@ const marketNews = [
   {
     source: 'Reuters',
     time: '11 min',
-    title: 'Healthcare drifts lower before policy headlines and trial readouts.',
+    title: '医药板块在政策消息和临床读数前小幅走弱。',
     impact: 'Healthcare',
     read: '防御板块没有形成有效避险，短线更像行业内部事件驱动。'
   },

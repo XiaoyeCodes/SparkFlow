@@ -1,17 +1,65 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
-import { Bot, BrainCircuit, MessageSquareText, Paperclip, SendHorizontal, WandSparkles } from 'lucide-react';
+import { Bot, BrainCircuit, Loader2, MessageSquareText, Paperclip, SendHorizontal, WandSparkles } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { BorderGlow } from '../components/BorderGlow';
 import { PageTransition } from '../components/PageTransition';
 import { Strands } from '../components/Strands';
+import { buildAiPayload, loadIntegrationSettings } from '../lib/integrations';
 
 const assistantCards: Array<[string, string, LucideIcon]> = [
   ['对话中枢', '把临时想法、问题和任务先收进一个清晰的工作流。', MessageSquareText],
-  ['知识接线', '后续可以连接 Obsidian，把笔记、主题和双链变成可检索上下文。', BrainCircuit],
+  ['知识接线', '连接 Obsidian 后，可以把笔记、主题和双链变成可检索上下文。', BrainCircuit],
   ['行动编排', '把新闻、星图情报和项目计划整理成下一步可执行动作。', WandSparkles]
 ];
 
+type AssistantRouteState = {
+  starmapContext?: string;
+};
+
 export function Assistant() {
+  const location = useLocation();
+  const routeState = location.state as AssistantRouteState | null;
+  const [prompt, setPrompt] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (routeState?.starmapContext) {
+      setPrompt(`请基于这份星图情报，帮我拆成可执行的下一步：\n\n${routeState.starmapContext}`);
+    }
+  }, [routeState?.starmapContext]);
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!prompt.trim()) return;
+    const settings = loadIntegrationSettings();
+    if (!settings.ai.apiKey || !settings.ai.model) {
+      setError('请先从右上角头像菜单进入“设置”，填写 AI API Key 和模型。');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setAnswer('');
+    try {
+      const response = await fetch('/api/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildAiPayload(settings, prompt))
+      });
+      const payload = (await response.json()) as { text?: string; detail?: string };
+      if (!response.ok) throw new Error(payload.detail || 'AI 请求失败');
+      setAnswer(payload.text || '');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <PageTransition>
       <section className="relative min-h-[calc(100vh-var(--nav-height))] overflow-hidden bg-black text-white">
@@ -84,7 +132,6 @@ export function Assistant() {
             transition={{ duration: 0.52, delay: 0.24, ease: [0.19, 1, 0.22, 1] }}
           >
             <BorderGlow
-              animated
               edgeSensitivity={1}
               glowColor="40 80 80"
               backgroundColor="rgba(18, 15, 23, 0.82)"
@@ -93,10 +140,11 @@ export function Assistant() {
               glowIntensity={2.1}
               coneSpread={25}
               fillOpacity={0.42}
+              effectsEnabled={false}
               colors={['#c084fc', '#f472b6', '#38bdf8']}
               className="assistant-input-glow"
             >
-              <form className="flex min-h-[76px] items-center gap-3 px-4 py-3 md:px-5">
+              <form onSubmit={submit} className="flex min-h-[96px] items-center gap-3 px-4 py-3 md:px-5">
                 <button
                   type="button"
                   className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.045] text-white/54 transition hover:border-white/22 hover:text-white"
@@ -104,20 +152,34 @@ export function Assistant() {
                 >
                   <Paperclip size={17} strokeWidth={1.8} />
                 </button>
-                <input
-                  className="h-11 min-w-0 flex-1 bg-transparent text-sm font-medium text-white outline-none placeholder:text-white/36"
+                <textarea
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  className="min-h-16 min-w-0 flex-1 resize-none bg-transparent py-2 text-sm font-medium leading-6 text-white outline-none placeholder:text-white/36"
                   placeholder="把问题、链接或一段想法交给 AI 助手..."
                   aria-label="AI助手输入"
                 />
                 <button
                   type="submit"
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-black transition hover:scale-[1.03] hover:bg-[#e9f7ff]"
+                  disabled={loading}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-black transition hover:scale-[1.03] hover:bg-[#e9f7ff] disabled:cursor-wait disabled:opacity-70"
                   aria-label="发送"
                 >
-                  <SendHorizontal size={18} strokeWidth={1.9} />
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : <SendHorizontal size={18} strokeWidth={1.9} />}
                 </button>
               </form>
             </BorderGlow>
+
+            {error ? <p className="mt-3 rounded-md border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100/78">{error}</p> : null}
+            {answer ? (
+              <motion.div
+                className="mt-4 rounded-lg border border-[#8ad7ff]/16 bg-[#8ad7ff]/[0.055] p-5"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <p className="whitespace-pre-wrap text-sm leading-7 text-white/72">{answer}</p>
+              </motion.div>
+            ) : null}
           </motion.div>
 
           <div className="pointer-events-none mt-auto pt-6 text-center font-mono text-[10px] uppercase leading-6 tracking-[0.18em] text-white/28">

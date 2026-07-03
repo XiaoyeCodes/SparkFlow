@@ -1,8 +1,8 @@
-import { ArrowUpRight } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { gateways } from '../data/content';
 import { preloadTradingViewHeatmap } from './TradingViewHeatmap';
+import { UserMenu } from './UserMenu';
 
 export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -52,13 +52,7 @@ export function Shell({ children }: { children: ReactNode }) {
               </NavLink>
             ))}
           </div>
-          <Link
-            to="/signals"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/5 text-white/70 transition hover:border-white/24 hover:text-white"
-            aria-label="Open live signals"
-          >
-            <ArrowUpRight size={16} strokeWidth={1.8} />
-          </Link>
+          <UserMenu />
         </nav>
       </header>
       <main>{children}</main>

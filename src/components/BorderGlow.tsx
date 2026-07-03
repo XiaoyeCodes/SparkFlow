@@ -13,6 +13,7 @@ type BorderGlowProps = {
   glowIntensity?: number;
   coneSpread?: number;
   animated?: boolean;
+  effectsEnabled?: boolean;
   colors?: string[];
   fillOpacity?: number;
 };
@@ -119,6 +120,7 @@ export function BorderGlow({
   glowIntensity = 1,
   coneSpread = 25,
   animated = false,
+  effectsEnabled = true,
   colors = ['#c084fc', '#f472b6', '#38bdf8'],
   fillOpacity = 0.5
 }: BorderGlowProps) {
@@ -157,7 +159,7 @@ export function BorderGlow({
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const card = cardRef.current;
-      if (!card) return;
+      if (!effectsEnabled || !card) return;
 
       const rect = card.getBoundingClientRect();
       const x = event.clientX - rect.left;
@@ -168,11 +170,11 @@ export function BorderGlow({
       card.style.setProperty('--edge-proximity', `${(edge * 100).toFixed(3)}`);
       card.style.setProperty('--cursor-angle', `${angle.toFixed(3)}deg`);
     },
-    [getCursorAngle, getEdgeProximity]
+    [effectsEnabled, getCursorAngle, getEdgeProximity]
   );
 
   useEffect(() => {
-    if (!animated || !cardRef.current) return undefined;
+    if (!animated || !effectsEnabled || !cardRef.current) return undefined;
 
     const card = cardRef.current;
     const angleStart = 110;
@@ -216,7 +218,7 @@ export function BorderGlow({
       cleanups.forEach((cleanup) => cleanup());
       card.classList.remove('sweep-active');
     };
-  }, [animated]);
+  }, [animated, effectsEnabled]);
 
   const style = {
     '--card-bg': backgroundColor,
@@ -230,8 +232,13 @@ export function BorderGlow({
   } as CSSProperties;
 
   return (
-    <div ref={cardRef} onPointerMove={handlePointerMove} className={`border-glow-card ${className}`} style={style}>
-      <span className="edge-light" />
+    <div
+      ref={cardRef}
+      onPointerMove={effectsEnabled ? handlePointerMove : undefined}
+      className={`border-glow-card ${effectsEnabled ? '' : 'border-glow-static'} ${className}`}
+      style={style}
+    >
+      {effectsEnabled ? <span className="edge-light" /> : null}
       <div className="border-glow-inner">{children}</div>
     </div>
   );

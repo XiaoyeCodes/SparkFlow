@@ -120,6 +120,11 @@
     0 0 50px 2px var(--glow-color-10, hsl(40deg 80% 80% / 10%));
 }
 
+.border-glow-card.border-glow-static::before,
+.border-glow-card.border-glow-static::after {
+  display: none;
+}
+
 .border-glow-inner {
   position: relative;
   z-index: 1;

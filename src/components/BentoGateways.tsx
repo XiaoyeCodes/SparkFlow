@@ -42,6 +42,7 @@ export function BentoGateways() {
               </div>
               <div className="relative mt-auto w-full">
                 {gateway.path === '/trader' ? <MiniNavLine /> : null}
+                {gateway.path === '/hyperspeed' ? <HyperspeedGlyph /> : null}
                 {gateway.path === '/signals' ? <SignalBars /> : null}
                 {gateway.path === '/stack' ? <BookGlyph /> : null}
                 {gateway.path === '/artifacts' ? <ArtifactGlyph /> : null}
@@ -53,6 +54,26 @@ export function BentoGateways() {
         );
       })}
     </section>
+  );
+}
+
+function HyperspeedGlyph() {
+  return (
+    <div className="relative h-24 overflow-hidden text-[#8ad7ff]/70" aria-hidden="true">
+      <div className="absolute left-1/2 top-3 h-20 w-px -translate-x-1/2 bg-white/18" />
+      {[0, 1, 2, 3, 4, 5].map((item) => (
+        <span
+          key={item}
+          className="absolute top-1/2 h-px origin-left bg-current shadow-[0_0_18px_currentColor]"
+          style={{
+            left: `${12 + item * 13}%`,
+            width: `${34 + item * 8}%`,
+            transform: `rotate(${item % 2 ? 15 : -15}deg)`,
+            opacity: 0.28 + item * 0.08
+          }}
+        />
+      ))}
+    </div>
   );
 }
 

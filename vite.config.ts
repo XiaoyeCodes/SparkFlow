@@ -1,10 +1,14 @@
 import react from '@vitejs/plugin-react';
 import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { ProxyAgent } from 'undici';
 import { defineConfig, type ViteDevServer } from 'vite';
 
 const rootDir = process.cwd();
 const allWeatherDataDir = path.join(rootDir, 'public', 'allweather', 'data');
+const foreignProxyUrl = 'http://127.0.0.1:7890';
+const foreignProxyAgent = new ProxyAgent(foreignProxyUrl);
 
 type MarketSource = {
   label: string;
@@ -38,6 +42,38 @@ type AssetSignal = {
   drawdownFromPeak: number;
   maxDrawdown3y: number;
   vol1y: number;
+};
+
+type FetchRoute = 'direct' | 'proxy';
+type NewsCategory = 'tech' | 'finance' | 'society' | 'livelihood' | 'world';
+
+type NewsItem = {
+  id: string;
+  title: string;
+  url: string;
+  source: string;
+  category: NewsCategory;
+  categoryLabel: string;
+  origin: 'domestic' | 'foreign';
+  route: FetchRoute;
+  publishedAt?: string;
+  summary?: string;
+  heat: number;
+  importance: number;
+  recency: number;
+  weight: number;
+  weightLabel: string;
+};
+
+type NewsSourceConfig = {
+  id: string;
+  label: string;
+  category: NewsCategory;
+  sourceWeight: number;
+  origin: 'domestic' | 'foreign';
+  route: FetchRoute;
+  url: string;
+  kind: 'rss';
 };
 
 function sendJson(res: ViteDevServer['middlewares'] extends infer _ ? any : never, status: number, payload: unknown) {
@@ -79,6 +115,224 @@ async function fetchText(url: string, timeoutMs = 9000) {
 async function fetchJson(url: string, timeoutMs = 9000) {
   const text = await fetchText(url, timeoutMs);
   return JSON.parse(text);
+}
+
+async function fetchRoutedText(url: string, route: FetchRoute, timeoutMs = 12000, accept = 'application/rss+xml,application/xml,text/xml,text/plain,*/*') {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const init: RequestInit & { dispatcher?: any } = {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'SparkFlow/1.0 local intelligence console',
+        Accept: accept,
+      },
+    };
+    if (route === 'proxy') init.dispatcher = foreignProxyAgent;
+    const response = await fetch(url, init);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function decodeXml(value = '') {
+  return value
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+}
+
+function stripTags(value = '') {
+  return decodeXml(value)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function pickXml(block: string, tag: string) {
+  const match = block.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return match ? decodeXml(match[1]).trim() : '';
+}
+
+function parseDate(value?: string) {
+  if (!value) return undefined;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
+}
+
+const categoryLabels: Record<NewsCategory, string> = {
+  tech: '科技 / AI',
+  finance: '金融 / 商业',
+  society: '社会',
+  livelihood: '民生 / 政策',
+  world: '国际'
+};
+
+const impactKeywords = [
+  '央行',
+  '美联储',
+  '利率',
+  '财政',
+  '监管',
+  '证监会',
+  '国务院',
+  '政策',
+  'IPO',
+  '并购',
+  '融资',
+  'AI',
+  '人工智能',
+  '芯片',
+  '半导体',
+  '算力',
+  '数据中心',
+  '机器人',
+  '就业',
+  '医保',
+  '教育',
+  '住房',
+  '养老',
+  '安全',
+  '隐私',
+  '战争',
+  '制裁'
+];
+
+const newsSources: NewsSourceConfig[] = [
+  { id: 'ithome', label: 'IT之家', category: 'tech', sourceWeight: 66, origin: 'domestic', route: 'direct', url: 'https://www.ithome.com/rss/', kind: 'rss' },
+  { id: '36kr', label: '36氪', category: 'finance', sourceWeight: 68, origin: 'domestic', route: 'direct', url: 'https://36kr.com/feed', kind: 'rss' },
+  { id: 'huxiu', label: '虎嗅', category: 'tech', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://rss.huxiu.com/', kind: 'rss' },
+  { id: 'wallstreetcn', label: '华尔街见闻', category: 'finance', sourceWeight: 78, origin: 'domestic', route: 'direct', url: 'https://dedicated.wallstreetcn.com/rss.xml', kind: 'rss' },
+  { id: 'chinanews-finance', label: '中新财经', category: 'finance', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/finance.xml', kind: 'rss' },
+  { id: 'gov-cn', label: '中国政府网', category: 'livelihood', sourceWeight: 86, origin: 'domestic', route: 'direct', url: 'https://www.gov.cn/pushinfo/v150203/rss.xml', kind: 'rss' },
+  { id: 'chinanews-society', label: '中新社会', category: 'society', sourceWeight: 66, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/society.xml', kind: 'rss' },
+  { id: 'chinanews-world', label: '中新国际', category: 'world', sourceWeight: 68, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/world.xml', kind: 'rss' },
+];
+
+function clampScore(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getRecencyScore(publishedAt?: string) {
+  if (!publishedAt) return 42;
+  const ageHours = Math.max(0, (Date.now() - new Date(publishedAt).getTime()) / 3600000);
+  if (!Number.isFinite(ageHours)) return 42;
+  return clampScore(100 * Math.exp(-ageHours / 36));
+}
+
+function getKeywordScore(title: string, summary = '') {
+  const text = `${title} ${summary}`.toLowerCase();
+  const hits = impactKeywords.filter((keyword) => text.includes(keyword.toLowerCase())).length;
+  return clampScore(Math.min(100, hits * 14));
+}
+
+function getWeightLabel(weight: number) {
+  if (weight >= 78) return '高优先';
+  if (weight >= 58) return '值得看';
+  if (weight >= 38) return '观察';
+  return '低噪';
+}
+
+function enrichNewsItem(
+  item: Omit<NewsItem, 'category' | 'categoryLabel' | 'heat' | 'importance' | 'recency' | 'weight' | 'weightLabel'>,
+  source: NewsSourceConfig,
+  heat = 0
+): NewsItem {
+  const recency = getRecencyScore(item.publishedAt);
+  const keywordScore = getKeywordScore(item.title, item.summary);
+  const importance = clampScore(source.sourceWeight * 0.58 + keywordScore * 0.42);
+  const heatScore = clampScore(heat);
+  const weight = clampScore(recency * 0.35 + importance * 0.45 + heatScore * 0.2);
+
+  return {
+    ...item,
+    category: source.category,
+    categoryLabel: categoryLabels[source.category],
+    heat: heatScore,
+    importance,
+    recency,
+    weight,
+    weightLabel: getWeightLabel(weight)
+  };
+}
+
+function parseRssItems(xml: string, source: NewsSourceConfig): NewsItem[] {
+  const blocks = xml.match(/<item[\s\S]*?<\/item>|<entry[\s\S]*?<\/entry>/gi) || [];
+  return blocks.slice(0, 12).map((block, index) => {
+    const title = stripTags(pickXml(block, 'title')) || `${source.label} #${index + 1}`;
+    const linkFromTag = pickXml(block, 'link');
+    const hrefMatch = block.match(/<link[^>]+href=["']([^"']+)["']/i);
+    const link = decodeXml(hrefMatch?.[1] || linkFromTag).trim();
+    const summary = stripTags(pickXml(block, 'description') || pickXml(block, 'summary') || pickXml(block, 'content:encoded'));
+    const publishedAt = parseDate(pickXml(block, 'pubDate') || pickXml(block, 'published') || pickXml(block, 'updated'));
+
+    return enrichNewsItem(
+      {
+        id: `${source.id}-${index}-${title}`,
+        title,
+        url: link || source.url,
+        source: source.label,
+        origin: source.origin,
+        route: source.route,
+        publishedAt,
+        summary: summary.slice(0, 180)
+      },
+      source
+    );
+  });
+}
+
+async function fetchNewsSource(source: NewsSourceConfig) {
+  const xml = await fetchRoutedText(source.url, source.route);
+  return parseRssItems(xml, source);
+}
+
+async function getNewsFeed() {
+  const settled = await Promise.allSettled(newsSources.map(fetchNewsSource));
+  const sourceResults = settled.map((result, index) => {
+    const source = newsSources[index];
+    return {
+      id: source.id,
+      label: source.label,
+      category: source.category,
+      categoryLabel: categoryLabels[source.category],
+      origin: source.origin,
+      route: source.route,
+      proxy: source.route === 'proxy' ? foreignProxyUrl : undefined,
+      ok: result.status === 'fulfilled',
+      count: result.status === 'fulfilled' ? result.value.length : 0,
+      error: result.status === 'rejected' ? (result.reason instanceof Error ? result.reason.message : String(result.reason)) : undefined,
+    };
+  });
+  const allItems = settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
+  const items = allItems
+    .sort((a, b) => b.weight - a.weight || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())
+    .slice(0, 80);
+  const categories = Object.entries(categoryLabels).map(([id, label]) => {
+    const scoped = allItems.filter((item) => item.category === id);
+    const topWeight = scoped.reduce((max, item) => Math.max(max, item.weight), 0);
+    return {
+      id,
+      label,
+      count: scoped.length,
+      topWeight,
+      averageWeight: scoped.length ? Math.round(scoped.reduce((sum, item) => sum + item.weight, 0) / scoped.length) : 0
+    };
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    proxy: foreignProxyUrl,
+    categories,
+    sources: sourceResults,
+    items,
+  };
 }
 
 function getAgeDays(dateString?: string) {
@@ -468,11 +722,13 @@ async function getMarketContext() {
 }
 
 async function callAiAnalysis(body: {
+  provider?: string;
   baseUrl?: string;
   protocol?: string;
   apiKey?: string;
   model?: string;
   prompt?: string;
+  useProxy?: boolean;
 }) {
   if (!body.baseUrl || !body.apiKey || !body.model || !body.prompt) {
     throw new Error('缺少 baseUrl、apiKey、model 或 prompt');
@@ -493,14 +749,16 @@ async function callAiAnalysis(body: {
           temperature: 0.2,
         };
 
-  const response = await fetch(endpoint, {
+  const init: RequestInit & { dispatcher?: any } = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${body.apiKey}`,
     },
     body: JSON.stringify(requestBody),
-  });
+  };
+  if (body.useProxy) init.dispatcher = foreignProxyAgent;
+  const response = await fetch(endpoint, init);
   const payload = (await response.json().catch(() => ({}))) as any;
   if (!response.ok) {
     throw new Error(payload?.error?.message || payload?.message || `AI 接口返回 HTTP ${response.status}`);
@@ -520,6 +778,93 @@ async function callAiAnalysis(body: {
   return payload.choices?.[0]?.message?.content || '模型没有返回文本。';
 }
 
+const aiProviderDefaults: Record<string, { label: string; baseUrl: string; protocol: 'chat' | 'responses'; useProxy: boolean }> = {
+  openai: {
+    label: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    protocol: 'chat',
+    useProxy: true,
+  },
+  zhipu: {
+    label: '智谱',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    protocol: 'chat',
+    useProxy: false,
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com',
+    protocol: 'chat',
+    useProxy: false,
+  },
+  qwen: {
+    label: '通义千问',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    protocol: 'chat',
+    useProxy: false,
+  },
+  custom: {
+    label: '自定义',
+    baseUrl: '',
+    protocol: 'chat',
+    useProxy: false,
+  },
+};
+
+function getAiRequestBody(body: any) {
+  const provider = String(body.provider || 'openai');
+  const defaults = aiProviderDefaults[provider] || aiProviderDefaults.custom;
+  return {
+    provider,
+    baseUrl: String(body.baseUrl || defaults.baseUrl),
+    protocol: body.protocol === 'responses' ? 'responses' : defaults.protocol,
+    apiKey: String(body.apiKey || ''),
+    model: String(body.model || ''),
+    prompt: String(body.prompt || ''),
+    useProxy: typeof body.useProxy === 'boolean' ? body.useProxy : defaults.useProxy,
+  };
+}
+
+function sanitizeFileName(value: string) {
+  return value
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+}
+
+function getSafeFolder(folder?: string) {
+  return String(folder || '')
+    .split(/[\\/]+/)
+    .map((segment) => sanitizeFileName(segment))
+    .filter(Boolean);
+}
+
+async function writeObsidianNote(body: { vaultPath?: string; folder?: string; title?: string; markdown?: string }) {
+  if (!body.vaultPath || !body.markdown) {
+    throw new Error('缺少 Obsidian vaultPath 或 markdown');
+  }
+
+  const vaultRoot = path.resolve(String(body.vaultPath));
+  if (!existsSync(vaultRoot)) {
+    throw new Error(`Obsidian vault 不存在：${vaultRoot}`);
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+  const title = sanitizeFileName(body.title || `星图情报 ${date}`) || `星图情报 ${date}`;
+  const folderParts = getSafeFolder(body.folder);
+  const targetDir = path.resolve(vaultRoot, ...folderParts);
+  const targetPath = path.resolve(targetDir, `${date} ${title}.md`);
+  const relative = path.relative(vaultRoot, targetPath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('Obsidian 写入路径必须位于 vault 内');
+  }
+
+  await mkdir(targetDir, { recursive: true });
+  await writeFile(targetPath, body.markdown, 'utf8');
+  return { path: targetPath, relativePath: relative };
+}
+
 function allWeatherApiPlugin() {
   return {
     name: 'sparkflow-allweather-api',
@@ -529,6 +874,11 @@ function allWeatherApiPlugin() {
           const url = new URL(req.url || '/', 'http://127.0.0.1');
           if (url.pathname === '/api/market-context') {
             sendJson(res, 200, await getMarketContext());
+            return;
+          }
+
+          if (url.pathname === '/api/news-feed') {
+            sendJson(res, 200, await getNewsFeed());
             return;
           }
 
@@ -547,6 +897,18 @@ function allWeatherApiPlugin() {
           if (url.pathname === '/api/ai-analysis' && req.method === 'POST') {
             const body = JSON.parse(await getRequestBody(req));
             sendJson(res, 200, { text: await callAiAnalysis(body) });
+            return;
+          }
+
+          if (url.pathname === '/api/ai-chat' && req.method === 'POST') {
+            const body = getAiRequestBody(JSON.parse(await getRequestBody(req)));
+            sendJson(res, 200, { text: await callAiAnalysis(body), provider: body.provider, model: body.model });
+            return;
+          }
+
+          if (url.pathname === '/api/obsidian-note' && req.method === 'POST') {
+            const body = JSON.parse(await getRequestBody(req));
+            sendJson(res, 200, await writeObsidianNote(body));
             return;
           }
         } catch (error) {

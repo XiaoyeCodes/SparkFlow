@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { BookOpenText, Bot, Boxes, ChartNoAxesCombined, Newspaper, Orbit, PenLine, Radar } from 'lucide-react';
+import { BookOpenText, Bot, Boxes, ChartNoAxesCombined, Newspaper, Orbit, PenLine, Radar, Zap } from 'lucide-react';
 
 export type Gateway = {
   title: string;
@@ -14,6 +14,7 @@ export const gateways: Gateway[] = [
   { title: 'AI助手', path: '/assistant', eyebrow: 'ASSISTANT', Icon: Bot, tone: 'white' },
   { title: '星图情报', path: '/starmap', eyebrow: 'INTEL MAP', Icon: Radar, tone: 'blue' },
   { title: '星河航道', path: '/galaxy', eyebrow: 'GALAXY', Icon: Orbit, tone: 'silver' },
+  { title: '极速通道', path: '/hyperspeed', eyebrow: 'HYPERSPEED', Icon: Zap, tone: 'blue' },
   { title: '股票ETF定投软件', path: '/trader', eyebrow: 'ETF CORE', Icon: ChartNoAxesCombined, tone: 'green' },
   { title: '推荐书籍', path: '/stack', eyebrow: 'READING', Icon: BookOpenText, tone: 'warm' },
   { title: '个人项目集', path: '/artifacts', eyebrow: 'SHIPPED', Icon: Boxes, tone: 'silver' },
@@ -24,18 +25,18 @@ export const textFlowCorpus = [
   '夜色里有低亮度的新闻字符慢慢下沉，像一条安静的电流。',
   '市场在开盘前调整呼吸，净值曲线把风险和耐心同时折成线。',
   '写作是一种把噪声清洗成秩序的方式。',
-  'SparkFlow keeps signals sparse, deliberate, and alive.',
+  'SparkFlow 让信号保持克制、清晰，并且始终贴近行动。',
   '从新闻到投资，从阅读到项目，每一条流都应该先经过判断，再进入行动。',
-  'The interface disappears. The thinking remains visible.',
+  '界面退到后面，判断留在眼前。',
   'LUMENARY 把灵感、事实、资产与作品放进同一个冷静的流场。'
 ].join('   ');
 
 export const signals = [
-  ['08:30:12', 'AI infrastructure demand keeps cloud capex elevated across large platforms.'],
-  ['08:37:44', 'Asia session liquidity stays thin while semiconductor names lead futures.'],
-  ['08:51:09', 'Policy desks watch long-end yields after the latest inflation print.'],
-  ['09:02:31', 'Energy complex softens as supply headlines outrun realized demand.'],
-  ['09:20:58', 'ETF flows remain concentrated in broad-market and dividend strategies.']
+  ['08:30:12', 'AI 基础设施需求仍在抬高大型平台的云资本开支。'],
+  ['08:37:44', '亚洲时段流动性偏薄，半导体板块继续牵引期货表现。'],
+  ['08:51:09', '政策交易员关注通胀数据后的长端收益率变化。'],
+  ['09:02:31', '能源板块走弱，供应端消息暂时压过真实需求。'],
+  ['09:20:58', 'ETF 资金仍集中流向宽基与红利策略。']
 ];
 
 export type BookVisual =

@@ -29,6 +29,7 @@ type GridScanProps = {
   scanDelay?: number;
   enableGyro?: boolean;
   scanOnClick?: boolean;
+  scanTrigger?: number;
   snapBackDelay?: number;
   className?: string;
   style?: React.CSSProperties;
@@ -323,6 +324,7 @@ export function GridScan({
   scanDelay = 2.0,
   enableGyro = false,
   scanOnClick = false,
+  scanTrigger = 0,
   snapBackDelay = 250,
   className,
   style
@@ -369,6 +371,10 @@ export function GridScan({
   const yawScale = THREE.MathUtils.lerp(0.1, 0.28, s);
   const smoothTime = THREE.MathUtils.lerp(0.45, 0.12, s);
   const yBoost = THREE.MathUtils.lerp(1.2, 1.6, s);
+
+  useEffect(() => {
+    if (scanTrigger > 0) pushScan(performance.now() / 1000);
+  }, [scanTrigger]);
 
   useEffect(() => {
     const el = containerRef.current;

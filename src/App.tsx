@@ -12,6 +12,7 @@ import { Market } from './routes/Market';
 import { Starmap } from './routes/Starmap';
 import { GalaxyRoute } from './routes/GalaxyRoute';
 import { Assistant } from './routes/Assistant';
+import { HyperspeedRoute } from './routes/HyperspeedRoute';
 
 export default function App() {
   const location = useLocation();
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/assistant" element={<Assistant />} />
           <Route path="/starmap" element={<Starmap />} />
           <Route path="/galaxy" element={<GalaxyRoute />} />
+          <Route path="/hyperspeed" element={<HyperspeedRoute />} />
           <Route path="/stack" element={<Stack />} />
           <Route path="/artifacts" element={<Artifacts />} />
           <Route path="/logs" element={<Logs />} />
