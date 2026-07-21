@@ -1,0 +1,143 @@
+Metadata-Version: 2.4
+Name: vibe-trading-ai
+Version: 0.1.11
+Summary: Natural-language finance research AI agent with backtesting
+Author-email: HKUDS <hkuds@connect.hku.hk>
+License-Expression: MIT
+Project-URL: Homepage, https://vibetrading.wiki/
+Project-URL: Documentation, https://vibetrading.wiki/docs/
+Project-URL: Repository, https://github.com/HKUDS/Vibe-Trading
+Project-URL: Issues, https://github.com/HKUDS/Vibe-Trading/issues
+Keywords: finance,trading,backtesting,agent,swarm,quantitative
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Financial and Insurance Industry
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Office/Business :: Financial :: Investment
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+License-File: NOTICE
+Requires-Dist: rich>=13.0.0
+Requires-Dist: pyyaml>=6.0.0
+Requires-Dist: langchain<2,>=1.3.9
+Requires-Dist: langchain-core<2,>=1.0.0
+Requires-Dist: langchain-openai<2,>=1.0.0
+Requires-Dist: langgraph<1.3,>=1.2.5
+Requires-Dist: langgraph-checkpoint<5,>=2.1.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: httpx>=0.28.0
+Requires-Dist: defusedxml>=0.7.1
+Requires-Dist: oauth-cli-kit>=0.1.3
+Requires-Dist: pandas<3.0.0,>=2.0.0
+Requires-Dist: openpyxl>=3.1.0
+Requires-Dist: python-docx>=1.1.0
+Requires-Dist: python-pptx>=0.6.23
+Requires-Dist: pypdfium2>=4.0.0
+Requires-Dist: Pillow>=12.2.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: scipy>=1.10.0
+Requires-Dist: bottleneck>=1.3.7
+Requires-Dist: duckdb>=1.2.0
+Requires-Dist: scikit-learn>=1.3.0
+Requires-Dist: joblib>=1.3.0
+Requires-Dist: smartmoneyconcepts>=0.0.27
+Requires-Dist: tushare>=1.2.89
+Requires-Dist: requests>=2.31.0
+Requires-Dist: yfinance>=0.2.30
+Requires-Dist: akshare>=1.12.0
+Requires-Dist: ccxt>=4.0.0
+Requires-Dist: fastapi>=0.104.0
+Requires-Dist: uvicorn[standard]>=0.24.0
+Requires-Dist: websockets>=12.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: python-multipart>=0.0.18
+Requires-Dist: sse-starlette>=1.6.0
+Requires-Dist: fastmcp>=2.14.0
+Requires-Dist: ddgs>=6.0.0
+Requires-Dist: jinja2>=3.1.0
+Requires-Dist: matplotlib>=3.7.0
+Requires-Dist: weasyprint>=60.0
+Requires-Dist: prompt_toolkit>=3.0.0
+Provides-Extra: ibkr
+Requires-Dist: ib_async>=2.0; extra == "ibkr"
+Provides-Extra: deepseek
+Requires-Dist: langchain-deepseek<2,>=1.0.0; extra == "deepseek"
+Provides-Extra: ashare
+Requires-Dist: baostock>=0.8.8; extra == "ashare"
+Provides-Extra: harmonic
+Requires-Dist: pyharmonics>=1.5.0; extra == "harmonic"
+Provides-Extra: dingtalk
+Requires-Dist: dingtalk-stream>=0.24.0; extra == "dingtalk"
+Provides-Extra: discord
+Requires-Dist: discord.py>=2.4.0; extra == "discord"
+Provides-Extra: feishu
+Requires-Dist: lark-oapi>=1.4.0; extra == "feishu"
+Requires-Dist: qrcode>=7.4.2; extra == "feishu"
+Provides-Extra: matrix
+Requires-Dist: aiohttp>=3.9.0; extra == "matrix"
+Requires-Dist: matrix-nio[e2e]>=0.25.0; extra == "matrix"
+Requires-Dist: mistune>=3.0.0; extra == "matrix"
+Requires-Dist: nh3>=0.2.18; extra == "matrix"
+Provides-Extra: mochat
+Requires-Dist: msgpack>=1.0.0; extra == "mochat"
+Requires-Dist: python-socketio[asyncio_client]>=5.11.0; extra == "mochat"
+Provides-Extra: msteams
+Requires-Dist: cryptography>=42.0.0; extra == "msteams"
+Requires-Dist: PyJWT[crypto]>=2.8.0; extra == "msteams"
+Provides-Extra: napcat
+Requires-Dist: aiohttp>=3.9.0; extra == "napcat"
+Requires-Dist: websockets>=12.0; extra == "napcat"
+Provides-Extra: qq
+Requires-Dist: aiohttp>=3.9.0; extra == "qq"
+Requires-Dist: qq-botpy>=1.2.0; extra == "qq"
+Provides-Extra: slack
+Requires-Dist: slack-sdk>=3.33.0; extra == "slack"
+Requires-Dist: slackify-markdown>=4.4.0; extra == "slack"
+Provides-Extra: telegram
+Requires-Dist: python-telegram-bot>=21.0; extra == "telegram"
+Provides-Extra: wecom
+Requires-Dist: wecom-aibot-sdk>=1.0.0; extra == "wecom"
+Provides-Extra: weixin
+Requires-Dist: qrcode>=7.4.2; extra == "weixin"
+Provides-Extra: whatsapp
+Requires-Dist: neonize>=0.3.18.post0; extra == "whatsapp"
+Provides-Extra: channels
+Requires-Dist: aiohttp>=3.9.0; extra == "channels"
+Requires-Dist: cryptography>=42.0.0; extra == "channels"
+Requires-Dist: dingtalk-stream>=0.24.0; extra == "channels"
+Requires-Dist: discord.py>=2.4.0; extra == "channels"
+Requires-Dist: lark-oapi>=1.4.0; extra == "channels"
+Requires-Dist: matrix-nio[e2e]>=0.25.0; extra == "channels"
+Requires-Dist: mistune>=3.0.0; extra == "channels"
+Requires-Dist: msgpack>=1.0.0; extra == "channels"
+Requires-Dist: neonize>=0.3.18.post0; extra == "channels"
+Requires-Dist: nh3>=0.2.18; extra == "channels"
+Requires-Dist: PyJWT[crypto]>=2.8.0; extra == "channels"
+Requires-Dist: python-socketio[asyncio_client]>=5.11.0; extra == "channels"
+Requires-Dist: python-telegram-bot>=21.0; extra == "channels"
+Requires-Dist: qrcode>=7.4.2; extra == "channels"
+Requires-Dist: qq-botpy>=1.2.0; extra == "channels"
+Requires-Dist: slack-sdk>=3.33.0; extra == "channels"
+Requires-Dist: slackify-markdown>=4.4.0; extra == "channels"
+Requires-Dist: websockets>=12.0; extra == "channels"
+Requires-Dist: wecom-aibot-sdk>=1.0.0; extra == "channels"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0; extra == "dev"
+Requires-Dist: pytest-socket>=0.7.0; extra == "dev"
+Dynamic: license-file
+
+# Bundled Vibe-Trading Runtime
+
+SparkFlow vendors the Vibe-Trading research backend here so a repository clone
+does not depend on a separate checkout elsewhere on the computer.
+
+The source is derived from HKUDS/Vibe-Trading and remains available under the
+MIT License. See `LICENSE` and `NOTICE` in this directory. SparkFlow excludes
+the upstream frontend, tests, generated assets, local credentials, logs, runs,
+and session data.
+
+The first SparkFlow start creates `services/vibe-trading/.venv` and installs
+this package in editable mode. Runtime credentials are written only to the
+ignored `agent/.env` file through the local settings API.

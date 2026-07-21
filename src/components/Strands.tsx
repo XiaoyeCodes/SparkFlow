@@ -108,7 +108,9 @@ void main() {
   uv /= max(uScale, 0.0001);
 
   float e = 0.06 + uIntensity * 0.94;
-  float env = pow(max(cos(uv.x * PI * 1.3), 0.0), uTaper);
+  float envelopeX = clamp(uv.x * PI * 1.3, -PI * 0.5, PI * 0.5);
+  float centerMask = 1.0 - smoothstep(0.36, 0.54, abs(uv.x));
+  float env = pow(max(cos(envelopeX), 0.0), uTaper) * centerMask;
 
   vec3 col = vec3(0.0);
 

@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "research:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-vibe-trading.ps1",
+    "predev": "npm run research:setup",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1"
@@ -18,7 +20,9 @@
     "postprocessing": "^6.39.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.30.1",
+    "remark-gfm": "^4.0.1",
     "three": "^0.184.0",
     "undici": "^6.21.3"
   },

@@ -69,6 +69,104 @@ button {
   text-wrap: balance;
 }
 
+.research-markdown > :first-child {
+  margin-top: 0;
+}
+
+.research-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.research-markdown h1,
+.research-markdown h2,
+.research-markdown h3,
+.research-markdown h4 {
+  margin: 1.8em 0 0.65em;
+  color: #f8fafc;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.research-markdown h1 {
+  font-size: 1.75rem;
+}
+
+.research-markdown h2 {
+  font-size: 1.35rem;
+}
+
+.research-markdown h3 {
+  font-size: 1.08rem;
+}
+
+.research-markdown p,
+.research-markdown ul,
+.research-markdown ol,
+.research-markdown blockquote,
+.research-markdown pre {
+  margin: 0.9em 0;
+}
+
+.research-markdown ul,
+.research-markdown ol {
+  padding-left: 1.4rem;
+}
+
+.research-markdown ul {
+  list-style: disc;
+}
+
+.research-markdown ol {
+  list-style: decimal;
+}
+
+.research-markdown li {
+  margin: 0.35em 0;
+  padding-left: 0.2rem;
+}
+
+.research-markdown strong {
+  color: #ffffff;
+  font-weight: 650;
+}
+
+.research-markdown blockquote {
+  border-left: 3px solid rgba(138, 215, 255, 0.42);
+  padding: 0.15rem 0 0.15rem 1rem;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.research-markdown code {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.12rem 0.32rem;
+  color: #bae6fd;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.research-markdown pre {
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: #0c0d10;
+  padding: 1rem;
+}
+
+.research-markdown pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.research-markdown hr {
+  margin: 1.8rem 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 .hero-logo-fusion {
   position: relative;
   isolation: isolate;

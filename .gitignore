@@ -6,3 +6,10 @@ dist
 *.tsbuildinfo
 node_modules/.tmp
 .sparkflow/
+services/vibe-trading/.venv/
+services/vibe-trading/agent/.env
+services/vibe-trading/agent/.env.*.tmp
+services/vibe-trading/agent/runs/
+services/vibe-trading/agent/sessions/
+services/vibe-trading/agent/uploads/
+services/vibe-trading/agent/.ui_runtime/

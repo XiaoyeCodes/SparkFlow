@@ -1,327 +1,695 @@
-import { useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, ArrowUpRight, BrainCircuit, FileText, Quote, Sparkles, Target, Waves } from 'lucide-react';
-import { HeatmapPretextFlow } from '../components/HeatmapPretextFlow';
+import {
+  Activity,
+  ArrowUpRight,
+  BrainCircuit,
+  CheckCircle2,
+  Database,
+  FileText,
+  LoaderCircle,
+  RefreshCw,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  TriangleAlert,
+} from 'lucide-react';
 import { PageTransition } from '../components/PageTransition';
 import { TradingViewHeatmap } from '../components/TradingViewHeatmap';
+import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 
-const marketNews = [
-  {
-    source: 'Bloomberg',
-    time: '3 min',
-    title: 'Semiconductor breadth improves as AI capex names regain leadership.',
-    impact: 'AI / Chips',
-    read: '算力链仍在吸收资金，若扩散到软件与电力设备，风险偏好可继续上移。'
-  },
-  {
-    source: 'Reuters',
-    time: '11 min',
-    title: '医药板块在政策消息和临床读数前小幅走弱。',
-    impact: 'Healthcare',
-    read: '防御板块没有形成有效避险，短线更像行业内部事件驱动。'
-  },
-  {
-    source: 'WSJ',
-    time: '22 min',
-    title: 'Treasury yields hold range while megacap growth absorbs fresh inflows.',
-    impact: 'Rates',
-    read: '利率尚未破坏成长股估值叙事，但需要盯住长端收益率。'
-  }
-];
+type MarketIndexSnapshot = {
+  id: string;
+  code: string;
+  name: string;
+  region: 'CN' | 'HK' | 'US';
+  price: number;
+  change: number;
+  changePercent: number;
+  turnover?: number;
+  advancers?: number;
+  decliners?: number;
+  flat?: number;
+  updatedAt?: string;
+  sourceUrl: string;
+  validation: {
+    status: 'verified' | 'review' | 'single-source';
+    source: string;
+    price?: number;
+    deviationPercent?: number;
+  };
+};
 
-const aiBullets = [
-  ['AI 主力延续', 'NVDA 与软件链路仍是资金主线', '做多'],
-  ['医疗短线承压', 'PFE 与防御板块波动扩大', '回避'],
-  ['能源不弱', 'XOM/CVX 维持高位但缺少扩散', '观察'],
-  ['等待宏观确认', 'PCE 与收益率决定风格切换', '关注']
-];
+type SectorPulse = {
+  code: string;
+  name: string;
+  changePercent: number;
+  mainNetInflow: number;
+  mainNetRatio: number;
+};
 
-const researchCards = [
-  ['Core Thesis', '市场不是全面风险偏好，而是 AI 算力与少数高质量现金流资产在集中定价。'],
-  ['Evidence', '热力图显示科技权重仍然贡献主要宽度，医疗与部分消费板块拖累指数内部质量。'],
-  ['Action', '优先观察半导体、软件、电力设备的联动；回避单点事件驱动的弱势防御股。']
-];
+type ResearchReport = {
+  id: string;
+  title: string;
+  stockCode: string;
+  stockName: string;
+  institution: string;
+  analysts: string;
+  publishedAt?: string;
+  rating: string;
+  industry: string;
+  epsThisYear?: number;
+  epsNextYear?: number;
+  url: string;
+};
 
-const investorPrinciples = [
-  {
-    name: 'Warren Buffett',
-    label: '估值与耐心',
-    quote: '别人贪婪时恐惧，别人恐惧时贪婪。',
-    lesson: '市场热度越高，越要回到企业质量、现金流和安全边际；恐慌时不要被价格波动夺走判断。'
-  },
-  {
-    name: 'Charlie Munger',
-    label: '反向思考',
-    quote: '反过来想，总是反过来想。',
-    lesson: '先问什么会毁掉这笔交易：高估值、坏资产、杠杆、流动性、情绪化加仓。'
-  },
-  {
-    name: 'Ray Dalio',
-    label: '原则与复盘',
-    quote: '痛苦加反思等于进步。',
-    lesson: '亏损不是结论，而是反馈；每一次回撤都要沉淀成可执行的规则。'
-  },
-  {
-    name: 'George Soros',
-    label: '盈亏比',
-    quote: '关键不是对错，而是对时赚多少，错时亏多少。',
-    lesson: '不要为了证明自己正确而持仓；市场确认你错时，先控制下行。'
-  },
-  {
-    name: 'Stanley Druckenmiller',
-    label: '开放与纠错',
-    quote: '保持开放，发现错了就迅速改变想法。',
-    lesson: '不要把观点当身份；热力图和价格一旦证明原假设失效，就先收缩风险，再重新评估。'
-  }
-];
+type ScoreDimension = {
+  id: string;
+  label: string;
+  score: number;
+  weight: number;
+  summary: string;
+  evidence: string[];
+};
+
+type InvestorLens = {
+  id: string;
+  name: string;
+  principle: string;
+  score: number;
+  confidence: '高' | '中' | '低';
+  read: string;
+  watch: string;
+};
+
+type MarketIntelligence = {
+  generatedAt: string;
+  dataMode: 'live' | 'partial' | 'limited';
+  confidence: number;
+  confidenceLabel: string;
+  warning: string;
+  errors: string[];
+  summary: {
+    score: number;
+    scoreLabel: string;
+    stance: string;
+    riskLevel: string;
+    headline: string;
+    disclaimer: string;
+  };
+  indices: MarketIndexSnapshot[];
+  breadth: {
+    advancers: number;
+    decliners: number;
+    flat: number;
+    advanceRatio: number;
+  };
+  sectors: {
+    total: number;
+    sampleSize: number;
+    positiveRatio: number;
+    flowBalance: number;
+    leaders: SectorPulse[];
+    laggards: SectorPulse[];
+  };
+  reports: ResearchReport[];
+  news: NewsItem[];
+  scores: ScoreDimension[];
+  lenses: InvestorLens[];
+  sources: Array<{
+    id: string;
+    label: string;
+    url: string;
+    secondaryUrl?: string;
+    provider: string;
+    ok: boolean;
+    note: string;
+  }>;
+};
+
+type AsyncState = 'idle' | 'loading' | 'success' | 'error';
 
 export function Market() {
-  const heatmapRef = useRef<HTMLDivElement | null>(null);
+  const [data, setData] = useState<MarketIntelligence | null>(null);
+  const [loadState, setLoadState] = useState<AsyncState>('loading');
+  const [error, setError] = useState('');
+  const [aiState, setAiState] = useState<AsyncState>('idle');
+  const [aiRead, setAiRead] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
+
+  const loadMarket = useCallback(async () => {
+    setLoadState('loading');
+    setError('');
+    try {
+      const response = await fetch('/api/market-intelligence');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || payload.error || '市场情报接口不可用');
+      setData(payload as MarketIntelligence);
+      setLoadState('success');
+    } catch (requestError) {
+      setLoadState('error');
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMarket();
+  }, [loadMarket]);
+
+  const latestAt = useMemo(() => {
+    if (!data) return '--';
+    return new Intl.DateTimeFormat('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(data.generatedAt));
+  }, [data]);
+
+  const runAiAnalysis = async () => {
+    if (!data) return;
+    const settings = loadIntegrationSettings();
+    if (!settings.ai.apiKey || !settings.ai.model) {
+      setActionMessage('请先在右上角头像 → 设置中填写 AI API Key 和模型。');
+      return;
+    }
+    setAiState('loading');
+    setActionMessage('');
+    try {
+      const response = await fetch('/api/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildAiPayload(settings, buildMarketPrompt(data))),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || payload.error || 'AI 分析失败');
+      setAiRead(String(payload.text || '模型没有返回文本。'));
+      setAiState('success');
+    } catch (requestError) {
+      setAiState('error');
+      setActionMessage(requestError instanceof Error ? requestError.message : String(requestError));
+    }
+  };
+
+  const saveToObsidian = async () => {
+    if (!data) return;
+    const settings = loadIntegrationSettings();
+    if (!settings.obsidian.vaultPath) {
+      setActionMessage('请先在右上角头像 → 设置中填写 Obsidian 仓库路径。');
+      return;
+    }
+    setActionMessage('正在写入 Obsidian…');
+    try {
+      const response = await fetch('/api/obsidian-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vaultPath: settings.obsidian.vaultPath,
+          folder: settings.obsidian.folder,
+          title: 'MarketLens 市场情报',
+          markdown: buildMarketMarkdown(data, aiRead),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || payload.error || '写入失败');
+      setActionMessage(`已写入 Obsidian：${payload.relativePath}`);
+    } catch (requestError) {
+      setActionMessage(requestError instanceof Error ? requestError.message : String(requestError));
+    }
+  };
 
   return (
     <PageTransition>
-      <section className="min-h-screen bg-black px-4 pb-10 pt-[calc(var(--nav-height)+24px)] text-white md:px-8">
+      <section className="min-h-screen bg-black px-4 pb-12 pt-[calc(var(--nav-height)+24px)] text-white md:px-8">
         <div className="mx-auto w-full max-w-7xl">
-          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <header className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-[#8ad7ff]/62">Equity Research Desk</p>
-              <h1 className="text-5xl font-semibold leading-[0.94] md:text-7xl">MarketLens</h1>
+              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#8ad7ff]/68">
+                <Database size={14} />
+                可核验市场研究台
+              </div>
+              <h1 className="text-4xl font-semibold leading-none md:text-6xl">MarketLens</h1>
+              <p className="mt-3 text-sm text-white/46">实时行情、中文新闻、板块资金与券商研报的综合研判</p>
             </div>
-            <div className="grid grid-cols-3 gap-2 rounded-full border border-white/10 bg-white/[0.045] p-1 backdrop-blur-2xl">
-              {[
-                ['S&P 500', '+0.42%'],
-                ['Nasdaq', '+0.68%'],
-                ['VIX', '17.4']
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-full px-3 py-2 text-center">
-                  <p className="text-[10px] uppercase text-white/36">{label}</p>
-                  <p className="mt-0.5 text-xs font-semibold text-white">{value}</p>
-                </div>
-              ))}
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill data={data} loadState={loadState} latestAt={latestAt} />
+              <IconButton label="刷新真实数据" onClick={() => void loadMarket()} disabled={loadState === 'loading'}>
+                <RefreshCw size={16} className={loadState === 'loading' ? 'animate-spin' : ''} />
+              </IconButton>
+              <IconButton label="写入 Obsidian" onClick={() => void saveToObsidian()} disabled={!data}>
+                <Save size={16} />
+              </IconButton>
             </div>
-          </div>
+          </header>
 
-          <motion.div
-            className="relative overflow-hidden rounded-lg border border-white/10 bg-[#050506] shadow-[0_0_110px_rgba(138,215,255,0.08)]"
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55, ease: [0.19, 1, 0.22, 1] }}
-          >
-            <HeatmapPretextFlow obstacleRef={heatmapRef} />
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_25%_15%,rgba(138,215,255,0.13),transparent_30%),radial-gradient(circle_at_78%_36%,rgba(255,82,82,0.09),transparent_30%),linear-gradient(to_bottom,rgba(0,0,0,0.10),rgba(0,0,0,0.58))]" />
+          {error ? <ErrorPanel message={error} onRetry={() => void loadMarket()} /> : null}
+          {actionMessage ? (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-[#ffd27a]/20 bg-[#ffd27a]/8 px-4 py-3 text-sm text-[#ffe2a8]">
+              <TriangleAlert className="mt-0.5 shrink-0" size={15} />
+              <span>{actionMessage}</span>
+            </div>
+          ) : null}
 
-            <div className="relative z-10 grid gap-4 p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_340px] lg:p-5">
-              <div
-                ref={heatmapRef}
-                className="glass-market-panel h-[min(820px,calc(100vh-132px))] min-h-[640px] overflow-hidden rounded-lg border border-white/10 bg-black/44"
-              >
-                <MarketPanelHeader />
-                <div className="relative h-[calc(100%-73px)] overflow-hidden bg-black">
-                  <div className="absolute inset-0 opacity-100 brightness-[1.02] contrast-[1.06] saturate-[1.1] [mask-image:radial-gradient(ellipse_at_center,black_74%,rgba(0,0,0,0.88)_90%,transparent_100%)]">
-                    <TradingViewHeatmap mode="stocks" />
-                  </div>
-                  <FluidHeatOverlay />
-                </div>
+          {data ? (
+            <motion.div
+              className="relative overflow-hidden rounded-lg border border-white/10 bg-[#050506] shadow-[0_20px_90px_rgba(0,0,0,0.5)]"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.48 }}
+            >
+              <div className="relative z-10 border-b border-white/10 p-3 sm:p-4 lg:p-5">
+                <IndexStrip indices={data.indices} />
               </div>
 
-              <aside className="flex min-h-[520px] flex-col gap-4">
-                <AIAnalystCard />
-                <ActionQueue />
-                <NewsTape compact />
-              </aside>
-            </div>
+              <div className="relative z-10 grid gap-4 p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_350px] lg:p-5">
+                <div className="h-[min(660px,70vh)] min-h-[520px] overflow-hidden rounded-lg border border-white/10 bg-black">
+                  <MarketPanelHeader data={data} />
+                  <div className="h-[calc(100%-73px)]">
+                    <TradingViewHeatmap mode="stocks" />
+                  </div>
+                </div>
+                <aside className="order-first grid content-start gap-4 xl:order-none">
+                  <ScoreCard data={data} onAnalyze={() => void runAiAnalysis()} aiState={aiState} />
+                  <BreadthCard data={data} />
+                </aside>
+              </div>
 
-            <ResearchDesk />
-          </motion.div>
+              <div className="relative z-10 border-t border-white/10 p-4 lg:p-5">
+                {data.warning ? (
+                  <div className="mb-4 flex items-start gap-2 rounded-lg border border-[#ffd27a]/16 bg-[#ffd27a]/6 px-4 py-3 text-xs leading-5 text-[#ffe2a8]/80">
+                    <TriangleAlert className="mt-0.5 shrink-0" size={14} />
+                    <span>{data.warning} {data.errors.join('；')}</span>
+                  </div>
+                ) : null}
+                <ScoreBreakdown scores={data.scores} />
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  <SectorBoard title="资金流入前列" items={data.sectors.leaders} mode="leader" />
+                  <SectorBoard title="资金流出前列" items={data.sectors.laggards} mode="laggard" />
+                </div>
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  <NewsBoard items={data.news} />
+                  <ResearchBoard items={data.reports} />
+                </div>
+                <InvestorLensBoard lenses={data.lenses} />
+                {aiRead ? <AiAnalysisPanel text={aiRead} /> : null}
+                <SourceBoard sources={data.sources} disclaimer={data.summary.disclaimer} />
+              </div>
+            </motion.div>
+          ) : loadState === 'loading' ? <LoadingPanel /> : null}
         </div>
       </section>
     </PageTransition>
   );
 }
 
-function MarketPanelHeader() {
+function StatusPill({ data, loadState, latestAt }: { data: MarketIntelligence | null; loadState: AsyncState; latestAt: string }) {
+  const live = data?.dataMode === 'live';
   return (
-    <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.055] px-5 py-4 backdrop-blur-2xl">
-      <div className="flex items-center gap-3">
-        <span className="h-2.5 w-2.5 rounded-full bg-[#8ad7ff] shadow-[0_0_22px_rgba(138,215,255,0.8)]" />
-        <div>
-          <p className="text-sm font-semibold">标普500 市场热力图</p>
-          <p className="mt-1 text-xs text-white/42">TradingView live market breadth</p>
+    <div className="inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] px-3 text-xs text-white/54">
+      <span className={`h-2 w-2 rounded-full ${live ? 'bg-[#75e6b1]' : 'bg-[#ffd27a]'}`} />
+      {loadState === 'loading' ? '正在更新' : `${live ? '实时' : '部分在线'} · ${latestAt}`}
+    </div>
+  );
+}
+
+function IconButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.045] text-white/60 transition hover:border-[#8ad7ff]/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
+  return (
+    <div className="grid grid-flow-col auto-cols-[148px] grid-cols-none gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid-flow-row sm:auto-cols-auto sm:grid-cols-4 sm:overflow-visible sm:pb-0 xl:grid-cols-7">
+      {indices.map((item) => {
+        const positive = item.changePercent >= 0;
+        return (
+          <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer" className="min-w-0 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-3 transition hover:border-white/20">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate text-[11px] text-white/44">{item.name}</p>
+              {item.validation.status === 'verified' ? <CheckCircle2 size={12} className="shrink-0 text-[#75e6b1]" /> : <TriangleAlert size={12} className="shrink-0 text-[#ffd27a]" />}
+            </div>
+            <p className="mt-2 truncate font-mono text-base font-semibold text-white">{formatNumber(item.price)}</p>
+            <p className={`mt-1 text-xs font-semibold ${positive ? 'text-[#ff7f7f]' : 'text-[#75e6b1]'}`}>
+              {positive ? '+' : ''}{item.changePercent.toFixed(2)}%
+            </p>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+function MarketPanelHeader({ data }: { data: MarketIntelligence }) {
+  return (
+    <div className="flex h-[73px] items-center justify-between border-b border-white/10 bg-white/[0.045] px-5 backdrop-blur-xl">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <Activity size={16} className="text-[#8ad7ff]" />
+          <p className="truncate text-sm font-semibold">标普 500 实时热力图</p>
         </div>
+        <p className="mt-1 truncate text-xs text-white/42">{data.summary.headline}</p>
       </div>
-      <a
-        href="https://www.tradingview.com/heatmap/stock/"
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white/58 transition hover:text-white"
-        aria-label="Open TradingView heatmap"
-      >
-        <ArrowUpRight size={16} strokeWidth={1.8} />
+      <a href="https://www.tradingview.com/heatmap/stock/" target="_blank" rel="noreferrer" className="ml-4 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-white/58 transition hover:text-white" aria-label="打开 TradingView 热力图" title="打开 TradingView 热力图">
+        <ArrowUpRight size={16} />
       </a>
     </div>
   );
 }
 
-function AIAnalystCard() {
+function ScoreCard({ data, onAnalyze, aiState }: { data: MarketIntelligence; onAnalyze: () => void; aiState: AsyncState }) {
+  const scoreColor = getScoreColor(data.summary.score);
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.06] p-5 backdrop-blur-2xl">
-      <div className="flex items-center gap-3">
-        <div className="grid h-12 w-12 place-items-center rounded-full border border-[#8ad7ff]/50 bg-[#8ad7ff]/10">
-          <BrainCircuit className="text-[#8ad7ff]" size={23} strokeWidth={1.7} />
-        </div>
+    <div className="rounded-lg border border-white/10 bg-white/[0.045] p-5 backdrop-blur-xl">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold">AI 智能分析师</h2>
-          <p className="text-xs text-white/42">多模型融合 + 专业量化视角</p>
-        </div>
-      </div>
-      <div className="mt-5 rounded-lg border border-[#8ad7ff]/18 bg-[#8ad7ff]/8 p-4 text-sm leading-6 text-white/72">
-        今日市场偏多，科技与能源领跑。半导体板块受 AI 算力需求持续催化，短线关注 NVDA、AMD 与电力设备链路。
-      </div>
-      <div className="mt-5 grid grid-cols-2 gap-3">
-        <Metric label="Confidence" value="78%" />
-        <Metric label="Risk Mode" value="MID" />
-      </div>
-    </div>
-  );
-}
-
-function ActionQueue() {
-  return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.055] p-5 backdrop-blur-2xl">
-      <div className="mb-4 flex items-center gap-2 text-xs font-semibold uppercase text-white/44">
-        <Sparkles size={15} />
-        AI action queue
-      </div>
-      <div className="space-y-3">
-        {aiBullets.map(([title, body, tag], index) => (
-          <motion.div
-            key={title}
-            className="flex items-start justify-between gap-4 border-t border-white/10 pt-3 first:border-t-0 first:pt-0"
-            initial={{ opacity: 0, x: 16 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.42, delay: index * 0.06 }}
-          >
-            <div>
-              <p className="text-sm font-semibold text-white/84">{title}</p>
-              <p className="mt-1 text-xs leading-5 text-white/48">{body}</p>
-            </div>
-            <span className="rounded-full bg-[#b9ffdc]/10 px-2 py-1 text-[11px] font-semibold text-[#b9ffdc]">{tag}</span>
-          </motion.div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ResearchDesk() {
-  return (
-    <div className="relative z-10 border-t border-white/10 p-4 lg:p-5">
-      <div className="mb-4 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-white/40">
-        <FileText size={15} strokeWidth={1.7} />
-        Research desk
-      </div>
-      <div className="grid gap-4 lg:grid-cols-[0.95fr_1.15fr_0.9fr]">
-        {researchCards.map(([title, body], index) => (
-          <motion.article
-            key={title}
-            className="rounded-lg border border-white/10 bg-white/[0.045] p-5 backdrop-blur-2xl"
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.48, delay: 0.1 + index * 0.06 }}
-          >
-            <div className="mb-5 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/30 text-[#8ad7ff]">
-              {index === 0 ? <Target size={16} /> : index === 1 ? <Waves size={16} /> : <Activity size={16} />}
-            </div>
-            <h3 className="text-2xl font-semibold text-white">{title}</h3>
-            <p className="mt-4 text-sm leading-7 text-white/60">{body}</p>
-          </motion.article>
-        ))}
-      </div>
-      <InvestorPrinciples />
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <NewsTape />
-        <div className="rounded-lg border border-white/10 bg-white/[0.045] p-5 backdrop-blur-2xl">
-          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-white/40">AI reasoning</p>
-          <div className="space-y-4 text-sm leading-7 text-white/62">
-            <p>1. 热力图先看宽度，不先看涨跌幅。科技上涨若只集中在少数巨头，仓位应更克制。</p>
-            <p>2. 新闻只作为证据，不作为指令。真正的动作需要价格、量能、波动率共同确认。</p>
-            <p>3. 当前更适合建立观察清单，而不是追逐高开后的单点动量。</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/40">综合市场评分</p>
+          <div className="mt-3 flex items-end gap-3">
+            <span className={`font-mono text-6xl font-semibold leading-none ${scoreColor}`}>{data.summary.score}</span>
+            <span className="mb-1 text-sm font-semibold text-white/58">/ 100 · {data.summary.scoreLabel}</span>
           </div>
         </div>
+        <span className="rounded-full border border-white/10 bg-black/28 px-3 py-1.5 text-xs text-white/58">置信度 {data.confidence}%</span>
       </div>
+      <h2 className="mt-5 text-xl font-semibold leading-7 text-white">{data.summary.stance}</h2>
+      <p className="mt-2 text-sm leading-6 text-white/52">{data.summary.headline}</p>
+      <div className="mt-5 grid grid-cols-2 gap-2">
+        <Metric label="数据置信" value={data.confidenceLabel} />
+        <Metric label="风险水平" value={data.summary.riskLevel} />
+      </div>
+      <button
+        type="button"
+        onClick={onAnalyze}
+        disabled={aiState === 'loading'}
+        className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-[#8ad7ff]/30 bg-[#8ad7ff]/10 px-4 text-sm font-semibold text-white transition hover:bg-[#8ad7ff]/16 disabled:cursor-wait disabled:opacity-60"
+      >
+        {aiState === 'loading' ? <LoaderCircle size={16} className="animate-spin" /> : <BrainCircuit size={16} />}
+        {aiState === 'loading' ? '正在核对证据…' : 'AI 深度解读'}
+      </button>
     </div>
   );
 }
 
-function InvestorPrinciples() {
+function BreadthCard({ data }: { data: MarketIntelligence }) {
+  const advancePercent = data.breadth.advanceRatio * 100;
   return (
-    <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] p-5 backdrop-blur-2xl">
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/38">Investor discipline</p>
-          <h3 className="mt-2 text-2xl font-semibold text-white">大师原则：看盘时真正要记住的事</h3>
+    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.15em] text-white/42">
+          <Activity size={15} /> 市场宽度
         </div>
-        <Quote className="hidden text-[#ffd27a]/70 md:block" size={24} />
+        <span className="font-mono text-sm text-[#8ad7ff]">{advancePercent.toFixed(1)}%</span>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        {investorPrinciples.map((item, index) => (
-          <motion.article
-            key={item.name}
-            className="rounded-lg border border-white/10 bg-black/24 p-4"
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.36, delay: index * 0.04 }}
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ffd27a]/72">{item.label}</p>
-            <h4 className="mt-2 text-lg font-semibold text-white">{item.name}</h4>
-            <p className="mt-4 font-serif text-base leading-6 text-white/74">“{item.quote}”</p>
-            <p className="mt-4 text-xs leading-6 text-white/48">{item.lesson}</p>
-          </motion.article>
-        ))}
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#75e6b1]/20">
+        <div className="h-full bg-[#ff7373]" style={{ width: `${Math.max(0, Math.min(100, advancePercent))}%` }} />
       </div>
+      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+        <Metric label="上涨" value={String(data.breadth.advancers)} compact />
+        <Metric label="下跌" value={String(data.breadth.decliners)} compact />
+        <Metric label="平盘" value={String(data.breadth.flat)} compact />
+      </div>
+      <p className="mt-4 text-xs leading-5 text-white/42">行业净流入强度 {(data.sectors.positiveRatio * 100).toFixed(1)}%，基于资金流入与流出双端样本，并与指数方向一起判断行情扩散性。</p>
     </div>
   );
 }
 
-function NewsTape({ compact = false }: { compact?: boolean }) {
+function ScoreBreakdown({ scores }: { scores: ScoreDimension[] }) {
   return (
-    <div className="min-h-0 flex-1 rounded-lg border border-white/10 bg-white/[0.045] p-5 backdrop-blur-2xl">
-      <div className="mb-4 flex items-center gap-2 text-xs font-semibold uppercase text-white/44">
-        <Activity size={15} />
-        Market news + AI read
-      </div>
-      <div className={compact ? 'space-y-4' : 'grid gap-4 md:grid-cols-3 lg:grid-cols-1'}>
-        {marketNews.map((item) => (
-          <article key={item.title} className="border-t border-white/10 pt-4 first:border-t-0 first:pt-0 md:first:border-t md:first:pt-4 lg:first:border-t-0 lg:first:pt-0">
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold text-white/38">
-              <span>{item.source}</span>
-              <span>{item.time}</span>
-              <span className="ml-auto rounded-full bg-white/8 px-2 py-1 text-white/52">{item.impact}</span>
+    <section>
+      <SectionTitle icon={<ShieldCheck size={15} />} eyebrow="可解释评分" title="每一分从哪里来" />
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {scores.map((item) => (
+          <article key={item.id} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-white/82">{item.label}</p>
+              <span className={`font-mono text-xl font-semibold ${getScoreColor(item.score)}`}>{item.score}</span>
             </div>
-            <h3 className="text-sm font-semibold leading-5 text-white/82">{item.title}</h3>
-            {!compact ? <p className="mt-3 text-xs leading-6 text-white/50">{item.read}</p> : null}
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8">
+              <div className="h-full bg-[#8ad7ff]" style={{ width: `${item.score}%` }} />
+            </div>
+            <p className="mt-3 text-[11px] text-white/34">综合权重 {item.weight}%</p>
+            <p className="mt-3 text-xs leading-5 text-white/50">{item.summary}</p>
           </article>
         ))}
       </div>
+    </section>
+  );
+}
+
+function SectorBoard({ title, items, mode }: { title: string; items: SectorPulse[]; mode: 'leader' | 'laggard' }) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+      <SectionTitle icon={mode === 'leader' ? <TrendingUp size={15} /> : <TrendingDown size={15} />} eyebrow="板块风向" title={title} compact />
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {items.map((item) => (
+          <div key={item.code} className="flex items-center justify-between gap-4 rounded-lg border border-white/8 bg-black/24 px-3 py-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-white/78">{item.name}</p>
+              <p className="mt-1 text-[11px] text-white/38">主力占比 {item.mainNetRatio.toFixed(2)}%</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className={`font-mono text-sm ${item.changePercent >= 0 ? 'text-[#ff7f7f]' : 'text-[#75e6b1]'}`}>{item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%</p>
+              <p className={`mt-1 text-[11px] ${item.mainNetInflow >= 0 ? 'text-[#ff9b9b]/70' : 'text-[#91eac0]/70'}`}>{formatMoney(item.mainNetInflow)}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function NewsBoard({ items }: { items: NewsItem[] }) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+      <SectionTitle icon={<Activity size={15} />} eyebrow="今日中文新闻" title="高权重市场催化" compact />
+      <div className="mt-4 divide-y divide-white/8">
+        {items.slice(0, 8).map((item) => (
+          <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="block py-3 first:pt-0 last:pb-0">
+            <div className="flex items-center gap-2 text-[11px] text-white/36">
+              <span>{item.source}</span>
+              <span>{formatDateTime(item.publishedAt)}</span>
+              <span className="ml-auto rounded-full bg-white/7 px-2 py-1 text-white/52">权重 {item.weight}</span>
+            </div>
+            <p className="mt-2 text-sm font-semibold leading-6 text-white/78 transition hover:text-white">{item.title}</p>
+          </a>
+        ))}
+        {!items.length ? <p className="py-5 text-sm text-white/40">当前没有可用的中文市场新闻。</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function ResearchBoard({ items }: { items: ResearchReport[] }) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+      <SectionTitle icon={<FileText size={15} />} eyebrow="券商研报" title="最新公开研究覆盖" compact />
+      <div className="mt-4 divide-y divide-white/8">
+        {items.slice(0, 8).map((item) => (
+          <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="block py-3 first:pt-0 last:pb-0">
+            <div className="flex items-center gap-2 text-[11px] text-white/36">
+              <span>{item.institution || '机构未标注'}</span>
+              <span>{item.publishedAt || '日期未知'}</span>
+              <span className="ml-auto rounded-full bg-[#ffd27a]/9 px-2 py-1 text-[#ffd98f]">{item.rating || '未评级'}</span>
+            </div>
+            <p className="mt-2 text-sm font-semibold leading-6 text-white/78 transition hover:text-white">{item.stockName ? `${item.stockName}：` : ''}{item.title}</p>
+            <p className="mt-1 text-xs text-white/38">{item.industry || '行业未标注'}{item.epsThisYear !== undefined && item.epsNextYear !== undefined ? ` · EPS ${item.epsThisYear} → ${item.epsNextYear}` : ''}</p>
+          </a>
+        ))}
+        {!items.length ? <p className="py-5 text-sm text-white/40">当前没有可用的公开研报。</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function InvestorLensBoard({ lenses }: { lenses: InvestorLens[] }) {
+  return (
+    <section className="mt-4">
+      <SectionTitle icon={<Sparkles size={15} />} eyebrow="公开方法论映射" title="同一份证据，六种纪律" />
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {lenses.map((lens) => (
+          <article key={lens.id} className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-lg font-semibold text-white">{lens.name}</p>
+                <p className="mt-1 text-xs text-[#ffd98f]/72">{lens.principle}</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className={`font-mono text-2xl font-semibold ${getScoreColor(lens.score)}`}>{lens.score}</p>
+                <p className="mt-1 text-[10px] text-white/32">置信度 {lens.confidence}</p>
+              </div>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-white/56">{lens.read}</p>
+            <div className="mt-4 border-t border-white/8 pt-3 text-xs leading-5 text-white/40">观察：{lens.watch}</div>
+          </article>
+        ))}
+      </div>
+      <p className="mt-3 text-xs leading-5 text-white/32">这些分数是对公开投资原则的规则化映射，不代表相关人物本人观点；价值投资维度缺少个股财务与估值时会主动降低置信度。</p>
+    </section>
+  );
+}
+
+function AiAnalysisPanel({ text }: { text: string }) {
+  return (
+    <section className="mt-4 rounded-lg border border-[#8ad7ff]/18 bg-[#8ad7ff]/6 p-5">
+      <SectionTitle icon={<BrainCircuit size={15} />} eyebrow="用户配置模型" title="AI 证据解读" compact />
+      <div className="mt-4 whitespace-pre-wrap text-sm leading-7 text-white/66">{text}</div>
+    </section>
+  );
+}
+
+function SourceBoard({ sources, disclaimer }: { sources: MarketIntelligence['sources']; disclaimer: string }) {
+  return (
+    <section className="mt-4 rounded-lg border border-white/10 bg-white/[0.025] p-5">
+      <SectionTitle icon={<Database size={15} />} eyebrow="数据血缘" title="来源与校验状态" compact />
+      <div className="mt-4 grid gap-2 md:grid-cols-2">
+        {sources.map((source) => (
+          <a key={source.id} href={source.url} target="_blank" rel="noreferrer" className="flex items-start gap-3 rounded-lg border border-white/8 bg-black/24 p-3 transition hover:border-white/18">
+            {source.ok ? <CheckCircle2 className="mt-0.5 shrink-0 text-[#75e6b1]" size={15} /> : <TriangleAlert className="mt-0.5 shrink-0 text-[#ffd27a]" size={15} />}
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white/76">{source.label}</p>
+              <p className="mt-1 text-xs text-white/40">{source.provider}</p>
+              <p className="mt-1 text-[11px] leading-5 text-white/32">{source.note}</p>
+            </div>
+            <ArrowUpRight className="ml-auto shrink-0 text-white/28" size={14} />
+          </a>
+        ))}
+      </div>
+      <p className="mt-4 text-xs leading-5 text-white/32">{disclaimer} 行情和研报可能存在延迟、口径差异与机构乐观偏差，关键交易决定应回到交易所公告、公司披露和原始研报复核。</p>
+    </section>
+  );
+}
+
+function SectionTitle({ icon, eyebrow, title, compact = false }: { icon: React.ReactNode; eyebrow: string; title: string; compact?: boolean }) {
+  return (
+    <div className={compact ? '' : 'mb-4'}>
+      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/36">{icon}{eyebrow}</div>
+      <h2 className="mt-2 text-xl font-semibold text-white">{title}</h2>
     </div>
   );
 }
 
-function FluidHeatOverlay() {
+function Metric({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
   return (
-    <div className="pointer-events-none absolute inset-0">
-      <div className="absolute left-[8%] top-[12%] h-48 w-48 rounded-full bg-[#00d084]/7 blur-3xl" />
-      <div className="absolute bottom-[18%] right-[12%] h-56 w-56 rounded-full bg-[#ff3b3b]/7 blur-3xl" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_64%,rgba(0,0,0,0.24)_88%,rgba(0,0,0,0.64)_100%)]" />
+    <div className="rounded-lg border border-white/8 bg-black/24 p-3">
+      <p className="text-[10px] uppercase text-white/34">{label}</p>
+      <p className={`mt-2 font-semibold text-white ${compact ? 'text-lg' : 'text-xl'}`}>{value}</p>
     </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function LoadingPanel() {
   return (
-    <div className="rounded-lg border border-white/10 bg-black/28 p-3">
-      <p className="text-[11px] uppercase text-white/36">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
+    <div className="grid min-h-[520px] place-items-center rounded-lg border border-white/10 bg-[#050506]">
+      <div className="text-center">
+        <LoaderCircle className="mx-auto animate-spin text-[#8ad7ff]" size={25} />
+        <p className="mt-4 text-sm text-white/54">正在核对行情、资金、新闻与研报…</p>
+      </div>
     </div>
   );
+}
+
+function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-[#ff7f7f]/20 bg-[#ff7f7f]/7 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-start gap-2 text-sm text-[#ffb0b0]">
+        <TriangleAlert className="mt-0.5 shrink-0" size={16} />
+        <span>{message}</span>
+      </div>
+      <button type="button" onClick={onRetry} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-white/12 px-3 text-xs font-semibold text-white/72 hover:text-white">
+        <RefreshCw size={14} />重试
+      </button>
+    </div>
+  );
+}
+
+function buildMarketPrompt(data: MarketIntelligence) {
+  const evidence = {
+    generatedAt: data.generatedAt,
+    summary: data.summary,
+    confidence: data.confidence,
+    scores: data.scores,
+    indices: data.indices.map(({ name, price, changePercent, updatedAt, validation }) => ({ name, price, changePercent, updatedAt, validation })),
+    breadth: data.breadth,
+    sectorLeaders: data.sectors.leaders.slice(0, 6),
+    sectorLaggards: data.sectors.laggards.slice(0, 4),
+    reports: data.reports.slice(0, 10),
+    news: data.news.slice(0, 12).map(({ title, source, publishedAt, url, weight }) => ({ title, source, publishedAt, url, weight })),
+    sourceStatus: data.sources,
+  };
+  return [
+    '你是严谨的中文证券研究助手。请只使用下方 JSON 证据，不得补写未提供的价格、财务数据、新闻或因果关系。',
+    '先区分事实、推断和未知；至少给出两条反证或失效条件。不要模仿任何投资者本人发言，只能把段永平、巴菲特、芒格、Druckenmiller、Soros、Paul Tudor Jones 的公开方法论作为分析框架。',
+    '输出结构：1) 今日市场结论；2) 大盘与资金风向；3) 新闻与研报交叉验证；4) 六种方法论的共识与分歧；5) 风险清单；6) 下一交易日观察条件。结论要写置信度，不给确定性买卖承诺。',
+    JSON.stringify(evidence, null, 2),
+  ].join('\n\n');
+}
+
+function buildMarketMarkdown(data: MarketIntelligence, aiRead: string) {
+  const lines = [
+    `# MarketLens 市场情报 - ${new Date(data.generatedAt).toLocaleDateString('zh-CN')}`,
+    '',
+    `- 综合评分：${data.summary.score}/100（${data.summary.scoreLabel}）`,
+    `- 行动姿态：${data.summary.stance}`,
+    `- 数据置信度：${data.confidence}%（${data.confidenceLabel}）`,
+    `- 风险水平：${data.summary.riskLevel}`,
+    `- 摘要：${data.summary.headline}`,
+    '',
+    '## 主要指数',
+    ...data.indices.map((item) => `- ${item.name}：${formatNumber(item.price)}，${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toFixed(2)}%（${item.validation.status}）`),
+    '',
+    '## 评分拆解',
+    ...data.scores.map((item) => `- ${item.label}：${item.score}/100，权重 ${item.weight}%\n  - ${item.summary}`),
+    '',
+    '## 资金风向',
+    ...data.sectors.leaders.slice(0, 8).map((item) => `- ${item.name}：${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toFixed(2)}%，主力净流入 ${formatMoney(item.mainNetInflow)}`),
+    '',
+    '## 今日新闻',
+    ...data.news.slice(0, 12).map((item) => `- [${item.title}](${item.url})（${item.source}，权重 ${item.weight}）`),
+    '',
+    '## 最新研报',
+    ...data.reports.slice(0, 12).map((item) => `- [${item.stockName}：${item.title}](${item.url})（${item.institution}，${item.rating || '未评级'}）`),
+    '',
+    '## 方法论映射',
+    ...data.lenses.map((item) => `- ${item.name}：${item.score}/100（置信度 ${item.confidence}）\n  - ${item.read}\n  - 观察：${item.watch}`),
+  ];
+  if (aiRead) lines.push('', '## AI 深度解读', '', aiRead);
+  lines.push('', '## 风险声明', '', data.summary.disclaimer);
+  return lines.join('\n');
+}
+
+function getScoreColor(score: number) {
+  if (score >= 68) return 'text-[#ff8787]';
+  if (score >= 48) return 'text-[#ffd98f]';
+  return 'text-[#75e6b1]';
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatMoney(value: number) {
+  const amount = Math.abs(value);
+  const sign = value >= 0 ? '+' : '-';
+  if (amount >= 100_000_000) return `${sign}${(amount / 100_000_000).toFixed(2)} 亿`;
+  if (amount >= 10_000) return `${sign}${(amount / 10_000).toFixed(1)} 万`;
+  return `${sign}${amount.toFixed(0)}`;
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '时间未知';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
 }
