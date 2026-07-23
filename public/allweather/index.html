@@ -253,10 +253,10 @@
       <section class="glass mt-6 rounded-lg p-5 sm:p-6">
         <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-200">AI 组合建议</p>
-            <h2 class="mt-2 text-2xl font-semibold text-white">专业 AI 组合审查智能体</h2>
+            <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-200">Vibe-Trading 深度研究</p>
+            <h2 class="mt-2 text-2xl font-semibold text-white">专业 ETF 组合审查智能体</h2>
             <p id="ai-config-summary" class="mt-2 max-w-5xl text-sm leading-6 text-gray-400">
-              自动使用 SparkFlow 全局 AI 设置。生成建议时优先使用东方财富、腾讯、新浪与本地校验行情交叉验证；关键数据不新鲜或不可验证时，不触发激进调仓。
+              仅将当前持仓与目标比例交给 Vibe-Trading；行情、新闻、研报与历史回测由研究智能体自行获取。
             </p>
           </div>
           <div class="flex shrink-0 flex-wrap gap-3">
@@ -265,14 +265,14 @@
               type="button"
               class="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-4 py-3 font-mono text-xs font-bold text-emerald-100 hover:-translate-y-0.5 hover:bg-emerald-500 hover:text-white"
             >
-              生成 AI 建议
+              交给 Vibe-Trading 分析
             </button>
             <button
               id="ai-apply-targets-button"
               type="button"
               class="hidden rounded-lg border border-blue-300/40 bg-blue-400/15 px-4 py-3 font-mono text-xs font-bold text-blue-100 hover:-translate-y-0.5 hover:bg-blue-400 hover:text-black"
             >
-              一键导入建议比例并计算
+              一键导入 Vibe 建议并重新计算
             </button>
           </div>
         </div>
@@ -489,74 +489,42 @@
       let candleDragStart = null;
       let latestBacktestPayload = null;
       let latestAiSuggestedTargets = null;
+      let activeVibeResearch = null;
       let aiAssistEnabled = false;
       let latestMarketContext = null;
       const integrationStorageKey = "sparkflow.integrations.v1";
-      const defaultAiPrompt = `# 角色
-你是“SparkFlow 全天候策略智能体”，一位面向长期定投者的多资产量化投顾研究员。你不是聊天助手，而是组合审查、风险诊断和执行计划生成器。你必须基于应用提供的用户持仓、策略参数、回测摘要、ETF K 线状态和“市场情报包”进行判断，不要假装自己实时联网。
+      const vibeRunStorageKey = "sparkflow.allweather.vibe-run.v1";
+      const defaultAiPrompt = `# 研究任务
+你是 Vibe-Trading 的多资产组合研究员。请站在价值投资和长期资产配置角度，审查用户当前的标普500、纳指、长期国债和黄金持仓。
 
-# 已启用的专业技能 / 工具
-你在本次报告中必须像调用以下内部技能一样工作：
-1. Market Data Auditor：审查 Market Intelligence Pack 的来源、新鲜度、可用性和缺失项。
-2. Portfolio Drift Checker：计算并解释当前持仓相对目标比例的超配、低配和最大偏离。
-3. Drawdown Trigger Engine：识别纳指/QQQ 的回撤区间，并判断是否触发深度回撤进攻规则。
-4. Rebalance Policy Engine：给出“智能补仓 / 全面再平衡 / 观察等待”的执行动作。
-5. Risk Officer：检查是否过度卖出债券和黄金、是否牺牲安全垫、是否存在汇率和流动性风险。
-6. Report Writer：输出结构化、表格化、结论先行的中文投研报告。
+# 必须由你自行完成的研究
+不要等待应用提供行情、新闻、研报或回测结果。请主动调用可用工具：
+1. 获取 SPY、QQQ、TLT、GLD 的最新可信行情、估值背景、阶段涨跌幅和相对历史高点回撤。
+2. 汇总近期重要市场新闻、资金风向、利率与通胀背景，并标明数据日期和来源。
+3. 对当前比例与候选比例进行必要的历史回测或情景压力测试，比较收益、波动和最大回撤。
+4. 数据不足或来源冲突时明确降低置信度，不要假装掌握实时数据。
 
-# 用户目标
-用户的基础策略是全天候底仓：在追求美股长期复利的同时，利用长期国债和黄金降低组合波动率与最大回撤。
-用户额外希望：当纳指/QQQ 出现深度回撤时，可以把一部分黄金和债券再平衡到纳指中，但必须是阶梯式、有纪律、有上限的进攻，而不是一次性梭哈。
+# 必须回答的问题
+1. 当前持仓结构是否合理，主要优点和风险是什么？
+2. 现在是否需要动态再平衡，还是只用新增现金纠偏？
+3. 标普500、纳指、长期国债、黄金的目标比例是否需要调整？
+4. 当前是否值得卖出部分长期国债或黄金，抄底纳指或标普？分别回答纳指和标普，不要混为一谈。
+5. 从巴菲特、芒格、段永平式价值投资角度，当前价格、安全边际和机会成本是否支持行动？
+6. 给出未来 1-3 个月可执行方案：现在做什么、分几次、每次条件、停止条件和复查触发点。
+7. 本次操作应该使用“再平衡模式（允许卖出并重新分配现有资产）”，还是“只买不卖模式（仅用新增现金补足低配资产）”？必须二选一，并说明选择依据。
 
-# 纳指深度回撤进攻规则
-当 Market Intelligence Pack 或本地 QQQ 日线显示纳指/QQQ 相对高点回撤时，按以下规则评估建议目标比例：
+# 风险约束
+- 不得仅凭短期跌幅建议抄底，必须结合估值、安全边际、盈利质量和资金机会成本。
+- 不得建议把债券和黄金全部卖光；任何防守资产转出都要说明保留底线。
+- 若证据不足，默认维持或只用新增现金，不进行激进调仓。
+- 这是研究和教育用途分析，不构成投资建议。
 
-| QQQ 回撤区间 | 建议动作 | 纳指目标参考 | 资金来源原则 |
-|---|---|---:|---|
-| 0% 至 -24.9% | 不触发进攻规则 | 维持原目标 | 只用新增现金智能补仓 |
-| -25% 至 -34.9% | 第一档进攻 | 可提高到 35% 左右 | 优先减少债券，其次少量减少黄金 |
-| -35% 至 -39.9% | 第二档进攻 | 可提高到 42% 左右 | 分批从债券和黄金转入，不一次完成 |
-| -40% 及以下 | 第三档进攻 | 最高不超过 50% | 仍保留至少 5% 黄金和 5% 防守资产 |
+# 输出格式
+先给“结论摘要”，并单独写一行“执行模式：再平衡模式”或“执行模式：只买不卖模式”，再说明原因。然后给一张表格，列为：资产、当前金额、当前占比、当前目标、建议目标、动作、理由。随后给“价值投资点评”“是否卖出债券/黄金抄底”“执行计划”“证据与风险”。
 
-硬约束：
-- 不允许建议把债券和黄金全部卖光。
-- 不允许在数据新鲜度不足时触发大幅进攻。
-- 即使触发 -40%，也建议分 2-4 次执行，避免一次性买在下跌半途。
-- 若用户现金流不稳定、最大回撤承受能力不足，必须降低进攻档位。
-
-# 中国使用环境与数据准确性约束
-用户处于中国网络环境。不要依赖 Yahoo Finance 或 Stooq，不要要求用户手动访问国外网站。必须优先使用东方财富、腾讯证券、新浪财经、本地已校验 K 线、东方财富中国国债 ETF 数据进行交叉验证；FRED 仅用于美国利率背景，若不可达则标注缺失。关键回撤数据缺失、超过 30 天、来源不可验证或多源价格偏差明显时，不允许触发激进调仓。
-
-# 数据新鲜度规则
-只允许把最近 14 天内的数据称为“最新”；15-30 天内称为“近期”；超过 30 天或无法识别日期的信息只能作为背景材料。禁止用过时或未知日期的信息支撑高置信度调仓结论。若关键指标缺少最新数据，必须明确写出缺口，并将置信度降为中或低。
-
-# 输出要求：少废话，像投委会结论页
-总长度控制在 900-1300 字。不要写长篇科普，不要复述用户目标。必须先给表格结论，再给必要分析。
-
-## 1. 调仓结论表
-第一部分必须是一张 Markdown 表格，列为：资产、当前持仓金额、当前持仓比例、当前目标、建议目标、动作、理由。
-资产只允许四项：标普500、纳指、长期国债、黄金。
-动作只能写：上调 / 下调 / 维持。
-必须基于 Portfolio Data From This App 里的当前持仓金额、当前占比、目标占比和偏离来填写表格；不得省略持仓金额和当前持仓比例。若某项金额为 0，也必须写 ¥0 和 0%。
-
-## 2. 总结论
-用 3-5 行说明：
-- 主动作：维持不变 / 智能补仓 / 小幅再平衡 / 降低风险 / 触发纳指回撤进攻
-- 置信度：高/中/低
-- 是否建议卖出债券或黄金转入纳指
-- 是否建议立刻执行，还是分批执行
-
-## 3. 专业分析
-只写 4 个小点：趋势与回撤、宏观利率、黄金与债券防守价值、主要风险。
-必须引用 Market Intelligence Pack 里的 6个月/1年/3年表现、QQQ 回撤、利率曲线或中国国债数据；缺什么就写缺失。
-
-## 4. 执行方案
-给出未来 1-3 个月怎么做：新增现金买什么、是否卖出、再平衡阈值、复查日期。若触发纳指回撤进攻规则，说明第几档、分几次、从债券/黄金各转多少。
-
-## 5. 机器可读建议比例
-最后必须单独输出一行，格式严格如下，不要放进代码块：
+最后必须单独输出一行，不要放进代码块：
 SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"action":"维持不变","executionMode":"smart","confidence":"中"}
-四个比例必须是小数，合计必须等于 1。executionMode 只能是 smart 或 full：若不建议卖出任何现有资产，必须写 smart；只有明确建议卖出、转仓、止盈、降低风险或从债券/黄金转入权益时，才写 full。`;
+四个比例必须是非负小数且合计等于 1。executionMode 是对上述执行模式问题的机器可读答案，只能二选一：选择“只买不卖模式”时写 smart；选择“再平衡模式”时写 full。不得省略或填写其他值。`;
       const candleCache = new Map();
       const candleAssets = {
         sp500: { label: "标普500基金", ticker: "SPY" },
@@ -598,6 +566,121 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;");
+      }
+
+      async function requestJson(url, init) {
+        const response = await fetch(url, init);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.detail || payload.error || `请求失败：HTTP ${response.status}`);
+        }
+        return payload;
+      }
+
+      function readVibeRunSnapshot() {
+        try {
+          const raw = window.localStorage.getItem(vibeRunStorageKey);
+          if (!raw) return null;
+          const snapshot = JSON.parse(raw);
+          if (!snapshot || typeof snapshot.sessionId !== "string" || !snapshot.sessionId) return null;
+          return {
+            sessionId: snapshot.sessionId,
+            attemptId: typeof snapshot.attemptId === "string" ? snapshot.attemptId : "",
+            tools: Array.isArray(snapshot.tools) ? snapshot.tools.slice(-40) : [],
+            liveText: typeof snapshot.liveText === "string" ? snapshot.liveText.slice(-2400) : "",
+            notice: typeof snapshot.notice === "string" ? snapshot.notice : "",
+            status: ["running", "completed", "failed"].includes(snapshot.status) ? snapshot.status : "running",
+            lastEventId: typeof snapshot.lastEventId === "string" ? snapshot.lastEventId : "",
+            answer: typeof snapshot.answer === "string" ? snapshot.answer : "",
+            error: typeof snapshot.error === "string" ? snapshot.error : "",
+            updatedAt: typeof snapshot.updatedAt === "string" ? snapshot.updatedAt : "",
+          };
+        } catch {
+          return null;
+        }
+      }
+
+      function writeVibeRunSnapshot(run, overrides = {}) {
+        if (!run?.sessionId) return;
+        try {
+          window.localStorage.setItem(
+            vibeRunStorageKey,
+            JSON.stringify({
+              sessionId: run.sessionId,
+              attemptId: run.attemptId || "",
+              tools: Array.isArray(run.tools) ? run.tools.slice(-40) : [],
+              liveText: String(run.liveText || "").slice(-2400),
+              notice: String(run.notice || ""),
+              status: overrides.status || run.status || "running",
+              lastEventId: String(run.lastEventId || ""),
+              answer: String(overrides.answer ?? run.answer ?? ""),
+              error: String(overrides.error ?? run.error ?? ""),
+              updatedAt: new Date().toISOString(),
+            })
+          );
+        } catch {
+          // A progress checkpoint is optional and must never interrupt the research task.
+        }
+      }
+
+      function recordVibeEvent(run, event) {
+        const eventId = String(event?.lastEventId || "");
+        if (eventId) run.lastEventId = eventId;
+        writeVibeRunSnapshot(run);
+      }
+
+      const vibeToolLabels = {
+        run_swarm: "运行多智能体研究",
+        web_search: "检索公开信息",
+        search_web: "检索公开信息",
+        market_snapshot: "获取市场快照",
+        get_market_snapshot: "获取市场快照",
+        fetch_market_data: "获取市场数据",
+        company_research: "研究基本面",
+        search_research_reports: "检索研报",
+        run_backtest: "运行历史回测",
+        calculate_metrics: "计算投资指标",
+      };
+
+      function vibeToolLabel(tool) {
+        return vibeToolLabels[tool] || String(tool || "研究工具").replaceAll("_", " ");
+      }
+
+      function renderVibeProgress(run) {
+        const tools = run.tools.slice(-16);
+        const toolRows = tools
+          .map((tool, index) => {
+            const status =
+              tool.status === "running"
+                ? '<span class="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-300"></span>'
+                : tool.status === "error"
+                  ? '<span class="inline-block h-2 w-2 rounded-full bg-red-300"></span>'
+                  : '<span class="inline-block h-2 w-2 rounded-full bg-emerald-300"></span>';
+            const detail = tool.progress || tool.preview || "";
+            return `
+              <div class="flex min-w-0 items-start gap-3 border-l border-white/10 py-1.5 pl-3 text-xs">
+                <span class="mt-1 shrink-0">${status}</span>
+                <span class="min-w-0">
+                  <span class="font-mono text-gray-200">${escapeHtml(vibeToolLabel(tool.tool))}</span>
+                  ${detail ? `<span class="ml-2 text-gray-500">${escapeHtml(detail)}</span>` : ""}
+                </span>
+              </div>
+            `;
+          })
+          .join("");
+        const liveText = String(run.liveText || "").trim().slice(-1600);
+        aiOutput.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+            <div class="flex items-center gap-2">
+              <span class="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-300 shadow-[0_0_16px_rgba(185,255,220,0.65)]"></span>
+              <strong class="text-white">Vibe-Trading 正在研究</strong>
+              <span class="text-xs text-gray-500">${escapeHtml(run.notice || "正在规划研究路径")}</span>
+            </div>
+            <a href="/assistant" target="_top" class="text-xs text-blue-200 hover:text-white">在 AI 助手中查看</a>
+          </div>
+          ${toolRows ? `<div class="mt-3 space-y-1">${toolRows}</div>` : ""}
+          ${liveText ? `<div class="mt-4 border-l-2 border-blue-300/40 pl-3 text-xs leading-6 text-gray-400">${escapeHtml(liveText)}</div>` : ""}
+        `;
       }
 
       function renderAiMarkdown(text) {
@@ -689,6 +772,25 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
         }
       }
 
+      function presentVibeAnswer(answer) {
+        const content = String(answer || "").trim();
+        if (!content) return;
+        aiOutput.classList.remove("hidden");
+        aiOutput.innerHTML = renderAiMarkdown(content);
+        latestAiSuggestedTargets = extractSuggestedTargets(content);
+        aiApplyTargetsButton.classList.toggle("hidden", !latestAiSuggestedTargets);
+        if (latestAiSuggestedTargets) {
+          const suggestedMode = chooseModeForSuggestedTargets(latestAiSuggestedTargets);
+          const modeLabel = suggestedMode === "full" ? "再平衡模式" : "只买不卖模式";
+          aiApplyTargetsButton.textContent = `一键导入建议｜${modeLabel}｜${latestAiSuggestedTargets.confidence}`;
+        } else {
+          aiOutput.insertAdjacentHTML(
+            "beforeend",
+            '<div class="mt-5 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-3 text-amber-100">报告已生成，但未检测到有效的结构化目标比例，因此没有开放自动导入。</div>'
+          );
+        }
+      }
+
       function chooseModeForSuggestedTargets(suggestion) {
         const actionText = String(suggestion?.action || "");
         const explicitMode = suggestion?.executionMode;
@@ -697,8 +799,7 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
         const asksFull = fullSignals.some((word) => actionText.includes(word));
         const asksSmart = smartSignals.some((word) => actionText.includes(word));
 
-        if (explicitMode === "smart" && !asksFull) return "smart";
-        if (explicitMode === "full") return "full";
+        if (explicitMode === "smart" || explicitMode === "full") return explicitMode;
         if (asksSmart && !asksFull) return "smart";
         if (asksFull) return "full";
 
@@ -724,9 +825,15 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
         strategyProfiles.custom.targets = { ...latestAiSuggestedTargets.targets };
         setStrategy("custom");
         setMode(suggestedMode);
+        aiApplyTargetsButton.textContent =
+          suggestedMode === "full"
+            ? "已导入建议并开启再平衡模式，正在重新计算"
+            : "已导入建议并切换为只买不卖模式，正在重新计算";
+        aiApplyTargetsButton.disabled = true;
         window.setTimeout(() => {
           form.requestSubmit();
           resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+          aiApplyTargetsButton.disabled = false;
         }, 80);
       }
 
@@ -767,8 +874,8 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
 
       function updateAiConfigSummary(settings = readAiSettings()) {
         aiConfigSummary.textContent = settings.model
-          ? `使用全局 AI 设置：${settings.providerLabel} · ${settings.model}。智能体会调用市场情报、组合偏离、纳指回撤触发器和再平衡规则生成专业报告。`
-          : "尚未配置全局 AI。请从右上角头像进入“设置”，填写 API Key 和模型；本页不再单独保存 AI 配置。";
+          ? `Vibe-Trading 将使用全局 AI：${settings.providerLabel} · ${settings.model}。本页只提交当前持仓和目标比例，行情、新闻、研报与回测由它自行研究。`
+          : "尚未配置全局 AI。请从右上角头像进入“设置”，填写 API Key 和模型后再启动 Vibe-Trading 研究。";
       }
 
       function cloneTargets(targets) {
@@ -927,8 +1034,7 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
         }
       }
 
-      function buildAiPrompt(marketContext) {
-        const stats = backtestSeries.length ? getBacktestStats(backtestSeries) : null;
+      function buildAiPrompt() {
         const currentValues = assets.map((asset) => ({ asset, value: readPositiveNumber(asset.id) }));
         const currentTotal = currentValues.reduce((sum, item) => sum + item.value, 0);
         const targetTable = assets
@@ -941,64 +1047,342 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
             return `- ${asset.name}: 当前市值 ${formatCurrency(value)}，当前占比 ${percentFormatter.format(actualWeight)}，目标占比 ${percentFormatter.format(asset.target)}，偏离 ${formatSignedPercent(drift)}`;
           })
           .join("\n");
-        const sourceList = marketContext?.sources
-          ?.map((source) => {
-            const freshness = source.error
-              ? `获取失败：${source.error}`
-              : `新鲜度：${source.freshnessLabel || "未知日期"}${source.latestDate ? `，最近日期 ${source.latestDate}，距今 ${source.ageDays} 天` : ""}`;
-            return `- ${source.label}: ${source.url}（${freshness}）`;
-          })
-          .join("\n");
-        const backtestSummary =
-          stats && latestBacktestPayload
-            ? `回测区间：${latestBacktestPayload.startDate.slice(0, 7)} 至 ${latestBacktestPayload.endDate.slice(0, 7)}
-回测模式：${backtestSeries[0]?.mode === "full" ? "强力再平衡，允许卖出" : "智能补仓，只买不卖"}
-最终资产：${formatCompactCurrency(stats.finalValue)}
-累计投入：${formatCompactCurrency(stats.invested)}
-总收益率：${formatSignedPercent(stats.totalReturn)}
-最大回撤：${formatSignedPercent(stats.maxDrawdown)}`
-            : "用户尚未运行回测；请基于当前目标比例和一般市场背景给出建议，并提示用户先运行回测以获得更精确判断。";
 
-        return `${defaultAiPrompt}
+        return `请使用 Vibe-Trading 深度研究当前股票与 ETF 定投组合。应用只提供用户当前持仓；行情、新闻、研报、估值背景和回测必须由你自行调用工具获取。
 
-# Portfolio Data From This App
+${defaultAiPrompt}
+
+# 用户当前持仓
 当前投资风格：${strategyProfiles[strategy].name}
 当前再平衡模式：${mode === "full" ? "强力再平衡，允许卖出" : "智能补仓，只买不卖"}
 当前持仓总额：${formatCurrency(currentTotal)}
 本月新增现金：${formatCurrency(readPositiveNumber("cash"))}
-计算后总资产参考：${formatCurrency(currentTotal + readPositiveNumber("cash"))}
+投入新增现金后总资产：${formatCurrency(currentTotal + readPositiveNumber("cash"))}
 
 当前目标比例：
 ${targetTable}
 
-当前持仓明细（AI 报告第一张表必须引用这些金额和比例）：
+当前持仓明细：
 ${holdingTable}
 
-当前回测摘要：
-${backtestSummary}
+请不要把应用当前显示的回测结果当作输入；请自行选择合理区间完成回测或压力测试后再判断。`;
+      }
 
-# Market Intelligence Pack
-生成时间：${marketContext?.generatedAt || "未获取"}
-可用来源数量：${marketContext?.sourceCount ?? 0}
-最近 30 天有效来源数量：${marketContext?.freshSourceCount ?? 0}
-情报质量警告：${marketContext?.warning || "暂无"}
-重点要求：优先使用东方财富、腾讯证券、新浪财经的行情交叉验证，本地多资产 6M/1Y/3Y 表现摘要，本地 QQQ 回撤计算，东方财富中国国债 ETF 数据。FRED 仅作美国利率背景；不得使用 Yahoo Finance 或 Stooq。
-来源列表：
-${sourceList || "暂无"}
+      function parseVibeEvent(event) {
+        try {
+          return JSON.parse(event.data || "{}");
+        } catch {
+          return {};
+        }
+      }
 
-市场情报摘录：
-${marketContext?.promptText || "市场上下文获取失败；请降低结论置信度，并提示用户检查网络或稍后重试。"}
+      function findLastRunningVibeTool(run, tool) {
+        for (let index = run.tools.length - 1; index >= 0; index -= 1) {
+          if (run.tools[index].tool === tool && run.tools[index].status === "running") return run.tools[index];
+        }
+        return null;
+      }
 
-# 约束
-- 必须优先使用 Market Intelligence Pack 中的信息，不要编造没有来源的数据。
-- 只允许把最近 14 天内的数据称为“最新”；15-30 天为“近期”；超过 30 天、抓取失败或未知日期的内容只能作为背景，不得支撑高置信度调仓。
-- 如果 Market Intelligence Pack 的最近 30 天有效来源数量为 0，必须把策略结论置信度设为“低”，且只能建议观察或维持，不要建议大幅调仓。
-- 如果关键回撤数据不是东方财富或本地已校验 K 线提供，或者超过 30 天，禁止建议卖出债券/黄金转入纳指。
-- 如果国内多源行情交叉验证显示价格偏差明显，必须建议人工复核，不得触发激进调仓。
-- 如果某类信息缺失，例如券商研报、估值或利率数据缺失，请明确写出“缺失”，并降低置信度。
-- 必须给出“是否调整策略”的明确动作，而不是只做宏观描述。
-- 推荐比例总和必须等于 100%。
-- 请明确说明：这是研究和教育用途分析，不构成投资建议。`;
+      async function recoverVibeAnswer(run) {
+        for (let index = 0; index < 240; index += 1) {
+          if (run.finished || activeVibeResearch !== run || !run.attemptId) return;
+          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          try {
+            const history = await requestJson(
+              `/api/vibe/research/messages?sessionId=${encodeURIComponent(run.sessionId)}`
+            );
+            const answer = history.find(
+              (message) =>
+                message.role === "assistant" &&
+                message.linked_attempt_id === run.attemptId &&
+                message.content
+            );
+            if (answer?.content) {
+              run.finish(answer.content);
+              return;
+            }
+          } catch {
+            // SSE is the primary transport; polling only recovers a missed completion event.
+          }
+        }
+      }
+
+      async function startVibeResearch(settings, prompt, resumeSnapshot = null) {
+        activeVibeResearch?.source?.close();
+        const isResume = Boolean(resumeSnapshot?.sessionId);
+        if (!isResume) window.localStorage.removeItem(vibeRunStorageKey);
+        const prepared = isResume
+          ? { sessionId: resumeSnapshot.sessionId }
+          : await requestJson("/api/vibe/research/session", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...settings, prompt }),
+            });
+        const run = {
+          sessionId: prepared.sessionId,
+          attemptId: isResume ? resumeSnapshot.attemptId || "" : "",
+          tools: isResume && Array.isArray(resumeSnapshot.tools) ? resumeSnapshot.tools : [],
+          liveText: isResume ? resumeSnapshot.liveText || "" : "",
+          notice: isResume ? "正在恢复上次研究进度" : "研究会话已建立，正在连接执行引擎",
+          status: "running",
+          lastEventId: isResume ? resumeSnapshot.lastEventId || "" : "",
+          answer: "",
+          error: "",
+          source: null,
+          finished: false,
+          finish: null,
+        };
+        activeVibeResearch = run;
+        writeVibeRunSnapshot(run);
+        renderVibeProgress(run);
+
+        return new Promise((resolve, reject) => {
+          let opened = false;
+          let settled = false;
+          const source = new EventSource(
+            `/api/vibe/research/events?sessionId=${encodeURIComponent(run.sessionId)}${
+              run.lastEventId ? `&lastEventId=${encodeURIComponent(run.lastEventId)}` : ""
+            }`
+          );
+          run.source = source;
+
+          const finish = (answer) => {
+            const content = String(answer || "").trim();
+            if (settled || !content) return;
+            settled = true;
+            run.finished = true;
+            run.status = "completed";
+            run.answer = content;
+            run.notice = "Vibe-Trading 研究已完成";
+            writeVibeRunSnapshot(run, { status: "completed", answer: content });
+            source.close();
+            if (activeVibeResearch === run) activeVibeResearch = null;
+            resolve(content);
+          };
+          const fail = (error) => {
+            if (settled) return;
+            const normalizedError = error instanceof Error ? error : new Error(String(error));
+            settled = true;
+            run.finished = true;
+            run.status = "failed";
+            run.error = normalizedError.message;
+            writeVibeRunSnapshot(run, { status: "failed", error: normalizedError.message });
+            source.close();
+            if (activeVibeResearch === run) activeVibeResearch = null;
+            reject(normalizedError);
+          };
+          run.finish = finish;
+
+          const connectionTimeout = window.setTimeout(() => {
+            if (!opened) fail(new Error("连接 Vibe-Trading 研究事件流超时"));
+          }, 10000);
+
+          source.onopen = async () => {
+            if (opened) return;
+            opened = true;
+            window.clearTimeout(connectionTimeout);
+            if (isResume) {
+              run.notice = "已恢复研究连接，正在补回离开期间的进度";
+              writeVibeRunSnapshot(run);
+              renderVibeProgress(run);
+              void recoverVibeAnswer(run);
+              return;
+            }
+
+            run.notice = "正在提交组合数据与研究提示词";
+            writeVibeRunSnapshot(run);
+            renderVibeProgress(run);
+            try {
+              const sent = await requestJson("/api/vibe/research/message", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sessionId: run.sessionId, prompt }),
+              });
+              run.attemptId = sent.attempt_id;
+              run.notice = "组合数据已导入，正在规划研究路径";
+              writeVibeRunSnapshot(run);
+              renderVibeProgress(run);
+              void recoverVibeAnswer(run);
+            } catch (error) {
+              fail(error);
+            }
+          };
+          source.onerror = () => {
+            if (!opened) {
+              window.clearTimeout(connectionTimeout);
+              fail(new Error("无法连接 Vibe-Trading 研究事件流"));
+              return;
+            }
+            if (!settled) {
+              run.notice = "研究仍在后台运行，正在恢复实时连接";
+              writeVibeRunSnapshot(run);
+              renderVibeProgress(run);
+            }
+          };
+
+          source.addEventListener("attempt.created", (event) => {
+            const data = parseVibeEvent(event);
+            run.attemptId = String(data.attempt_id || run.attemptId);
+            run.notice = "研究任务已创建";
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("attempt.started", (event) => {
+            const data = parseVibeEvent(event);
+            run.attemptId = String(data.attempt_id || run.attemptId);
+            run.notice = "Vibe-Trading 正在深度研究";
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("reasoning_delta", (event) => {
+            run.notice = "正在推理并组织研究路径";
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("stream_reset", (event) => {
+            run.liveText = "";
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("text_delta", (event) => {
+            const data = parseVibeEvent(event);
+            run.liveText = `${run.liveText}${String(data.delta || "")}`.slice(-2400);
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("tool_call", (event) => {
+            const data = parseVibeEvent(event);
+            run.tools.push({
+              tool: String(data.tool || "research_tool"),
+              status: "running",
+              progress: "",
+              preview: "",
+            });
+            run.notice = "正在调用研究工具";
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("tool_progress", (event) => {
+            const data = parseVibeEvent(event);
+            const tool = findLastRunningVibeTool(run, String(data.tool || ""));
+            if (tool) tool.progress = String(data.message || data.stage || "");
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("tool_result", (event) => {
+            const data = parseVibeEvent(event);
+            const toolName = String(data.tool || "research_tool");
+            const tool = findLastRunningVibeTool(run, toolName);
+            const status = data.status === "ok" ? "ok" : "error";
+            if (tool) {
+              tool.status = status;
+              tool.preview = String(data.preview || "");
+              tool.progress = "";
+            } else {
+              run.tools.push({
+                tool: toolName,
+                status,
+                progress: "",
+                preview: String(data.preview || ""),
+              });
+            }
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("swarm.started", (event) => {
+            run.notice = "多智能体研究团队已启动";
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("swarm.event", (event) => {
+            const data = parseVibeEvent(event);
+            const swarmEvent = data.event || {};
+            if (swarmEvent.type) {
+              run.notice = `多智能体：${String(swarmEvent.type).replaceAll("_", " ")}`;
+            }
+            recordVibeEvent(run, event);
+            renderVibeProgress(run);
+          });
+          source.addEventListener("attempt.completed", (event) => {
+            const data = parseVibeEvent(event);
+            recordVibeEvent(run, event);
+            finish(String(data.summary || run.liveText));
+          });
+          source.addEventListener("attempt.failed", (event) => {
+            const data = parseVibeEvent(event);
+            recordVibeEvent(run, event);
+            fail(new Error(String(data.error || "Vibe-Trading 研究任务执行失败")));
+          });
+        });
+      }
+
+      async function restoreVibeResearch() {
+        const snapshot = readVibeRunSnapshot();
+        if (!snapshot) return;
+        if (snapshot.status === "completed" && snapshot.answer) {
+          presentVibeAnswer(snapshot.answer);
+          return;
+        }
+        if (snapshot.status === "failed") {
+          aiOutput.classList.remove("hidden");
+          aiOutput.innerHTML = `<p class="text-red-300">上次 Vibe-Trading 研究未完成：${escapeHtml(snapshot.error || "研究任务执行失败")}</p>`;
+          return;
+        }
+
+        aiRunButton.disabled = true;
+        aiRunButton.textContent = "正在恢复研究";
+        aiOutput.classList.remove("hidden");
+        renderVibeProgress(snapshot);
+
+        try {
+          let storedSession = null;
+          try {
+            const sessions = await requestJson("/api/vibe/research/sessions");
+            storedSession = Array.isArray(sessions)
+              ? sessions.find((session) => session.session_id === snapshot.sessionId)
+              : null;
+          } catch {
+            // The saved session can still reconnect while the session list is temporarily unavailable.
+          }
+
+          if (storedSession?.last_attempt_id) {
+            snapshot.attemptId = storedSession.last_attempt_id;
+          }
+
+          if (storedSession?.last_attempt_status === "failed") {
+            throw new Error("上次 Vibe-Trading 研究任务执行失败，请重新发起分析");
+          }
+
+          if (storedSession?.last_attempt_status === "completed") {
+            const history = await requestJson(
+              `/api/vibe/research/messages?sessionId=${encodeURIComponent(snapshot.sessionId)}`
+            );
+            const answer = Array.isArray(history)
+              ? [...history].reverse().find(
+                  (message) =>
+                    message.role === "assistant" &&
+                    message.content &&
+                    (!snapshot.attemptId || message.linked_attempt_id === snapshot.attemptId)
+                )
+              : null;
+            if (answer?.content) {
+              snapshot.status = "completed";
+              snapshot.answer = answer.content;
+              snapshot.notice = "Vibe-Trading 研究已完成";
+              writeVibeRunSnapshot(snapshot, { status: "completed", answer: answer.content });
+              presentVibeAnswer(answer.content);
+              return;
+            }
+          }
+
+          const answer = await startVibeResearch(null, null, snapshot);
+          presentVibeAnswer(answer);
+        } catch (error) {
+          aiOutput.innerHTML = `<p class="text-red-300">恢复 Vibe-Trading 研究失败：${escapeHtml(error.message)}</p>`;
+        } finally {
+          aiRunButton.disabled = false;
+          aiRunButton.textContent = "交给 Vibe-Trading 分析";
+        }
       }
 
       async function runAiAnalysis() {
@@ -1006,47 +1390,28 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
         if (!settings.baseUrl || !settings.apiKey || !settings.model) {
           updateAiConfigSummary(settings);
           aiOutput.classList.remove("hidden");
-          aiOutput.innerHTML = '<p class="text-amber-200">请先从右上角头像进入“设置”，填写 AI API Key 和模型后再生成建议。</p>';
+          aiOutput.innerHTML = '<p class="text-amber-200">请先从右上角头像进入“设置”，填写 AI API Key 和模型后再启动 Vibe-Trading 研究。</p>';
           return;
         }
 
         aiRunButton.disabled = true;
-        aiRunButton.textContent = "采集情报中";
+        aiRunButton.textContent = "整理持仓中";
         latestAiSuggestedTargets = null;
         aiApplyTargetsButton.classList.add("hidden");
         aiOutput.classList.remove("hidden");
-        aiOutput.innerHTML = '<p class="text-gray-400">正在调用市场情报工具：东方财富 / 腾讯证券 / 新浪财经 / 本地校验K线 / 中国国债ETF / FRED利率背景...</p>';
+        aiOutput.innerHTML = '<p class="text-gray-400">正在整理当前持仓和目标比例，行情、新闻与回测将由 Vibe-Trading 自行获取...</p>';
 
         try {
-          const contextResponse = await fetch("/api/market-context");
-          const marketContext = await contextResponse.json();
-          if (!contextResponse.ok) throw new Error(marketContext.detail || marketContext.error || "市场上下文获取失败");
+          aiOutput.innerHTML = '<p class="text-gray-400">当前持仓已整理，正在创建 Vibe-Trading 深度研究会话...</p>';
+          aiRunButton.textContent = "Vibe-Trading 研究中";
 
-          aiRunButton.textContent = "分析中";
-          const failedSources = marketContext.sources?.filter((source) => source.error).length || 0;
-          aiOutput.innerHTML = `<p class="text-gray-400">已获取 ${marketContext.sourceCount || 0} 个市场信息源，其中 ${marketContext.freshSourceCount || 0} 个为最近 30 天有效来源${failedSources ? `，${failedSources} 个来源暂时不可达` : ""}。${marketContext.warning ? `情报提示：${escapeHtml(marketContext.warning)}` : ""} 正在调用模型生成策略审查...</p>`;
-
-          const response = await fetch("/api/ai-analysis", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ...settings,
-              prompt: buildAiPrompt(marketContext),
-            }),
-          });
-          const payload = await response.json();
-          if (!response.ok) throw new Error(payload.detail || payload.error || "AI 分析失败");
-          aiOutput.innerHTML = renderAiMarkdown(payload.text);
-          latestAiSuggestedTargets = extractSuggestedTargets(payload.text);
-          aiApplyTargetsButton.classList.toggle("hidden", !latestAiSuggestedTargets);
-          if (latestAiSuggestedTargets) {
-            aiApplyTargetsButton.textContent = `一键导入建议比例并自动计算｜${latestAiSuggestedTargets.action}｜${latestAiSuggestedTargets.confidence}`;
-          }
+          const answer = await startVibeResearch(settings, buildAiPrompt());
+          presentVibeAnswer(answer);
         } catch (error) {
           aiOutput.innerHTML = `<p class="text-red-300">${escapeHtml(error.message)}</p>`;
         } finally {
           aiRunButton.disabled = false;
-          aiRunButton.textContent = "生成 AI 建议";
+          aiRunButton.textContent = "交给 Vibe-Trading 分析";
         }
       }
 
@@ -1831,6 +2196,9 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
       window.addEventListener("storage", (event) => {
         if (event.key === integrationStorageKey) updateAiConfigSummary();
       });
+      window.addEventListener("beforeunload", () => {
+        if (activeVibeResearch) writeVibeRunSnapshot(activeVibeResearch);
+      });
       backtestChart.addEventListener("mousemove", updateBacktestTooltip);
       backtestChart.addEventListener("mouseleave", () => {
         backtestHoverIndex = null;
@@ -1930,6 +2298,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
       setStrategy("balanced");
       setMode("smart");
       updateAiConfigSummary();
+      void restoreVibeResearch();
       loadCandles();
       calculateAndRender({ delay: 0 });
       runBacktest();
