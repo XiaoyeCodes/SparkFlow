@@ -1569,13 +1569,14 @@ async function prepareVibeResearchSession(body: any) {
   };
 }
 
-async function proxyVibeEventStream(req: any, res: any, sessionId: string) {
+async function proxyVibeEventStream(req: any, res: any, sessionId: string, resumeEventId?: string) {
   const baseUrl = await ensureVibeTradingServer();
   const controller = new AbortController();
   req.once('close', () => controller.abort());
-  const lastEventId = Array.isArray(req.headers['last-event-id'])
+  const headerEventId = Array.isArray(req.headers['last-event-id'])
     ? req.headers['last-event-id'][0]
     : req.headers['last-event-id'];
+  const lastEventId = String(headerEventId || resumeEventId || '').trim();
   const upstream = await fetch(
     `${baseUrl}/sessions/${encodeURIComponent(validateVibeSessionId(sessionId))}/events?replay=active`,
     {
@@ -1700,6 +1701,12 @@ function allWeatherApiPlugin() {
             return;
           }
 
+          if (url.pathname === '/api/vibe/research/sessions' && req.method === 'GET') {
+            const baseUrl = await ensureVibeTradingServer();
+            sendJson(res, 200, await requestVibeJson(baseUrl, '/sessions?limit=50'));
+            return;
+          }
+
           if (url.pathname === '/api/vibe/research/message' && req.method === 'POST') {
             const body = JSON.parse(await getRequestBody(req));
             const sessionId = validateVibeSessionId(body.sessionId);
@@ -1740,7 +1747,12 @@ function allWeatherApiPlugin() {
           }
 
           if (url.pathname === '/api/vibe/research/events' && req.method === 'GET') {
-            await proxyVibeEventStream(req, res, String(url.searchParams.get('sessionId') || ''));
+            await proxyVibeEventStream(
+              req,
+              res,
+              String(url.searchParams.get('sessionId') || ''),
+              String(url.searchParams.get('lastEventId') || ''),
+            );
             return;
           }
 

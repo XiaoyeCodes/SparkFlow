@@ -36,6 +36,7 @@ class SessionResponse(BaseModel):
     created_at: str
     updated_at: str
     last_attempt_id: Optional[str] = None
+    last_attempt_status: Optional[str] = None
 
 
 class SendMessageRequest(BaseModel):
@@ -325,6 +326,22 @@ def register_sessions_routes(app: FastAPI) -> None:
         return svc, session
 
     # -----------------------------------------------------------------------
+    def _session_response(svc, session) -> SessionResponse:
+        attempt_status = None
+        if session.last_attempt_id:
+            attempt = svc.store.get_attempt(session.session_id, session.last_attempt_id)
+            if attempt is not None:
+                attempt_status = getattr(attempt.status, "value", attempt.status)
+        return SessionResponse(
+            session_id=session.session_id,
+            title=session.title,
+            status=session.status.value,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            last_attempt_id=session.last_attempt_id,
+            last_attempt_status=attempt_status,
+        )
+
     # Session CRUD routes
     # -----------------------------------------------------------------------
 
@@ -335,14 +352,7 @@ def register_sessions_routes(app: FastAPI) -> None:
         if not svc:
             raise HTTPException(status_code=501, detail="Session runtime not enabled")
         session = svc.create_session(title=request.title, config=request.config)
-        return SessionResponse(
-            session_id=session.session_id,
-            title=session.title,
-            status=session.status.value,
-            created_at=session.created_at,
-            updated_at=session.updated_at,
-            last_attempt_id=session.last_attempt_id,
-        )
+        return _session_response(svc, session)
 
     @app.get("/sessions", response_model=List[SessionResponse], dependencies=[Depends(require_auth)])
     async def list_sessions(limit: int = Query(50, ge=1, le=200)):
@@ -351,17 +361,7 @@ def register_sessions_routes(app: FastAPI) -> None:
         if not svc:
             raise HTTPException(status_code=501, detail="Session runtime not enabled")
         sessions = svc.list_sessions(limit=limit)
-        return [
-            SessionResponse(
-                session_id=s.session_id,
-                title=s.title,
-                status=s.status.value,
-                created_at=s.created_at,
-                updated_at=s.updated_at,
-                last_attempt_id=s.last_attempt_id,
-            )
-            for s in sessions
-        ]
+        return [_session_response(svc, session) for session in sessions]
 
     @app.get("/sessions/{session_id}", response_model=SessionResponse, dependencies=[Depends(require_auth)])
     async def get_session(session_id: str):
@@ -373,14 +373,7 @@ def register_sessions_routes(app: FastAPI) -> None:
         session = svc.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-        return SessionResponse(
-            session_id=session.session_id,
-            title=session.title,
-            status=session.status.value,
-            created_at=session.created_at,
-            updated_at=session.updated_at,
-            last_attempt_id=session.last_attempt_id,
-        )
+        return _session_response(svc, session)
 
     # -----------------------------------------------------------------------
     # Goal sub-group routes

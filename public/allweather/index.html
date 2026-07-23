@@ -114,84 +114,11 @@
         border-color: rgba(185, 255, 220, 0.46);
       }
 
-      .side-drawer {
-        position: fixed;
-        left: 0;
-        top: 50%;
-        z-index: 30;
-        transform: translate(-260px, -50%);
-        width: 260px;
-      }
-
-      .side-drawer.is-open {
-        transform: translate(18px, -50%);
-      }
-
-      .side-drawer-handle {
-        position: absolute;
-        right: -44px;
-        top: 50%;
-        transform: translateY(-50%);
-        writing-mode: vertical-rl;
-      }
-
-      @media (max-width: 767px) {
-        .side-drawer {
-          left: 12px;
-          top: auto;
-          bottom: 16px;
-          width: min(300px, calc(100vw - 24px));
-          transform: translateY(calc(100% - 58px));
-        }
-
-        .side-drawer.is-open {
-          transform: translateY(0);
-        }
-
-        .side-drawer-handle {
-          right: 12px;
-          top: 0;
-          transform: translateY(-50%);
-          writing-mode: horizontal-tb;
-        }
-      }
     </style>
   </head>
   <body class="overflow-x-hidden bg-black text-white antialiased">
     <div class="grid-noise pointer-events-none fixed inset-0 z-0 opacity-60"></div>
     <div class="pointer-events-none fixed inset-x-0 top-0 z-20 h-px bg-gradient-to-r from-transparent via-blue-400/60 to-transparent"></div>
-
-    <aside id="side-drawer" class="side-drawer">
-      <div class="glass relative rounded-lg p-4">
-        <button
-          id="side-drawer-toggle"
-          type="button"
-          class="side-drawer-handle rounded-r-lg border border-white/10 bg-white/[0.06] px-3 py-4 font-mono text-xs tracking-[0.16em] text-gray-200 hover:border-blue-400/60 hover:bg-blue-500/15 hover:text-white md:rounded-l-none"
-          aria-expanded="false"
-          aria-controls="side-drawer-panel"
-        >
-          菜单
-        </button>
-        <div id="side-drawer-panel" class="space-y-4">
-          <div>
-            <div>
-              <p class="font-mono text-xs uppercase tracking-[0.2em] text-blue-300">控制台</p>
-              <h2 class="mt-2 text-lg font-semibold text-white">系统工具</h2>
-            </div>
-          </div>
-          <div class="space-y-2">
-            <button
-              id="ai-settings-button"
-              type="button"
-              class="w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-left text-sm font-semibold text-gray-200 hover:border-blue-400/60 hover:bg-blue-500/15 hover:text-white"
-            >
-              分析模型设置
-            </button>
-            <p class="text-xs leading-5 text-gray-500">配置接口地址、协议、密钥和模型名称。输入内容会自动保存。</p>
-          </div>
-        </div>
-      </div>
-    </aside>
 
     <main class="relative z-10 mx-auto flex w-full max-w-7xl flex-col px-5 py-8 sm:px-8 lg:px-10">
       <header class="mb-8 flex flex-col gap-6 border-b border-white/10 pb-8 lg:flex-row lg:items-end lg:justify-between">
@@ -326,10 +253,10 @@
       <section class="glass mt-6 rounded-lg p-5 sm:p-6">
         <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-200">AI 配置建议</p>
+            <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-200">AI 组合建议</p>
             <h2 class="mt-2 text-2xl font-semibold text-white">专业 AI 组合审查智能体</h2>
             <p id="ai-config-summary" class="mt-2 max-w-5xl text-sm leading-6 text-gray-400">
-              请先设置 API 基础地址、协议、Key 和模型。生成建议时优先使用东方财富、腾讯、新浪与本地校验行情交叉验证；关键数据不新鲜或不可验证时，不触发激进调仓。
+              自动使用 SparkFlow 全局 AI 设置。生成建议时优先使用东方财富、腾讯、新浪与本地校验行情交叉验证；关键数据不新鲜或不可验证时，不触发激进调仓。
             </p>
           </div>
           <div class="flex shrink-0 flex-wrap gap-3">
@@ -466,46 +393,6 @@
       </section>
     </main>
 
-    <div id="ai-settings-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-      <div class="w-full max-w-2xl rounded-lg border border-white/10 bg-[#0b0d12] p-5 shadow-panel">
-        <div class="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <p class="font-mono text-xs uppercase tracking-[0.18em] text-blue-300">AI Provider</p>
-            <h2 class="mt-2 text-2xl font-semibold text-white">分析模型设置</h2>
-          </div>
-          <button id="ai-settings-close" type="button" class="rounded-lg border border-white/10 px-3 py-2 text-sm text-gray-300 hover:bg-white/10">关闭</button>
-        </div>
-        <div class="space-y-4">
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-gray-200">接口地址</span>
-            <input id="ai-base-url" class="w-full rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-blue-400" placeholder="例如 https://api.openai.com/v1" />
-          </label>
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-gray-200">API 协议类型</span>
-            <select id="ai-protocol" class="w-full rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-blue-400">
-              <option value="chat">OpenAI Chat Completions / 兼容接口</option>
-              <option value="responses">OpenAI Responses API</option>
-            </select>
-          </label>
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-gray-200">API Key</span>
-            <div class="flex rounded-lg border border-white/10 bg-black/30 focus-within:border-blue-400">
-              <input id="ai-api-key" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm text-white outline-none" type="password" placeholder="请输入 API Key" />
-              <button id="ai-key-toggle" type="button" class="border-l border-white/10 px-4 text-sm text-gray-400 hover:text-white">显示</button>
-            </div>
-          </label>
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-gray-200">模型名称</span>
-            <input id="ai-model" class="w-full rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-blue-400" placeholder="例如 gpt-4.1 / gpt-4o / your-model" />
-          </label>
-        </div>
-        <div class="mt-6 flex justify-end gap-3">
-          <button id="ai-settings-cancel" type="button" class="rounded-lg border border-white/10 px-5 py-3 font-mono text-xs text-gray-300 hover:bg-white/10">关闭</button>
-          <button id="ai-settings-save" type="button" class="rounded-lg bg-blue-500 px-5 py-3 font-mono text-xs font-bold text-white hover:bg-blue-400">确定</button>
-        </div>
-      </div>
-    </div>
-
     <script>
       const assets = [
         { id: "sp500", name: "标普500基金", ticker: "美国大盘", target: 0.45, defaultValue: 45000 },
@@ -577,22 +464,10 @@
       const backtestTooltip = document.getElementById("backtest-tooltip");
       const backtestEmpty = document.getElementById("backtest-empty");
       const backtestNote = document.getElementById("backtest-note");
-      const sideDrawer = document.getElementById("side-drawer");
-      const sideDrawerToggle = document.getElementById("side-drawer-toggle");
-      const aiSettingsButton = document.getElementById("ai-settings-button");
       const aiRunButton = document.getElementById("ai-run-button");
       const aiApplyTargetsButton = document.getElementById("ai-apply-targets-button");
       const aiOutput = document.getElementById("ai-output");
       const aiConfigSummary = document.getElementById("ai-config-summary");
-      const aiSettingsModal = document.getElementById("ai-settings-modal");
-      const aiSettingsClose = document.getElementById("ai-settings-close");
-      const aiSettingsCancel = document.getElementById("ai-settings-cancel");
-      const aiSettingsSave = document.getElementById("ai-settings-save");
-      const aiBaseUrl = document.getElementById("ai-base-url");
-      const aiProtocol = document.getElementById("ai-protocol");
-      const aiApiKey = document.getElementById("ai-api-key");
-      const aiKeyToggle = document.getElementById("ai-key-toggle");
-      const aiModel = document.getElementById("ai-model");
       const candleChart = document.getElementById("candle-chart");
       const candleEmpty = document.getElementById("candle-empty");
       const candleTooltip = document.getElementById("candle-tooltip");
@@ -616,7 +491,7 @@
       let latestAiSuggestedTargets = null;
       let aiAssistEnabled = false;
       let latestMarketContext = null;
-      const aiStorageKey = "allweather-ai-settings";
+      const integrationStorageKey = "sparkflow.integrations.v1";
       const defaultAiPrompt = `# 角色
 你是“SparkFlow 全天候策略智能体”，一位面向长期定投者的多资产量化投顾研究员。你不是聊天助手，而是组合审查、风险诊断和执行计划生成器。你必须基于应用提供的用户持仓、策略参数、回测摘要、ETF K 线状态和“市场情报包”进行判断，不要假装自己实时联网。
 
@@ -723,12 +598,6 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;");
-      }
-
-      function setSideDrawerOpen(isOpen) {
-        sideDrawer.classList.toggle("is-open", isOpen);
-        sideDrawerToggle.setAttribute("aria-expanded", String(isOpen));
-        sideDrawerToggle.textContent = isOpen ? "收起" : "菜单";
       }
 
       function renderAiMarkdown(text) {
@@ -862,62 +731,44 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
       }
 
       function readAiSettings() {
-        try {
-          return JSON.parse(localStorage.getItem(aiStorageKey) || "{}");
-        } catch {
-          return {};
-        }
-      }
-
-      function writeAiSettings(settings) {
-        localStorage.setItem(aiStorageKey, JSON.stringify(settings));
-      }
-
-      function collectAiSettingsFromForm() {
-        return {
-          baseUrl: aiBaseUrl.value.trim(),
-          protocol: aiProtocol.value,
-          apiKey: aiApiKey.value.trim(),
-          model: aiModel.value.trim(),
+        const defaults = {
+          openai: { label: "OpenAI", baseUrl: "https://api.openai.com/v1", useProxy: true },
+          zhipu: { label: "智谱", baseUrl: "https://open.bigmodel.cn/api/paas/v4", useProxy: false },
+          deepseek: { label: "DeepSeek", baseUrl: "https://api.deepseek.com", useProxy: false },
+          qwen: { label: "通义千问", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", useProxy: false },
+          custom: { label: "自定义", baseUrl: "", useProxy: false },
         };
+        try {
+          const stored = JSON.parse(localStorage.getItem(integrationStorageKey) || "{}");
+          const ai = stored.ai || {};
+          const provider = defaults[ai.provider] ? ai.provider : "openai";
+          const providerDefaults = defaults[provider];
+          return {
+            provider,
+            providerLabel: providerDefaults.label,
+            baseUrl: String(ai.baseUrl || providerDefaults.baseUrl),
+            protocol: "chat",
+            apiKey: String(ai.apiKey || ""),
+            model: String(ai.model || ""),
+            useProxy: typeof ai.useProxy === "boolean" ? ai.useProxy : providerDefaults.useProxy,
+          };
+        } catch {
+          return {
+            provider: "openai",
+            providerLabel: "OpenAI",
+            baseUrl: defaults.openai.baseUrl,
+            protocol: "chat",
+            apiKey: "",
+            model: "",
+            useProxy: true,
+          };
+        }
       }
 
       function updateAiConfigSummary(settings = readAiSettings()) {
         aiConfigSummary.textContent = settings.model
-          ? `当前模型：${settings.model}；协议：${settings.protocol === "responses" ? "Responses API" : "Chat Completions 兼容接口"}。智能体会调用市场情报、组合偏离、纳指回撤触发器和再平衡规则生成专业报告。`
-          : "请先从左侧“设置”配置 API 地址、协议、Key 和模型。智能体会优先使用东方财富、腾讯、新浪和本地校验行情；关键数据不可靠时不会触发激进调仓。";
-      }
-
-      function persistAiSettingsDraft() {
-        const settings = collectAiSettingsFromForm();
-        writeAiSettings(settings);
-        updateAiConfigSummary(settings);
-      }
-
-      function syncAiSettingsForm() {
-        const settings = readAiSettings();
-        aiBaseUrl.value = settings.baseUrl || "https://api.openai.com/v1";
-        aiProtocol.value = settings.protocol || "chat";
-        aiApiKey.value = settings.apiKey || "";
-        aiModel.value = settings.model || "";
-        updateAiConfigSummary(settings);
-      }
-
-      function openAiSettings() {
-        syncAiSettingsForm();
-        aiSettingsModal.classList.remove("hidden");
-        aiSettingsModal.classList.add("flex");
-      }
-
-      function closeAiSettings() {
-        aiSettingsModal.classList.add("hidden");
-        aiSettingsModal.classList.remove("flex");
-      }
-
-      function saveAiSettings() {
-        writeAiSettings(collectAiSettingsFromForm());
-        syncAiSettingsForm();
-        closeAiSettings();
+          ? `使用全局 AI 设置：${settings.providerLabel} · ${settings.model}。智能体会调用市场情报、组合偏离、纳指回撤触发器和再平衡规则生成专业报告。`
+          : "尚未配置全局 AI。请从右上角头像进入“设置”，填写 API Key 和模型；本页不再单独保存 AI 配置。";
       }
 
       function cloneTargets(targets) {
@@ -1153,7 +1004,9 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
       async function runAiAnalysis() {
         const settings = readAiSettings();
         if (!settings.baseUrl || !settings.apiKey || !settings.model) {
-          openAiSettings();
+          updateAiConfigSummary(settings);
+          aiOutput.classList.remove("hidden");
+          aiOutput.innerHTML = '<p class="text-amber-200">请先从右上角头像进入“设置”，填写 AI API Key 和模型后再生成建议。</p>';
           return;
         }
 
@@ -1973,29 +1826,10 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
 
       modeToggle.addEventListener("click", () => setMode(mode === "smart" ? "full" : "smart"));
       runBacktestButton.addEventListener("click", runBacktest);
-      sideDrawerToggle.addEventListener("click", () => {
-        setSideDrawerOpen(!sideDrawer.classList.contains("is-open"));
-      });
-      aiSettingsButton.addEventListener("click", () => {
-        openAiSettings();
-        setSideDrawerOpen(false);
-      });
-      aiSettingsClose.addEventListener("click", closeAiSettings);
-      aiSettingsCancel.addEventListener("click", closeAiSettings);
-      aiSettingsSave.addEventListener("click", saveAiSettings);
       aiRunButton.addEventListener("click", runAiAnalysis);
       aiApplyTargetsButton.addEventListener("click", applyAiSuggestedTargets);
-      [aiBaseUrl, aiProtocol, aiApiKey, aiModel].forEach((field) => {
-        field.addEventListener("input", persistAiSettingsDraft);
-        field.addEventListener("change", persistAiSettingsDraft);
-      });
-      aiKeyToggle.addEventListener("click", () => {
-        const shouldShow = aiApiKey.type === "password";
-        aiApiKey.type = shouldShow ? "text" : "password";
-        aiKeyToggle.textContent = shouldShow ? "隐藏" : "显示";
-      });
-      aiSettingsModal.addEventListener("click", (event) => {
-        if (event.target === aiSettingsModal) closeAiSettings();
+      window.addEventListener("storage", (event) => {
+        if (event.key === integrationStorageKey) updateAiConfigSummary();
       });
       backtestChart.addEventListener("mousemove", updateBacktestTooltip);
       backtestChart.addEventListener("mouseleave", () => {
@@ -2095,7 +1929,7 @@ ${marketContext?.promptText || "市场上下文获取失败；请降低结论置
 
       setStrategy("balanced");
       setMode("smart");
-      syncAiSettingsForm();
+      updateAiConfigSummary();
       loadCandles();
       calculateAndRender({ delay: 0 });
       runBacktest();

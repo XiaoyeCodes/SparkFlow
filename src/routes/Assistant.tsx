@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
 import {
   Bot,
@@ -6,21 +6,22 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Circle,
   CircleStop,
-  Clock3,
   Copy,
+  History,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   SendHorizontal,
-  Wrench,
   XCircle,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useLocation } from 'react-router-dom';
-import { PageTransition } from '../components/PageTransition';
 import { Strands } from '../components/Strands';
 import { buildAiPayload, loadIntegrationSettings } from '../lib/integrations';
 
@@ -54,13 +55,6 @@ type ToolCall = {
   progress?: ToolProgress;
 };
 
-type EngineStatus = {
-  status: 'connecting' | 'ready' | 'offline';
-  provider?: string;
-  model?: string;
-  baseUrl?: string;
-};
-
 type StoredVibeMessage = {
   message_id: string;
   role: string;
@@ -68,7 +62,27 @@ type StoredVibeMessage = {
   linked_attempt_id?: string;
 };
 
+type VibeSession = {
+  session_id: string;
+  title: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  last_attempt_id?: string | null;
+  last_attempt_status?: string | null;
+};
+
+type ResearchSnapshot = {
+  tools: ToolCall[];
+  liveText: string;
+  notice: string;
+  runState: RunState;
+  lastEventId?: string;
+};
+
 const sessionStorageKey = 'sparkflow.vibe.session.v1';
+const sidebarStorageKey = 'sparkflow.vibe.history-sidebar-collapsed.v1';
+const progressStoragePrefix = 'sparkflow.vibe.progress.v1.';
 
 const starterPrompts = [
   '汇总今日市场、资金风向与重要新闻，给出风险优先的投资观察',
@@ -114,6 +128,67 @@ async function requestJson<T>(url: string, init?: RequestInit) {
   const payload = (await response.json().catch(() => ({}))) as T & { detail?: string };
   if (!response.ok) throw new Error(payload.detail || `请求失败：HTTP ${response.status}`);
   return payload;
+}
+
+function formatSessionTime(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return '';
+  const difference = Date.now() - timestamp;
+  if (difference < 60_000) return '刚刚';
+  if (difference < 3_600_000) return `${Math.max(1, Math.floor(difference / 60_000))} 分钟前`;
+  if (difference < 86_400_000) return `${Math.floor(difference / 3_600_000)} 小时前`;
+  if (difference < 604_800_000) return `${Math.floor(difference / 86_400_000)} 天前`;
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(value));
+}
+
+function readResearchSnapshot(sessionId: string): ResearchSnapshot | null {
+  try {
+    const raw = window.localStorage.getItem(`${progressStoragePrefix}${sessionId}`);
+    if (!raw) return null;
+    const snapshot = JSON.parse(raw) as Partial<ResearchSnapshot>;
+    if (!Array.isArray(snapshot.tools) || typeof snapshot.liveText !== 'string' || typeof snapshot.notice !== 'string') return null;
+    return {
+      tools: snapshot.tools as ToolCall[],
+      liveText: snapshot.liveText,
+      notice: snapshot.notice,
+      runState: snapshot.runState === 'researching' || snapshot.runState === 'connecting' || snapshot.runState === 'completed'
+        ? snapshot.runState
+        : 'idle',
+      lastEventId: typeof snapshot.lastEventId === 'string' ? snapshot.lastEventId : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeResearchSnapshot(sessionId: string, snapshot: ResearchSnapshot) {
+  try {
+    window.localStorage.setItem(
+      `${progressStoragePrefix}${sessionId}`,
+      JSON.stringify({ ...snapshot, tools: snapshot.tools.slice(-80), liveText: snapshot.liveText.slice(-2400) }),
+    );
+  } catch {
+    // A live research trace is optional; storage limits should never interrupt the task itself.
+  }
+}
+
+function clearResearchSnapshot(sessionId: string) {
+  window.localStorage.removeItem(`${progressStoragePrefix}${sessionId}`);
+}
+
+function updateResearchSnapshot(
+  sessionId: string,
+  updater: (snapshot: ResearchSnapshot) => ResearchSnapshot,
+) {
+  const current = readResearchSnapshot(sessionId) || {
+    tools: [],
+    liveText: '',
+    notice: '',
+    runState: 'idle' as RunState,
+  };
+  const next = updater(current);
+  writeResearchSnapshot(sessionId, next);
+  return next;
 }
 
 function ResearchProgress({ tools, running, liveText }: { tools: ToolCall[]; running: boolean; liveText: string }) {
@@ -244,11 +319,15 @@ export function Assistant() {
   const [runState, setRunState] = useState<RunState>('idle');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [engine, setEngine] = useState<EngineStatus>({ status: 'connecting' });
   const [sessionId, setSessionId] = useState('');
+  const [sessions, setSessions] = useState<VibeSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [historyCollapsed, setHistoryCollapsed] = useState(() => window.localStorage.getItem(sidebarStorageKey) === 'true');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [copiedId, setCopiedId] = useState('');
   const [savedId, setSavedId] = useState('');
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventSourcesRef = useRef(new Map<string, EventSource>());
+  const viewingSessionRef = useRef('');
   const activeAttemptRef = useRef('');
   const completedAttemptsRef = useRef(new Set<string>());
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -256,30 +335,97 @@ export function Assistant() {
 
   const isRunning = runState === 'connecting' || runState === 'researching';
 
-  useEffect(() => {
-    if (routeState?.starmapContext) {
-      setPrompt(`请基于这份星图情报进行深度研究，并给出有证据、可执行的下一步：\n\n${routeState.starmapContext}`);
-    }
-  }, [routeState?.starmapContext]);
+  const applyProgressSnapshot = useCallback((sid: string, snapshot: ResearchSnapshot) => {
+    writeResearchSnapshot(sid, snapshot);
+    if (viewingSessionRef.current !== sid) return;
+    setTools(snapshot.tools);
+    setLiveText(snapshot.liveText);
+    setNotice(snapshot.notice);
+    setRunState(snapshot.runState);
+  }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const restore = async () => {
-      try {
-        const status = await requestJson<{ provider: string; model: string; baseUrl: string }>('/api/vibe/status');
-        if (!cancelled) setEngine({ status: 'ready', provider: status.provider, model: status.model, baseUrl: status.baseUrl });
-      } catch {
-        if (!cancelled) setEngine({ status: 'offline' });
+  const persistResearchEvent = useCallback(
+    (
+      sid: string,
+      event: Event,
+      updater: (snapshot: ResearchSnapshot, data: Record<string, unknown>) => ResearchSnapshot,
+    ) => {
+      const data = parseEvent(event);
+      const eventId = (event as MessageEvent<string>).lastEventId || '';
+      const snapshot = updateResearchSnapshot(sid, (current) => ({
+        ...updater(current, data),
+        lastEventId: eventId || current.lastEventId,
+      }));
+      if (viewingSessionRef.current === sid) {
+        setTools(snapshot.tools);
+        setLiveText(snapshot.liveText);
+        setNotice(snapshot.notice);
+        setRunState(snapshot.runState);
       }
+      return { data, snapshot };
+    },
+    [],
+  );
 
-      const storedSessionId = window.localStorage.getItem(sessionStorageKey) || '';
-      if (!storedSessionId) return;
+  const loadSessions = useCallback(async () => {
+    try {
+      const storedSessions = await requestJson<VibeSession[]>('/api/vibe/research/sessions');
+      setSessions(storedSessions);
+      return storedSessions;
+    } catch {
+      // The research service may still be booting; submitting a question will surface a useful error if it stays unavailable.
+      return [] as VibeSession[];
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  const resetResearch = useCallback(() => {
+    viewingSessionRef.current = '';
+    activeAttemptRef.current = '';
+    completedAttemptsRef.current.clear();
+    setSessionId('');
+    setMessages([]);
+    setTools([]);
+    setLiveText('');
+    setRunState('idle');
+    setError('');
+    setNotice('');
+    window.localStorage.removeItem(sessionStorageKey);
+    setHistoryOpen(false);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, []);
+
+  const openSession = useCallback(
+    async (nextSessionId: string) => {
+      if (nextSessionId === sessionId) return;
+      setError('');
       try {
-        const history = await requestJson<StoredVibeMessage[]>(
-          `/api/vibe/research/messages?sessionId=${encodeURIComponent(storedSessionId)}`,
+        const [history, storedSessions] = await Promise.all([
+          requestJson<StoredVibeMessage[]>(`/api/vibe/research/messages?sessionId=${encodeURIComponent(nextSessionId)}`),
+          loadSessions(),
+        ]);
+        const nextSession = storedSessions.find((item) => item.session_id === nextSessionId);
+        const lastConversationMessage = [...history].reverse().find(
+          (message) => message.role === 'user' || message.role === 'assistant',
         );
-        if (cancelled) return;
-        setSessionId(storedSessionId);
+        const snapshot = readResearchSnapshot(nextSessionId);
+        const snapshotIsRunning =
+          snapshot?.runState === 'researching' || snapshot?.runState === 'connecting';
+        const shouldResume =
+          snapshotIsRunning ||
+          nextSession?.last_attempt_status === 'running' ||
+          (nextSession?.last_attempt_status !== 'failed' &&
+            Boolean(nextSession?.last_attempt_id) &&
+            lastConversationMessage?.role === 'user');
+        viewingSessionRef.current = nextSessionId;
+        activeAttemptRef.current = '';
+        completedAttemptsRef.current.clear();
+        setSessionId(nextSessionId);
+        setTools(snapshot?.tools || []);
+        setLiveText(snapshot?.liveText || '');
+        setNotice(snapshot?.notice || '');
+        setRunState(snapshot?.runState || 'idle');
         setMessages(
           history
             .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -290,38 +436,105 @@ export function Assistant() {
               attemptId: message.linked_attempt_id,
             })),
         );
+        window.localStorage.setItem(sessionStorageKey, nextSessionId);
+        setHistoryOpen(false);
+        if (shouldResume && nextSession?.last_attempt_id) {
+          activeAttemptRef.current = nextSession.last_attempt_id;
+          const resumedSnapshot: ResearchSnapshot = {
+            tools: snapshot?.tools || [],
+            liveText: snapshot?.liveText || '',
+            notice: '正在恢复研究进度',
+            runState: 'researching',
+            lastEventId: snapshot?.lastEventId,
+          };
+          applyProgressSnapshot(nextSessionId, resumedSnapshot);
+          void connectResearchStream(nextSessionId)
+            .then(() => void recoverCompletedAttempt(nextSessionId, nextSession.last_attempt_id || ''))
+            .catch((err) => {
+              if (viewingSessionRef.current === nextSessionId) {
+                setRunState('error');
+                setError(err instanceof Error ? err.message : '无法恢复研究进度');
+              }
+            });
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '无法读取这段研究记录');
+      }
+    },
+    [applyProgressSnapshot, loadSessions, sessionId],
+  );
+
+  useEffect(() => {
+    if (routeState?.starmapContext) {
+      setPrompt(`请基于这份星图情报进行深度研究，并给出有证据、可执行的下一步：\n\n${routeState.starmapContext}`);
+    }
+  }, [routeState?.starmapContext]);
+
+  useEffect(() => {
+    void loadSessions();
+  }, [loadSessions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const restore = async () => {
+      const storedSessionId = window.localStorage.getItem(sessionStorageKey) || '';
+      if (!storedSessionId) return;
+      try {
+        await openSession(storedSessionId);
       } catch {
-        window.localStorage.removeItem(sessionStorageKey);
+        if (!cancelled) window.localStorage.removeItem(sessionStorageKey);
       }
     };
     void restore();
     return () => {
       cancelled = true;
-      eventSourceRef.current?.close();
+      eventSourcesRef.current.forEach((source) => source.close());
+      eventSourcesRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(sidebarStorageKey, String(historyCollapsed));
+  }, [historyCollapsed]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: isRunning ? 'smooth' : 'auto', block: 'end' });
   }, [messages, tools, liveText, isRunning]);
 
-  const finishAttempt = (attemptId: string, summary: string) => {
-    if (!summary || completedAttemptsRef.current.has(attemptId)) return;
+  const finishAttempt = (sid: string, attemptId: string, summary: string) => {
+    const source = eventSourcesRef.current.get(sid);
+    source?.close();
+    eventSourcesRef.current.delete(sid);
+    const snapshot = updateResearchSnapshot(sid, (current) => ({
+      ...current,
+      tools: current.tools.map((tool) => (tool.status === 'running' ? { ...tool, status: 'ok' } : tool)),
+      liveText: '',
+      runState: 'completed',
+    }));
+    if (viewingSessionRef.current !== sid || !summary || completedAttemptsRef.current.has(attemptId)) {
+      void loadSessions();
+      return;
+    }
     completedAttemptsRef.current.add(attemptId);
     activeAttemptRef.current = '';
-    setMessages((current) => [
-      ...current,
-      { id: `assistant-${attemptId || Date.now()}`, role: 'assistant', content: summary, attemptId },
-    ]);
-    setTools((current) => current.map((tool) => (tool.status === 'running' ? { ...tool, status: 'ok' } : tool)));
-    setLiveText('');
-    setRunState('completed');
-    eventSourceRef.current?.close();
+    setMessages((current) =>
+      current.some((message) => message.role === 'assistant' && message.attemptId === attemptId)
+        ? current
+        : [...current, { id: `assistant-${attemptId || Date.now()}`, role: 'assistant', content: summary, attemptId }],
+    );
+    applyProgressSnapshot(sid, snapshot);
+    void loadSessions();
   };
 
   const recoverCompletedAttempt = async (sid: string, attemptId: string) => {
     for (let index = 0; index < 240; index += 1) {
-      if (completedAttemptsRef.current.has(attemptId) || activeAttemptRef.current !== attemptId) return;
+      if (
+        viewingSessionRef.current !== sid ||
+        completedAttemptsRef.current.has(attemptId) ||
+        activeAttemptRef.current !== attemptId
+      ) {
+        return;
+      }
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
       try {
         const history = await requestJson<StoredVibeMessage[]>(
@@ -331,7 +544,7 @@ export function Assistant() {
           (message) => message.role === 'assistant' && message.linked_attempt_id === attemptId,
         );
         if (answer?.content) {
-          finishAttempt(attemptId, answer.content);
+          finishAttempt(sid, attemptId, answer.content);
           return;
         }
       } catch {
@@ -342,13 +555,23 @@ export function Assistant() {
 
   const connectResearchStream = (sid: string) =>
     new Promise<void>((resolve, reject) => {
-      eventSourceRef.current?.close();
-      const source = new EventSource(`/api/vibe/research/events?sessionId=${encodeURIComponent(sid)}`);
-      eventSourceRef.current = source;
+      eventSourcesRef.current.get(sid)?.close();
+      const lastEventId = readResearchSnapshot(sid)?.lastEventId || '';
+      const source = new EventSource(
+        `/api/vibe/research/events?sessionId=${encodeURIComponent(sid)}${
+          lastEventId ? `&lastEventId=${encodeURIComponent(lastEventId)}` : ''
+        }`,
+      );
+      eventSourcesRef.current.set(sid, source);
+      const closeSource = () => {
+        source.close();
+        if (eventSourcesRef.current.get(sid) === source) eventSourcesRef.current.delete(sid);
+      };
+      const isViewing = () => viewingSessionRef.current === sid;
       let opened = false;
       const timeout = window.setTimeout(() => {
         if (!opened) {
-          source.close();
+          closeSource();
           reject(new Error('研究事件流连接超时'));
         }
       }, 10000);
@@ -361,116 +584,166 @@ export function Assistant() {
       source.onerror = () => {
         if (!opened) {
           window.clearTimeout(timeout);
-          source.close();
+          closeSource();
           reject(new Error('无法连接 Vibe-Trading 研究事件流'));
         }
       };
 
       source.addEventListener('attempt.created', (event) => {
-        const attemptId = String(parseEvent(event).attempt_id || '');
-        if (attemptId) activeAttemptRef.current = attemptId;
-        setRunState('researching');
+        const { data } = persistResearchEvent(sid, event, (current) => ({
+          ...current,
+          runState: 'researching',
+        }));
+        if (isViewing()) {
+          const attemptId = String(data.attempt_id || '');
+          if (attemptId) activeAttemptRef.current = attemptId;
+        }
       });
       source.addEventListener('attempt.started', (event) => {
-        const attemptId = String(parseEvent(event).attempt_id || '');
-        if (attemptId) activeAttemptRef.current = attemptId;
-        setRunState('researching');
+        const { data } = persistResearchEvent(sid, event, (current) => ({
+          ...current,
+          runState: 'researching',
+        }));
+        if (isViewing()) {
+          const attemptId = String(data.attempt_id || '');
+          if (attemptId) activeAttemptRef.current = attemptId;
+        }
       });
-      source.addEventListener('reasoning_delta', () => setRunState('researching'));
-      source.addEventListener('stream_reset', () => setLiveText(''));
+      source.addEventListener('reasoning_delta', (event) => {
+        persistResearchEvent(sid, event, (current) => ({ ...current, runState: 'researching' }));
+      });
+      source.addEventListener('stream_reset', (event) => {
+        persistResearchEvent(sid, event, (current) => ({ ...current, liveText: '' }));
+      });
       source.addEventListener('text_delta', (event) => {
-        const data = parseEvent(event);
-        setLiveText((current) => current + String(data.delta || ''));
+        persistResearchEvent(sid, event, (current, data) => ({
+          ...current,
+          liveText: current.liveText + String(data.delta || ''),
+          runState: 'researching',
+        }));
       });
       source.addEventListener('tool_call', (event) => {
-        const data = parseEvent(event);
-        const tool = String(data.tool || 'research_tool');
-        setTools((current) => [
-          ...current,
-          { id: `${tool}-${Date.now()}-${current.length}`, tool, status: 'running' },
-        ]);
+        persistResearchEvent(sid, event, (current, data) => {
+          const tool = String(data.tool || 'research_tool');
+          const eventId = (event as MessageEvent<string>).lastEventId || `${Date.now()}-${current.tools.length}`;
+          return {
+            ...current,
+            tools: [...current.tools, { id: `${tool}-${eventId}`, tool, status: 'running' }],
+            runState: 'researching',
+          };
+        });
       });
       source.addEventListener('tool_result', (event) => {
-        const data = parseEvent(event);
-        const tool = String(data.tool || 'research_tool');
-        setTools((current) => {
-          const index = findLastRunningToolIndex(current, tool);
+        persistResearchEvent(sid, event, (current, data) => {
+          const tool = String(data.tool || 'research_tool');
+          const index = findLastRunningToolIndex(current.tools, tool);
           if (index < 0) {
-            return [
+            const eventId = (event as MessageEvent<string>).lastEventId || Date.now();
+            return {
               ...current,
-              {
-                id: `${tool}-${Date.now()}`,
-                tool,
-                status: data.status === 'ok' ? 'ok' : 'error',
-                preview: String(data.preview || ''),
-                elapsedMs: Number(data.elapsed_ms || 0),
-              },
-            ];
-          }
-          return current.map((item, itemIndex) =>
-            itemIndex === index
-              ? {
-                  ...item,
+              tools: [
+                ...current.tools,
+                {
+                  id: `${tool}-${eventId}`,
+                  tool,
                   status: data.status === 'ok' ? 'ok' : 'error',
                   preview: String(data.preview || ''),
                   elapsedMs: Number(data.elapsed_ms || 0),
-                  progress: undefined,
-                }
-              : item,
-          );
+                },
+              ],
+            };
+          }
+          return {
+            ...current,
+            tools: current.tools.map((item, itemIndex) =>
+              itemIndex === index
+                ? {
+                    ...item,
+                    status: data.status === 'ok' ? 'ok' : 'error',
+                    preview: String(data.preview || ''),
+                    elapsedMs: Number(data.elapsed_ms || 0),
+                    progress: undefined,
+                  }
+                : item,
+            ),
+          };
         });
       });
       source.addEventListener('tool_heartbeat', (event) => {
-        const data = parseEvent(event);
-        const tool = String(data.tool || '');
-        setTools((current) => {
-          const index = findLastRunningToolIndex(current, tool);
-          return current.map((item, itemIndex) =>
-            itemIndex === index ? { ...item, elapsedSeconds: Number(data.elapsed_s || 0) } : item,
-          );
+        persistResearchEvent(sid, event, (current, data) => {
+          const tool = String(data.tool || '');
+          const index = findLastRunningToolIndex(current.tools, tool);
+          return {
+            ...current,
+            tools: current.tools.map((item, itemIndex) =>
+              itemIndex === index ? { ...item, elapsedSeconds: Number(data.elapsed_s || 0) } : item,
+            ),
+          };
         });
       });
       source.addEventListener('tool_progress', (event) => {
-        const data = parseEvent(event);
-        const tool = String(data.tool || '');
-        setTools((current) => {
-          const index = findLastRunningToolIndex(current, tool);
-          return current.map((item, itemIndex) =>
-            itemIndex === index
-              ? {
-                  ...item,
-                  progress: {
-                    stage: typeof data.stage === 'string' ? data.stage : undefined,
-                    message: typeof data.message === 'string' ? data.message : undefined,
-                    current: typeof data.current === 'number' ? data.current : undefined,
-                    total: typeof data.total === 'number' ? data.total : undefined,
-                  },
-                }
-              : item,
-          );
+        persistResearchEvent(sid, event, (current, data) => {
+          const tool = String(data.tool || '');
+          const index = findLastRunningToolIndex(current.tools, tool);
+          return {
+            ...current,
+            tools: current.tools.map((item, itemIndex) =>
+              itemIndex === index
+                ? {
+                    ...item,
+                    progress: {
+                      stage: typeof data.stage === 'string' ? data.stage : undefined,
+                      message: typeof data.message === 'string' ? data.message : undefined,
+                      current: typeof data.current === 'number' ? data.current : undefined,
+                      total: typeof data.total === 'number' ? data.total : undefined,
+                    },
+                  }
+                : item,
+            ),
+          };
         });
       });
-      source.addEventListener('swarm.started', () => {
-        setNotice('多智能体研究团队已启动');
+      source.addEventListener('swarm.started', (event) => {
+        persistResearchEvent(sid, event, (current) => ({
+          ...current,
+          notice: '多智能体研究团队已启动',
+        }));
       });
       source.addEventListener('swarm.event', (event) => {
-        const data = parseEvent(event);
-        const swarmEvent = data.event as Record<string, unknown> | undefined;
-        if (swarmEvent?.type) setNotice(`多智能体：${String(swarmEvent.type).replace(/_/g, ' ')}`);
+        persistResearchEvent(sid, event, (current, data) => {
+          const swarmEvent = data.event as Record<string, unknown> | undefined;
+          return {
+            ...current,
+            notice: swarmEvent?.type
+              ? `多智能体：${String(swarmEvent.type).replace(/_/g, ' ')}`
+              : current.notice,
+          };
+        });
       });
       source.addEventListener('attempt.completed', (event) => {
-        const data = parseEvent(event);
-        const attemptId = String(data.attempt_id || activeAttemptRef.current || 'completed');
-        finishAttempt(attemptId, String(data.summary || liveText));
+        const { data, snapshot } = persistResearchEvent(sid, event, (current) => ({
+          ...current,
+          tools: current.tools.map((tool) => (tool.status === 'running' ? { ...tool, status: 'ok' } : tool)),
+          runState: 'completed',
+        }));
+        const attemptId = String(data.attempt_id || (isViewing() ? activeAttemptRef.current : '') || 'completed');
+        finishAttempt(sid, attemptId, String(data.summary || snapshot.liveText));
       });
       source.addEventListener('attempt.failed', (event) => {
-        const data = parseEvent(event);
-        const attemptId = String(data.attempt_id || activeAttemptRef.current || 'failed');
-        completedAttemptsRef.current.add(attemptId);
-        activeAttemptRef.current = '';
-        setRunState('error');
-        setError(String(data.error || '研究任务执行失败'));
-        source.close();
+        const { data } = persistResearchEvent(sid, event, (current) => ({
+          ...current,
+          tools: current.tools.map((tool) => (tool.status === 'running' ? { ...tool, status: 'error' } : tool)),
+          runState: 'error',
+        }));
+        if (isViewing()) {
+          const attemptId = String(data.attempt_id || activeAttemptRef.current || 'failed');
+          completedAttemptsRef.current.add(attemptId);
+          activeAttemptRef.current = '';
+          setRunState('error');
+          setError(String(data.error || '研究任务执行失败'));
+        }
+        closeSource();
+        void loadSessions();
       });
     });
 
@@ -493,21 +766,27 @@ export function Assistant() {
     setRunState('connecting');
     setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', content: question }]);
 
+    let preparedSessionId = '';
     try {
       const prepared = await requestJson<{
         sessionId: string;
-        provider: string;
-        model: string;
-        baseUrl: string;
       }>('/api/vibe/research/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...buildAiPayload(settings, question), sessionId }),
       });
+      preparedSessionId = prepared.sessionId;
+      viewingSessionRef.current = prepared.sessionId;
+      clearResearchSnapshot(prepared.sessionId);
       setSessionId(prepared.sessionId);
       window.localStorage.setItem(sessionStorageKey, prepared.sessionId);
-      setEngine({ status: 'ready', provider: prepared.provider, model: prepared.model, baseUrl: prepared.baseUrl });
-      setNotice('研究会话已建立，正在规划任务');
+      void loadSessions();
+      applyProgressSnapshot(prepared.sessionId, {
+        tools: [],
+        liveText: '',
+        notice: '研究会话已建立，正在规划任务',
+        runState: 'connecting',
+      });
 
       await connectResearchStream(prepared.sessionId);
       const sent = await requestJson<{ attempt_id: string }>('/api/vibe/research/message', {
@@ -517,11 +796,19 @@ export function Assistant() {
       });
       if (completedAttemptsRef.current.has(sent.attempt_id)) return;
       activeAttemptRef.current = sent.attempt_id;
-      setRunState('researching');
-      setNotice('Vibe-Trading 正在研究');
+      applyProgressSnapshot(
+        prepared.sessionId,
+        updateResearchSnapshot(prepared.sessionId, (current) => ({
+          ...current,
+          runState: 'researching',
+          notice: 'Vibe-Trading 正在研究',
+        })),
+      );
+      void loadSessions();
       void recoverCompletedAttempt(prepared.sessionId, sent.attempt_id);
     } catch (err) {
-      eventSourceRef.current?.close();
+      eventSourcesRef.current.get(preparedSessionId)?.close();
+      eventSourcesRef.current.delete(preparedSessionId);
       activeAttemptRef.current = '';
       setRunState('error');
       setError(err instanceof Error ? err.message : String(err));
@@ -538,29 +825,21 @@ export function Assistant() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId }),
       });
-      eventSourceRef.current?.close();
+      eventSourcesRef.current.get(sessionId)?.close();
+      eventSourcesRef.current.delete(sessionId);
       activeAttemptRef.current = '';
-      setRunState('idle');
-      setNotice('研究已停止');
+      applyProgressSnapshot(
+        sessionId,
+        updateResearchSnapshot(sessionId, (current) => ({
+          ...current,
+          runState: 'idle',
+          notice: '研究已停止',
+        })),
+      );
+      void loadSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  };
-
-  const startNewConversation = () => {
-    eventSourceRef.current?.close();
-    activeAttemptRef.current = '';
-    completedAttemptsRef.current.clear();
-    window.localStorage.removeItem(sessionStorageKey);
-    setSessionId('');
-    setPrompt('');
-    setMessages([]);
-    setTools([]);
-    setLiveText('');
-    setRunState('idle');
-    setError('');
-    setNotice('');
-    inputRef.current?.focus();
   };
 
   const copyReport = async (message: ResearchMessage) => {
@@ -601,66 +880,138 @@ export function Assistant() {
   };
 
   return (
-    <PageTransition>
-      <section className="relative min-h-[calc(100vh-var(--nav-height))] overflow-x-hidden bg-[#08090b] text-white">
-        <div className="relative z-10 mx-auto flex min-h-[calc(100vh-var(--nav-height))] w-full max-w-5xl flex-col px-4 pb-5 pt-7 md:px-8">
-          <header className="flex min-h-16 items-center justify-between gap-4 border-b border-white/10 pb-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/12 bg-black/70">
-                <Bot size={18} className="text-[#ff8a1f]" />
-              </span>
-              <div className="min-w-0">
-                <h1 className="text-lg font-semibold text-white">AI 深度研究</h1>
-                <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-white/40">
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                      engine.status === 'ready'
-                        ? 'bg-emerald-300'
-                        : engine.status === 'connecting'
-                          ? 'animate-pulse bg-amber-300'
-                          : 'bg-red-300'
-                    }`}
-                  />
-                  <span className="truncate">
-                    {engine.status === 'ready'
-                      ? `Vibe-Trading · ${engine.provider} / ${engine.model}`
-                      : engine.status === 'connecting'
-                        ? '正在连接 Vibe-Trading'
-                        : '研究引擎离线'}
-                  </span>
+      <section className="relative min-h-screen overflow-x-hidden bg-[#08090b] pt-[var(--nav-height)] text-white">
+        <button
+          type="button"
+          title="打开研究历史"
+          aria-label="打开研究历史"
+          onClick={() => setHistoryOpen(true)}
+          className="fixed left-3 top-[calc(var(--nav-height)+12px)] z-30 inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/12 bg-[#111216]/95 text-white/72 shadow-lg shadow-black/30 backdrop-blur-xl transition hover:border-white/24 hover:text-white lg:hidden"
+        >
+          <History size={17} />
+        </button>
+
+        {historyOpen ? (
+          <button
+            type="button"
+            aria-label="关闭研究历史"
+            onClick={() => setHistoryOpen(false)}
+            className="fixed inset-0 z-40 bg-black/60 lg:hidden"
+          />
+        ) : null}
+
+        <aside
+          className={`fixed bottom-0 left-0 top-[var(--nav-height)] z-40 flex w-[min(84vw,19rem)] flex-col overflow-hidden border-r border-white/10 bg-[#0b0c0f]/97 backdrop-blur-xl transition-[transform,width] duration-200 lg:translate-x-0 ${
+            historyOpen ? 'translate-x-0' : '-translate-x-full'
+          } ${historyCollapsed ? 'lg:w-14' : 'lg:w-64'}`}
+        >
+          {historyCollapsed ? (
+            <div className="hidden h-16 shrink-0 items-center justify-center border-b border-white/8 lg:flex">
+              <History size={17} className="text-[#ff8a1f]" />
+            </div>
+          ) : null}
+          <div className={`flex min-h-0 flex-1 flex-col ${historyCollapsed ? 'lg:hidden' : ''}`}>
+              <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/8 px-3">
+                <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-white/84">
+                  <History size={16} className="shrink-0 text-[#ff8a1f]" />
+                  <span className="truncate">历史研究</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    title="新建研究"
+                    aria-label="新建研究"
+                    onClick={resetResearch}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white/52 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <Plus size={17} />
+                  </button>
+                  <button
+                    type="button"
+                    title="关闭研究历史"
+                    aria-label="关闭研究历史"
+                    onClick={() => setHistoryOpen(false)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white/52 transition hover:bg-white/[0.07] hover:text-white lg:hidden"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
                 </div>
               </div>
-            </div>
-            <button
-              type="button"
-              onClick={startNewConversation}
-              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-white/12 bg-black/50 px-3 text-xs font-semibold text-white/64 transition hover:border-white/24 hover:text-white"
-            >
-              <Plus size={15} />
-              新研究
-            </button>
-          </header>
 
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+                {sessionsLoading ? (
+                  <div className="space-y-2 px-2 py-1">
+                    {[0, 1, 2, 3].map((item) => (
+                      <div key={item} className="h-14 animate-pulse rounded-md bg-white/[0.045]" />
+                    ))}
+                  </div>
+                ) : sessions.length ? (
+                  <div className="space-y-1">
+                    {sessions.map((item) => {
+                      const active = item.session_id === sessionId;
+                      return (
+                        <button
+                          key={item.session_id}
+                          type="button"
+                          onClick={() => void openSession(item.session_id)}
+                          title={item.title || '未命名研究'}
+                          className={`w-full rounded-md px-3 py-2.5 text-left transition ${
+                            active
+                              ? 'bg-white/[0.1] text-white'
+                              : 'text-white/62 hover:bg-white/[0.06] hover:text-white'
+                          }`}
+                        >
+                          <span className="block truncate text-sm font-medium leading-5">{item.title || '未命名研究'}</span>
+                          <span className="mt-1 block text-[11px] text-white/34">{formatSessionTime(item.updated_at)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-4 py-10 text-center text-xs leading-6 text-white/36">开始一项研究后，记录会保存在这里。</div>
+                )}
+              </div>
+
+              <div className="border-t border-white/8 px-3 py-3 text-[11px] leading-5 text-white/32">研究记录保存在当前设备</div>
+          </div>
+        </aside>
+
+        <button
+          type="button"
+          title={historyCollapsed ? '展开研究历史' : '收起研究历史'}
+          aria-label={historyCollapsed ? '展开研究历史' : '收起研究历史'}
+          onClick={() => setHistoryCollapsed((value) => !value)}
+          className={`fixed top-[calc(var(--nav-height)+12px)] z-[45] hidden h-10 w-10 items-center justify-center rounded-md border border-white/12 bg-[#111216]/95 text-white/72 shadow-lg shadow-black/30 backdrop-blur-xl transition hover:border-white/24 hover:text-white lg:inline-flex ${
+            historyCollapsed ? 'left-3' : 'left-[calc(16rem-8px)]'
+          }`}
+        >
+          {historyCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        </button>
+
+        <div
+          className={`relative z-10 flex min-h-[calc(100vh-var(--nav-height))] w-full flex-col transition-[padding] duration-200 ${
+            historyCollapsed ? 'lg:pl-14' : 'lg:pl-64'
+          }`}
+        >
+          <div className="mx-auto flex min-h-[calc(100vh-var(--nav-height))] w-full max-w-5xl flex-col px-4 pb-5 pt-7 md:px-8">
           <div
             aria-hidden="true"
-            className={`pointer-events-none mx-auto -mb-3 mt-1 h-24 w-full max-w-[560px] overflow-hidden transition-opacity duration-500 md:h-28 ${
-              isRunning ? 'opacity-100' : 'opacity-[0.82]'
-            }`}
+            className="pointer-events-none mx-auto -mb-1 mt-2 h-32 w-full max-w-[680px] overflow-hidden md:h-36"
           >
             <Strands
               colors={['#F97316', '#7C3AED', '#06B6D4']}
               count={3}
-              speed={isRunning ? 0.74 : 0.5}
-              amplitude={isRunning ? 1.12 : 1}
-              waviness={isRunning ? 1.9 : 1.7}
-              thickness={isRunning ? 0.8 : 0.7}
-              glow={isRunning ? 3.7 : 2.6}
+              speed={isRunning ? 0.96 : 0.62}
+              amplitude={1.06}
+              waviness={1.9}
+              thickness={0.72}
+              glow={2.75}
               taper={3}
               spread={1}
-              intensity={isRunning ? 0.88 : 0.6}
-              saturation={isRunning ? 1.7 : 1.5}
-              opacity={1}
-              scale={1.5}
+              intensity={0.68}
+              saturation={1.45}
+              opacity={0.8}
+              scale={1.8}
               glass={false}
               refraction={1}
               dispersion={1}
@@ -768,50 +1119,47 @@ export function Assistant() {
             <div ref={endRef} />
           </div>
 
-          <div className="sticky bottom-0 z-20 border-t border-white/10 bg-[#08090b]/95 pb-1 pt-4 backdrop-blur-xl">
-            <form onSubmit={submit} className="rounded-lg border border-white/14 bg-[#111216] p-2 transition focus-within:border-white/28">
+          <div className="sticky bottom-0 z-20 border-t border-white/10 bg-[#08090b]/95 pb-2 pt-4 backdrop-blur-xl">
+            <form
+              onSubmit={submit}
+              className="flex min-h-16 items-end gap-2 rounded-full border border-white/18 bg-[#111216] py-2 pl-5 pr-2 transition focus-within:border-white/38"
+            >
               <textarea
                 ref={inputRef}
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={handleInputKeyDown}
                 maxLength={5000}
-                rows={2}
-                className="block min-h-14 w-full resize-none bg-transparent px-2 py-2 text-sm leading-6 text-white outline-none placeholder:text-white/32"
+                rows={1}
+                className="block min-h-10 max-h-28 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent py-2 text-sm leading-6 text-white outline-none [field-sizing:content] placeholder:text-white/32"
                 placeholder="输入公司、市场、策略或投资问题..."
                 aria-label="深度研究问题"
               />
-              <div className="flex items-center justify-between gap-3 px-1 pb-1">
-                <div className="flex min-w-0 items-center gap-2 text-[11px] text-white/30">
-                  {isRunning ? <Clock3 size={13} /> : <Wrench size={13} />}
-                  <span className="truncate">{isRunning ? '研究过程中可以查看实时步骤' : 'Vibe-Trading 研究模式'}</span>
-                </div>
-                {isRunning ? (
-                  <button
-                    type="button"
-                    onClick={() => void cancelResearch()}
-                    title="停止研究"
-                    aria-label="停止研究"
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/12 text-white/58 transition hover:border-red-300/40 hover:text-red-200"
-                  >
-                    <CircleStop size={17} />
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={!prompt.trim() || engine.status === 'offline'}
-                    title="开始研究"
-                    aria-label="开始研究"
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#ff7a12] text-white transition hover:bg-[#ff8a1f] disabled:cursor-not-allowed disabled:opacity-35"
-                  >
-                    <SendHorizontal size={17} />
-                  </button>
-                )}
-              </div>
+              {isRunning ? (
+                <button
+                  type="button"
+                  onClick={() => void cancelResearch()}
+                  title="停止研究"
+                  aria-label="停止研究"
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/14 text-white/58 transition hover:border-red-300/40 hover:bg-red-300/[0.06] hover:text-red-200"
+                >
+                  <CircleStop size={18} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!prompt.trim()}
+                  title="开始研究"
+                  aria-label="开始研究"
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#ff7a12] text-white transition hover:bg-[#ff8a1f] disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  <SendHorizontal size={18} />
+                </button>
+              )}
             </form>
+          </div>
           </div>
         </div>
       </section>
-    </PageTransition>
   );
 }
