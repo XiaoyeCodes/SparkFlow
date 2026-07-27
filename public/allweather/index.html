@@ -519,12 +519,21 @@
 - 若证据不足，默认维持或只用新增现金，不进行激进调仓。
 - 这是研究和教育用途分析，不构成投资建议。
 
-# 输出格式
-先给“结论摘要”，并单独写一行“执行模式：再平衡模式”或“执行模式：只买不卖模式”，再说明原因。然后给一张表格，列为：资产、当前金额、当前占比、当前目标、建议目标、动作、理由。随后给“价值投资点评”“是否卖出债券/黄金抄底”“执行计划”“证据与风险”。
+# 输出格式与严格顺序
+回答开头必须先给操作结论，分析理由放在后面。禁止在操作结论前输出背景、推理过程或“现在开始编写报告”等过渡语。
 
-最后必须单独输出一行，不要放进代码块：
-SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"action":"维持不变","executionMode":"smart","confidence":"中"}
-四个比例必须是非负小数且合计等于 1。executionMode 是对上述执行模式问题的机器可读答案，只能二选一：选择“只买不卖模式”时写 smart；选择“再平衡模式”时写 full。不得省略或填写其他值。`;
+第一行必须单独输出以下机器可读 JSON，不要放进代码块：
+SUGGESTED_TARGETS_JSON {"sp500":45,"nasdaq":25,"bond":20,"gold":10,"action":"维持不变","executionMode":"smart","confidence":"中"}
+
+JSON 后紧接着输出：
+建议比例：标普500 45%｜纳指 25%｜长期国债 20%｜黄金 10%
+再平衡模式：关闭（只买不卖）
+
+四个资产比例必须是 0-100 的非负整数，禁止小数，并且合计必须严格等于 100。executionMode 只能二选一：选择“只买不卖模式”时写 smart，并显示“再平衡模式：关闭”；选择“再平衡模式”时写 full，并显示“再平衡模式：开启”。不得省略或填写其他值。
+
+完成上述操作结论后，再给“结论摘要”和分析理由。分析部分包含一张表格，列为：资产、当前金额、当前占比、当前目标、建议目标、动作、理由。随后给“价值投资点评”“是否卖出债券/黄金抄底”“执行计划”“证据与风险”。
+
+结束回答前必须自检：第一行 JSON 可解析、四个比例均为整数、合计为 100，且再平衡模式文字与 executionMode 一致。`;
       const candleCache = new Map();
       const candleAssets = {
         sp500: { label: "标普500基金", ticker: "SPY" },
@@ -745,44 +754,224 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
         return blocks.join("");
       }
 
-      function extractSuggestedTargets(text) {
-        const match = String(text).match(/SUGGESTED_TARGETS_JSON\s*(\{[\s\S]*?\})/);
+      function getSuggestedAssetKey(value) {
+        const normalized = String(value || "")
+          .replace(/[*_`]/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .toLowerCase();
+        if (/(标普\s*500|s&p\s*500|\bspy\b)/i.test(normalized)) return "sp500";
+        if (/(纳指\s*100|纳斯达克\s*100|纳指基金|\bqqq\b)/i.test(normalized)) return "nasdaq";
+        if (/(长期国债|国债基金|美国长债|\btlt\b)/i.test(normalized)) return "bond";
+        if (/(黄金基金|黄金资产|黄金|\bgld\b)/i.test(normalized)) return "gold";
+        return "";
+      }
+
+      function parseSuggestedPercent(value) {
+        const match = String(value || "")
+          .replace(/[*_`]/g, "")
+          .match(/(-?\d+(?:\.\d+)?)\s*%/);
         if (!match) return null;
+        const percent = Number(match[1]);
+        return Number.isFinite(percent) && percent >= 0 && percent <= 100 ? percent / 100 : null;
+      }
 
-        try {
-          const payload = JSON.parse(match[1]);
-          const targets = {
-            sp500: Number(payload.sp500),
-            nasdaq: Number(payload.nasdaq),
-            bond: Number(payload.bond),
-            gold: Number(payload.gold),
-          };
-          const total = Object.values(targets).reduce((sum, value) => sum + value, 0);
-          const isValid = Object.values(targets).every((value) => Number.isFinite(value) && value >= 0) && total > 0;
-          if (!isValid) return null;
-
-          return {
-            targets: Object.fromEntries(Object.entries(targets).map(([key, value]) => [key, value / total])),
-            action: payload.action || "AI 建议",
-            executionMode: payload.executionMode === "full" ? "full" : payload.executionMode === "smart" ? "smart" : "",
-            confidence: payload.confidence || "未标注",
-          };
-        } catch {
-          return null;
+      function inferSuggestedMode(text) {
+        const content = String(text || "");
+        const decisionScope = content.slice(
+          Math.max(
+            content.lastIndexOf("最终判定"),
+            content.lastIndexOf("执行模式"),
+            content.lastIndexOf("模式判定"),
+            0
+          )
+        );
+        if (/(?:executionMode|执行模式|模式判定|最终判定|判定)[\s\S]{0,100}(?:smart|只买不卖)/i.test(decisionScope)) {
+          return "smart";
         }
+        if (/(?:executionMode|执行模式|模式判定|最终判定|判定)[\s\S]{0,100}(?:full|强力再平衡|允许卖出|再平衡模式)/i.test(decisionScope)) {
+          return "full";
+        }
+        if (/(?:smart|只买不卖模式)/i.test(content)) return "smart";
+        if (/(?:executionMode\s*["':：=]+\s*full|强力再平衡|允许卖出并重新分配)/i.test(content)) return "full";
+        return "";
+      }
+
+      function integerizeSuggestedTargets(targets) {
+        const keys = ["sp500", "nasdaq", "bond", "gold"];
+        const total = keys.reduce((sum, key) => sum + Number(targets[key] || 0), 0);
+        if (!Number.isFinite(total) || total <= 0) return null;
+        const rows = keys.map((key, index) => {
+          const exact = (Number(targets[key] || 0) / total) * 100;
+          const integer = Math.floor(exact);
+          return { key, index, exact, integer, remainder: exact - integer };
+        });
+        let pointsLeft = 100 - rows.reduce((sum, row) => sum + row.integer, 0);
+        [...rows]
+          .sort((left, right) => right.remainder - left.remainder || left.index - right.index)
+          .forEach((row) => {
+            if (pointsLeft <= 0) return;
+            rows[row.index].integer += 1;
+            pointsLeft -= 1;
+          });
+        return Object.fromEntries(rows.map((row) => [row.key, row.integer / 100]));
+      }
+
+      function buildSuggestedTargets(targets, payload = {}, source = "structured") {
+        const total = Object.values(targets).reduce((sum, value) => sum + value, 0);
+        const isValid =
+          Object.values(targets).length === 4 &&
+          Object.values(targets).every((value) => Number.isFinite(value) && value >= 0) &&
+          total > 0;
+        if (!isValid) return null;
+        const executionMode =
+          payload.executionMode === "full" || payload.executionMode === "smart"
+            ? payload.executionMode
+            : inferSuggestedMode(payload.sourceText || "");
+        const integerTargets = integerizeSuggestedTargets(targets);
+        if (!integerTargets) return null;
+        return {
+          targets: integerTargets,
+          action: payload.action || (executionMode === "full" ? "执行再平衡" : "只买不卖"),
+          executionMode,
+          confidence: payload.confidence || (source === "structured" ? "未标注" : "报告提取"),
+          source,
+        };
+      }
+
+      function extractSuggestedTargets(text) {
+        const content = String(text || "");
+        const jsonMatch = content.match(/SUGGESTED_TARGETS_JSON\s*(\{[\s\S]*?\})/);
+        if (jsonMatch) {
+          try {
+            const payload = JSON.parse(jsonMatch[1]);
+            const structured = buildSuggestedTargets(
+              {
+                sp500: Number(payload.sp500),
+                nasdaq: Number(payload.nasdaq),
+                bond: Number(payload.bond),
+                gold: Number(payload.gold),
+              },
+              { ...payload, sourceText: content }
+            );
+            if (structured) return structured;
+          } catch {
+            // Fall through to the report-table parser when the model emits malformed JSON.
+          }
+        }
+
+        const lines = content.split(/\r?\n/);
+        const tableTargets = {};
+        let suggestedTargetColumn = -1;
+        for (const line of lines) {
+          if (!line.includes("|")) {
+            if (suggestedTargetColumn >= 0 && Object.keys(tableTargets).length < 4) {
+              suggestedTargetColumn = -1;
+              Object.keys(tableTargets).forEach((key) => delete tableTargets[key]);
+            }
+            continue;
+          }
+          const cells = line
+            .trim()
+            .replace(/^\|/, "")
+            .replace(/\|$/, "")
+            .split("|")
+            .map((cell) => cell.replace(/[*_`]/g, "").trim());
+          const headerIndex = cells.findIndex((cell) => /(建议目标|推荐目标|目标建议|建议比例)/.test(cell));
+          if (headerIndex >= 0) {
+            suggestedTargetColumn = headerIndex;
+            Object.keys(tableTargets).forEach((key) => delete tableTargets[key]);
+            continue;
+          }
+          if (suggestedTargetColumn < 0 || suggestedTargetColumn >= cells.length) continue;
+          const assetKey = getSuggestedAssetKey(cells[0]);
+          const target = parseSuggestedPercent(cells[suggestedTargetColumn]);
+          if (assetKey && target !== null) tableTargets[assetKey] = target;
+          if (Object.keys(tableTargets).length === 4) {
+            return buildSuggestedTargets(
+              tableTargets,
+              { executionMode: inferSuggestedMode(content), sourceText: content },
+              "report-table"
+            );
+          }
+        }
+
+        let finalMarker = content.lastIndexOf("最终判定");
+        if (finalMarker < 0) finalMarker = content.lastIndexOf("建议调整目标");
+        if (finalMarker < 0) finalMarker = content.lastIndexOf("建议目标");
+        const finalScope = finalMarker >= 0 ? content.slice(finalMarker) : content;
+        const compactPatterns = {
+          sp500: /(?:SPY|标普\s*500)[^\d%]{0,24}(\d+(?:\.\d+)?)\s*%/i,
+          nasdaq: /(?:QQQ|纳指\s*100|纳斯达克\s*100)[^\d%]{0,24}(\d+(?:\.\d+)?)\s*%/i,
+          bond: /(?:TLT|长期国债|国债基金)[^\d%]{0,24}(\d+(?:\.\d+)?)\s*%/i,
+          gold: /(?:GLD|黄金基金|黄金资产|黄金)[^\d%]{0,24}(\d+(?:\.\d+)?)\s*%/i,
+        };
+        const compactTargets = Object.fromEntries(
+          Object.entries(compactPatterns).map(([key, pattern]) => {
+            const match = finalScope.match(pattern);
+            return [key, match ? Number(match[1]) / 100 : Number.NaN];
+          })
+        );
+        return buildSuggestedTargets(
+          compactTargets,
+          { executionMode: inferSuggestedMode(content), sourceText: content },
+          "report-summary"
+        );
+      }
+
+      function renderVibeDecisionSummary(suggestion) {
+        const suggestedMode = chooseModeForSuggestedTargets(suggestion);
+        const modeEnabled = suggestedMode === "full";
+        const targetItems = [
+          ["标普500", suggestion.targets.sp500],
+          ["纳指", suggestion.targets.nasdaq],
+          ["长期国债", suggestion.targets.bond],
+          ["黄金", suggestion.targets.gold],
+        ];
+        return `
+          <section class="mb-6 border-b border-emerald-300/20 pb-6">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-emerald-200">AI 操作结论</p>
+                <h3 class="mt-2 text-lg font-semibold text-white">先确认比例和执行模式，再查看分析依据</h3>
+              </div>
+              <div class="border-l-2 ${modeEnabled ? "border-amber-300" : "border-emerald-300"} pl-3">
+                <p class="text-xs text-gray-500">再平衡模式</p>
+                <p class="mt-1 font-semibold ${modeEnabled ? "text-amber-200" : "text-emerald-200"}">
+                  ${modeEnabled ? "已开启 · 允许卖出调仓" : "已关闭 · 只买不卖"}
+                </p>
+              </div>
+            </div>
+            <div class="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+              ${targetItems
+                .map(
+                  ([label, value]) => `
+                    <div class="border-l border-white/15 pl-3">
+                      <p class="text-xs text-gray-500">${label}</p>
+                      <p class="mt-1 font-mono text-2xl font-semibold text-white">${Math.round(value * 100)}%</p>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          </section>
+        `;
       }
 
       function presentVibeAnswer(answer) {
         const content = String(answer || "").trim();
         if (!content) return;
         aiOutput.classList.remove("hidden");
-        aiOutput.innerHTML = renderAiMarkdown(content);
         latestAiSuggestedTargets = extractSuggestedTargets(content);
+        const reportHtml = renderAiMarkdown(content);
+        aiOutput.innerHTML = latestAiSuggestedTargets
+          ? `${renderVibeDecisionSummary(latestAiSuggestedTargets)}${reportHtml}`
+          : reportHtml;
         aiApplyTargetsButton.classList.toggle("hidden", !latestAiSuggestedTargets);
         if (latestAiSuggestedTargets) {
           const suggestedMode = chooseModeForSuggestedTargets(latestAiSuggestedTargets);
           const modeLabel = suggestedMode === "full" ? "再平衡模式" : "只买不卖模式";
-          aiApplyTargetsButton.textContent = `一键导入建议｜${modeLabel}｜${latestAiSuggestedTargets.confidence}`;
+          aiApplyTargetsButton.textContent = `一键导入比例并自动计算｜${modeLabel}`;
         } else {
           aiOutput.insertAdjacentHTML(
             "beforeend",
@@ -819,7 +1008,7 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
         return needsSelling ? "full" : "smart";
       }
 
-      function applyAiSuggestedTargets() {
+      async function applyAiSuggestedTargets() {
         if (!latestAiSuggestedTargets) return;
         const suggestedMode = chooseModeForSuggestedTargets(latestAiSuggestedTargets);
         strategyProfiles.custom.targets = { ...latestAiSuggestedTargets.targets };
@@ -830,11 +1019,16 @@ SUGGESTED_TARGETS_JSON {"sp500":0.45,"nasdaq":0.25,"bond":0.20,"gold":0.10,"acti
             ? "已导入建议并开启再平衡模式，正在重新计算"
             : "已导入建议并切换为只买不卖模式，正在重新计算";
         aiApplyTargetsButton.disabled = true;
-        window.setTimeout(() => {
-          form.requestSubmit();
+        try {
+          await calculateAndRender({ delay: 0 });
+          aiApplyTargetsButton.textContent =
+            suggestedMode === "full"
+              ? "已导入整数比例并完成计算｜再平衡已开启"
+              : "已导入整数比例并完成计算｜只买不卖";
           resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        } finally {
           aiApplyTargetsButton.disabled = false;
-        }, 80);
+        }
       }
 
       function readAiSettings() {
@@ -2287,7 +2481,12 @@ ${holdingTable}
             ? calculateSmartBuy(currentValues, cash)
             : calculateFullRebalance(currentValues, cash);
 
-        window.setTimeout(() => renderResults(results, currentValues, cash), delay);
+        await new Promise((resolve) => {
+          window.setTimeout(() => {
+            renderResults(results, currentValues, cash);
+            resolve();
+          }, delay);
+        });
       }
 
       form.addEventListener("submit", async (event) => {
