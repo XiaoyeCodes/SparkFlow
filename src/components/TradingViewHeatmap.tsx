@@ -1,14 +1,30 @@
 import { RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-type HeatmapMode = 'stocks' | 'etfs' | 'us';
+type HeatmapMode = 'stocks' | 'etfs' | 'us' | 'crypto';
 
-const HEATMAP_SCRIPT_URL = 'https://s3.tradingview.com/external-embedding/embed-widget-stock-heatmap.js';
+const STOCK_HEATMAP_SCRIPT_URL = 'https://s3.tradingview.com/external-embedding/embed-widget-stock-heatmap.js';
+const CRYPTO_HEATMAP_SCRIPT_URL = 'https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js';
 let heatmapWarmupStarted = false;
 let heatmapParkingLot: HTMLDivElement | null = null;
 const parkedHeatmaps: Partial<Record<HeatmapMode, HTMLDivElement>> = {};
 
 const heatmapConfig: Record<HeatmapMode, Record<string, unknown>> = {
+  crypto: {
+    dataSource: 'Crypto',
+    blockSize: 'market_cap_calc',
+    blockColor: '24h_close_change|5',
+    locale: 'zh_CN',
+    symbolUrl: '',
+    colorTheme: 'dark',
+    hasTopBar: false,
+    isDataSetEnabled: false,
+    isZoomEnabled: true,
+    hasSymbolTooltip: true,
+    isMonoSize: false,
+    width: '100%',
+    height: '100%'
+  },
   us: {
     dataSource: 'SPX500',
     blockSize: 'market_cap_basic',
@@ -88,7 +104,7 @@ function createHeatmapMount(mode: HeatmapMode, onReady: () => void, onError: () 
   copyright.className = 'tradingview-widget-copyright sr-only';
 
   const script = document.createElement('script');
-  script.src = HEATMAP_SCRIPT_URL;
+  script.src = mode === 'crypto' ? CRYPTO_HEATMAP_SCRIPT_URL : STOCK_HEATMAP_SCRIPT_URL;
   script.type = 'text/javascript';
   script.async = true;
   script.innerHTML = JSON.stringify(heatmapConfig[mode]);
@@ -121,7 +137,7 @@ export function preloadTradingViewHeatmap() {
   const preload = document.createElement('link');
   preload.rel = 'preload';
   preload.as = 'script';
-  preload.href = HEATMAP_SCRIPT_URL;
+  preload.href = STOCK_HEATMAP_SCRIPT_URL;
   document.head.appendChild(preload);
 
   const warmup = () => {
@@ -135,7 +151,7 @@ export function preloadTradingViewHeatmap() {
     widget.className = 'tradingview-widget-container__widget h-full w-full';
 
     const script = document.createElement('script');
-    script.src = HEATMAP_SCRIPT_URL;
+    script.src = STOCK_HEATMAP_SCRIPT_URL;
     script.type = 'text/javascript';
     script.async = true;
     script.innerHTML = JSON.stringify(heatmapConfig.stocks);
@@ -218,7 +234,13 @@ export function TradingViewHeatmap({ mode }: { mode: HeatmapMode }) {
   return (
     <div
       className="relative h-full max-h-full w-full overflow-hidden bg-[#060607]"
-      aria-label={mode === 'us' ? 'TradingView 美股大盘热力图' : 'TradingView stock heatmap'}
+      aria-label={
+        mode === 'crypto'
+          ? 'TradingView 加密货币热力图'
+          : mode === 'us'
+            ? 'TradingView 美股大盘热力图'
+            : 'TradingView stock heatmap'
+      }
     >
       <div ref={containerRef} className="tradingview-widget-container h-full max-h-full w-full overflow-hidden" />
       {loadState !== 'ready' ? (
@@ -226,7 +248,9 @@ export function TradingViewHeatmap({ mode }: { mode: HeatmapMode }) {
           <div>
             <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-white/18 border-t-[#8ad7ff]" />
             <p className="text-sm font-semibold text-white/78">
-              {loadState === 'slow' ? 'TradingView 连接较慢，仍在等待热力图' : '正在加载 TradingView 大盘热力图'}
+              {loadState === 'slow'
+                ? 'TradingView 连接较慢，仍在等待热力图'
+                : `正在加载 TradingView ${mode === 'crypto' ? '加密货币' : '大盘'}热力图`}
             </p>
             <p className="mt-2 text-xs text-white/42">海外行情源可能存在网络延迟</p>
           </div>

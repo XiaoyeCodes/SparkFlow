@@ -89,8 +89,8 @@ type MarketIndexSnapshot = {
   id: string;
   code: string;
   name: string;
-  region: 'CN' | 'HK' | 'US';
-  market: 'china' | 'us';
+  region: 'CN' | 'HK' | 'US' | 'CRYPTO';
+  market: 'china' | 'us' | 'crypto';
   proxyFor?: string;
   price: number;
   change: number;
@@ -448,6 +448,15 @@ const marketIndexConfigs = [
   { id: 'sox', secid: '251.SOX', tencent: 'usSOX', name: '费城半导体', region: 'US' as const, market: 'us' as const, weight: 0.07 },
 ];
 
+const cryptoAssetConfigs = [
+  { id: 'bitcoin', symbol: 'BTC', binance: 'BTCUSDT', name: '比特币' },
+  { id: 'ethereum', symbol: 'ETH', binance: 'ETHUSDT', name: '以太坊' },
+  { id: 'binancecoin', symbol: 'BNB', binance: 'BNBUSDT', name: 'BNB' },
+  { id: 'solana', symbol: 'SOL', binance: 'SOLUSDT', name: 'Solana' },
+  { id: 'ripple', symbol: 'XRP', binance: 'XRPUSDT', name: 'XRP' },
+  { id: 'dogecoin', symbol: 'DOGE', binance: 'DOGEUSDT', name: 'Dogecoin' },
+];
+
 function asFiniteNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
@@ -458,7 +467,7 @@ function round(value: number, digits = 2) {
   return Math.round(value * scale) / scale;
 }
 
-async function getMarketIndexSnapshots() {
+async function getEquityIndexSnapshots() {
   const eastmoneyUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${marketIndexConfigs
     .map((item) => item.secid)
     .join(',')}&fields=f12,f14,f2,f3,f4,f6,f104,f105,f106,f124`;
@@ -521,6 +530,118 @@ async function getMarketIndexSnapshots() {
     eastmoneyUrl,
     tencentUrl,
     tencentAvailable: tencentResult.status === 'fulfilled',
+  };
+}
+
+async function getCryptoMarketSnapshots() {
+  const binanceUrl = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(cryptoAssetConfigs.map((item) => item.binance)))}`;
+  const okxUrl = 'https://www.okx.com/api/v5/market/tickers?instType=SPOT';
+  const [binanceResult, okxResult] = await Promise.allSettled([
+    fetchRoutedText(binanceUrl, 'proxy', 12000, 'application/json'),
+    fetchRoutedText(okxUrl, 'proxy', 12000, 'application/json'),
+  ]);
+
+  const binanceRows = binanceResult.status === 'fulfilled'
+    ? JSON.parse(binanceResult.value) as Array<Record<string, unknown>>
+    : [];
+  const okxPayload = okxResult.status === 'fulfilled'
+    ? JSON.parse(okxResult.value) as { data?: Array<Record<string, unknown>> }
+    : {};
+  const bySymbol = new Map(
+    Array.isArray(binanceRows)
+      ? binanceRows.map((row) => [String(row.symbol || '').toUpperCase(), row])
+      : [],
+  );
+  const byInstrument = new Map(
+    Array.isArray(okxPayload.data)
+      ? okxPayload.data.map((row) => [String(row.instId || '').toUpperCase(), row])
+      : [],
+  );
+
+  const indices: MarketIndexSnapshot[] = cryptoAssetConfigs.flatMap((config) => {
+    const binance = bySymbol.get(config.binance);
+    const okx = byInstrument.get(`${config.symbol}-USDT`);
+    const binancePrice = asFiniteNumber(binance?.lastPrice);
+    const okxPrice = asFiniteNumber(okx?.last);
+    const price = binancePrice ?? okxPrice;
+    if (price === undefined) return [];
+
+    const okxOpen = asFiniteNumber(okx?.open24h);
+    const okxChangePercent = okxPrice !== undefined && okxOpen
+      ? (okxPrice - okxOpen) / okxOpen * 100
+      : undefined;
+    const changePercent = asFiniteNumber(binance?.priceChangePercent)
+      ?? okxChangePercent
+      ?? 0;
+    const deviationPercent = binancePrice !== undefined && okxPrice !== undefined
+      ? Math.abs(binancePrice - okxPrice) / Math.max(price, 0.00000001) * 100
+      : undefined;
+    const closeTime = asFiniteNumber(binance?.closeTime);
+    const okxTime = asFiniteNumber(okx?.ts);
+    const updatedAt = closeTime
+      ? new Date(closeTime).toISOString()
+      : okxTime
+        ? new Date(okxTime).toISOString()
+        : new Date().toISOString();
+
+    return [{
+      id: `crypto-${config.symbol.toLowerCase()}`,
+      code: config.symbol,
+      name: config.name,
+      region: 'CRYPTO',
+      market: 'crypto',
+      price,
+      change: price * changePercent / 100,
+      changePercent,
+      turnover: asFiniteNumber(binance?.quoteVolume),
+      updatedAt,
+      sourceUrl: `https://www.okx.com/trade-spot/${config.symbol.toLowerCase()}-usdt`,
+      validation: {
+        status: deviationPercent === undefined ? 'single-source' : deviationPercent <= 0.6 ? 'verified' : 'review',
+        source: binancePrice !== undefined && okxPrice !== undefined ? 'Binance + OKX' : binancePrice !== undefined ? 'Binance' : 'OKX',
+        price: okxPrice,
+        deviationPercent: deviationPercent === undefined ? undefined : round(deviationPercent, 3),
+      },
+    }];
+  });
+
+  if (!indices.length) {
+    const reasons = [
+      binanceResult.status === 'rejected' ? `Binance: ${String(binanceResult.reason)}` : '',
+      okxResult.status === 'rejected' ? `OKX: ${String(okxResult.reason)}` : '',
+    ].filter(Boolean);
+    throw new Error(`加密货币行情为空${reasons.length ? `（${reasons.join('；')}）` : ''}`);
+  }
+
+  return {
+    indices,
+    binanceUrl,
+    okxUrl,
+    binanceAvailable: binanceResult.status === 'fulfilled',
+    okxAvailable: okxResult.status === 'fulfilled',
+  };
+}
+
+async function getMarketIndexSnapshots() {
+  const [equityResult, cryptoResult] = await Promise.allSettled([
+    getEquityIndexSnapshots(),
+    getCachedCryptoMarketSnapshots(),
+  ]);
+  if (equityResult.status === 'rejected' && cryptoResult.status === 'rejected') {
+    throw new Error(`股票与加密行情均不可用：${String(equityResult.reason)}；${String(cryptoResult.reason)}`);
+  }
+
+  return {
+    indices: [
+      ...(equityResult.status === 'fulfilled' ? equityResult.value.indices : []),
+      ...(cryptoResult.status === 'fulfilled' ? cryptoResult.value.indices : []),
+    ],
+    eastmoneyUrl: equityResult.status === 'fulfilled' ? equityResult.value.eastmoneyUrl : 'https://quote.eastmoney.com/center/',
+    tencentUrl: equityResult.status === 'fulfilled' ? equityResult.value.tencentUrl : 'https://stockapp.finance.qq.com/',
+    tencentAvailable: equityResult.status === 'fulfilled' && equityResult.value.tencentAvailable,
+    binanceUrl: cryptoResult.status === 'fulfilled' ? cryptoResult.value.binanceUrl : 'https://www.binance.com/en/markets/overview',
+    okxUrl: cryptoResult.status === 'fulfilled' ? cryptoResult.value.okxUrl : 'https://www.okx.com/markets/prices',
+    cryptoAvailable: cryptoResult.status === 'fulfilled',
   };
 }
 
@@ -801,11 +922,13 @@ async function getMarketIntelligence() {
   const news = getMarketNews(newsFeed?.items || []);
   const scores = buildMarketScores(indices, sectors, reports, news);
   const verifiedCount = indices.filter((item) => item.validation.status === 'verified').length;
+  const equityIndices = indices.filter((item) => item.market !== 'crypto');
+  const cryptoIndices = indices.filter((item) => item.market === 'crypto');
   const newsSourceRatio = newsFeed?.sources.length
     ? newsFeed.sources.filter((item) => item.ok).length / newsFeed.sources.length
     : 0;
   const confidence = clampScore(
-    (indices.length / marketIndexConfigs.length) * 30
+    (indices.length / (marketIndexConfigs.length + cryptoAssetConfigs.length)) * 30
       + (indices.length ? verifiedCount / indices.length : 0) * 15
       + (sectors ? 20 : 0)
       + (reports.length ? 15 : 0)
@@ -826,8 +949,15 @@ async function getMarketIntelligence() {
       id: 'indices', label: '主要指数实时行情',
       url: indexResult.status === 'fulfilled' ? indexResult.value.eastmoneyUrl : 'https://quote.eastmoney.com/center/',
       secondaryUrl: indexResult.status === 'fulfilled' ? indexResult.value.tencentUrl : 'https://stockapp.finance.qq.com/',
-      provider: '东方财富 + 腾讯证券交叉验证', ok: indices.length > 0,
-      note: `${verifiedCount}/${indices.length} 个指数通过 0.25% 价格偏差校验`,
+      provider: '东方财富 + 腾讯证券交叉验证', ok: equityIndices.length > 0,
+      note: `${equityIndices.filter((item) => item.validation.status === 'verified').length}/${equityIndices.length} 个指数通过 0.25% 价格偏差校验`,
+    },
+    {
+      id: 'crypto', label: '主要加密资产 24 小时行情',
+      url: indexResult.status === 'fulfilled' ? indexResult.value.binanceUrl : 'https://www.binance.com/en/markets/overview',
+      secondaryUrl: indexResult.status === 'fulfilled' ? indexResult.value.okxUrl : 'https://www.okx.com/markets/prices',
+      provider: 'Binance + OKX 交叉验证', ok: cryptoIndices.length > 0,
+      note: `${cryptoIndices.filter((item) => item.validation.status === 'verified').length}/${cryptoIndices.length} 个币种完成双源价格校验`,
     },
     {
       id: 'sectors', label: '行业板块与主力资金',
@@ -888,6 +1018,8 @@ let marketIntelligenceCache: { storedAt: number; data: Awaited<ReturnType<typeof
 let marketIntelligenceInFlight: Promise<Awaited<ReturnType<typeof getMarketIntelligence>>> | undefined;
 let marketQuotesCache: { storedAt: number; data: Awaited<ReturnType<typeof getMarketIndexSnapshots>> } | undefined;
 let marketQuotesInFlight: Promise<Awaited<ReturnType<typeof getMarketIndexSnapshots>>> | undefined;
+let cryptoQuotesCache: { storedAt: number; data: Awaited<ReturnType<typeof getCryptoMarketSnapshots>> } | undefined;
+let cryptoQuotesInFlight: Promise<Awaited<ReturnType<typeof getCryptoMarketSnapshots>>> | undefined;
 let chinaHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getChinaMarketHeatmap>> } | undefined;
 let chinaHeatmapInFlight: Promise<Awaited<ReturnType<typeof getChinaMarketHeatmap>>> | undefined;
 
@@ -925,6 +1057,24 @@ async function getCachedMarketQuotes() {
       });
   }
   return marketQuotesInFlight;
+}
+
+async function getCachedCryptoMarketSnapshots() {
+  const now = Date.now();
+  if (cryptoQuotesCache && now - cryptoQuotesCache.storedAt < 12_000) {
+    return cryptoQuotesCache.data;
+  }
+  if (!cryptoQuotesInFlight) {
+    cryptoQuotesInFlight = getCryptoMarketSnapshots()
+      .then((data) => {
+        cryptoQuotesCache = { storedAt: Date.now(), data };
+        return data;
+      })
+      .finally(() => {
+        cryptoQuotesInFlight = undefined;
+      });
+  }
+  return cryptoQuotesInFlight;
 }
 
 async function getCachedChinaMarketHeatmap() {

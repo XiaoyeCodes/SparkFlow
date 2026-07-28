@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import {
   Activity,
   ArrowUpRight,
+  Bitcoin,
   Bot,
   CheckCircle2,
   ChevronDown,
@@ -29,13 +30,13 @@ import { PageTransition } from '../components/PageTransition';
 import { TradingViewHeatmap } from '../components/TradingViewHeatmap';
 import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 
-type MarketChartMode = 'china' | 'us';
+type MarketChartMode = 'china' | 'us' | 'crypto';
 
 type MarketIndexSnapshot = {
   id: string;
   code: string;
   name: string;
-  region: 'CN' | 'HK' | 'US';
+  region: 'CN' | 'HK' | 'US' | 'CRYPTO';
   market: MarketChartMode;
   proxyFor?: string;
   price: number;
@@ -180,6 +181,12 @@ const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart
     chart: '美股大盘热力图',
     description: '标普 500 成分股 · 行业分组 · 市值面积 · 当日涨跌',
   },
+  crypto: {
+    label: '加密市场',
+    short: '加密市场',
+    chart: '加密货币热力图',
+    description: '主流加密资产 · 市值面积 · 24 小时涨跌 · 全天候市场',
+  },
 };
 
 const researchStorageKey = (mode: MarketChartMode) => `sparkflow.market.research.v2.${mode}`;
@@ -226,10 +233,12 @@ export function Market() {
   const [quickSummaries, setQuickSummaries] = useState<Record<MarketChartMode, string>>(() => ({
     china: window.localStorage.getItem(summaryStorageKey('china')) || '',
     us: window.localStorage.getItem(summaryStorageKey('us')) || '',
+    crypto: window.localStorage.getItem(summaryStorageKey('crypto')) || '',
   }));
   const [research, setResearch] = useState<ResearchMap>(() => ({
     china: readStoredResearch('china'),
     us: readStoredResearch('us'),
+    crypto: readStoredResearch('crypto'),
   }));
   const researchRef = useRef(research);
   const eventSourcesRef = useRef(new Map<MarketChartMode, EventSource>());
@@ -454,7 +463,7 @@ export function Market() {
   );
 
   useEffect(() => {
-    (['china', 'us'] as MarketChartMode[]).forEach((mode) => {
+    (Object.keys(MARKET_META) as MarketChartMode[]).forEach((mode) => {
       const state = researchRef.current[mode];
       if (!state.running || !state.sessionId) return;
       void connectResearchStream(mode, state.sessionId)
@@ -591,7 +600,8 @@ export function Market() {
         pdf.addPage();
         pdf.addImage(image, 'JPEG', 0, offset, pageWidth, imageHeight, undefined, 'FAST');
       }
-      pdf.save(`SparkFlow-${activeMarket === 'china' ? 'China' : 'US'}-Market-${new Date().toISOString().slice(0, 10)}.pdf`);
+      const marketSlug: Record<MarketChartMode, string> = { china: 'China', us: 'US', crypto: 'Crypto' };
+      pdf.save(`SparkFlow-${marketSlug[activeMarket]}-Market-${new Date().toISOString().slice(0, 10)}.pdf`);
       setActionMessage('PDF 报告已导出。');
     } catch (requestError) {
       setActionMessage(requestError instanceof Error ? requestError.message : 'PDF 导出失败');
@@ -632,7 +642,7 @@ export function Market() {
             </div>
           </header>
 
-          <div className="mb-5 flex w-full max-w-[430px] border border-white/10 bg-white/[0.035] p-1">
+          <div className="mb-5 flex w-full max-w-[620px] border border-white/10 bg-white/[0.035] p-1">
             {(Object.keys(MARKET_META) as MarketChartMode[]).map((mode) => (
               <button
                 type="button"
@@ -642,7 +652,7 @@ export function Market() {
                   activeMarket === mode ? 'bg-white text-black' : 'text-white/52 hover:text-white'
                 }`}
               >
-                {mode === 'china' ? <Landmark size={15} /> : <Activity size={15} />}
+                {mode === 'china' ? <Landmark size={15} /> : mode === 'crypto' ? <Bitcoin size={15} /> : <Activity size={15} />}
                 {MARKET_META[mode].label}
               </button>
             ))}
@@ -671,7 +681,13 @@ export function Market() {
                       <p className="mt-1 text-xs text-white/38">{MARKET_META[activeMarket].description}</p>
                     </div>
                     <a
-                      href={activeMarket === 'china' ? 'https://quote.eastmoney.com/center/gridlist.html#hs_a_board' : 'https://cn.tradingview.com/heatmap/stock/?dataset=SPX500'}
+                      href={
+                        activeMarket === 'china'
+                          ? 'https://quote.eastmoney.com/center/gridlist.html#hs_a_board'
+                          : activeMarket === 'crypto'
+                            ? 'https://cn.tradingview.com/heatmap/crypto/'
+                            : 'https://cn.tradingview.com/heatmap/stock/?dataset=SPX500'
+                      }
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex h-9 w-9 items-center justify-center text-white/50 transition hover:text-white"
@@ -682,7 +698,11 @@ export function Market() {
                     </a>
                   </div>
                   <div className="h-[calc(100%-68px)] min-h-[500px]">
-                    {activeMarket === 'china' ? <ChinaMarketHeatmap /> : <TradingViewHeatmap mode="us" />}
+                    {activeMarket === 'china' ? (
+                      <ChinaMarketHeatmap />
+                    ) : (
+                      <TradingViewHeatmap mode={activeMarket} />
+                    )}
                   </div>
                 </section>
 
@@ -703,9 +723,11 @@ export function Market() {
 
               <div className="mt-8 border-t border-white/10 pt-7">
                 <SectionHeading eyebrow="Capital Rotation" title={activeMarket === 'china' ? 'A 股行业资金流向' : '跨市场资金风险偏好'} icon={<Gauge size={15} />} />
-                {activeMarket === 'us' ? (
+                {activeMarket !== 'china' ? (
                   <p className="-mt-2 mb-4 text-xs leading-5 text-white/36">
-                    免费数据源暂未提供可靠的美股板块净流入金额，以下 A 股行业资金作为亚洲时段风险偏好的交叉参考，不冒充美股资金流。
+                    {activeMarket === 'crypto'
+                      ? '当前免费数据源暂未提供统一口径的链上资金净流入，以下 A 股行业资金仅作为传统风险资产偏好的交叉参考，不冒充加密货币资金流。'
+                      : '免费数据源暂未提供可靠的美股板块净流入金额，以下 A 股行业资金作为亚洲时段风险偏好的交叉参考，不冒充美股资金流。'}
                   </p>
                 ) : null}
                 <div className="grid gap-4 xl:grid-cols-2">
@@ -736,7 +758,11 @@ export function Market() {
                   {activeSummary ? (
                     <MarkdownContent content={activeSummary} tone="dark" />
                   ) : (
-                    <p className="text-sm leading-7 text-white/38">根据指数、板块资金、中文新闻与公开研报生成简洁的当日市场总结。</p>
+                    <p className="text-sm leading-7 text-white/38">
+                      {activeMarket === 'crypto'
+                        ? '根据主要币种、24 小时波动、市场新闻与 Vibe 主动检索结果生成简洁的加密市场总结。'
+                        : '根据指数、板块资金、中文新闻与公开研报生成简洁的当日市场总结。'}
+                    </p>
                   )}
                 </div>
               </section>
@@ -787,7 +813,7 @@ function VibeResearchPanel({
           <Metric label="跨市场环境" value={data.summary.scoreLabel} />
           <Metric label="数据置信" value={`${data.confidence}%`} />
           <Metric label="风险状态" value={data.summary.riskLevel} />
-          <Metric label="指数 PE" value="研究核验" />
+          <Metric label={mode === 'crypto' ? '估值代理' : '指数 PE'} value="研究核验" />
         </div>
         <button
           type="button"
@@ -839,10 +865,14 @@ function VibeResearchPanel({
           <div className="whitespace-pre-wrap text-sm leading-7 text-white/54">{state.liveText}</div>
         ) : (
           <div className="space-y-4 text-sm leading-6 text-white/42">
-            <p>研究将主动检索大盘走势、新闻、板块资金、券商观点与指数估值口径，并把事实、推断和缺失证据分开呈现。</p>
+            <p>
+              {mode === 'crypto'
+                ? '研究将主动检索币价趋势、ETF 与稳定币资金、合约杠杆、链上指标及监管事件，并把事实、推断和缺失证据分开呈现。'
+                : '研究将主动检索大盘走势、新闻、板块资金、券商观点与指数估值口径，并把事实、推断和缺失证据分开呈现。'}
+            </p>
             <ul className="space-y-2 border-l border-white/12 pl-4">
               <li>综合判断：趋势、广度、流动性与事件风险</li>
-              <li>估值判断：高估风险、低估机会与历史区间</li>
+              <li>{mode === 'crypto' ? '周期判断：估值代理、杠杆拥挤与链上活跃度' : '估值判断：高估风险、低估机会与历史区间'}</li>
               <li>执行观察：关键点位、触发条件与失效条件</li>
             </ul>
           </div>
@@ -990,16 +1020,16 @@ const MarketReport = forwardRef<HTMLDivElement, {
           <ReportMetric label="数据置信度" value={`${data.confidence}% · ${data.confidenceLabel}`} />
         </div>
         <div className="mt-7">
-          <ReportHeading index="01" title="主要指数快照" />
+          <ReportHeading index="01" title={mode === 'crypto' ? '主要币种快照' : '主要指数快照'} />
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px] border-collapse text-left text-xs">
               <thead>
                 <tr className="border-y border-[#0a2038]/20 text-[#0a2038]/58">
-                  <th className="px-2 py-2.5 font-semibold">指数</th>
-                  <th className="px-2 py-2.5 font-semibold">点位</th>
-                  <th className="px-2 py-2.5 font-semibold">涨跌</th>
+                  <th className="px-2 py-2.5 font-semibold">{mode === 'crypto' ? '资产' : '指数'}</th>
+                  <th className="px-2 py-2.5 font-semibold">{mode === 'crypto' ? '美元价格' : '点位'}</th>
+                  <th className="px-2 py-2.5 font-semibold">{mode === 'crypto' ? '24h 涨跌' : '涨跌'}</th>
                   <th className="px-2 py-2.5 font-semibold">交叉校验</th>
-                  <th className="px-2 py-2.5 font-semibold">估值口径</th>
+                  <th className="px-2 py-2.5 font-semibold">{mode === 'crypto' ? '研究口径' : '估值口径'}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1011,7 +1041,7 @@ const MarketReport = forwardRef<HTMLDivElement, {
                       {item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
                     </td>
                     <td className="px-2 py-2.5">{item.validation.status === 'verified' ? '双源通过' : '单源/待复核'}</td>
-                    <td className="px-2 py-2.5">由 Vibe 检索核验</td>
+                    <td className="px-2 py-2.5">{mode === 'crypto' ? '链上与衍生品由 Vibe 核验' : '由 Vibe 检索核验'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1191,15 +1221,21 @@ function buildDeepResearchPrompt(data: MarketIntelligence, mode: MarketChartMode
     brokerReports: data.reports.slice(0, 6).map(({ title, stockName, institution, publishedAt, rating, url }) => ({ title, stockName, institution, publishedAt, rating, url })),
     sourceStatus: data.sources.map(({ id, provider, ok, note }) => ({ id, provider, ok, note })),
   };
+  const modeInstruction =
+    mode === 'crypto'
+      ? '注意：加密资产没有股票式 PE/PB。请自行检索并交叉验证现货与期货成交、资金费率、未平仓合约、强平、稳定币供给、链上活跃度、MVRV 等估值代理、美国现货 ETF 净流量和监管事件。下方 A 股板块资金和券商研报只能作为传统风险偏好参考，不得冒充加密市场数据。'
+      : mode === 'us'
+        ? '注意：下方板块净流入是 A 股数据，只能作为亚洲时段风险偏好交叉参考，不得冒充美股板块资金；请自行检索美股行业 ETF 或权威美股资金流数据。MAGS 是 Magnificent 7 ETF 代理，不是官方七巨头指数。'
+        : '注意：同时覆盖 A 股与港股，清楚区分沪深市场和港股的交易时段、估值与资金口径。';
   const prompt = [
     `你是 Vibe-Trading 的中文机构市场策略研究员。请研究“${MARKET_META[mode].label}”，最终输出精美、可直接发布的中文 Markdown 策略报告。`,
-    '先使用可用研究工具主动获取当前大盘、主要指数、板块资金流入流出、最近重要新闻、券商或权威机构观点，以及指数 PE/PB、历史分位等估值信息。不要只复述下方快照。',
+    mode === 'crypto'
+      ? '先使用可用研究工具主动获取主要币种价格、市场总市值与主导率、现货和衍生品资金、ETF 流量、链上指标、重要新闻与监管事件。不要只复述下方快照。'
+      : '先使用可用研究工具主动获取当前大盘、主要指数、板块资金流入流出、最近重要新闻、券商或权威机构观点，以及指数 PE/PB、历史分位等估值信息。不要只复述下方快照。',
     '严格区分：已核验事实、合理推断、待核验信息。任何 PE、资金净流入金额、点位和新闻都必须注明日期与来源；没有可靠数据就明确写“未取得可靠口径”，不得编造。',
     '报告开头先给出“执行摘要”与综合结论：偏多/中性/偏空、风险等级、估值状态（高估/合理/低估/证据不足）、最重要机会与最大风险。',
     '随后按以下结构输出：1. 指数与市场广度；2. 估值与历史分位；3. 板块资金流；4. 新闻与研报交叉验证；5. 高估风险或低估机会；6. 未来 1-5 个交易日的三种情景；7. 关键观察点位与失效条件；8. 数据缺口与风险声明。',
-    mode === 'us'
-      ? '注意：下方板块净流入是 A 股数据，只能作为亚洲时段风险偏好交叉参考，不得冒充美股板块资金；请自行检索美股行业 ETF 或权威美股资金流数据。MAGS 是 Magnificent 7 ETF 代理，不是官方七巨头指数。'
-      : '注意：同时覆盖 A 股与港股，清楚区分沪深市场和港股的交易时段、估值与资金口径。',
+    modeInstruction,
     '不要给确定收益承诺，不要把规则评分当成事实。报告末尾给出明确但克制的观察建议。',
     `前端已核验快照：\n${JSON.stringify(evidence, null, 2)}`,
   ].join('\n\n');
@@ -1219,7 +1255,11 @@ function buildQuickSummaryPrompt(data: MarketIntelligence, mode: MarketChartMode
   return [
     `请基于下方已提供证据，为“${MARKET_META[mode].label}”输出中文 Markdown 今日简报。`,
     '只写四部分：一句话结论、指数表现、资金与新闻、明日观察。控制在 450 字以内。事实与推断分开；不得补写未提供的数据。',
-    mode === 'us' ? 'A 股板块资金只能作为跨市场参考，不得写成美股资金流。' : '',
+    mode === 'crypto'
+      ? 'A 股板块资金只能作为传统风险偏好参考，不得写成加密货币资金流；加密市场按 24 小时口径表述。'
+      : mode === 'us'
+        ? 'A 股板块资金只能作为跨市场参考，不得写成美股资金流。'
+        : '',
     JSON.stringify(evidence, null, 2),
   ].filter(Boolean).join('\n\n');
 }
@@ -1234,7 +1274,7 @@ function buildMarketMarkdown(data: MarketIntelligence, mode: MarketChartMode, de
     `- 市场立场：${data.summary.stance}`,
     `- 数据置信度：${data.confidence}%（${data.confidenceLabel}）`,
     '',
-    '## 主要指数',
+    `## ${mode === 'crypto' ? '主要币种' : '主要指数'}`,
     ...indices.map((item) => `- ${item.name}${item.proxyFor ? '（代理）' : ''}：${formatNumber(item.price)}，${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toFixed(2)}%`),
     '',
     '## Vibe-Trading 深度判断',
