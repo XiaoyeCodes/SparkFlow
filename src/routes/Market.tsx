@@ -173,7 +173,7 @@ const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart
     label: 'A 股与港股',
     short: '中国市场',
     chart: 'A 股大盘热力图',
-    description: 'A 股全市场 · 行业分组 · 市值面积 · 当日涨跌',
+    description: 'A 股全市场 · 重点板块增强 · 市值加权 · 当日涨跌',
   },
   us: {
     label: '美国市场',

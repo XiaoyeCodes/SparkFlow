@@ -647,11 +647,24 @@ async function getMarketIndexSnapshots() {
 
 async function getChinaMarketHeatmap() {
   const baseUrl = 'https://push2delay.eastmoney.com/api/qt/clist/get?pz=100&po=1&np=1&fltt=2&invt=2&fid=f20&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f12,f14,f2,f3,f20,f100,f124';
-  const payloads = await Promise.all(
-    [1, 2, 3, 4].map((page) => fetchJsonWithRetry(`${baseUrl}&pn=${page}`, 2, 12000)),
-  );
+  const industryUrl = 'https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=100&po=1&np=1&fltt=2&invt=2&fid=f20&fs=m:90+t:2&fields=f12,f14,f20';
+  const [payloads, industryPayload] = await Promise.all([
+    Promise.all(
+      [1, 2, 3, 4].map((page) => fetchJsonWithRetry(`${baseUrl}&pn=${page}`, 2, 12000)),
+    ),
+    fetchJsonWithRetry(industryUrl, 2, 12000),
+  ]);
   const rows = payloads.flatMap((payload) => Array.isArray(payload?.data?.diff) ? payload.data.diff : []).slice(0, 320);
   if (!Array.isArray(rows) || !rows.length) throw new Error('A 股热力图行情为空');
+  const industryRows: Record<string, unknown>[] = Array.isArray(industryPayload?.data?.diff)
+    ? industryPayload.data.diff
+    : [];
+  const industryMarketCaps = industryRows.reduce<Record<string, number>>((result, row) => {
+    const industry = String(row.f14 || '').trim();
+    const marketCap = asFiniteNumber(row.f20);
+    if (industry && marketCap && marketCap > 0) result[industry] = marketCap;
+    return result;
+  }, {});
 
   const stocks: ChinaHeatmapStock[] = rows.flatMap((row: Record<string, unknown>) => {
     const code = String(row.f12 || '').trim();
@@ -677,9 +690,11 @@ async function getChinaMarketHeatmap() {
   return {
     generatedAt: new Date().toISOString(),
     count: stocks.length,
-    coverage: 'A 股总市值前 320 家公司',
+    coverage: '前 320 家个股 · 行业面积按全市场板块市值校准',
     source: '东方财富',
     sourceUrl: baseUrl,
+    industrySourceUrl: industryUrl,
+    industryMarketCaps,
     stocks,
   };
 }
