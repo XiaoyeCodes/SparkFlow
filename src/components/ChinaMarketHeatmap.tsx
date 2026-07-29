@@ -42,7 +42,18 @@ type ContainerSize = {
   height: number;
 };
 
+type MapView = {
+  scale: number;
+  x: number;
+  y: number;
+};
+
 const REFRESH_INTERVAL_MS = 10_000;
+const MIN_ZOOM = 1;
+const ABSOLUTE_MAX_ZOOM = 32;
+const MIN_CHANGE_WIDTH = 64;
+const MIN_CHANGE_HEIGHT = 44;
+const DEFAULT_MAP_VIEW: MapView = { scale: MIN_ZOOM, x: 0, y: 0 };
 
 function formatMarketCap(value: number) {
   if (value >= 1e12) return `${(value / 1e12).toFixed(2)}万亿`;
@@ -68,6 +79,37 @@ function cellColor(changePercent: number) {
     return `rgb(${red} ${green} ${blue})`;
   }
   return 'rgb(62 64 68)';
+}
+
+function clampMapView(view: MapView, size: ContainerSize, maxZoom: number): MapView {
+  const scale = Math.min(maxZoom, Math.max(MIN_ZOOM, view.scale));
+  if (scale === MIN_ZOOM || !size.width || !size.height) {
+    return DEFAULT_MAP_VIEW;
+  }
+
+  return {
+    scale,
+    x: Math.min(0, Math.max(size.width * (1 - scale), view.x)),
+    y: Math.min(0, Math.max(size.height * (1 - scale), view.y)),
+  };
+}
+
+function zoomMapView(
+  current: MapView,
+  nextScale: number,
+  anchor: { x: number; y: number },
+  size: ContainerSize,
+  maxZoom: number,
+) {
+  const scale = Math.min(maxZoom, Math.max(MIN_ZOOM, nextScale));
+  if (scale === MIN_ZOOM) return DEFAULT_MAP_VIEW;
+
+  const ratio = scale / current.scale;
+  return clampMapView({
+    scale,
+    x: anchor.x - (anchor.x - current.x) * ratio,
+    y: anchor.y - (anchor.y - current.y) * ratio,
+  }, size, maxZoom);
 }
 
 function useContainerSize() {
@@ -128,6 +170,7 @@ function calculateLayout(
   stocks: ChinaHeatmapStock[],
   size: ContainerSize,
   activeIndustry: string | null,
+  zoomScale: number,
 ) {
   if (!stocks.length || size.width < 10 || size.height < 10) return undefined;
 
@@ -137,22 +180,24 @@ function calculateLayout(
 
   return treemap<HeatmapNode>()
     .size([size.width, size.height])
-    .paddingOuter(activeIndustry ? 1 : 2)
-    .paddingInner(2)
-    .paddingTop((node) => (!activeIndustry && node.depth === 1 ? 25 : 0))
-    .round(true)(root);
+    .paddingOuter((activeIndustry ? 3 : 4) / zoomScale)
+    .paddingInner((node) => (node.depth === 0 ? 6 : 3) / zoomScale)
+    .paddingTop((node) => (!activeIndustry && node.depth === 1 ? 27 / zoomScale : 0))
+    .round(zoomScale <= MIN_ZOOM)(root);
 }
 
 function StockCell({
   node,
   selected,
   expanded,
+  zoomScale,
   onSelect,
   onHover,
 }: {
   node: HierarchyRectangularNode<HeatmapNode>;
   selected: boolean;
   expanded: boolean;
+  zoomScale: number;
   onSelect: (stock: ChinaHeatmapStock) => void;
   onHover: (stock: ChinaHeatmapStock | null) => void;
 }) {
@@ -163,18 +208,25 @@ function StockCell({
   const height = node.y1 - node.y0;
   if (width < 3 || height < 3) return null;
 
-  const showName = width >= 46 && height >= 28;
-  const showLogo = width >= 82 && height >= 72;
-  const showCode = width >= 78 && height >= 56;
-  const showValue = width >= 58 && height >= 42;
-  const nameSize = expanded && width >= 180 && height >= 150
+  const visualWidth = width * zoomScale;
+  const visualHeight = height * zoomScale;
+  const showFullName = visualWidth >= 92 && visualHeight >= 48;
+  const showInitial = !showFullName && visualWidth >= 40 && visualHeight >= 28;
+  const showLogo = visualWidth >= 112 && visualHeight >= 96;
+  const showCode = showFullName && visualWidth >= 104 && visualHeight >= 70;
+  const showValue = visualWidth >= MIN_CHANGE_WIDTH && visualHeight >= MIN_CHANGE_HEIGHT;
+  const nameSize = expanded && visualWidth >= 180 && visualHeight >= 150
     ? 22
-    : width >= 135 && height >= 92
+    : visualWidth >= 145 && visualHeight >= 92
       ? 16
-      : width >= 80
+      : visualWidth >= 104
         ? 12
         : 10;
-  const valueSize = expanded && width >= 180 && height >= 150 ? 20 : width >= 100 ? 14 : 11;
+  const valueSize = expanded && visualWidth >= 180 && visualHeight >= 150
+    ? 20
+    : visualWidth >= 112
+      ? 14
+      : 11;
   const tooltip = `${stock.name}（${stock.code}）\n现价 ${stock.price.toFixed(2)}\n涨跌 ${formatChange(stock.changePercent)}\n总市值 ${formatMarketCap(stock.marketCap)}`;
 
   return (
@@ -185,8 +237,8 @@ function StockCell({
       onClick={() => onSelect(stock)}
       onMouseEnter={() => onHover(stock)}
       onMouseLeave={() => onHover(null)}
-      className={`absolute flex min-h-0 min-w-0 flex-col items-center justify-center overflow-hidden border border-black/60 px-1 text-center text-white transition-[filter,box-shadow] duration-150 hover:z-30 hover:brightness-125 focus:z-30 focus:outline-none ${
-        selected ? 'z-30 shadow-[inset_0_0_0_3px_#2f8cff]' : ''
+      className={`absolute min-h-0 min-w-0 overflow-hidden text-center text-white transition-[filter,box-shadow] duration-150 hover:z-30 hover:brightness-125 focus:z-30 focus:outline-none ${
+        selected ? 'z-30' : ''
       }`}
       style={{
         left: node.x0,
@@ -194,28 +246,43 @@ function StockCell({
         width,
         height,
         backgroundColor: cellColor(stock.changePercent),
+        borderRadius: 3 / zoomScale,
+        boxShadow: selected ? `inset 0 0 0 ${2 / zoomScale}px #2f8cff` : undefined,
       }}
     >
-      {showLogo ? (
-        <span
-          className={`mb-2 grid shrink-0 place-items-center rounded-full border border-white/24 bg-black/28 font-bold text-white shadow-[0_2px_12px_rgba(0,0,0,0.32)] backdrop-blur-sm ${
-            expanded && width >= 180 && height >= 150 ? 'h-14 w-14 text-xl' : 'h-9 w-9 text-sm'
-          }`}
-        >
-          {stock.name.slice(0, 1)}
-        </span>
-      ) : null}
-      {showName ? (
-        <span className="max-w-full truncate font-semibold leading-tight" style={{ fontSize: nameSize }}>
-          {stock.name}
-        </span>
-      ) : null}
-      {showCode ? <span className="mt-1 text-[9px] leading-none text-white/66">{stock.code}</span> : null}
-      {showValue ? (
-        <span className="mt-1.5 font-mono font-semibold leading-none" style={{ fontSize: valueSize }}>
-          {formatChange(stock.changePercent)}
-        </span>
-      ) : null}
+      <span
+        className="absolute left-1/2 top-1/2 flex flex-col items-center justify-center overflow-hidden px-1"
+        style={{
+          width: `${zoomScale * 100}%`,
+          height: `${zoomScale * 100}%`,
+          transform: `translate(-50%, -50%) scale(${1 / zoomScale})`,
+        }}
+      >
+        {showLogo ? (
+          <span
+            className={`mb-2 grid shrink-0 place-items-center rounded-full border border-white/24 bg-black/28 font-bold text-white shadow-[0_2px_12px_rgba(0,0,0,0.32)] backdrop-blur-sm ${
+              expanded && visualWidth >= 180 && visualHeight >= 150 ? 'h-14 w-14 text-xl' : 'h-9 w-9 text-sm'
+            }`}
+          >
+            {stock.name.slice(0, 1)}
+          </span>
+        ) : null}
+        {showFullName ? (
+          <span className="max-w-full truncate font-semibold leading-tight" style={{ fontSize: nameSize }}>
+            {stock.name}
+          </span>
+        ) : showInitial ? (
+          <span className="font-semibold leading-none text-white/88" style={{ fontSize: nameSize }}>
+            {stock.name.slice(0, 1)}
+          </span>
+        ) : null}
+        {showCode ? <span className="mt-1 text-[9px] leading-none text-white/66">{stock.code}</span> : null}
+        {showValue ? (
+          <span className="mt-1.5 font-mono font-semibold leading-none" style={{ fontSize: valueSize }}>
+            {formatChange(stock.changePercent)}
+          </span>
+        ) : null}
+      </span>
     </button>
   );
 }
@@ -256,6 +323,17 @@ export function ChinaMarketHeatmap() {
   const [selectedCode, setSelectedCode] = useState('');
   const [hoveredCode, setHoveredCode] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
+  const [mapView, setMapView] = useState<MapView>(DEFAULT_MAP_VIEW);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
 
   const load = useCallback(async (signal?: AbortSignal, manual = false) => {
     if (manual) setRefreshing(true);
@@ -295,24 +373,70 @@ export function ChinaMarketHeatmap() {
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
 
-  const layout = useMemo(
-    () => calculateLayout(data?.stocks ?? [], size, activeIndustry),
+  const baseLayout = useMemo(
+    () => calculateLayout(data?.stocks ?? [], size, activeIndustry, MIN_ZOOM),
     [activeIndustry, data?.stocks, size],
   );
-  const industryNodes = activeIndustry ? [] : layout?.children ?? [];
-  const stockNodes = layout?.leaves() ?? [];
+  const layout = useMemo(
+    () => calculateLayout(data?.stocks ?? [], size, activeIndustry, mapView.scale),
+    [activeIndustry, data?.stocks, mapView.scale, size],
+  );
+  const industryNodes = useMemo(
+    () => activeIndustry ? [] : layout?.children ?? [],
+    [activeIndustry, layout],
+  );
+  const stockNodes = useMemo(() => layout?.leaves() ?? [], [layout]);
+  const maxZoom = useMemo(() => {
+    const requiredZoom = (baseLayout?.leaves() ?? []).reduce((required, node) => {
+      const width = node.x1 - node.x0;
+      const height = node.y1 - node.y0;
+      if (width < 3 || height < 3) return required;
+      return Math.max(
+        required,
+        MIN_CHANGE_WIDTH / width,
+        MIN_CHANGE_HEIGHT / height,
+      );
+    }, MIN_ZOOM);
+
+    return Math.min(
+      ABSOLUTE_MAX_ZOOM,
+      Math.max(4, Math.ceil(requiredZoom * 10) / 10),
+    );
+  }, [baseLayout]);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = element.getBoundingClientRect();
+      const multiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 0.045 : 0.0015;
+      const factor = Math.exp(-event.deltaY * multiplier);
+      const anchor = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      };
+      setMapView((current) => zoomMapView(
+        current,
+        current.scale * factor,
+        anchor,
+        size,
+        maxZoom,
+      ));
+    };
+
+    element.addEventListener('wheel', onWheel, { passive: false });
+    return () => element.removeEventListener('wheel', onWheel);
+  }, [maxZoom, ref, size]);
+
+  useEffect(() => {
+    setMapView((current) => clampMapView(current, size, maxZoom));
+  }, [maxZoom, size]);
+
   const selectedStock = data?.stocks.find((stock) => stock.code === selectedCode);
   const hoveredStock = data?.stocks.find((stock) => stock.code === hoveredCode);
   const focusedStock = hoveredStock ?? selectedStock;
-  const largestIndustry = useMemo(() => {
-    if (!data?.stocks.length) return '';
-    return [...groupStocks(data.stocks).entries()]
-      .map(([industry, members]) => ({
-        industry,
-        marketCap: members.reduce((sum, stock) => sum + stock.marketCap, 0),
-      }))
-      .sort((left, right) => right.marketCap - left.marketCap)[0]?.industry ?? '';
-  }, [data?.stocks]);
   const updatedAt = data?.generatedAt
     ? new Intl.DateTimeFormat('zh-CN', {
         hour: '2-digit',
@@ -325,19 +449,97 @@ export function ChinaMarketHeatmap() {
     setActiveIndustry(industry);
     setSelectedCode('');
     setHoveredCode('');
+    setMapView(DEFAULT_MAP_VIEW);
   }, []);
 
   const resetView = useCallback(() => {
     setActiveIndustry(null);
     setSelectedCode('');
     setHoveredCode('');
+    setMapView(DEFAULT_MAP_VIEW);
   }, []);
 
   const zoomIn = useCallback(() => {
-    if (activeIndustry) return;
-    const industry = focusedStock?.industry || largestIndustry;
-    if (industry) openIndustry(industry);
-  }, [activeIndustry, focusedStock?.industry, largestIndustry, openIndustry]);
+    setMapView((current) => zoomMapView(
+      current,
+      current.scale * 1.35,
+      { x: size.width / 2, y: size.height / 2 },
+      size,
+      maxZoom,
+    ));
+  }, [maxZoom, size]);
+
+  const zoomOut = useCallback(() => {
+    setMapView((current) => zoomMapView(
+      current,
+      current.scale / 1.35,
+      { x: size.width / 2, y: size.height / 2 },
+      size,
+      maxZoom,
+    ));
+  }, [maxZoom, size]);
+
+  const beginDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (mapView.scale <= MIN_ZOOM || event.button !== 0) return;
+    if ((event.target as HTMLElement).closest('[data-map-fixed]')) return;
+
+    dragRef.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      x: mapView.x,
+      y: mapView.y,
+      moved: false,
+    };
+    setHoveredCode('');
+    setDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [mapView]);
+
+  const moveDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - drag.clientX;
+    const deltaY = event.clientY - drag.clientY;
+    if (!drag.moved && Math.hypot(deltaX, deltaY) >= 3) {
+      drag.moved = true;
+    }
+
+    setMapView((current) => clampMapView({
+      scale: current.scale,
+      x: drag.x + deltaX,
+      y: drag.y + deltaY,
+    }, size, maxZoom));
+  }, [maxZoom, size]);
+
+  const endDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragRef.current = null;
+    setDragging(false);
+
+    if (drag.moved) {
+      suppressClickRef.current = true;
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
+    }
+  }, []);
+
+  const selectStock = useCallback((stock: ChinaHeatmapStock) => {
+    if (suppressClickRef.current) return;
+    setSelectedCode((current) => current === stock.code ? '' : stock.code);
+  }, []);
+
+  const selectIndustry = useCallback((industry: string) => {
+    if (suppressClickRef.current) return;
+    openIndustry(industry);
+  }, [openIndustry]);
 
   const toggleFullscreen = useCallback(async () => {
     if (document.fullscreenElement === mapShellRef.current) {
@@ -368,39 +570,65 @@ export function ChinaMarketHeatmap() {
         </div>
       ) : null}
 
-      <div ref={ref} className="relative min-h-0 flex-1 overflow-hidden bg-[#0b0c0e]">
+      <div
+        ref={ref}
+        className={`relative min-h-0 flex-1 overflow-hidden bg-[#0b0c0e] ${
+          mapView.scale > MIN_ZOOM ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : ''
+        }`}
+        style={{ touchAction: 'none' }}
+        data-zoom-scale={mapView.scale.toFixed(3)}
+        data-max-zoom={maxZoom.toFixed(1)}
+        onPointerDown={beginDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
         {layout ? (
-          <>
+          <div
+            className="absolute left-0 top-0 will-change-transform"
+            style={{
+              width: size.width,
+              height: size.height,
+              transform: `translate3d(${mapView.x}px, ${mapView.y}px, 0) scale(${mapView.scale})`,
+              transformOrigin: '0 0',
+            }}
+          >
             {industryNodes.map((node) => (
               <div
                 key={`${node.data.name}-frame`}
-                className="pointer-events-none absolute z-10 border border-white/22"
+                className="pointer-events-none absolute z-0 rounded-[5px] bg-[#060709]"
                 style={{
                   left: node.x0,
                   top: node.y0,
                   width: node.x1 - node.x0,
                   height: node.y1 - node.y0,
+                  borderRadius: 5 / mapView.scale,
                 }}
               />
             ))}
             {industryNodes.map((node) => {
               const width = node.x1 - node.x0;
-              if (width < 28) return null;
+              const visualWidth = width * mapView.scale;
+              if (visualWidth < 40) return null;
+              const label = visualWidth >= 96 ? node.data.name : node.data.name.slice(0, 1);
               return (
                 <button
                   type="button"
                   key={`${node.data.name}-header`}
-                  onClick={() => openIndustry(node.data.name)}
-                  className="absolute z-20 flex h-[24px] items-center overflow-hidden bg-[#08090b] px-2 text-left text-[10px] font-semibold text-white/82 transition hover:bg-[#202227] hover:text-white"
+                  onClick={() => selectIndustry(node.data.name)}
+                  className="absolute z-20 flex items-center overflow-hidden rounded-t-[4px] bg-[#101216] px-2 text-left text-[10px] font-semibold text-white/72 transition hover:bg-[#20242a] hover:text-white"
                   style={{
-                    left: node.x0 + 1,
-                    top: node.y0 + 1,
-                    width: Math.max(0, width - 2),
+                    left: node.x0 + 2 / mapView.scale,
+                    top: node.y0 + 2 / mapView.scale,
+                    width: Math.max(0, visualWidth - 4),
+                    height: 23,
+                    transform: `scale(${1 / mapView.scale})`,
+                    transformOrigin: '0 0',
                   }}
                   title={`放大查看 ${node.data.name}`}
                 >
-                  <span className="truncate">{node.data.name}</span>
-                  <span className="ml-1 text-white/54">›</span>
+                  <span className="truncate">{label}</span>
+                  {visualWidth >= 72 ? <span className="ml-1 text-white/42">›</span> : null}
                 </button>
               );
             })}
@@ -410,19 +638,25 @@ export function ChinaMarketHeatmap() {
                 node={node}
                 selected={node.data.stock?.code === selectedCode}
                 expanded={Boolean(activeIndustry)}
-                onSelect={(stock) => setSelectedCode((current) => current === stock.code ? '' : stock.code)}
-                onHover={(stock) => setHoveredCode(stock?.code ?? '')}
+                zoomScale={mapView.scale}
+                onSelect={selectStock}
+                onHover={(stock) => {
+                  if (!dragging) setHoveredCode(stock?.code ?? '');
+                }}
               />
             ))}
-          </>
+          </div>
         ) : null}
 
-        <div className="absolute right-3 top-1/2 z-40 -translate-y-1/2 overflow-hidden rounded-md border border-white/12 bg-[#17191d]/94 shadow-[0_10px_28px_rgba(0,0,0,0.42)] backdrop-blur">
-          <MapControl label="放大行业" disabled={Boolean(activeIndustry)} onClick={zoomIn}>
+        <div
+          data-map-fixed
+          className="absolute right-3 top-1/2 z-40 -translate-y-1/2 overflow-hidden rounded-md border border-white/12 bg-[#17191d]/94 shadow-[0_10px_28px_rgba(0,0,0,0.42)] backdrop-blur"
+        >
+          <MapControl label="放大热力图" disabled={mapView.scale >= maxZoom - 0.01} onClick={zoomIn}>
             <Plus size={19} />
           </MapControl>
           <div className="h-px bg-white/10" />
-          <MapControl label="返回全部" disabled={!activeIndustry} onClick={resetView}>
+          <MapControl label="缩小热力图" disabled={mapView.scale <= MIN_ZOOM + 0.01} onClick={zoomOut}>
             <Minus size={19} />
           </MapControl>
           <div className="h-px bg-white/10" />
@@ -432,7 +666,10 @@ export function ChinaMarketHeatmap() {
         </div>
 
         {focusedStock ? (
-          <div className="absolute bottom-4 left-1/2 z-40 flex max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-4 rounded-md border border-white/12 bg-[#17191d]/96 px-4 py-3 shadow-[0_14px_36px_rgba(0,0,0,0.48)] backdrop-blur-xl">
+          <div
+            data-map-fixed
+            className="absolute bottom-4 left-1/2 z-40 flex max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-4 rounded-md border border-white/12 bg-[#17191d]/96 px-4 py-3 shadow-[0_14px_36px_rgba(0,0,0,0.48)] backdrop-blur-xl"
+          >
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/24 bg-black/34 text-sm font-bold text-white">
               {focusedStock.name.slice(0, 1)}
             </span>
