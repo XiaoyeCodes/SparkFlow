@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 type ChinaHeatmapStock = {
   code: string;
   name: string;
+  exchange?: string;
   price: number;
   changePercent: number;
   marketCap: number;
@@ -54,15 +55,66 @@ type MapView = {
   y: number;
 };
 
-const REFRESH_INTERVAL_MS = 10_000;
+type RegionalHeatmapConfig = {
+  endpoint: string;
+  marketName: string;
+  ariaLabel: string;
+  searchSlotId: string;
+  searchResultsId: string;
+  loadingText: string;
+  errorFallback: string;
+  defaultCoverage: string;
+  industryDisplayPriority: string[];
+  logoPath?: (stock: ChinaHeatmapStock) => string;
+};
+
+const REFRESH_INTERVAL_MS = 3_000;
 const MIN_ZOOM = 1;
 const ABSOLUTE_MAX_ZOOM = 32;
 const MIN_CHANGE_WIDTH = 56;
 const MIN_CHANGE_HEIGHT = 40;
 const INDUSTRY_AREA_EXPONENT = 1.22;
 const STOCK_AREA_EXPONENT = 0.8;
-const INDUSTRY_DISPLAY_PRIORITY = ['半导体', '银行Ⅱ'];
 const DEFAULT_MAP_VIEW: MapView = { scale: MIN_ZOOM, x: 0, y: 0 };
+
+const CHINA_HEATMAP_CONFIG: RegionalHeatmapConfig = {
+  endpoint: '/api/china-market-heatmap',
+  marketName: 'A 股',
+  ariaLabel: 'A 股大盘热力图',
+  searchSlotId: 'china-market-search-slot',
+  searchResultsId: 'china-market-search-results',
+  loadingText: '正在整理 A 股全市场热力图',
+  errorFallback: 'A 股热力图加载失败',
+  defaultCoverage: 'A 股总市值前 320 家公司',
+  industryDisplayPriority: ['半导体', '银行Ⅱ'],
+  logoPath: (stock) => `/stock-logos/${stock.code}.svg`,
+};
+
+const HONG_KONG_HEATMAP_CONFIG: RegionalHeatmapConfig = {
+  endpoint: '/api/hong-kong-market-heatmap',
+  marketName: '港股',
+  ariaLabel: '港股大盘热力图',
+  searchSlotId: 'hong-kong-market-search-slot',
+  searchResultsId: 'hong-kong-market-search-results',
+  loadingText: '正在整理港股主板热力图',
+  errorFallback: '港股热力图加载失败',
+  defaultCoverage: '港股主板总市值前 320 家公司',
+  industryDisplayPriority: ['软件服务', '银行'],
+  logoPath: (stock) => `/stock-logos/hk-${stock.code}.svg`,
+};
+
+const US_HEATMAP_CONFIG: RegionalHeatmapConfig = {
+  endpoint: '/api/us-market-heatmap',
+  marketName: '美股',
+  ariaLabel: '美股大盘热力图',
+  searchSlotId: 'us-market-search-slot',
+  searchResultsId: 'us-market-search-results',
+  loadingText: '正在整理美股主要公司热力图',
+  errorFallback: '美股热力图加载失败',
+  defaultCoverage: '纳斯达克与纽交所总市值前 320 家公司',
+  industryDisplayPriority: ['信息技术', '金融'],
+  logoPath: (stock) => `/stock-logos/us-${stock.code}.svg`,
+};
 
 function formatMarketCap(value: number) {
   if (value >= 1e12) return `${(value / 1e12).toFixed(2)}万亿`;
@@ -200,6 +252,7 @@ function calculateLayout(
   size: ContainerSize,
   activeIndustry: string | null,
   industryMarketCaps: Record<string, number> | undefined,
+  industryDisplayPriority: string[],
 ) {
   if (!stocks.length || size.width < 10 || size.height < 10) return undefined;
 
@@ -207,8 +260,8 @@ function calculateLayout(
     .sum((node) => node.weight ?? 0)
     .sort((left, right) => {
       if (left.depth === 1 && right.depth === 1) {
-        const leftPriority = INDUSTRY_DISPLAY_PRIORITY.indexOf(left.data.name);
-        const rightPriority = INDUSTRY_DISPLAY_PRIORITY.indexOf(right.data.name);
+        const leftPriority = industryDisplayPriority.indexOf(left.data.name);
+        const rightPriority = industryDisplayPriority.indexOf(right.data.name);
         const leftRank = leftPriority === -1 ? Number.POSITIVE_INFINITY : leftPriority;
         const rightRank = rightPriority === -1 ? Number.POSITIVE_INFINITY : rightPriority;
         if (leftRank !== rightRank) return leftRank - rightRank;
@@ -242,21 +295,35 @@ function calculateMaxZoom(layout?: HierarchyRectangularNode<HeatmapNode>) {
   );
 }
 
+export function ChinaMarketHeatmap() {
+  return <RegionalMarketHeatmap config={CHINA_HEATMAP_CONFIG} />;
+}
+
+export function HongKongMarketHeatmap() {
+  return <RegionalMarketHeatmap config={HONG_KONG_HEATMAP_CONFIG} />;
+}
+
+export function UsMarketHeatmap() {
+  return <RegionalMarketHeatmap config={US_HEATMAP_CONFIG} />;
+}
+
 function StockCell({
   node,
   selected,
   expanded,
+  logoPath,
   onSelect,
   onHover,
 }: {
   node: HierarchyRectangularNode<HeatmapNode>;
   selected: boolean;
   expanded: boolean;
+  logoPath?: (stock: ChinaHeatmapStock) => string;
   onSelect: (stock: ChinaHeatmapStock) => void;
   onHover: (stock: ChinaHeatmapStock | null) => void;
 }) {
   const stock = node.data.stock;
-  const [logoFailed, setLogoFailed] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(!logoPath);
   if (!stock) return null;
 
   const width = node.x1 - node.x0;
@@ -329,11 +396,11 @@ function StockCell({
                   : 'mb-1.5 h-10 w-10 text-sm'
             }`}
           >
-            {logoFailed ? (
+            {logoFailed || !logoPath ? (
               stock.name.slice(0, 1)
             ) : (
               <img
-                src={`/stock-logos/${stock.code}.svg`}
+                src={logoPath(stock)}
                 alt=""
                 loading="lazy"
                 decoding="async"
@@ -392,7 +459,7 @@ function MapControl({
   );
 }
 
-export function ChinaMarketHeatmap() {
+function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
   const mapShellRef = useRef<HTMLDivElement | null>(null);
   const { ref, size } = useContainerSize();
   const [data, setData] = useState<ChinaHeatmapResponse>();
@@ -402,6 +469,7 @@ export function ChinaMarketHeatmap() {
   const [activeIndustry, setActiveIndustry] = useState<string | null>(null);
   const [selectedCode, setSelectedCode] = useState('');
   const [hoveredCode, setHoveredCode] = useState('');
+  const [hoveredIndustry, setHoveredIndustry] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
   const [mapView, setMapView] = useState<MapView>(DEFAULT_MAP_VIEW);
   const [dragging, setDragging] = useState(false);
@@ -422,15 +490,20 @@ export function ChinaMarketHeatmap() {
     };
   } | null>(null);
   const suppressClickRef = useRef(false);
+  const loadInFlightRef = useRef(false);
+  const loadSignalRef = useRef<AbortSignal | undefined>(undefined);
 
   useEffect(() => {
-    setSearchPortal(document.getElementById('china-market-search-slot'));
-  }, []);
+    setSearchPortal(document.getElementById(config.searchSlotId));
+  }, [config.searchSlotId]);
 
   const load = useCallback(async (signal?: AbortSignal, manual = false) => {
+    if (loadInFlightRef.current && loadSignalRef.current?.aborted !== true) return;
+    loadInFlightRef.current = true;
+    loadSignalRef.current = signal;
     if (manual) setRefreshing(true);
     try {
-      const response = await fetch('/api/china-market-heatmap', { signal, cache: 'no-store' });
+      const response = await fetch(config.endpoint, { signal, cache: 'no-store' });
       if (!response.ok) throw new Error(`行情接口返回 ${response.status}`);
       const payload = (await response.json()) as ChinaHeatmapResponse;
       if (!payload.stocks?.length) throw new Error('暂未取得有效行情');
@@ -438,12 +511,16 @@ export function ChinaMarketHeatmap() {
       setError('');
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === 'AbortError') return;
-      setError(caught instanceof Error ? caught.message : 'A 股热力图加载失败');
+      setError(caught instanceof Error ? caught.message : config.errorFallback);
     } finally {
+      if (loadSignalRef.current === signal) {
+        loadInFlightRef.current = false;
+        loadSignalRef.current = undefined;
+      }
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [config.endpoint, config.errorFallback]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -471,8 +548,9 @@ export function ChinaMarketHeatmap() {
       size,
       activeIndustry,
       data?.industryMarketCaps,
+      config.industryDisplayPriority,
     ),
-    [activeIndustry, data?.industryMarketCaps, data?.stocks, size],
+    [activeIndustry, config.industryDisplayPriority, data?.industryMarketCaps, data?.stocks, size],
   );
   const scaledSize = useMemo(() => ({
     width: Math.max(0, Math.round(size.width * mapView.scale)),
@@ -484,8 +562,9 @@ export function ChinaMarketHeatmap() {
       scaledSize,
       activeIndustry,
       data?.industryMarketCaps,
+      config.industryDisplayPriority,
     ),
-    [activeIndustry, data?.industryMarketCaps, data?.stocks, scaledSize],
+    [activeIndustry, config.industryDisplayPriority, data?.industryMarketCaps, data?.stocks, scaledSize],
   );
   const industryNodes = useMemo(
     () => activeIndustry ? [] : layout?.children ?? [],
@@ -528,6 +607,7 @@ export function ChinaMarketHeatmap() {
       size,
       null,
       data.industryMarketCaps,
+      config.industryDisplayPriority,
     );
     const baseNode = fullLayout?.leaves().find((node) => node.data.stock?.code === stock.code);
     if (!fullLayout || !baseNode) return;
@@ -548,6 +628,7 @@ export function ChinaMarketHeatmap() {
       targetSize,
       null,
       data.industryMarketCaps,
+      config.industryDisplayPriority,
     );
     const targetNode = targetLayout?.leaves().find((node) => node.data.stock?.code === stock.code);
     if (!targetNode) return;
@@ -555,6 +636,7 @@ export function ChinaMarketHeatmap() {
     setActiveIndustry(null);
     setSelectedCode(stock.code);
     setHoveredCode('');
+    setHoveredIndustry('');
     setMapView(clampMapView({
       scale: targetScale,
       x: size.width / 2 - (targetNode.x0 + targetNode.x1) / 2,
@@ -563,7 +645,7 @@ export function ChinaMarketHeatmap() {
     setSearchQuery(stock.name);
     setSearchOpen(false);
     setSearchIndex(0);
-  }, [data, size]);
+  }, [config.industryDisplayPriority, data, size]);
 
   const handleSearchKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
@@ -633,6 +715,7 @@ export function ChinaMarketHeatmap() {
     setActiveIndustry(industry);
     setSelectedCode('');
     setHoveredCode('');
+    setHoveredIndustry('');
     setMapView(DEFAULT_MAP_VIEW);
   }, []);
 
@@ -640,6 +723,7 @@ export function ChinaMarketHeatmap() {
     setActiveIndustry(null);
     setSelectedCode('');
     setHoveredCode('');
+    setHoveredIndustry('');
     setMapView(DEFAULT_MAP_VIEW);
   }, []);
 
@@ -699,6 +783,7 @@ export function ChinaMarketHeatmap() {
       if (Math.hypot(deltaX, deltaY) < 5) return;
       drag.moved = true;
       setHoveredCode('');
+      setHoveredIndustry('');
       setDragging(true);
     }
 
@@ -776,12 +861,12 @@ export function ChinaMarketHeatmap() {
           onFocus={() => setSearchOpen(Boolean(searchQuery.trim()))}
           onBlur={() => window.setTimeout(() => setSearchOpen(false), 120)}
           onKeyDown={handleSearchKeyDown}
-          placeholder="搜索股票代码或公司名称"
+          placeholder={`搜索${config.marketName}代码或公司名称`}
           className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/32"
           role="combobox"
-          aria-label="搜索 A 股股票"
+          aria-label={`搜索${config.marketName}股票`}
           aria-expanded={searchOpen}
-          aria-controls="china-market-search-results"
+          aria-controls={config.searchResultsId}
           aria-autocomplete="list"
         />
         {searchQuery ? (
@@ -803,7 +888,7 @@ export function ChinaMarketHeatmap() {
 
       {searchOpen && searchQuery.trim() ? (
         <div
-          id="china-market-search-results"
+          id={config.searchResultsId}
           role="listbox"
           className="absolute left-0 right-0 top-[44px] overflow-hidden rounded-md border border-white/14 bg-[#101216] shadow-[0_18px_46px_rgba(0,0,0,0.56)]"
         >
@@ -822,14 +907,16 @@ export function ChinaMarketHeatmap() {
             >
               <span className="relative grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md bg-white text-xs font-bold text-[#111318]">
                 <span>{stock.name.slice(0, 1)}</span>
-                <img
-                  src={`/stock-logos/${stock.code}.svg`}
-                  alt=""
-                  className="pointer-events-none absolute inset-0 h-full w-full object-contain"
-                  onError={(event) => {
-                    event.currentTarget.style.display = 'none';
-                  }}
-                />
+                {config.logoPath ? (
+                  <img
+                    src={config.logoPath(stock)}
+                    alt=""
+                    className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                    onError={(event) => {
+                      event.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : null}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-white">{stock.name}</span>
@@ -864,7 +951,7 @@ export function ChinaMarketHeatmap() {
       <div
         ref={mapShellRef}
         className="flex h-full min-h-0 flex-col bg-[#060708] text-white"
-        aria-label="A 股大盘热力图"
+        aria-label={config.ariaLabel}
       >
       {activeIndustry ? (
         <div className="flex h-10 shrink-0 items-center border-b border-white/14 bg-[#090a0c] px-2">
@@ -893,6 +980,10 @@ export function ChinaMarketHeatmap() {
         onPointerMove={moveDrag}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        onPointerLeave={() => {
+          setHoveredCode('');
+          setHoveredIndustry('');
+        }}
       >
         {layout ? (
           <div
@@ -949,6 +1040,8 @@ export function ChinaMarketHeatmap() {
                   key={`${node.data.name}-header`}
                   data-industry-button={node.data.name}
                   onClick={() => selectIndustry(node.data.name)}
+                  onMouseEnter={() => setHoveredIndustry(node.data.name)}
+                  onMouseLeave={() => setHoveredIndustry('')}
                   className="absolute z-20 flex items-center overflow-hidden rounded-t-[4px] bg-[#101216] px-2 text-left text-[10px] font-semibold text-white/72 transition hover:bg-[#20242a] hover:text-white"
                   style={{
                     left: node.x0 + 2,
@@ -969,11 +1062,30 @@ export function ChinaMarketHeatmap() {
                 node={node}
                 selected={node.data.stock?.code === selectedCode}
                 expanded={Boolean(activeIndustry)}
+                logoPath={config.logoPath}
                 onSelect={selectStock}
                 onHover={(stock) => {
-                  if (!dragging) setHoveredCode(stock?.code ?? '');
+                  if (!dragging) {
+                    setHoveredCode(stock?.code ?? '');
+                    setHoveredIndustry(stock?.industry ?? '');
+                  }
                 }}
               />
+            ))}
+            {industryNodes.map((node) => (
+              hoveredIndustry === node.data.name ? (
+                <div
+                  key={`${node.data.name}-hover-outline`}
+                  data-industry-highlight={node.data.name}
+                  className="pointer-events-none absolute z-30 rounded-[5px] border-[3px] border-[#2f8cff] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14),0_0_0_1px_rgba(47,140,255,0.22)]"
+                  style={{
+                    left: node.x0,
+                    top: node.y0,
+                    width: node.x1 - node.x0,
+                    height: node.y1 - node.y0,
+                  }}
+                />
+              ) : null
             ))}
           </div>
         ) : null}
@@ -1039,7 +1151,7 @@ export function ChinaMarketHeatmap() {
           <div className="absolute inset-0 z-50 grid place-items-center bg-black/42">
             <div className="text-center">
               <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-white/18 border-t-[#69d5ff]" />
-              <p className="text-sm font-semibold text-white/76">正在整理 A 股全市场热力图</p>
+              <p className="text-sm font-semibold text-white/76">{config.loadingText}</p>
             </div>
           </div>
         ) : null}
@@ -1066,7 +1178,7 @@ export function ChinaMarketHeatmap() {
       <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-white/10 bg-[#090a0c] px-3 py-2 text-[11px] text-white/48">
         <div className="flex items-center gap-3">
           <span className="font-semibold text-white/64">{data?.source ?? '东方财富'}</span>
-          <span>{activeIndustry ? `${activeIndustry} · 点击个股查看详情` : data?.coverage ?? 'A 股总市值前 320 家公司'}</span>
+          <span>{activeIndustry ? `${activeIndustry} · 点击个股查看详情` : data?.coverage ?? config.defaultCoverage}</span>
           <span>更新 {updatedAt}</span>
         </div>
         <div className="flex items-center gap-3">
@@ -1078,7 +1190,7 @@ export function ChinaMarketHeatmap() {
             onClick={() => void load(undefined, true)}
             disabled={refreshing}
             className="inline-flex h-7 w-7 items-center justify-center text-white/56 transition hover:text-white disabled:opacity-45"
-            aria-label="刷新 A 股热力图"
+            aria-label={`刷新${config.marketName}热力图`}
             title="刷新"
           >
             <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />

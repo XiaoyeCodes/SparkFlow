@@ -90,7 +90,7 @@ type MarketIndexSnapshot = {
   code: string;
   name: string;
   region: 'CN' | 'HK' | 'US' | 'CRYPTO';
-  market: 'china' | 'us' | 'crypto';
+  market: 'china' | 'hongkong' | 'us' | 'crypto';
   proxyFor?: string;
   price: number;
   change: number;
@@ -439,8 +439,12 @@ const marketIndexConfigs = [
   { id: 'szse', secid: '0.399001', tencent: 's_sz399001', name: '深证成指', region: 'CN' as const, market: 'china' as const, weight: 0.1 },
   { id: 'chinext', secid: '0.399006', tencent: 's_sz399006', name: '创业板指', region: 'CN' as const, market: 'china' as const, weight: 0.09 },
   { id: 'csi300', secid: '1.000300', tencent: 's_sh000300', name: '沪深300', region: 'CN' as const, market: 'china' as const, weight: 0.11 },
-  { id: 'hsi', secid: '100.HSI', tencent: 's_hkHSI', name: '恒生指数', region: 'HK' as const, market: 'china' as const, weight: 0.08 },
-  { id: 'hstech', secid: '124.HSTECH', tencent: 's_hkHSTECH', name: '恒生科技指数', region: 'HK' as const, market: 'china' as const, weight: 0.08 },
+  { id: 'star50', secid: '1.000688', tencent: 's_sh000688', name: '科创50', region: 'CN' as const, market: 'china' as const, weight: 0.08 },
+  { id: 'hsi', secid: '100.HSI', tencent: 's_hkHSI', name: '恒生指数', region: 'HK' as const, market: 'hongkong' as const, weight: 0.08 },
+  { id: 'hstech', secid: '124.HSTECH', tencent: 's_hkHSTECH', name: '恒生科技指数', region: 'HK' as const, market: 'hongkong' as const, weight: 0.08 },
+  { id: 'hscei', secid: '100.HSCEI', tencent: 's_hkHSCEI', name: '国企指数', region: 'HK' as const, market: 'hongkong' as const, weight: 0.07 },
+  { id: 'hscci', secid: '124.HSCCI', tencent: 's_hkHSCCI', name: '红筹指数', region: 'HK' as const, market: 'hongkong' as const, weight: 0.06 },
+  { id: 'hsci', secid: '124.HSCI', tencent: 's_hkHSCI', name: '恒生综合指数', region: 'HK' as const, market: 'hongkong' as const, weight: 0.06 },
   { id: 'nasdaq', secid: '100.NDX', tencent: 'usNDX', name: '纳斯达克100', region: 'US' as const, market: 'us' as const, weight: 0.11 },
   { id: 'sp500', secid: '100.SPX', tencent: 'usINX', name: '标普500', region: 'US' as const, market: 'us' as const, weight: 0.11 },
   { id: 'dow', secid: '100.DJIA', tencent: 'usDJI', name: '道琼斯', region: 'US' as const, market: 'us' as const, weight: 0.07 },
@@ -475,7 +479,7 @@ async function getEquityIndexSnapshots() {
   const [eastmoneyResult, tencentResult] = await Promise.allSettled([fetchJson(eastmoneyUrl), fetchText(tencentUrl)]);
   if (eastmoneyResult.status === 'rejected') throw eastmoneyResult.reason;
 
-  const tencentQuotes = new Map<string, { price: number; changePercent?: number }>();
+  const tencentQuotes = new Map<string, { price: number; change?: number; changePercent?: number }>();
   if (tencentResult.status === 'fulfilled') {
     for (const match of tencentResult.value.matchAll(/v_([^=]+)="([^"]*)"/g)) {
       const fields = match[2].split('~');
@@ -484,6 +488,7 @@ async function getEquityIndexSnapshots() {
       const longQuote = fields.length > 32;
       tencentQuotes.set(match[1].toLowerCase(), {
         price,
+        change: asFiniteNumber(longQuote ? fields[31] : fields[4]),
         changePercent: asFiniteNumber(longQuote ? fields[32] : fields[5]),
       });
     }
@@ -498,6 +503,12 @@ async function getEquityIndexSnapshots() {
     const price = asFiniteNumber(row?.f2);
     if (!row || price === undefined) return [];
     const tencent = tencentQuotes.get(config.tencent.toLowerCase());
+    const preferTencent = config.region === 'US' && tencent !== undefined;
+    const livePrice = preferTencent ? tencent.price : price;
+    const liveChange = preferTencent ? tencent.change ?? asFiniteNumber(row.f4) ?? 0 : asFiniteNumber(row.f4) ?? 0;
+    const liveChangePercent = preferTencent
+      ? tencent.changePercent ?? asFiniteNumber(row.f3) ?? 0
+      : asFiniteNumber(row.f3) ?? 0;
     const deviationPercent = tencent ? Math.abs(tencent.price - price) / Math.max(price, 0.0001) * 100 : undefined;
     const timestamp = asFiniteNumber(row.f124);
     return [{
@@ -507,19 +518,19 @@ async function getEquityIndexSnapshots() {
       region: config.region,
       market: config.market,
       proxyFor: 'proxyFor' in config ? config.proxyFor : undefined,
-      price,
-      change: asFiniteNumber(row.f4) || 0,
-      changePercent: asFiniteNumber(row.f3) || 0,
+      price: livePrice,
+      change: liveChange,
+      changePercent: liveChangePercent,
       turnover: asFiniteNumber(row.f6),
       advancers: asFiniteNumber(row.f104),
       decliners: asFiniteNumber(row.f105),
       flat: asFiniteNumber(row.f106),
-      updatedAt: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
-      sourceUrl: eastmoneyUrl,
+      updatedAt: preferTencent ? new Date().toISOString() : timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+      sourceUrl: preferTencent ? tencentUrl : eastmoneyUrl,
       validation: {
         status: deviationPercent === undefined ? 'single-source' : deviationPercent <= 0.25 ? 'verified' : 'review',
-        source: tencent ? '腾讯证券' : '未取得第二来源',
-        price: tencent?.price,
+        source: preferTencent ? '东方财富' : tencent ? '腾讯证券' : '未取得第二来源',
+        price: preferTencent ? price : tencent?.price,
         deviationPercent: deviationPercent === undefined ? undefined : round(deviationPercent, 3),
       },
     }];
@@ -699,6 +710,121 @@ async function getChinaMarketHeatmap() {
     source: '东方财富',
     sourceUrl: baseUrl,
     industrySourceUrl: industryUrl,
+    industryMarketCaps,
+    stocks,
+  };
+}
+
+async function getHongKongMarketHeatmap() {
+  const baseUrl = 'https://push2delay.eastmoney.com/api/qt/clist/get?pz=100&po=1&np=1&fltt=2&invt=2&fid=f20&fs=m:116+t:3&fields=f12,f14,f2,f3,f20,f100,f124';
+  const payloads = await Promise.all(
+    [1, 2, 3, 4, 5].map((page) => fetchJsonWithRetry(`${baseUrl}&pn=${page}`, 2, 12000)),
+  );
+  const rawRows: Record<string, unknown>[] = payloads.flatMap(
+    (payload) => Array.isArray(payload?.data?.diff) ? payload.data.diff : [],
+  );
+  const rows = Array.from(
+    new Map(rawRows.map((row) => [String(row.f12 || '').trim(), row])).values(),
+  )
+    .filter((row) => {
+      const code = String(row.f12 || '').trim();
+      const name = String(row.f14 || '').trim();
+      return code && !code.startsWith('8') && !/-R$/i.test(name);
+    })
+    .slice(0, 320);
+  if (!rows.length) throw new Error('港股热力图行情为空');
+
+  const stocks: ChinaHeatmapStock[] = rows.flatMap((row) => {
+    const code = String(row.f12 || '').trim().padStart(5, '0');
+    const name = String(row.f14 || '').trim();
+    const price = asFiniteNumber(row.f2);
+    const changePercent = asFiniteNumber(row.f3);
+    const marketCap = asFiniteNumber(row.f20);
+    if (!code || !name || price === undefined || changePercent === undefined || !marketCap || marketCap <= 0) return [];
+    const timestamp = asFiniteNumber(row.f124);
+    return [{
+      code,
+      name,
+      price,
+      changePercent,
+      marketCap,
+      industry: String(row.f100 || '其他').trim() || '其他',
+      updatedAt: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+      sourceUrl: `https://quote.eastmoney.com/hk/${code}.html`,
+    }];
+  });
+  if (!stocks.length) throw new Error('港股热力图缺少有效行情');
+
+  const industryMarketCaps = stocks.reduce<Record<string, number>>((result, stock) => {
+    result[stock.industry] = (result[stock.industry] || 0) + stock.marketCap;
+    return result;
+  }, {});
+
+  return {
+    generatedAt: new Date().toISOString(),
+    count: stocks.length,
+    coverage: `港股主板总市值前 ${stocks.length} 家公司 · 行业面积按样本市值校准`,
+    source: '东方财富',
+    sourceUrl: baseUrl,
+    industryMarketCaps,
+    stocks,
+  };
+}
+
+async function getUsMarketHeatmap() {
+  const baseUrl = 'https://push2delay.eastmoney.com/api/qt/clist/get?pz=100&po=1&np=1&fltt=2&invt=2&fid=f20&fs=m:105,m:106&fields=f12,f13,f14,f2,f3,f20,f100,f124';
+  const payloads = await Promise.all(
+    [1, 2, 3, 4, 5].map((page) => fetchJsonWithRetry(`${baseUrl}&pn=${page}`, 2, 12000)),
+  );
+  const rawRows: Record<string, unknown>[] = payloads.flatMap(
+    (payload) => Array.isArray(payload?.data?.diff) ? payload.data.diff : [],
+  );
+  const rows = Array.from(
+    new Map(rawRows.map((row) => [String(row.f12 || '').trim().toUpperCase(), row])).values(),
+  )
+    .filter((row) => {
+      const code = String(row.f12 || '').trim();
+      const industry = String(row.f100 || '').trim();
+      return code && industry && industry !== '-';
+    })
+    .slice(0, 320);
+  if (!rows.length) throw new Error('美股热力图行情为空');
+
+  const stocks: ChinaHeatmapStock[] = rows.flatMap((row) => {
+    const code = String(row.f12 || '').trim().toUpperCase();
+    const name = String(row.f14 || '').trim();
+    const price = asFiniteNumber(row.f2);
+    const changePercent = asFiniteNumber(row.f3);
+    const marketCap = asFiniteNumber(row.f20);
+    const exchangeCode = String(row.f13 || '');
+    const exchange = exchangeCode === '105' ? 'NASDAQ' : exchangeCode === '106' ? 'NYSE' : '';
+    if (!code || !name || !exchange || price === undefined || changePercent === undefined || !marketCap || marketCap <= 0) return [];
+    const timestamp = asFiniteNumber(row.f124);
+    return [{
+      code,
+      name,
+      exchange,
+      price,
+      changePercent,
+      marketCap,
+      industry: String(row.f100 || '其他').trim() || '其他',
+      updatedAt: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+      sourceUrl: `https://quote.eastmoney.com/us/${encodeURIComponent(code)}.html`,
+    }];
+  });
+  if (!stocks.length) throw new Error('美股热力图缺少有效行情');
+
+  const industryMarketCaps = stocks.reduce<Record<string, number>>((result, stock) => {
+    result[stock.industry] = (result[stock.industry] || 0) + stock.marketCap;
+    return result;
+  }, {});
+
+  return {
+    generatedAt: new Date().toISOString(),
+    count: stocks.length,
+    coverage: `纳斯达克与纽交所总市值前 ${stocks.length} 家公司 · 已过滤无行业分类证券`,
+    source: '东方财富',
+    sourceUrl: baseUrl,
     industryMarketCaps,
     stocks,
   };
@@ -1042,6 +1168,56 @@ let cryptoQuotesCache: { storedAt: number; data: Awaited<ReturnType<typeof getCr
 let cryptoQuotesInFlight: Promise<Awaited<ReturnType<typeof getCryptoMarketSnapshots>>> | undefined;
 let chinaHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getChinaMarketHeatmap>> } | undefined;
 let chinaHeatmapInFlight: Promise<Awaited<ReturnType<typeof getChinaMarketHeatmap>>> | undefined;
+let hongKongHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getHongKongMarketHeatmap>> } | undefined;
+let hongKongHeatmapInFlight: Promise<Awaited<ReturnType<typeof getHongKongMarketHeatmap>>> | undefined;
+let usHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getUsMarketHeatmap>> } | undefined;
+let usHeatmapInFlight: Promise<Awaited<ReturnType<typeof getUsMarketHeatmap>>> | undefined;
+let usMarketSystemCache: {
+  storedAt: number;
+  data: { state: 'normal' | 'halted' | 'unknown'; message: string; updatedAt: string; sourceUrl: string };
+} | undefined;
+
+async function getUsMarketSystemStatus() {
+  const sourceUrl = 'https://www.nasdaqtrader.com/Trader.aspx?id=MarketSystemStatusToday';
+  try {
+    const html = await fetchText(sourceUrl, 12000);
+    const text = stripTags(html);
+    const sectionStart = text.indexOf('System Status Messages');
+    const sectionEnd = text.indexOf('// override', sectionStart);
+    const currentSection = sectionStart >= 0
+      ? text.slice(sectionStart, sectionEnd > sectionStart ? sectionEnd : sectionStart + 900)
+      : text.slice(0, 900);
+    const halted = /market.?wide circuit breaker|trading (?:is |has been )?halted|operational(?:ly)? halted|market suspended/i.test(currentSection);
+    const normal = /systems? (?:are|is) operating normally/i.test(currentSection);
+    return {
+      state: halted ? 'halted' as const : normal ? 'normal' as const : 'unknown' as const,
+      message: halted
+        ? 'Nasdaq 官方系统状态显示交易暂停或市场级熔断'
+        : normal
+          ? 'Nasdaq 系统运行正常'
+          : '暂未取得明确的 Nasdaq 系统状态',
+      updatedAt: new Date().toISOString(),
+      sourceUrl,
+    };
+  } catch {
+    return {
+      state: 'unknown' as const,
+      message: 'Nasdaq 系统状态暂时不可用',
+      updatedAt: new Date().toISOString(),
+      sourceUrl,
+    };
+  }
+}
+
+async function getCachedUsMarketSystemStatus() {
+  const now = Date.now();
+  if (usMarketSystemCache && now - usMarketSystemCache.storedAt < 30_000) {
+    return usMarketSystemCache.data;
+  }
+  const data = await getUsMarketSystemStatus();
+  usMarketSystemCache = { storedAt: Date.now(), data };
+  return data;
+}
 
 async function getCachedMarketIntelligence() {
   const now = Date.now();
@@ -1081,7 +1257,7 @@ async function getCachedMarketQuotes() {
 
 async function getCachedCryptoMarketSnapshots() {
   const now = Date.now();
-  if (cryptoQuotesCache && now - cryptoQuotesCache.storedAt < 12_000) {
+  if (cryptoQuotesCache && now - cryptoQuotesCache.storedAt < 2_500) {
     return cryptoQuotesCache.data;
   }
   if (!cryptoQuotesInFlight) {
@@ -1099,7 +1275,7 @@ async function getCachedCryptoMarketSnapshots() {
 
 async function getCachedChinaMarketHeatmap() {
   const now = Date.now();
-  if (chinaHeatmapCache && now - chinaHeatmapCache.storedAt < 8000) {
+  if (chinaHeatmapCache && now - chinaHeatmapCache.storedAt < 2500) {
     return chinaHeatmapCache.data;
   }
   if (!chinaHeatmapInFlight) {
@@ -1113,6 +1289,42 @@ async function getCachedChinaMarketHeatmap() {
       });
   }
   return chinaHeatmapInFlight;
+}
+
+async function getCachedHongKongMarketHeatmap() {
+  const now = Date.now();
+  if (hongKongHeatmapCache && now - hongKongHeatmapCache.storedAt < 2500) {
+    return hongKongHeatmapCache.data;
+  }
+  if (!hongKongHeatmapInFlight) {
+    hongKongHeatmapInFlight = getHongKongMarketHeatmap()
+      .then((data) => {
+        hongKongHeatmapCache = { storedAt: Date.now(), data };
+        return data;
+      })
+      .finally(() => {
+        hongKongHeatmapInFlight = undefined;
+      });
+  }
+  return hongKongHeatmapInFlight;
+}
+
+async function getCachedUsMarketHeatmap() {
+  const now = Date.now();
+  if (usHeatmapCache && now - usHeatmapCache.storedAt < 2500) {
+    return usHeatmapCache.data;
+  }
+  if (!usHeatmapInFlight) {
+    usHeatmapInFlight = getUsMarketHeatmap()
+      .then((data) => {
+        usHeatmapCache = { storedAt: Date.now(), data };
+        return data;
+      })
+      .finally(() => {
+        usHeatmapInFlight = undefined;
+      });
+  }
+  return usHeatmapInFlight;
 }
 
 function getAgeDays(dateString?: string) {
@@ -1946,6 +2158,21 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/china-market-heatmap') {
             sendJson(res, 200, await getCachedChinaMarketHeatmap());
+            return;
+          }
+
+          if (url.pathname === '/api/hong-kong-market-heatmap') {
+            sendJson(res, 200, await getCachedHongKongMarketHeatmap());
+            return;
+          }
+
+          if (url.pathname === '/api/us-market-heatmap') {
+            sendJson(res, 200, await getCachedUsMarketHeatmap());
+            return;
+          }
+
+          if (url.pathname === '/api/us-market-system-status') {
+            sendJson(res, 200, await getCachedUsMarketSystemStatus());
             return;
           }
 

@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Bitcoin,
   Bot,
+  Building2,
   CheckCircle2,
   ChevronDown,
   Circle,
@@ -25,12 +26,20 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ChinaMarketHeatmap } from '../components/ChinaMarketHeatmap';
+import { ChinaMarketHeatmap, HongKongMarketHeatmap, UsMarketHeatmap } from '../components/ChinaMarketHeatmap';
 import { PageTransition } from '../components/PageTransition';
 import { TradingViewHeatmap } from '../components/TradingViewHeatmap';
 import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
+import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 
-type MarketChartMode = 'china' | 'us' | 'crypto';
+type MarketChartMode = 'china' | 'hongkong' | 'us' | 'crypto';
+
+type UsMarketSystemStatus = {
+  state: 'normal' | 'halted' | 'unknown';
+  message: string;
+  updatedAt: string;
+  sourceUrl: string;
+};
 
 type MarketIndexSnapshot = {
   id: string;
@@ -62,6 +71,43 @@ type SectorPulse = {
   changePercent: number;
   mainNetInflow: number;
   mainNetRatio: number;
+};
+
+type RotationMetric = 'fund-flow' | 'market-cap' | 'turnover';
+
+type MarketRotationItem = {
+  code: string;
+  name: string;
+  changePercent: number;
+  scaleValue: number;
+  advanceRatio: number;
+  memberCount: number;
+};
+
+type MarketRotation = {
+  generatedAt: string;
+  source: string;
+  sourceUrl: string;
+  metric: RotationMetric;
+  currency: 'CNY' | 'HKD' | 'USD' | 'USDT';
+  coverage: string;
+  leaders: MarketRotationItem[];
+  laggards: MarketRotationItem[];
+};
+
+type RegionalHeatmapResponse = {
+  generatedAt: string;
+  count: number;
+  coverage: string;
+  source: string;
+  sourceUrl: string;
+  stocks: Array<{
+    code: string;
+    name: string;
+    changePercent: number;
+    marketCap: number;
+    industry: string;
+  }>;
 };
 
 type ResearchReport = {
@@ -170,19 +216,25 @@ const EMPTY_RESEARCH: ResearchState = {
 
 const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart: string; description: string }> = {
   china: {
-    label: 'A 股与港股',
-    short: '中国市场',
+    label: 'A股',
+    short: 'A股市场',
     chart: 'A 股大盘热力图',
     description: 'A 股全市场 · 重点板块增强 · 市值加权 · 当日涨跌',
   },
+  hongkong: {
+    label: '港股',
+    short: '港股市场',
+    chart: '港股大盘热力图',
+    description: '港股主板 · 行业分组 · 市值加权 · 当日涨跌',
+  },
   us: {
-    label: '美国市场',
+    label: '美股',
     short: '美股市场',
     chart: '美股大盘热力图',
-    description: '标普 500 成分股 · 行业分组 · 市值面积 · 当日涨跌',
+    description: '纳斯达克与纽交所主要公司 · 行业分组 · 市值面积 · 当日涨跌',
   },
   crypto: {
-    label: '加密市场',
+    label: '加密',
     short: '加密市场',
     chart: '加密货币热力图',
     description: '主流加密资产 · 市值面积 · 24 小时涨跌 · 全天候市场',
@@ -232,11 +284,23 @@ export function Market() {
   const [quickState, setQuickState] = useState<AsyncState>('idle');
   const [quickSummaries, setQuickSummaries] = useState<Record<MarketChartMode, string>>(() => ({
     china: window.localStorage.getItem(summaryStorageKey('china')) || '',
+    hongkong: window.localStorage.getItem(summaryStorageKey('hongkong')) || '',
     us: window.localStorage.getItem(summaryStorageKey('us')) || '',
     crypto: window.localStorage.getItem(summaryStorageKey('crypto')) || '',
   }));
+  const [regionalRotations, setRegionalRotations] = useState<Partial<Record<MarketChartMode, MarketRotation>>>({});
+  const [rotationLoadState, setRotationLoadState] = useState<AsyncState>('idle');
+  const [rotationError, setRotationError] = useState('');
+  const [rotationReloadKey, setRotationReloadKey] = useState(0);
+  const [usMarketSystem, setUsMarketSystem] = useState<UsMarketSystemStatus>({
+    state: 'unknown',
+    message: '正在读取 Nasdaq 系统状态',
+    updatedAt: '',
+    sourceUrl: 'https://www.nasdaqtrader.com/Trader.aspx?id=MarketSystemStatusToday',
+  });
   const [research, setResearch] = useState<ResearchMap>(() => ({
     china: readStoredResearch('china'),
+    hongkong: readStoredResearch('hongkong'),
     us: readStoredResearch('us'),
     crypto: readStoredResearch('crypto'),
   }));
@@ -296,12 +360,37 @@ export function Market() {
         quoteRequestRef.current = false;
       }
     };
-    const timer = window.setInterval(() => void refreshQuotes(), 1000);
+    const timer = window.setInterval(() => void refreshQuotes(), 3000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
   }, [Boolean(data)]);
+
+  useEffect(() => {
+    if (activeMarket !== 'us') return;
+    let cancelled = false;
+    const refreshSystemStatus = async () => {
+      try {
+        const payload = await requestJson<UsMarketSystemStatus>('/api/us-market-system-status');
+        if (!cancelled) setUsMarketSystem(payload);
+      } catch {
+        if (!cancelled) {
+          setUsMarketSystem((current) => ({
+            ...current,
+            state: 'unknown',
+            message: 'Nasdaq 系统状态暂时不可用',
+          }));
+        }
+      }
+    };
+    void refreshSystemStatus();
+    const timer = window.setInterval(() => void refreshSystemStatus(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeMarket]);
 
   const stopPolling = useCallback((mode: MarketChartMode) => {
     const timer = pollingRef.current.get(mode);
@@ -482,8 +571,44 @@ export function Market() {
     () => (data?.indices || []).filter((item) => item.market === activeMarket),
     [activeMarket, data?.indices],
   );
+  const activeRotation = useMemo(() => {
+    if (!data) return undefined;
+    if (activeMarket === 'china') return buildChinaRotation(data);
+    if (activeMarket === 'crypto') return buildCryptoRotation(activeIndices);
+    return regionalRotations[activeMarket];
+  }, [activeIndices, activeMarket, data, regionalRotations]);
   const activeResearch = research[activeMarket];
   const activeSummary = quickSummaries[activeMarket];
+
+  useEffect(() => {
+    if (activeMarket === 'china' || activeMarket === 'crypto') {
+      setRotationLoadState('success');
+      setRotationError('');
+      return;
+    }
+
+    const controller = new AbortController();
+    const endpoint = activeMarket === 'hongkong'
+      ? '/api/hong-kong-market-heatmap'
+      : '/api/us-market-heatmap';
+    const currency = activeMarket === 'hongkong' ? 'HKD' : 'USD';
+
+    setRotationLoadState('loading');
+    setRotationError('');
+    requestJson<RegionalHeatmapResponse>(endpoint, { signal: controller.signal })
+      .then((payload) => {
+        const rotation = buildRegionalRotation(payload, currency);
+        setRegionalRotations((current) => ({ ...current, [activeMarket]: rotation }));
+        setRotationLoadState('success');
+      })
+      .catch((requestError) => {
+        if (controller.signal.aborted) return;
+        setRotationLoadState('error');
+        setRotationError(requestError instanceof Error ? requestError.message : String(requestError));
+      });
+
+    return () => controller.abort();
+  }, [activeMarket, rotationReloadKey]);
 
   const runVibeResearch = async () => {
     if (!data || activeResearch.running || activeResearch.connecting) return;
@@ -600,7 +725,12 @@ export function Market() {
         pdf.addPage();
         pdf.addImage(image, 'JPEG', 0, offset, pageWidth, imageHeight, undefined, 'FAST');
       }
-      const marketSlug: Record<MarketChartMode, string> = { china: 'China', us: 'US', crypto: 'Crypto' };
+      const marketSlug: Record<MarketChartMode, string> = {
+        china: 'China-A',
+        hongkong: 'Hong-Kong',
+        us: 'US',
+        crypto: 'Crypto',
+      };
       pdf.save(`SparkFlow-${marketSlug[activeMarket]}-Market-${new Date().toISOString().slice(0, 10)}.pdf`);
       setActionMessage('PDF 报告已导出。');
     } catch (requestError) {
@@ -642,20 +772,33 @@ export function Market() {
             </div>
           </header>
 
-          <div className="mb-5 flex w-full max-w-[620px] border border-white/10 bg-white/[0.035] p-1">
-            {(Object.keys(MARKET_META) as MarketChartMode[]).map((mode) => (
-              <button
-                type="button"
-                key={mode}
-                onClick={() => setActiveMarket(mode)}
-                className={`flex min-h-11 flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold transition ${
-                  activeMarket === mode ? 'bg-white text-black' : 'text-white/52 hover:text-white'
-                }`}
-              >
-                {mode === 'china' ? <Landmark size={15} /> : mode === 'crypto' ? <Bitcoin size={15} /> : <Activity size={15} />}
-                {MARKET_META[mode].label}
-              </button>
-            ))}
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-stretch lg:justify-between">
+            <div className="flex w-full border border-white/10 bg-white/[0.035] p-1 lg:max-w-[620px]">
+              {(Object.keys(MARKET_META) as MarketChartMode[]).map((mode) => (
+                <button
+                  type="button"
+                  key={mode}
+                  onClick={() => setActiveMarket(mode)}
+                  className={`flex min-h-11 flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold transition ${
+                    activeMarket === mode ? 'bg-white text-black' : 'text-white/52 hover:text-white'
+                  }`}
+                >
+                  {mode === 'china'
+                    ? <Landmark size={15} />
+                    : mode === 'hongkong'
+                      ? <Building2 size={15} />
+                      : mode === 'crypto'
+                        ? <Bitcoin size={15} />
+                        : <Activity size={15} />}
+                  {MARKET_META[mode].label}
+                </button>
+              ))}
+            </div>
+            <MarketSessionIndicator
+              mode={activeMarket}
+              usSystemState={usMarketSystem.state}
+              usSystemMessage={usMarketSystem.message}
+            />
           </div>
 
           {error ? <ErrorPanel message={error} onRetry={() => void loadMarket()} /> : null}
@@ -676,13 +819,23 @@ export function Market() {
                     <div className="shrink-0">
                       <div className="flex items-center gap-2 text-sm font-semibold">
                         <Activity size={16} className="text-[#69d5ff]" />
-                        {MARKET_META[activeMarket].chart} · {activeMarket === 'china' ? '东方财富实时数据' : 'TradingView'}
+                        {MARKET_META[activeMarket].chart} · {
+                          activeMarket !== 'crypto'
+                            ? '东方财富实时数据'
+                            : 'TradingView'
+                        }
                       </div>
                       <p className="mt-1 text-xs text-white/38">{MARKET_META[activeMarket].description}</p>
                     </div>
-                    {activeMarket === 'china' ? (
+                    {activeMarket !== 'crypto' ? (
                       <div
-                        id="china-market-search-slot"
+                        id={
+                          activeMarket === 'china'
+                            ? 'china-market-search-slot'
+                            : activeMarket === 'hongkong'
+                              ? 'hong-kong-market-search-slot'
+                              : 'us-market-search-slot'
+                        }
                         className="order-3 w-full sm:order-none sm:mx-3 sm:min-w-[220px] sm:max-w-xl sm:flex-1"
                       />
                     ) : (
@@ -692,15 +845,25 @@ export function Market() {
                       href={
                         activeMarket === 'china'
                           ? 'https://quote.eastmoney.com/center/gridlist.html#hs_a_board'
+                          : activeMarket === 'hongkong'
+                            ? 'https://quote.eastmoney.com/center/hkstock.html'
                           : activeMarket === 'crypto'
                             ? 'https://cn.tradingview.com/heatmap/crypto/'
-                            : 'https://cn.tradingview.com/heatmap/stock/?dataset=SPX500'
+                            : 'https://quote.eastmoney.com/center/mgsc.html'
                       }
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex h-9 w-9 items-center justify-center text-white/50 transition hover:text-white"
-                      aria-label={activeMarket === 'china' ? '在东方财富打开' : '在 TradingView 打开'}
-                      title={activeMarket === 'china' ? '在东方财富打开' : '在 TradingView 打开'}
+                      aria-label={
+                        activeMarket !== 'crypto'
+                          ? '在东方财富打开'
+                          : '在 TradingView 打开'
+                      }
+                      title={
+                        activeMarket !== 'crypto'
+                          ? '在东方财富打开'
+                          : '在 TradingView 打开'
+                      }
                     >
                       <ArrowUpRight size={17} />
                     </a>
@@ -708,6 +871,10 @@ export function Market() {
                   <div className="min-h-[500px] flex-1">
                     {activeMarket === 'china' ? (
                       <ChinaMarketHeatmap />
+                    ) : activeMarket === 'hongkong' ? (
+                      <HongKongMarketHeatmap />
+                    ) : activeMarket === 'us' ? (
+                      <UsMarketHeatmap />
                     ) : (
                       <TradingViewHeatmap mode={activeMarket} />
                     )}
@@ -730,18 +897,58 @@ export function Market() {
               ) : null}
 
               <div className="mt-8 border-t border-white/10 pt-7">
-                <SectionHeading eyebrow="Capital Rotation" title={activeMarket === 'china' ? 'A 股行业资金流向' : '跨市场资金风险偏好'} icon={<Gauge size={15} />} />
-                {activeMarket !== 'china' ? (
-                  <p className="-mt-2 mb-4 text-xs leading-5 text-white/36">
-                    {activeMarket === 'crypto'
-                      ? '当前免费数据源暂未提供统一口径的链上资金净流入，以下 A 股行业资金仅作为传统风险资产偏好的交叉参考，不冒充加密货币资金流。'
-                      : '免费数据源暂未提供可靠的美股板块净流入金额，以下 A 股行业资金作为亚洲时段风险偏好的交叉参考，不冒充美股资金流。'}
-                  </p>
-                ) : null}
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <SectorBoard title="资金流入前列" items={data.sectors.leaders} mode="leader" />
-                  <SectorBoard title="资金流出前列" items={data.sectors.laggards} mode="laggard" />
+                <SectionHeading
+                  eyebrow="Capital Rotation"
+                  title={getRotationTitle(activeMarket)}
+                  icon={<Gauge size={15} />}
+                />
+                <div className="-mt-2 mb-4 flex flex-wrap items-center justify-between gap-3 text-xs leading-5 text-white/36">
+                  <p>{activeRotation?.coverage || getRotationLoadingText(activeMarket)}</p>
+                  {activeRotation ? (
+                    <a
+                      href={activeRotation.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="shrink-0 text-white/46 transition hover:text-white"
+                    >
+                      {activeRotation.source} · {formatDateTime(activeRotation.generatedAt, true)}
+                    </a>
+                  ) : null}
                 </div>
+                {activeRotation ? (
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <SectorBoard
+                      title={activeMarket === 'china' ? '资金流入前列' : activeMarket === 'crypto' ? '领涨赛道' : '领涨板块'}
+                      items={activeRotation.leaders}
+                      mode="leader"
+                      metric={activeRotation.metric}
+                      currency={activeRotation.currency}
+                    />
+                    <SectorBoard
+                      title={activeMarket === 'china' ? '资金流出前列' : activeMarket === 'crypto' ? '落后赛道' : '落后板块'}
+                      items={activeRotation.laggards}
+                      mode="laggard"
+                      metric={activeRotation.metric}
+                      currency={activeRotation.currency}
+                    />
+                  </div>
+                ) : rotationLoadState === 'error' ? (
+                  <div className="flex min-h-40 items-center justify-center border border-[#d6b566]/20 bg-[#d6b566]/[0.04] px-5 text-center">
+                    <div>
+                      <TriangleAlert className="mx-auto text-[#d6b566]" size={20} />
+                      <p className="mt-3 text-sm text-white/68">{rotationError || '板块数据暂时不可用'}</p>
+                      <button
+                        type="button"
+                        onClick={() => setRotationReloadKey((current) => current + 1)}
+                        className="mt-3 inline-flex h-8 items-center gap-2 border border-white/14 px-3 text-xs font-semibold text-white/64 transition hover:border-white/30 hover:text-white"
+                      >
+                        <RefreshCw size={13} /> 重试
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <RotationSkeleton />
+                )}
               </div>
 
               <div className="mt-7 grid gap-4 xl:grid-cols-2">
@@ -891,11 +1098,123 @@ function VibeResearchPanel({
   );
 }
 
+const MARKET_SESSION_TONES: Record<MarketSessionTone, { dot: string; ring: string; label: string; border: string; background: string }> = {
+  live: {
+    dot: 'bg-[#35d6aa]',
+    ring: 'bg-[#35d6aa]/45',
+    label: 'text-[#75e6b1]',
+    border: 'border-[#35d6aa]/30',
+    background: 'bg-[#35d6aa]/[0.055]',
+  },
+  auction: {
+    dot: 'bg-[#69d5ff]',
+    ring: 'bg-[#69d5ff]/40',
+    label: 'text-[#9de5ff]',
+    border: 'border-[#69d5ff]/28',
+    background: 'bg-[#69d5ff]/[0.05]',
+  },
+  extended: {
+    dot: 'bg-[#d6b566]',
+    ring: 'bg-[#d6b566]/35',
+    label: 'text-[#ead9a6]',
+    border: 'border-[#d6b566]/28',
+    background: 'bg-[#d6b566]/[0.05]',
+  },
+  paused: {
+    dot: 'bg-[#e5a95e]',
+    ring: 'bg-[#e5a95e]/35',
+    label: 'text-[#f0c98d]',
+    border: 'border-[#e5a95e]/28',
+    background: 'bg-[#e5a95e]/[0.045]',
+  },
+  closed: {
+    dot: 'bg-white/28',
+    ring: 'bg-white/12',
+    label: 'text-white/55',
+    border: 'border-white/12',
+    background: 'bg-white/[0.025]',
+  },
+  halted: {
+    dot: 'bg-[#ff3348]',
+    ring: 'bg-[#ff3348]/45',
+    label: 'text-[#ff7b87]',
+    border: 'border-[#ff3348]/38',
+    background: 'bg-[#ff3348]/[0.075]',
+  },
+};
+
+function MarketSessionIndicator({
+  mode,
+  usSystemState,
+  usSystemMessage,
+}: {
+  mode: MarketChartMode;
+  usSystemState: UsMarketSystemStatus['state'];
+  usSystemMessage: string;
+}) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    setNow(new Date());
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, [mode]);
+  const status = useMemo(
+    () => getMarketSessionStatus(mode, now, usSystemState),
+    [mode, now, usSystemState],
+  );
+  const tone = MARKET_SESSION_TONES[status.tone];
+  const pulsing = status.tone === 'live' || status.tone === 'auction' || status.tone === 'halted';
+  const marketName = mode === 'crypto' ? '加密市场' : `${MARKET_META[mode].label}市场`;
+
+  return (
+    <a
+      href={status.sourceUrl}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`${marketName}当前状态：${status.label}`}
+      title={mode === 'us' ? `${status.detail}；${usSystemMessage}` : `${status.detail}；查看官方交易时段`}
+      className={`group flex min-h-[64px] w-full min-w-0 items-center gap-4 border px-4 py-3 transition hover:bg-white/[0.055] lg:w-[520px] ${tone.border} ${tone.background}`}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="relative flex h-3 w-3 shrink-0 items-center justify-center">
+          {pulsing ? <span className={`absolute h-3 w-3 animate-ping rounded-full ${tone.ring}`} /> : null}
+          <span className={`relative h-2 w-2 rounded-full ${tone.dot}`} />
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-white/34">{marketName}</p>
+          <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
+            <p aria-live="polite" className={`shrink-0 text-sm font-semibold ${tone.label}`}>{status.label}</p>
+            <p className="truncate text-[11px] text-white/36">{status.detail}</p>
+          </div>
+        </div>
+      </div>
+      <div className="min-w-0 shrink-0 text-right">
+        <p className="font-mono text-[11px] text-white/62">{status.location} · {status.localTime}</p>
+        <p className="mt-1 max-w-[220px] truncate text-[10px] text-white/32">{status.nextLabel}</p>
+      </div>
+      <ArrowUpRight size={14} className="shrink-0 text-white/24 transition group-hover:text-white/60" />
+    </a>
+  );
+}
+
+function indexChangeColor(changePercent: number) {
+  const magnitude = Math.abs(changePercent);
+  if (magnitude < 0.1) return 'text-white/42';
+  if (changePercent > 0) {
+    if (magnitude >= 2.5) return 'text-[#ff3348]';
+    if (magnitude >= 1) return 'text-[#ff6673]';
+    return 'text-[#c9787f]';
+  }
+  if (magnitude >= 2.5) return 'text-[#00d68f]';
+  if (magnitude >= 1) return 'text-[#35d6aa]';
+  return 'text-[#69a891]';
+}
+
 function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
   return (
     <div className={`grid grid-flow-col auto-cols-[172px] gap-px overflow-x-auto border border-white/10 bg-white/10 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:grid-flow-row ${indices.length >= 6 ? 'xl:grid-cols-6' : 'xl:grid-cols-5'}`}>
       {indices.map((item) => {
-        const positive = item.changePercent >= 0;
+        const changeColor = indexChangeColor(item.changePercent);
         return (
           <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer" className="min-w-0 bg-[#08090b] px-4 py-3.5 transition hover:bg-white/[0.055]">
             <div className="flex items-center justify-between gap-2">
@@ -910,9 +1229,9 @@ function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
               )}
             </div>
             <div className="mt-3 flex items-end justify-between gap-3">
-              <p className="truncate font-mono text-lg font-semibold text-white">{formatNumber(item.price)}</p>
-              <p className={`shrink-0 font-mono text-xs font-semibold ${positive ? 'text-[#ff8585]' : 'text-[#75e6b1]'}`}>
-                {positive ? '+' : ''}{item.changePercent.toFixed(2)}%
+              <p className={`truncate font-mono text-lg font-semibold transition-colors ${changeColor}`}>{formatNumber(item.price)}</p>
+              <p className={`shrink-0 font-mono text-xs font-semibold transition-colors ${changeColor}`}>
+                {item.changePercent > 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
               </p>
             </div>
           </a>
@@ -922,7 +1241,19 @@ function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
   );
 }
 
-function SectorBoard({ title, items, mode }: { title: string; items: SectorPulse[]; mode: 'leader' | 'laggard' }) {
+function SectorBoard({
+  title,
+  items,
+  mode,
+  metric,
+  currency,
+}: {
+  title: string;
+  items: MarketRotationItem[];
+  mode: 'leader' | 'laggard';
+  metric: RotationMetric;
+  currency: MarketRotation['currency'];
+}) {
   return (
     <section className="border border-white/10 bg-white/[0.025] p-5">
       <div className="flex items-center justify-between">
@@ -934,23 +1265,58 @@ function SectorBoard({ title, items, mode }: { title: string; items: SectorPulse
         </div>
         <span className={`h-2 w-2 ${mode === 'leader' ? 'bg-[#ff8585]' : 'bg-[#75e6b1]'}`} />
       </div>
-      <div className="mt-5 grid gap-px overflow-hidden border border-white/10 bg-white/10 sm:grid-cols-2">
+      <div className={`mt-5 grid gap-px overflow-hidden border border-white/10 bg-white/10 ${
+        items.length <= 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+      }`}>
         {items.slice(0, 8).map((item) => (
           <div key={item.code} className="flex items-center justify-between gap-4 bg-[#090a0c] px-3.5 py-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-white/78">{item.name}</p>
-              <p className="mt-1 text-[10px] text-white/34">主力占比 {item.mainNetRatio.toFixed(2)}%</p>
+              <p className="mt-1 text-[10px] text-white/34">
+                {metric === 'fund-flow'
+                  ? `主力占比 ${item.advanceRatio.toFixed(2)}%`
+                  : metric === 'turnover'
+                    ? `上涨 ${Math.round(item.advanceRatio * item.memberCount / 100)}/${item.memberCount}`
+                    : `上涨占比 ${item.advanceRatio.toFixed(0)}% · ${item.memberCount} 个样本`}
+              </p>
             </div>
             <div className="shrink-0 text-right">
               <p className={`font-mono text-xs ${item.changePercent >= 0 ? 'text-[#ff8585]' : 'text-[#75e6b1]'}`}>
                 {item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
               </p>
-              <p className="mt-1 font-mono text-[10px] text-white/38">{formatMoney(item.mainNetInflow)}</p>
+              <p className="mt-1 font-mono text-[10px] text-white/38">
+                {metric === 'fund-flow'
+                  ? formatMoney(item.scaleValue)
+                  : metric === 'turnover'
+                    ? `24h ${formatMarketValue(item.scaleValue, currency)}`
+                    : `市值 ${formatMarketValue(item.scaleValue, currency)}`}
+              </p>
             </div>
           </div>
         ))}
       </div>
     </section>
+  );
+}
+
+function RotationSkeleton() {
+  return (
+    <div className="grid gap-4 xl:grid-cols-2" aria-label="正在加载板块数据">
+      {[0, 1].map((board) => (
+        <div key={board} className="min-h-48 animate-pulse border border-white/10 bg-white/[0.025] p-5">
+          <div className="h-3 w-20 bg-white/8" />
+          <div className="mt-3 h-6 w-32 bg-white/10" />
+          <div className="mt-5 grid gap-px border border-white/8 bg-white/8 sm:grid-cols-2">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="h-[66px] bg-[#090a0c] p-3">
+                <div className="h-3 w-20 bg-white/8" />
+                <div className="mt-2 h-2 w-28 bg-white/5" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1128,7 +1494,7 @@ function StatusPill({ data, loadState, latestAt }: { data: MarketIntelligence | 
   return (
     <div className="inline-flex h-9 items-center gap-2 border border-white/10 bg-white/[0.035] px-3 text-xs text-white/48">
       <span className={`h-2 w-2 ${live ? 'bg-[#75e6b1]' : 'bg-[#d6b566]'}`} />
-      {loadState === 'loading' ? '正在更新' : `每秒轮询 · ${latestAt}`}
+      {loadState === 'loading' ? '正在更新' : `每 3 秒轮询 · ${latestAt}`}
     </div>
   );
 }
@@ -1234,7 +1600,9 @@ function buildDeepResearchPrompt(data: MarketIntelligence, mode: MarketChartMode
       ? '注意：加密资产没有股票式 PE/PB。请自行检索并交叉验证现货与期货成交、资金费率、未平仓合约、强平、稳定币供给、链上活跃度、MVRV 等估值代理、美国现货 ETF 净流量和监管事件。下方 A 股板块资金和券商研报只能作为传统风险偏好参考，不得冒充加密市场数据。'
       : mode === 'us'
         ? '注意：下方板块净流入是 A 股数据，只能作为亚洲时段风险偏好交叉参考，不得冒充美股板块资金；请自行检索美股行业 ETF 或权威美股资金流数据。MAGS 是 Magnificent 7 ETF 代理，不是官方七巨头指数。'
-        : '注意：同时覆盖 A 股与港股，清楚区分沪深市场和港股的交易时段、估值与资金口径。';
+        : mode === 'hongkong'
+          ? '注意：仅聚焦港股，重点覆盖恒生指数、恒生科技指数、行业轮动、南向资金、港元流动性与重要公司事件。下方 A 股板块资金和券商研报只能作为跨市场参考，不得冒充港股资金流。'
+          : '注意：仅聚焦 A 股，覆盖主要指数、行业轮动、市场资金、政策驱动与重要公司事件，不要混入港股市场结论。';
   const prompt = [
     `你是 Vibe-Trading 的中文机构市场策略研究员。请研究“${MARKET_META[mode].label}”，最终输出精美、可直接发布的中文 Markdown 策略报告。`,
     mode === 'crypto'
@@ -1267,7 +1635,9 @@ function buildQuickSummaryPrompt(data: MarketIntelligence, mode: MarketChartMode
       ? 'A 股板块资金只能作为传统风险偏好参考，不得写成加密货币资金流；加密市场按 24 小时口径表述。'
       : mode === 'us'
         ? 'A 股板块资金只能作为跨市场参考，不得写成美股资金流。'
-        : '',
+        : mode === 'hongkong'
+          ? '页面中的 A 股板块资金流与个股大单仅可作为跨市场参考，不得写成港股资金流。'
+          : '聚焦 A 股市场，不要混入港股市场结论。',
     JSON.stringify(evidence, null, 2),
   ].filter(Boolean).join('\n\n');
 }
@@ -1323,6 +1693,144 @@ function formatMoney(value: number) {
   if (amount >= 100_000_000) return `${sign}${(amount / 100_000_000).toFixed(2)} 亿`;
   if (amount >= 10_000) return `${sign}${(amount / 10_000).toFixed(1)} 万`;
   return `${sign}${amount.toFixed(0)}`;
+}
+
+function formatMarketValue(value: number, currency: MarketRotation['currency']) {
+  const suffix = {
+    CNY: '元',
+    HKD: '港元',
+    USD: '美元',
+    USDT: ' USDT',
+  }[currency];
+  if (value >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(2)} 万亿${suffix}`;
+  if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(2)} 亿${suffix}`;
+  if (value >= 10_000) return `${(value / 10_000).toFixed(1)} 万${suffix}`;
+  return `${value.toFixed(0)}${suffix}`;
+}
+
+function getRotationTitle(mode: MarketChartMode) {
+  if (mode === 'china') return 'A 股行业资金流向';
+  if (mode === 'hongkong') return '港股行业强弱';
+  if (mode === 'us') return '美股行业强弱';
+  return '加密资产赛道强弱';
+}
+
+function getRotationLoadingText(mode: MarketChartMode) {
+  if (mode === 'china') return '正在加载 A 股行业主力资金';
+  if (mode === 'hongkong') return '正在按港股样本市值聚合行业表现';
+  if (mode === 'us') return '正在按美股样本市值聚合行业表现';
+  return '正在聚合主流加密资产 24 小时赛道表现';
+}
+
+function buildChinaRotation(data: MarketIntelligence): MarketRotation {
+  const source = data.sources.find((item) => item.id === 'sectors');
+  const mapItem = (item: SectorPulse): MarketRotationItem => ({
+    code: item.code,
+    name: item.name,
+    changePercent: item.changePercent,
+    scaleValue: item.mainNetInflow,
+    advanceRatio: item.mainNetRatio,
+    memberCount: 1,
+  });
+  return {
+    generatedAt: data.generatedAt,
+    source: source?.provider || '东方财富',
+    sourceUrl: source?.url || 'https://data.eastmoney.com/bkzj/',
+    metric: 'fund-flow',
+    currency: 'CNY',
+    coverage: `东方财富行业主力净流入 · 覆盖 ${data.sectors.total} 个行业，展示双端 ${data.sectors.sampleSize} 个样本`,
+    leaders: data.sectors.leaders.map(mapItem),
+    laggards: data.sectors.laggards.map(mapItem),
+  };
+}
+
+function buildRegionalRotation(
+  payload: RegionalHeatmapResponse,
+  currency: 'HKD' | 'USD',
+): MarketRotation {
+  const industries = new Map<string, RegionalHeatmapResponse['stocks']>();
+  for (const stock of payload.stocks) {
+    const name = stock.industry.trim() || '其他';
+    const members = industries.get(name) || [];
+    members.push(stock);
+    industries.set(name, members);
+  }
+
+  const items = [...industries.entries()].flatMap(([name, members]) => {
+    const marketCap = members.reduce((sum, stock) => sum + stock.marketCap, 0);
+    if (!marketCap) return [];
+    const weightedChange = members.reduce(
+      (sum, stock) => sum + stock.changePercent * stock.marketCap,
+      0,
+    ) / marketCap;
+    const advancers = members.filter((stock) => stock.changePercent > 0.03).length;
+    return [{
+      code: name,
+      name,
+      changePercent: weightedChange,
+      scaleValue: marketCap,
+      advanceRatio: members.length ? advancers / members.length * 100 : 0,
+      memberCount: members.length,
+    }];
+  }).sort((left, right) => right.changePercent - left.changePercent);
+
+  return {
+    generatedAt: payload.generatedAt,
+    source: payload.source,
+    sourceUrl: payload.sourceUrl,
+    metric: 'market-cap',
+    currency,
+    coverage: `${payload.coverage} · 按行业样本市值加权，展示涨跌强弱而非虚构资金净流入`,
+    leaders: items.slice(0, 8),
+    laggards: items.slice(-8).reverse(),
+  };
+}
+
+function buildCryptoRotation(indices: MarketIndexSnapshot[]): MarketRotation | undefined {
+  const categories = [
+    { code: 'store-of-value', name: '储值资产', symbols: ['BTC'] },
+    { code: 'smart-contracts', name: '智能合约', symbols: ['ETH'] },
+    { code: 'exchange-ecosystem', name: '交易平台生态', symbols: ['BNB'] },
+    { code: 'high-performance-l1', name: '高性能公链', symbols: ['SOL'] },
+    { code: 'payments', name: '跨境支付', symbols: ['XRP'] },
+    { code: 'meme', name: 'Meme', symbols: ['DOGE'] },
+  ];
+  const bySymbol = new Map(indices.map((item) => [item.code.toUpperCase(), item]));
+  const items = categories.flatMap((category) => {
+    const members = category.symbols
+      .map((symbol) => bySymbol.get(symbol))
+      .filter((item): item is MarketIndexSnapshot => Boolean(item));
+    if (!members.length) return [];
+    const totalTurnover = members.reduce((sum, item) => sum + (item.turnover || 0), 0);
+    const weightedChange = totalTurnover
+      ? members.reduce((sum, item) => sum + item.changePercent * (item.turnover || 0), 0) / totalTurnover
+      : members.reduce((sum, item) => sum + item.changePercent, 0) / members.length;
+    return [{
+      code: category.code,
+      name: category.name,
+      changePercent: weightedChange,
+      scaleValue: totalTurnover,
+      advanceRatio: members.filter((item) => item.changePercent > 0.03).length / members.length * 100,
+      memberCount: members.length,
+    }];
+  }).sort((left, right) => right.changePercent - left.changePercent);
+  if (!items.length) return undefined;
+
+  const updateTimes = indices
+    .map((item) => item.updatedAt || '')
+    .filter(Boolean)
+    .sort();
+  const updatedAt = updateTimes[updateTimes.length - 1];
+  return {
+    generatedAt: updatedAt || new Date().toISOString(),
+    source: 'Binance + OKX',
+    sourceUrl: 'https://www.binance.com/en/markets/overview',
+    metric: 'turnover',
+    currency: 'USDT',
+    coverage: `主流加密资产 ${indices.length} 个 · 按 24 小时成交额聚合赛道表现，不等同于链上资金净流入`,
+    leaders: items.slice(0, 3),
+    laggards: items.slice(-3).reverse(),
+  };
 }
 
 function formatDateTime(value?: string, withSeconds = false) {

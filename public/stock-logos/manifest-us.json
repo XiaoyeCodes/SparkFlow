@@ -1,0 +1,2249 @@
+{
+  "generatedAt": "2026-07-29T14:26:07.555Z",
+  "market": "US",
+  "source": "TradingView symbol logo CDN",
+  "requested": 320,
+  "count": 320,
+  "logos": [
+    {
+      "code": "AAPL",
+      "name": "苹果",
+      "file": "us-AAPL.svg",
+      "logoId": "apple",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NVDA",
+      "name": "英伟达",
+      "file": "us-NVDA.svg",
+      "logoId": "nvidia",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GOOGL",
+      "name": "谷歌-A",
+      "file": "us-GOOGL.svg",
+      "logoId": "alphabet",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GOOG",
+      "name": "谷歌-C",
+      "file": "us-GOOG.svg",
+      "logoId": "alphabet",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MSFT",
+      "name": "微软",
+      "file": "us-MSFT.svg",
+      "logoId": "microsoft",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AMZN",
+      "name": "亚马逊",
+      "file": "us-AMZN.svg",
+      "logoId": "amazon",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TSM",
+      "name": "台积电",
+      "file": "us-TSM.svg",
+      "logoId": "taiwan-semiconductor",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AVGO",
+      "name": "博通",
+      "file": "us-AVGO.svg",
+      "logoId": "broadcom",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "META",
+      "name": "Meta Platforms Inc-A",
+      "file": "us-META.svg",
+      "logoId": "meta-platforms",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SPCX",
+      "name": "SpaceX",
+      "file": "us-SPCX.svg",
+      "logoId": "spacex",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TSLA",
+      "name": "特斯拉",
+      "file": "us-TSLA.svg",
+      "logoId": "tesla",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "LLY",
+      "name": "礼来",
+      "file": "us-LLY.svg",
+      "logoId": "eli-lilly",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BRK_A",
+      "name": "伯克希尔哈撒韦-A",
+      "file": "us-BRK_A.svg",
+      "logoId": "berkshire-hathaway",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BRK_B",
+      "name": "伯克希尔哈撒韦-B",
+      "file": "us-BRK_B.svg",
+      "logoId": "berkshire-hathaway",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SKHY",
+      "name": "SK海力士",
+      "file": "us-SKHY.svg",
+      "logoId": "sk-telecom",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "JPM",
+      "name": "摩根大通",
+      "file": "us-JPM.svg",
+      "logoId": "jpmorgan-chase",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "WMT",
+      "name": "沃尔玛",
+      "file": "us-WMT.svg",
+      "logoId": "walmart",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MU",
+      "name": "美光科技",
+      "file": "us-MU.svg",
+      "logoId": "micron-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AMD",
+      "name": "超威半导体",
+      "file": "us-AMD.svg",
+      "logoId": "advanced-micro-devices",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "V",
+      "name": "维萨",
+      "file": "us-V.svg",
+      "logoId": "visa",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "XOM",
+      "name": "埃克森美孚",
+      "file": "us-XOM.svg",
+      "logoId": "exxon",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "JNJ",
+      "name": "强生",
+      "file": "us-JNJ.svg",
+      "logoId": "johnson-and-johnson",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ASML",
+      "name": "阿斯麦",
+      "file": "us-ASML.svg",
+      "logoId": "asml",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MA",
+      "name": "万事达",
+      "file": "us-MA.svg",
+      "logoId": "mastercard",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ABBV",
+      "name": "艾伯维",
+      "file": "us-ABBV.svg",
+      "logoId": "abbvie",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CSCO",
+      "name": "思科",
+      "file": "us-CSCO.svg",
+      "logoId": "cisco",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BAC",
+      "name": "美国银行",
+      "file": "us-BAC.svg",
+      "logoId": "bank-of-america",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "COST",
+      "name": "开市客",
+      "file": "us-COST.svg",
+      "logoId": "costco-wholesale",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "INTC",
+      "name": "英特尔",
+      "file": "us-INTC.svg",
+      "logoId": "intel",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "KO",
+      "name": "可口可乐",
+      "file": "us-KO.svg",
+      "logoId": "coca-cola",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "UNH",
+      "name": "联合健康",
+      "file": "us-UNH.svg",
+      "logoId": "unitedhealth",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CVX",
+      "name": "雪佛龙",
+      "file": "us-CVX.svg",
+      "logoId": "chevron",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CAT",
+      "name": "卡特彼勒",
+      "file": "us-CAT.svg",
+      "logoId": "caterpillar",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GE",
+      "name": "GE航空航天",
+      "file": "us-GE.svg",
+      "logoId": "ge-aerospace",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AMAT",
+      "name": "应用材料",
+      "file": "us-AMAT.svg",
+      "logoId": "applied-materials",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HSBC",
+      "name": "汇丰控股",
+      "file": "us-HSBC.svg",
+      "logoId": "hsbc",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ORCL",
+      "name": "甲骨文",
+      "file": "us-ORCL.svg",
+      "logoId": "oracle",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HD",
+      "name": "家得宝",
+      "file": "us-HD.svg",
+      "logoId": "home-depot",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PG",
+      "name": "宝洁",
+      "file": "us-PG.svg",
+      "logoId": "procter-and-gamble",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "LRCX",
+      "name": "拉姆研究",
+      "file": "us-LRCX.svg",
+      "logoId": "lam-research",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MS",
+      "name": "摩根士丹利",
+      "file": "us-MS.svg",
+      "logoId": "morgan-stanley",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MRK",
+      "name": "默沙东",
+      "file": "us-MRK.svg",
+      "logoId": "merck-and-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PM",
+      "name": "菲利普莫里斯国际",
+      "file": "us-PM.svg",
+      "logoId": "philip-morris",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NVS",
+      "name": "诺华制药",
+      "file": "us-NVS.svg",
+      "logoId": "novartis",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NFLX",
+      "name": "奈飞",
+      "file": "us-NFLX.svg",
+      "logoId": "netflix",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PLTR",
+      "name": "Palantir Technologies Inc-A",
+      "file": "us-PLTR.svg",
+      "logoId": "palantir",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "RTX",
+      "name": "雷神技术",
+      "file": "us-RTX.svg",
+      "logoId": "raytheon",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GS",
+      "name": "高盛",
+      "file": "us-GS.svg",
+      "logoId": "golden-sachs-etf-trust-goldman",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "RY",
+      "name": "加拿大皇家银行",
+      "file": "us-RY.svg",
+      "logoId": "royal-bank-of-canada",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BABA",
+      "name": "阿里巴巴",
+      "file": "us-BABA.svg",
+      "logoId": "alibaba",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AZN",
+      "name": "阿斯利康",
+      "file": "us-AZN.svg",
+      "logoId": "astrazeneca",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "WFC",
+      "name": "富国银行",
+      "file": "us-WFC.svg",
+      "logoId": "wells-fargo",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PANW",
+      "name": "派拓网络",
+      "file": "us-PANW.svg",
+      "logoId": "palo-alto-networks",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TM",
+      "name": "丰田汽车(ADR)",
+      "file": "us-TM.svg",
+      "logoId": "toyota",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MUFG",
+      "name": "三菱日联金融",
+      "file": "us-MUFG.svg",
+      "logoId": "mitsubishi-group",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SHEL",
+      "name": "壳牌",
+      "file": "us-SHEL.svg",
+      "logoId": "shell",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TXN",
+      "name": "德州仪器",
+      "file": "us-TXN.svg",
+      "logoId": "texas-instruments",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ARM",
+      "name": "Arm Holdings plc ADR",
+      "file": "us-ARM.svg",
+      "logoId": "arm",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GEV",
+      "name": "GE Vernova Inc",
+      "file": "us-GEV.svg",
+      "logoId": "ge-verona",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DELL",
+      "name": "戴尔科技",
+      "file": "us-DELL.svg",
+      "logoId": "dell",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "LIN",
+      "name": "Linde plc",
+      "file": "us-LIN.svg",
+      "logoId": "linde",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "KLAC",
+      "name": "科磊",
+      "file": "us-KLAC.svg",
+      "logoId": "kla-tencor",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NVO",
+      "name": "诺和诺德",
+      "file": "us-NVO.svg",
+      "logoId": "novo-nordisk",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AXP",
+      "name": "美国运通",
+      "file": "us-AXP.svg",
+      "logoId": "american-express",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TMO",
+      "name": "赛默飞世尔科技",
+      "file": "us-TMO.svg",
+      "logoId": "thermo-fisher-scientific",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "C",
+      "name": "花旗集团",
+      "file": "us-C.svg",
+      "logoId": "citigroup",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "IBM",
+      "name": "IBM国际商业机器",
+      "file": "us-IBM.svg",
+      "logoId": "international-bus-mach",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SAP",
+      "name": "思爱普",
+      "file": "us-SAP.svg",
+      "logoId": "sap",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AMGN",
+      "name": "安进",
+      "file": "us-AMGN.svg",
+      "logoId": "amgen",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BHP",
+      "name": "必和必拓(ADR)",
+      "file": "us-BHP.svg",
+      "logoId": "bhp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ANET",
+      "name": "Arista Networks Inc",
+      "file": "us-ANET.svg",
+      "logoId": "arista-networks",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SAN",
+      "name": "桑坦德银行",
+      "file": "us-SAN.svg",
+      "logoId": "santander",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "VZ",
+      "name": "威瑞森通讯(Verizon)",
+      "file": "us-VZ.svg",
+      "logoId": "verizon",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PEP",
+      "name": "百事",
+      "file": "us-PEP.svg",
+      "logoId": "pepsico",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TD",
+      "name": "道明银行",
+      "file": "us-TD.svg",
+      "logoId": "toronto-dominion-bank",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TMUS",
+      "name": "T-Mobile US Inc",
+      "file": "us-TMUS.svg",
+      "logoId": "t-mobile",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MCD",
+      "name": "麦当劳",
+      "file": "us-MCD.svg",
+      "logoId": "mcdonalds",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TTE",
+      "name": "TotalEnergies SE",
+      "file": "us-TTE.svg",
+      "logoId": "total",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ABT",
+      "name": "雅培",
+      "file": "us-ABT.svg",
+      "logoId": "abbott",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "APH",
+      "name": "安费诺",
+      "file": "us-APH.svg",
+      "logoId": "amphenol",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NEE",
+      "name": "新纪元能源",
+      "file": "us-NEE.svg",
+      "logoId": "nextera-energy",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "KOF",
+      "name": "可口可乐凡萨瓶装",
+      "file": "us-KOF.svg",
+      "logoId": "coca-cola",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SCHW",
+      "name": "嘉信理财",
+      "file": "us-SCHW.svg",
+      "logoId": "schwab",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CRWD",
+      "name": "CrowdStrike Holdings Inc-A",
+      "file": "us-CRWD.svg",
+      "logoId": "crowdstrike",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TJX",
+      "name": "The TJX Companies Inc",
+      "file": "us-TJX.svg",
+      "logoId": "tjx-cos",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ADI",
+      "name": "亚德诺",
+      "file": "us-ADI.svg",
+      "logoId": "analog-devices",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "UNP",
+      "name": "联合太平洋",
+      "file": "us-UNP.svg",
+      "logoId": "union-pacific",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "WELL",
+      "name": "Welltower Inc",
+      "file": "us-WELL.svg",
+      "logoId": "welltower-indrn",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "STX",
+      "name": "希捷科技",
+      "file": "us-STX.svg",
+      "logoId": "seagate",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DIS",
+      "name": "迪士尼",
+      "file": "us-DIS.svg",
+      "logoId": "walt-disney",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BLK",
+      "name": "贝莱德",
+      "file": "us-BLK.svg",
+      "logoId": "blackrock",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SHOP",
+      "name": "Shopify Inc-A",
+      "file": "us-SHOP.svg",
+      "logoId": "shopify",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BA",
+      "name": "波音",
+      "file": "us-BA.svg",
+      "logoId": "boeing",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "QCOM",
+      "name": "高通",
+      "file": "us-QCOM.svg",
+      "logoId": "qualcomm",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "T",
+      "name": "美国电话电报(AT&T)",
+      "file": "us-T.svg",
+      "logoId": "at-and-t",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DE",
+      "name": "迪尔",
+      "file": "us-DE.svg",
+      "logoId": "deere",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GILD",
+      "name": "吉利德科学",
+      "file": "us-GILD.svg",
+      "logoId": "gilead",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BUD",
+      "name": "百威英博",
+      "file": "us-BUD.svg",
+      "logoId": "anheuser-busch-inbev",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "UBS",
+      "name": "瑞银集团",
+      "file": "us-UBS.svg",
+      "logoId": "ubs-group",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SMFG",
+      "name": "三井住友金融",
+      "file": "us-SMFG.svg",
+      "logoId": "sumitomo-mitsui",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "WDC",
+      "name": "西部数据",
+      "file": "us-WDC.svg",
+      "logoId": "webster-financial",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BKNG",
+      "name": "Booking Holdings",
+      "file": "us-BKNG.svg",
+      "logoId": "booking",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SNDK",
+      "name": "闪迪",
+      "file": "us-SNDK.svg",
+      "logoId": "sandisk",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CRM",
+      "name": "赛富时",
+      "file": "us-CRM.svg",
+      "logoId": "salesforce",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MRVL",
+      "name": "迈威尔科技",
+      "file": "us-MRVL.svg",
+      "logoId": "marvell-tech",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SCCO",
+      "name": "南方铜业",
+      "file": "us-SCCO.svg",
+      "logoId": "southern-copper",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BBVA",
+      "name": "西班牙毕尔巴鄂比斯开银行(ADR)",
+      "file": "us-BBVA.svg",
+      "logoId": "banco-bilbao-vizcaya-argentaria",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ETN",
+      "name": "伊顿",
+      "file": "us-ETN.svg",
+      "logoId": "eaton",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "COP",
+      "name": "康菲石油",
+      "file": "us-COP.svg",
+      "logoId": "conocophillips",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PFE",
+      "name": "辉瑞",
+      "file": "us-PFE.svg",
+      "logoId": "pfizer",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "UL",
+      "name": "联合利华(英国)",
+      "file": "us-UL.svg",
+      "logoId": "unilever",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "UBER",
+      "name": "优步",
+      "file": "us-UBER.svg",
+      "logoId": "uber",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DHR",
+      "name": "丹纳赫",
+      "file": "us-DHR.svg",
+      "logoId": "danaher",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CB",
+      "name": "安达保险",
+      "file": "us-CB.svg",
+      "logoId": "chubb",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CVS",
+      "name": "西维斯健康",
+      "file": "us-CVS.svg",
+      "logoId": "cvs-health",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SONY",
+      "name": "索尼",
+      "file": "us-SONY.svg",
+      "logoId": "sony",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BTI",
+      "name": "英美烟草",
+      "file": "us-BTI.svg",
+      "logoId": "british-american-tobacco",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "APP",
+      "name": "Applovin Corp-A",
+      "file": "us-APP.svg",
+      "logoId": "applovin-cdr-cad-hedged",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PLD",
+      "name": "安博",
+      "file": "us-PLD.svg",
+      "logoId": "prologis",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SYK",
+      "name": "史赛克",
+      "file": "us-SYK.svg",
+      "logoId": "stryker",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "LMT",
+      "name": "洛克希德马丁",
+      "file": "us-LMT.svg",
+      "logoId": "lockheed-martin",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BMY",
+      "name": "百时美施贵宝",
+      "file": "us-BMY.svg",
+      "logoId": "bristol-myers-squibb",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "COF",
+      "name": "第一资本金融",
+      "file": "us-COF.svg",
+      "logoId": "capital-one",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PGR",
+      "name": "前进保险",
+      "file": "us-PGR.svg",
+      "logoId": "progressive-ohio",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ISRG",
+      "name": "直觉外科",
+      "file": "us-ISRG.svg",
+      "logoId": "intuitive-surgical",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MO",
+      "name": "奥驰亚集团",
+      "file": "us-MO.svg",
+      "logoId": "altria",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "VRTX",
+      "name": "福泰制药",
+      "file": "us-VRTX.svg",
+      "logoId": "vertex-pharmaceutical",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BMO",
+      "name": "蒙特利尔银行",
+      "file": "us-BMO.svg",
+      "logoId": "bank-of-montreal",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PDD",
+      "name": "拼多多",
+      "file": "us-PDD.svg",
+      "logoId": "pinduoduo",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SPGI",
+      "name": "标普全球",
+      "file": "us-SPGI.svg",
+      "logoId": "s-and-p-global",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PH",
+      "name": "派克汉尼汾",
+      "file": "us-PH.svg",
+      "logoId": "parker-hannifin",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ENB",
+      "name": "恩桥",
+      "file": "us-ENB.svg",
+      "logoId": "enbridge",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HDB",
+      "name": "HDFC银行",
+      "file": "us-HDB.svg",
+      "logoId": "hdfc-bank",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "LOW",
+      "name": "劳氏",
+      "file": "us-LOW.svg",
+      "logoId": "lowe-s",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MFG",
+      "name": "瑞穗金融",
+      "file": "us-MFG.svg",
+      "logoId": "mizuho",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SBUX",
+      "name": "星巴克",
+      "file": "us-SBUX.svg",
+      "logoId": "starbucks",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NOW",
+      "name": "现在服务公司",
+      "file": "us-NOW.svg",
+      "logoId": "servicenow",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "RIO",
+      "name": "力拓",
+      "file": "us-RIO.svg",
+      "logoId": "rio-tinto",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GLW",
+      "name": "康宁",
+      "file": "us-GLW.svg",
+      "logoId": "corning",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ACN",
+      "name": "埃森哲",
+      "file": "us-ACN.svg",
+      "logoId": "accenture",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BP",
+      "name": "英国石油",
+      "file": "us-BP.svg",
+      "logoId": "bp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HWM",
+      "name": "Howmet Aerospace Inc",
+      "file": "us-HWM.svg",
+      "logoId": "howmet-aerospace",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MDT",
+      "name": "美敦力",
+      "file": "us-MDT.svg",
+      "logoId": "medtronic",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SNY",
+      "name": "赛诺菲",
+      "file": "us-SNY.svg",
+      "logoId": "sanofi",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ADP",
+      "name": "自动数据处理",
+      "file": "us-ADP.svg",
+      "logoId": "automatic-data-processing",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SO",
+      "name": "南方电力",
+      "file": "us-SO.svg",
+      "logoId": "southern",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "IBN",
+      "name": "印度工业信贷投资银行",
+      "file": "us-IBN.svg",
+      "logoId": "icici-bank",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CM",
+      "name": "加拿大帝国商业银行",
+      "file": "us-CM.svg",
+      "logoId": "canadian-imperial-bank-of-commerce",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GSK",
+      "name": "葛兰素史克",
+      "file": "us-GSK.svg",
+      "logoId": "glaxosmithkline",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "FTNT",
+      "name": "防特网",
+      "file": "us-FTNT.svg",
+      "logoId": "fortinet",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GD",
+      "name": "通用动力",
+      "file": "us-GD.svg",
+      "logoId": "general-dynamics",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BNS",
+      "name": "加拿大丰业银行",
+      "file": "us-BNS.svg",
+      "logoId": "bank-of-nova-scotia",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MCK",
+      "name": "麦克森",
+      "file": "us-MCK.svg",
+      "logoId": "mckesson",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SPOT",
+      "name": "Spotify Technology SA",
+      "file": "us-SPOT.svg",
+      "logoId": "spotify-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BNY",
+      "name": "纽约梅隆银行",
+      "file": "us-BNY.svg",
+      "logoId": "bank-of-new-york-mellon",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ADBE",
+      "name": "奥多比",
+      "file": "us-ADBE.svg",
+      "logoId": "adobe",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DUK",
+      "name": "杜克能源",
+      "file": "us-DUK.svg",
+      "logoId": "duke-energy",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TT",
+      "name": "特灵科技",
+      "file": "us-TT.svg",
+      "logoId": "trane-technologies",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "EQIX",
+      "name": "易昆尼克斯",
+      "file": "us-EQIX.svg",
+      "logoId": "equinix",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MAR",
+      "name": "万豪国际",
+      "file": "us-MAR.svg",
+      "logoId": "marriott",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PNC",
+      "name": "PNC金融服务集团",
+      "file": "us-PNC.svg",
+      "logoId": "pnc-financial",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "USB",
+      "name": "美国合众银行",
+      "file": "us-USB.svg",
+      "logoId": "us-bancorp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SNOW",
+      "name": "Snowflake Inc",
+      "file": "us-SNOW.svg",
+      "logoId": "snowflake",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "EQNR",
+      "name": "Equinor ASA ADR",
+      "file": "us-EQNR.svg",
+      "logoId": "equinor",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BX",
+      "name": "黑石集团",
+      "file": "us-BX.svg",
+      "logoId": "blackstone",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MNST",
+      "name": "怪物饮料",
+      "file": "us-MNST.svg",
+      "logoId": "monster-beverage",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "WM",
+      "name": "美国废物管理",
+      "file": "us-WM.svg",
+      "logoId": "waste-management",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CNQ",
+      "name": "加拿大自然资源",
+      "file": "us-CNQ.svg",
+      "logoId": "canadian-natural-resources",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ING",
+      "name": "荷兰国际",
+      "file": "us-ING.svg",
+      "logoId": "ing",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NEM",
+      "name": "纽蒙特",
+      "file": "us-NEM.svg",
+      "logoId": "newmont",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BN",
+      "name": "布鲁克菲尔德",
+      "file": "us-BN.svg",
+      "logoId": "brookfield",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CME",
+      "name": "芝加哥商业交易所",
+      "file": "us-CME.svg",
+      "logoId": "cme",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CSX",
+      "name": "CSX运输",
+      "file": "us-CSX.svg",
+      "logoId": "csx",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CEG",
+      "name": "Constellation Energy Corp",
+      "file": "us-CEG.svg",
+      "logoId": "constellation-energy-cad-hedged-cibc-cdr",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NET",
+      "name": "Cloudflare Inc-A",
+      "file": "us-NET.svg",
+      "logoId": "cloudflare-inc",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MELI",
+      "name": "MercadoLibre Inc",
+      "file": "us-MELI.svg",
+      "logoId": "mercadolibre",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MMM",
+      "name": "3M公司",
+      "file": "us-MMM.svg",
+      "logoId": "3m",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CDNS",
+      "name": "铿腾电子",
+      "file": "us-CDNS.svg",
+      "logoId": "cadence-design-systems",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MRSH",
+      "name": "达信",
+      "file": "us-MRSH.svg",
+      "logoId": "marsh-and-mclennan",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ABNB",
+      "name": "爱彼迎",
+      "file": "us-ABNB.svg",
+      "logoId": "airbnb",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "VRT",
+      "name": "Vertiv Holdings Co-A",
+      "file": "us-VRT.svg",
+      "logoId": "vertiv-holdings",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "VLO",
+      "name": "瓦莱罗能源",
+      "file": "us-VLO.svg",
+      "logoId": "valero-energy",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MPC",
+      "name": "马拉松原油",
+      "file": "us-MPC.svg",
+      "logoId": "marathon-petroleum",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DDOG",
+      "name": "Datadog Inc-A",
+      "file": "us-DDOG.svg",
+      "logoId": "datadog",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "RACE",
+      "name": "法拉利",
+      "file": "us-RACE.svg",
+      "logoId": "ferrari",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "KKR",
+      "name": "KKR & Co Inc",
+      "file": "us-KKR.svg",
+      "logoId": "kkr",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "UPS",
+      "name": "联合包裹服务",
+      "file": "us-UPS.svg",
+      "logoId": "united-parcel",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "INTU",
+      "name": "财捷",
+      "file": "us-INTU.svg",
+      "logoId": "intuit",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BCS",
+      "name": "巴克莱",
+      "file": "us-BCS.svg",
+      "logoId": "barclays",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HCA",
+      "name": "HCA Healthcare Inc",
+      "file": "us-HCA.svg",
+      "logoId": "hca-healthcare",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CTAS",
+      "name": "信达思",
+      "file": "us-CTAS.svg",
+      "logoId": "cintas",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ICE",
+      "name": "洲际交易所",
+      "file": "us-ICE.svg",
+      "logoId": "intercontinental-exchange",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "LYG",
+      "name": "劳埃德银行(ADR)",
+      "file": "us-LYG.svg",
+      "logoId": "lloyds",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "RCL",
+      "name": "皇家加勒比邮轮",
+      "file": "us-RCL.svg",
+      "logoId": "royal-caribbean-cruises",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CMCSA",
+      "name": "康卡斯特",
+      "file": "us-CMCSA.svg",
+      "logoId": "comcast",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "WMB",
+      "name": "威廉姆斯",
+      "file": "us-WMB.svg",
+      "logoId": "williams",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "JCI",
+      "name": "江森自控",
+      "file": "us-JCI.svg",
+      "logoId": "johnson-controls",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PWR",
+      "name": "广达服务",
+      "file": "us-PWR.svg",
+      "logoId": "quanta-services",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DASH",
+      "name": "DoorDash Inc-A",
+      "file": "us-DASH.svg",
+      "logoId": "doordash",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CMI",
+      "name": "康明斯",
+      "file": "us-CMI.svg",
+      "logoId": "cummins",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ITW",
+      "name": "伊利诺伊机械",
+      "file": "us-ITW.svg",
+      "logoId": "illinois-tool-works",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "EPD",
+      "name": "Enterprise Products Partners LP",
+      "file": "us-EPD.svg",
+      "logoId": "enterprise-prods-partners",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MCO",
+      "name": "穆迪",
+      "file": "us-MCO.svg",
+      "logoId": "moodys",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PSX",
+      "name": "Phillips 66",
+      "file": "us-PSX.svg",
+      "logoId": "phillips-66",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "FCX",
+      "name": "自由港麦克莫兰",
+      "file": "us-FCX.svg",
+      "logoId": "freeport-mcmoran",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MDLZ",
+      "name": "亿滋国际",
+      "file": "us-MDLZ.svg",
+      "logoId": "mondelez",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "EMR",
+      "name": "艾默生电气",
+      "file": "us-EMR.svg",
+      "logoId": "emerson",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ELV",
+      "name": "Elevance Health Inc",
+      "file": "us-ELV.svg",
+      "logoId": "anthem",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SHW",
+      "name": "宣伟",
+      "file": "us-SHW.svg",
+      "logoId": "sherwin-williams",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NTES",
+      "name": "网易",
+      "file": "us-NTES.svg",
+      "logoId": "netease",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TRV",
+      "name": "旅行者保险",
+      "file": "us-TRV.svg",
+      "logoId": "travelers",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AMT",
+      "name": "美国电塔",
+      "file": "us-AMT.svg",
+      "logoId": "american-tower",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HOOD",
+      "name": "Robinhood Markets Inc-A",
+      "file": "us-HOOD.svg",
+      "logoId": "robinhood",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CP",
+      "name": "加拿大太平洋堪萨斯城",
+      "file": "us-CP.svg",
+      "logoId": "canadian-pacific-railway",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NGG",
+      "name": "英国国家电网",
+      "file": "us-NGG.svg",
+      "logoId": "national-grid",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ROST",
+      "name": "罗斯百货",
+      "file": "us-ROST.svg",
+      "logoId": "ross-stores",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GM",
+      "name": "通用汽车",
+      "file": "us-GM.svg",
+      "logoId": "general-motors",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AON",
+      "name": "怡安保险",
+      "file": "us-AON.svg",
+      "logoId": "aon",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "E",
+      "name": "埃尼石油",
+      "file": "us-E.svg",
+      "logoId": "eni",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ECL",
+      "name": "艺康",
+      "file": "us-ECL.svg",
+      "logoId": "ecolab",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CI",
+      "name": "信诺",
+      "file": "us-CI.svg",
+      "logoId": "cigna",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CNI",
+      "name": "加拿大国家铁路",
+      "file": "us-CNI.svg",
+      "logoId": "canadian-national-railways",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NOC",
+      "name": "诺斯罗普-格鲁曼",
+      "file": "us-NOC.svg",
+      "logoId": "northrop-grumman",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "EOG",
+      "name": "EOG能源",
+      "file": "us-EOG.svg",
+      "logoId": "eog",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SU",
+      "name": "森科能源",
+      "file": "us-SU.svg",
+      "logoId": "suncor-energy",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HON",
+      "name": "霍尼韦尔",
+      "file": "us-HON.svg",
+      "logoId": "honeywell",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SPG",
+      "name": "西蒙地产",
+      "file": "us-SPG.svg",
+      "logoId": "simon-property",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AMX",
+      "name": "美洲移动",
+      "file": "us-AMX.svg",
+      "logoId": "america-movil",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NSC",
+      "name": "诺福克南方",
+      "file": "us-NSC.svg",
+      "logoId": "norfolk-southern",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BAM",
+      "name": "布鲁克菲尔德资产管理",
+      "file": "us-BAM.svg",
+      "logoId": "brookfield-asset-management",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ORLY",
+      "name": "奥莱利",
+      "file": "us-ORLY.svg",
+      "logoId": "o-reilly-auto",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AEP",
+      "name": "美国电力",
+      "file": "us-AEP.svg",
+      "logoId": "american-electric-power",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SLB",
+      "name": "斯伦贝谢",
+      "file": "us-SLB.svg",
+      "logoId": "schlumberger",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CL",
+      "name": "高露洁",
+      "file": "us-CL.svg",
+      "logoId": "colgate-palmolive",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MFC",
+      "name": "宏利金融",
+      "file": "us-MFC.svg",
+      "logoId": "manulife",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "REGN",
+      "name": "再生元制药",
+      "file": "us-REGN.svg",
+      "logoId": "regeneron-pharmaceuticals",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CVNA",
+      "name": "Carvana Co-A",
+      "file": "us-CVNA.svg",
+      "logoId": "carvana",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "FDX",
+      "name": "联邦快递",
+      "file": "us-FDX.svg",
+      "logoId": "fedex",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MSI",
+      "name": "摩托罗拉解决方案",
+      "file": "us-MSI.svg",
+      "logoId": "motorola-solutions",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SNPS",
+      "name": "新思科技",
+      "file": "us-SNPS.svg",
+      "logoId": "synopsys",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PCAR",
+      "name": "帕卡",
+      "file": "us-PCAR.svg",
+      "logoId": "paccar",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TDG",
+      "name": "TransDigm Group Inc",
+      "file": "us-TDG.svg",
+      "logoId": "transdigm-group",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HLT",
+      "name": "希尔顿酒店",
+      "file": "us-HLT.svg",
+      "logoId": "hilton-worldwide",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "KMI",
+      "name": "金德摩根",
+      "file": "us-KMI.svg",
+      "logoId": "kinder-morgan",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ASX",
+      "name": "日月光半导体",
+      "file": "us-ASX.svg",
+      "logoId": "ase-technology-holding",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ALL",
+      "name": "好事达保险",
+      "file": "us-ALL.svg",
+      "logoId": "allstate",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AEM",
+      "name": "伊格尔矿业",
+      "file": "us-AEM.svg",
+      "logoId": "agnico-eagle-mines",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ET",
+      "name": "能源转换",
+      "file": "us-ET.svg",
+      "logoId": "energy-transfer",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NWG",
+      "name": "NatWest Group plc ADR",
+      "file": "us-NWG.svg",
+      "logoId": "natwest-group",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "APO",
+      "name": "阿波罗全球管理",
+      "file": "us-APO.svg",
+      "logoId": "apollo",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DLR",
+      "name": "数字房地产信托",
+      "file": "us-DLR.svg",
+      "logoId": "digital-realty-trust-5850-series-k-cumulative-redeemable-preferred-stock-par-value-001-per-share",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NU",
+      "name": "Nu Holdings Ltd-A",
+      "file": "us-NU.svg",
+      "logoId": "nu-holdings",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PBR",
+      "name": "巴西石油",
+      "file": "us-PBR.svg",
+      "logoId": "brasileiro-petrobras",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AJG",
+      "name": "安睿嘉尔",
+      "file": "us-AJG.svg",
+      "logoId": "gallagher",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DB",
+      "name": "德意志银行",
+      "file": "us-DB.svg",
+      "logoId": "deutsche-bank-ag",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CRH",
+      "name": "CRH水泥",
+      "file": "us-CRH.svg",
+      "logoId": "crh",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TRP",
+      "name": "TC Energy Corp",
+      "file": "us-TRP.svg",
+      "logoId": "tc-energy",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BSX",
+      "name": "波士顿科学",
+      "file": "us-BSX.svg",
+      "logoId": "boston-scientific",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "RSG",
+      "name": "共和废品处理",
+      "file": "us-RSG.svg",
+      "logoId": "republic-services",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "URI",
+      "name": "联合租赁",
+      "file": "us-URI.svg",
+      "logoId": "united-rentals",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "RELX",
+      "name": "RELX",
+      "file": "us-RELX.svg",
+      "logoId": "relx",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TGT",
+      "name": "塔吉特",
+      "file": "us-TGT.svg",
+      "logoId": "target",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SE",
+      "name": "Sea Ltd ADR",
+      "file": "us-SE.svg",
+      "logoId": "sea-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AFL",
+      "name": "美国家庭人寿保险",
+      "file": "us-AFL.svg",
+      "logoId": "aflac",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HONA",
+      "name": "Honeywell Aerospace Inc",
+      "file": "us-HONA.svg",
+      "logoId": "honeywell",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "APD",
+      "name": "空气化工",
+      "file": "us-APD.svg",
+      "logoId": "air-products-and-chemicals",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GWW",
+      "name": "固安捷",
+      "file": "us-GWW.svg",
+      "logoId": "grainger",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TFC",
+      "name": "Truist Financial Corp",
+      "file": "us-TFC.svg",
+      "logoId": "truist-financial",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "WBD",
+      "name": "华纳兄弟探索",
+      "file": "us-WBD.svg",
+      "logoId": "warner-bros-discovery",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "F",
+      "name": "福特汽车",
+      "file": "us-F.svg",
+      "logoId": "ford",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NKE",
+      "name": "耐克",
+      "file": "us-NKE.svg",
+      "logoId": "nike",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MPWR",
+      "name": "Monolithic Power Systems Inc",
+      "file": "us-MPWR.svg",
+      "logoId": "monolithic-power-system",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MET",
+      "name": "大都会人寿",
+      "file": "us-MET.svg",
+      "logoId": "metlife",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "D",
+      "name": "道明尼能源",
+      "file": "us-D.svg",
+      "logoId": "dominion-energy",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "VALE",
+      "name": "淡水河谷",
+      "file": "us-VALE.svg",
+      "logoId": "vale",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "COR",
+      "name": "Cencora Inc",
+      "file": "us-COR.svg",
+      "logoId": "amerisourcebergen",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NXPI",
+      "name": "恩智浦半导体",
+      "file": "us-NXPI.svg",
+      "logoId": "nxp-semiconductors",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "O",
+      "name": "Realty Income Corp",
+      "file": "us-O.svg",
+      "logoId": "realty-income",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TEL",
+      "name": "泰科电子",
+      "file": "us-TEL.svg",
+      "logoId": "te-connectivity",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PBR_A",
+      "name": "巴西石油-优先股",
+      "file": "us-PBR_A.svg",
+      "logoId": "brasileiro-petrobras",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MPLX",
+      "name": "MPLX LP",
+      "file": "us-MPLX.svg",
+      "logoId": "mplx-lp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "HPE",
+      "name": "慧与",
+      "file": "us-HPE.svg",
+      "logoId": "hewlett-packard-enterprise",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "B",
+      "name": "巴里克矿业",
+      "file": "us-B.svg",
+      "logoId": "barrick-gold",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CTVA",
+      "name": "Corteva Inc",
+      "file": "us-CTVA.svg",
+      "logoId": "corteva",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "BKR",
+      "name": "Baker Hughes Co-A",
+      "file": "us-BKR.svg",
+      "logoId": "baker-hughes",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NUE",
+      "name": "纽柯钢铁",
+      "file": "us-NUE.svg",
+      "logoId": "nucor",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "SRE",
+      "name": "桑普拉能源",
+      "file": "us-SRE.svg",
+      "logoId": "sempra-energy",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PSA",
+      "name": "大众仓储",
+      "file": "us-PSA.svg",
+      "logoId": "public-storage",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DAL",
+      "name": "达美航空",
+      "file": "us-DAL.svg",
+      "logoId": "delta-air-lines",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TRGP",
+      "name": "Targa Resources Corp",
+      "file": "us-TRGP.svg",
+      "logoId": "targa-resources",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "OKE",
+      "name": "欧尼克",
+      "file": "us-OKE.svg",
+      "logoId": "oneok",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "GRMN",
+      "name": "佳明",
+      "file": "us-GRMN.svg",
+      "logoId": "garmin-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TAK",
+      "name": "武田制药",
+      "file": "us-TAK.svg",
+      "logoId": "takeda",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "FANG",
+      "name": "Diamondback Energy Inc",
+      "file": "us-FANG.svg",
+      "logoId": "diamondback",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "LHX",
+      "name": "L3Harris Technologies Inc",
+      "file": "us-LHX.svg",
+      "logoId": "l3-harris",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "OXY",
+      "name": "西方石油",
+      "file": "us-OXY.svg",
+      "logoId": "occidental-petroleum",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ARGX",
+      "name": "argenx SE ADR",
+      "file": "us-ARGX.svg",
+      "logoId": "argenx",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "FIX",
+      "name": "Comfort Systems USA Inc",
+      "file": "us-FIX.svg",
+      "logoId": "comfort-systems-usa",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "FAST",
+      "name": "快扣",
+      "file": "us-FAST.svg",
+      "logoId": "fastenal",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "LNG",
+      "name": "Cheniere Energy Inc",
+      "file": "us-LNG.svg",
+      "logoId": "cheniere-energy-partners",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AME",
+      "name": "阿美特克",
+      "file": "us-AME.svg",
+      "logoId": "ametek",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CAH",
+      "name": "卡地纳健康",
+      "file": "us-CAH.svg",
+      "logoId": "cardinal-health",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CVE",
+      "name": "Cenovus能源",
+      "file": "us-CVE.svg",
+      "logoId": "cenovus",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "NDAQ",
+      "name": "纳斯达克",
+      "file": "us-NDAQ.svg",
+      "logoId": "nasdaq",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MDLN",
+      "name": "Medline Inc-A",
+      "file": "us-MDLN.svg",
+      "logoId": "medline",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "TER",
+      "name": "泰瑞达",
+      "file": "us-TER.svg",
+      "logoId": "teradyne",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "EA",
+      "name": "艺电",
+      "file": "us-EA.svg",
+      "logoId": "electronic-arts",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "FITB",
+      "name": "五三银行",
+      "file": "us-FITB.svg",
+      "logoId": "fifth-third-bancorp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "KEYS",
+      "name": "是德科技",
+      "file": "us-KEYS.svg",
+      "logoId": "keysight-technologies",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ETR",
+      "name": "安特吉",
+      "file": "us-ETR.svg",
+      "logoId": "entergy",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "EBAY",
+      "name": "易趣",
+      "file": "us-EBAY.svg",
+      "logoId": "ebay",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ADSK",
+      "name": "欧特克",
+      "file": "us-ADSK.svg",
+      "logoId": "autodesk",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "ROK",
+      "name": "罗克韦尔自动化",
+      "file": "us-ROK.svg",
+      "logoId": "rockwell-automation",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "AZO",
+      "name": "汽车地带",
+      "file": "us-AZO.svg",
+      "logoId": "autozone",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "DVN",
+      "name": "戴文能源",
+      "file": "us-DVN.svg",
+      "logoId": "devon-energy",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "WAB",
+      "name": "美国西屋制动",
+      "file": "us-WAB.svg",
+      "logoId": "wabtec",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "MT",
+      "name": "安赛乐米塔尔",
+      "file": "us-MT.svg",
+      "logoId": "arcelormittal",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "INFY",
+      "name": "印孚瑟斯",
+      "file": "us-INFY.svg",
+      "logoId": "infosys",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "CARR",
+      "name": "Carrier Global Corp",
+      "file": "us-CARR.svg",
+      "logoId": "carrier-global-corporation",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "PYPL",
+      "name": "PayPal Holdings Inc",
+      "file": "us-PYPL.svg",
+      "logoId": "paypal",
+      "source": "TradingView symbol logo CDN"
+    }
+  ]
+}
