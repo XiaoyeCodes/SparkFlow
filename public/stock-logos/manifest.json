@@ -1,0 +1,2248 @@
+{
+  "generatedAt": "2026-07-29T07:49:41.095Z",
+  "source": "TradingView symbol logo CDN",
+  "requested": 320,
+  "count": 320,
+  "logos": [
+    {
+      "code": "688825",
+      "name": "C长鑫",
+      "file": "688825.svg",
+      "logoId": "cxmt-official",
+      "source": "CXMT official website"
+    },
+    {
+      "code": "601398",
+      "name": "工商银行",
+      "file": "601398.svg",
+      "logoId": "industrial-and-commercial-bank-of-china",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601939",
+      "name": "建设银行",
+      "file": "601939.svg",
+      "logoId": "china-construction-bank",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601288",
+      "name": "农业银行",
+      "file": "601288.svg",
+      "logoId": "agricultural-bank-of-china",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600941",
+      "name": "中国移动",
+      "file": "600941.svg",
+      "logoId": "china-mobile",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601857",
+      "name": "中国石油",
+      "file": "601857.svg",
+      "logoId": "petrochina",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601988",
+      "name": "中国银行",
+      "file": "601988.svg",
+      "logoId": "bank-of-china",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300750",
+      "name": "宁德时代",
+      "file": "300750.svg",
+      "logoId": "contemporary-amper",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600519",
+      "name": "贵州茅台",
+      "file": "600519.svg",
+      "logoId": "moutai",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600938",
+      "name": "中国海油",
+      "file": "600938.svg",
+      "logoId": "cnooc-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601138",
+      "name": "工业富联",
+      "file": "601138.svg",
+      "logoId": "foxconn-industrial-internet",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688981",
+      "name": "中芯国际",
+      "file": "688981.svg",
+      "logoId": "semiconductor-manufacturing-international",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601628",
+      "name": "中国人寿",
+      "file": "601628.svg",
+      "logoId": "china-life-insurance-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300308",
+      "name": "中际旭创",
+      "file": "300308.svg",
+      "logoId": "zhongji-innolight",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600036",
+      "name": "招商银行",
+      "file": "600036.svg",
+      "logoId": "china-merchants-bank",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601318",
+      "name": "中国平安",
+      "file": "601318.svg",
+      "logoId": "ping-an",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601088",
+      "name": "中国神华",
+      "file": "601088.svg",
+      "logoId": "china-shenhua",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002594",
+      "name": "比亚迪",
+      "file": "002594.svg",
+      "logoId": "byd-electronic",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601899",
+      "name": "紫金矿业",
+      "file": "601899.svg",
+      "logoId": "zijin-mining",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688256",
+      "name": "寒武纪",
+      "file": "688256.svg",
+      "logoId": "cambricon-technologies-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600900",
+      "name": "长江电力",
+      "file": "600900.svg",
+      "logoId": "china-yangtze-power-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000333",
+      "name": "美的集团",
+      "file": "000333.svg",
+      "logoId": "midea",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688041",
+      "name": "海光信息",
+      "file": "688041.svg",
+      "logoId": "hygon-information-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601328",
+      "name": "交通银行",
+      "file": "601328.svg",
+      "logoId": "bank-of-communications",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600028",
+      "name": "中国石化",
+      "file": "600028.svg",
+      "logoId": "china-petroleum-and-chemical",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601658",
+      "name": "邮储银行",
+      "file": "601658.svg",
+      "logoId": "psbc",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300502",
+      "name": "新易盛",
+      "file": "300502.svg",
+      "logoId": "eoptolink-technolo",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601728",
+      "name": "中国电信",
+      "file": "601728.svg",
+      "logoId": "china-telecom",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002371",
+      "name": "北方华创",
+      "file": "002371.svg",
+      "logoId": "naura-technology-g",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002475",
+      "name": "立讯精密",
+      "file": "002475.svg",
+      "logoId": "luxshare-precision",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688347",
+      "name": "华虹宏力",
+      "file": "688347.svg",
+      "logoId": "hua-hong-semi",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601998",
+      "name": "中信银行",
+      "file": "601998.svg",
+      "logoId": "china-citic-bank-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600030",
+      "name": "中信证券",
+      "file": "600030.svg",
+      "logoId": "citic-sec",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688235",
+      "name": "百济神州",
+      "file": "688235.svg",
+      "logoId": "beigene-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603993",
+      "name": "洛阳钼业",
+      "file": "603993.svg",
+      "logoId": "cmoc-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601166",
+      "name": "兴业银行",
+      "file": "601166.svg",
+      "logoId": "industrial-bank-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603259",
+      "name": "药明康德",
+      "file": "603259.svg",
+      "logoId": "wuxi-apptec",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600276",
+      "name": "恒瑞医药",
+      "file": "600276.svg",
+      "logoId": "jiangsu-hengrui-pharmaceuticals-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688012",
+      "name": "中微公司",
+      "file": "688012.svg",
+      "logoId": "advanced-micro-fabrication-equipment-china",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601211",
+      "name": "国泰海通",
+      "file": "601211.svg",
+      "logoId": "guotai-junan-securities-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002384",
+      "name": "东山精密",
+      "file": "002384.svg",
+      "logoId": "suzhou-dongshan-pr",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601319",
+      "name": "中国人保",
+      "file": "601319.svg",
+      "logoId": "the-people-s-insurance-company-of-china-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002415",
+      "name": "海康威视",
+      "file": "002415.svg",
+      "logoId": "hangzhou-hikvision",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300059",
+      "name": "东方财富",
+      "file": "300059.svg",
+      "logoId": "east-money-informa",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600000",
+      "name": "浦发银行",
+      "file": "600000.svg",
+      "logoId": "shanghai-pudong-development-bank",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601601",
+      "name": "中国太保",
+      "file": "601601.svg",
+      "logoId": "china-pacific-insurance",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000858",
+      "name": "五 粮 液",
+      "file": "000858.svg",
+      "logoId": "wuliangye-yibin-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688802",
+      "name": "沐曦股份-U",
+      "file": "688802.svg",
+      "logoId": "metax-integrated-circuits-shanghai",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002379",
+      "name": "宏桥控股",
+      "file": "002379.svg",
+      "logoId": "shandong-hontron",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688795",
+      "name": "摩尔线程-U",
+      "file": "688795.svg",
+      "logoId": "moore-threads-tech-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600183",
+      "name": "生益科技",
+      "file": "600183.svg",
+      "logoId": "shengyi-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600150",
+      "name": "中国船舶",
+      "file": "600150.svg",
+      "logoId": "china-cssc-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603986",
+      "name": "兆易创新",
+      "file": "603986.svg",
+      "logoId": "gigadevice-semiconductor",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688008",
+      "name": "XD澜起科",
+      "file": "688008.svg",
+      "logoId": "montage-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601816",
+      "name": "京沪高铁",
+      "file": "601816.svg",
+      "logoId": "beijing-shanghai-high-speed-railway",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688820",
+      "name": "盛合晶微",
+      "file": "688820.svg",
+      "logoId": "sj-semiconductor",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601225",
+      "name": "陕西煤业",
+      "file": "601225.svg",
+      "logoId": "shaanxi-coal-industry-company-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601919",
+      "name": "中远海控",
+      "file": "601919.svg",
+      "logoId": "cosco-shipping",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000338",
+      "name": "潍柴动力",
+      "file": "000338.svg",
+      "logoId": "weichai-power-company-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000651",
+      "name": "格力电器",
+      "file": "000651.svg",
+      "logoId": "gree-elec-applican",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601869",
+      "name": "长飞光纤",
+      "file": "601869.svg",
+      "logoId": "yangtze-optical-fibre-and-cable-joint-stk-ltd-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600309",
+      "name": "万华化学",
+      "file": "600309.svg",
+      "logoId": "wanhua-chemical-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002714",
+      "name": "牧原股份",
+      "file": "002714.svg",
+      "logoId": "muyuan-foods-co-lt",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300274",
+      "name": "阳光电源",
+      "file": "300274.svg",
+      "logoId": "sungrow-power-supp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603288",
+      "name": "海天味业",
+      "file": "603288.svg",
+      "logoId": "foshan-haitian-flavouring-and-food-company-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000001",
+      "name": "平安银行",
+      "file": "000001.svg",
+      "logoId": "ping-an",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300408",
+      "name": "三环集团",
+      "file": "300408.svg",
+      "logoId": "chaozhou-three-cir",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600690",
+      "name": "海尔智家",
+      "file": "600690.svg",
+      "logoId": "haier-smart-home",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002916",
+      "name": "深南电路",
+      "file": "002916.svg",
+      "logoId": "shennan-circuits-c",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600919",
+      "name": "江苏银行",
+      "file": "600919.svg",
+      "logoId": "bank-of-jiangsu",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000725",
+      "name": "京东方Ａ",
+      "file": "000725.svg",
+      "logoId": "boe-technology-gp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002142",
+      "name": "宁波银行",
+      "file": "002142.svg",
+      "logoId": "bank-of-ningbo-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "003816",
+      "name": "中国广核",
+      "file": "003816.svg",
+      "logoId": "cgn-power-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688072",
+      "name": "拓荆科技",
+      "file": "688072.svg",
+      "logoId": "piotech",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002463",
+      "name": "沪电股份",
+      "file": "002463.svg",
+      "logoId": "wus-printed-circui",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600188",
+      "name": "兖矿能源",
+      "file": "600188.svg",
+      "logoId": "yankuang-energy-company-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601066",
+      "name": "中信建投",
+      "file": "601066.svg",
+      "logoId": "china-securities",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300394",
+      "name": "天孚通信",
+      "file": "300394.svg",
+      "logoId": "suzhou-tfc-optical",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300476",
+      "name": "胜宏科技",
+      "file": "300476.svg",
+      "logoId": "victory-giant-tech",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601336",
+      "name": "新华保险",
+      "file": "601336.svg",
+      "logoId": "new-china-life-ins-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002938",
+      "name": "鹏鼎控股",
+      "file": "002938.svg",
+      "logoId": "avary-she",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600406",
+      "name": "国电南瑞",
+      "file": "600406.svg",
+      "logoId": "nari-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601668",
+      "name": "中国建筑",
+      "file": "601668.svg",
+      "logoId": "china-state-construction-engineering-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601818",
+      "name": "光大银行",
+      "file": "601818.svg",
+      "logoId": "china-everbright-bank-company-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300760",
+      "name": "迈瑞医疗",
+      "file": "300760.svg",
+      "logoId": "shenzhen-mindray-b",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600031",
+      "name": "三一重工",
+      "file": "600031.svg",
+      "logoId": "sany-heavy-industry-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600025",
+      "name": "华能水电",
+      "file": "600025.svg",
+      "logoId": "huaneng-lancang-river-hydropower",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601985",
+      "name": "中国核电",
+      "file": "601985.svg",
+      "logoId": "china-national-nuclear-power",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601898",
+      "name": "中煤能源",
+      "file": "601898.svg",
+      "logoId": "china-coal-energy-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688808",
+      "name": "联讯仪器",
+      "file": "688808.svg",
+      "logoId": "semight-instruments-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "301666",
+      "name": "大普微-UW",
+      "file": "301666.svg",
+      "logoId": "dapustor-class-a",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002352",
+      "name": "顺丰控股",
+      "file": "002352.svg",
+      "logoId": "sf-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601688",
+      "name": "华泰证券",
+      "file": "601688.svg",
+      "logoId": "huatai-securities-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "001248",
+      "name": "华润新能",
+      "file": "001248.svg",
+      "logoId": "china-resources-power-hldgs-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "001399",
+      "name": "惠科股份",
+      "file": "001399.svg",
+      "logoId": "hkc-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601766",
+      "name": "中国中车",
+      "file": "601766.svg",
+      "logoId": "crrc-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600930",
+      "name": "华电新能",
+      "file": "600930.svg",
+      "logoId": "huadian-energy-company-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300433",
+      "name": "蓝思科技",
+      "file": "300433.svg",
+      "logoId": "lens-technology-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600887",
+      "name": "伊利股份",
+      "file": "600887.svg",
+      "logoId": "inner-mongolia-yili-industrial-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300604",
+      "name": "长川科技",
+      "file": "300604.svg",
+      "logoId": "hangzhou-chang-chu",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600989",
+      "name": "宝丰能源",
+      "file": "600989.svg",
+      "logoId": "ningxia-baofeng-energy-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000776",
+      "name": "广发证券",
+      "file": "000776.svg",
+      "logoId": "gf-securities",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601995",
+      "name": "中金公司",
+      "file": "601995.svg",
+      "logoId": "china-international-capital-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300033",
+      "name": "同花顺",
+      "file": "300033.svg",
+      "logoId": "hithink-royalflush",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300124",
+      "name": "汇川技术",
+      "file": "300124.svg",
+      "logoId": "shenzhen-inovance",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601600",
+      "name": "中国铝业",
+      "file": "601600.svg",
+      "logoId": "aluminum-of-china",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000063",
+      "name": "中兴通讯",
+      "file": "000063.svg",
+      "logoId": "zte",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688146",
+      "name": "中船特气",
+      "file": "688146.svg",
+      "logoId": "peric-special-gases",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600809",
+      "name": "山西汾酒",
+      "file": "600809.svg",
+      "logoId": "shanxi-xinghuacun-fen-wine-factory-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "302132",
+      "name": "中航成飞",
+      "file": "302132.svg",
+      "logoId": "avichina-industry-and-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600016",
+      "name": "民生银行",
+      "file": "600016.svg",
+      "logoId": "china-minsheng-bank",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600660",
+      "name": "福耀玻璃",
+      "file": "600660.svg",
+      "logoId": "fuyao-glass-industry-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600999",
+      "name": "招商证券",
+      "file": "600999.svg",
+      "logoId": "china-merchants-securities-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600176",
+      "name": "中国巨石",
+      "file": "600176.svg",
+      "logoId": "china-jushi-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "301377",
+      "name": "鼎泰高科",
+      "file": "301377.svg",
+      "logoId": "guangdong-dtech-te",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688498",
+      "name": "源杰科技",
+      "file": "688498.svg",
+      "logoId": "yuanjie-semiconductor-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002050",
+      "name": "三花智控",
+      "file": "002050.svg",
+      "logoId": "zhejiang-sanhua-in",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600362",
+      "name": "江西铜业",
+      "file": "600362.svg",
+      "logoId": "jiangxi-copper-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000792",
+      "name": "盐湖股份",
+      "file": "000792.svg",
+      "logoId": "qinghai-salt-lake",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603268",
+      "name": "松发股份",
+      "file": "603268.svg",
+      "logoId": "guangdong-songfa-ceramics",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688702",
+      "name": "盛科通信-U",
+      "file": "688702.svg",
+      "logoId": "suzhou-centec-communications",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002353",
+      "name": "杰瑞股份",
+      "file": "002353.svg",
+      "logoId": "yantai-jereh-oilfi",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300999",
+      "name": "金龙鱼",
+      "file": "300999.svg",
+      "logoId": "yihai-kerry-arawh",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600111",
+      "name": "北方稀土",
+      "file": "600111.svg",
+      "logoId": "china-northern-rare-earth-high-tech-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601633",
+      "name": "长城汽车",
+      "file": "601633.svg",
+      "logoId": "greatwall-motor",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601009",
+      "name": "南京银行",
+      "file": "601009.svg",
+      "logoId": "bank-of-nanjing-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002281",
+      "name": "光迅科技",
+      "file": "002281.svg",
+      "logoId": "accelink-technolog",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "301308",
+      "name": "江波龙",
+      "file": "301308.svg",
+      "logoId": "shenzhen-longsys-e",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600050",
+      "name": "中国联通",
+      "file": "600050.svg",
+      "logoId": "china-united-network-communications",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601100",
+      "name": "恒立液压",
+      "file": "601100.svg",
+      "logoId": "jiangsu-hengli-hydraulic-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601881",
+      "name": "中国银河",
+      "file": "601881.svg",
+      "logoId": "china-galaxy-securities-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "001289",
+      "name": "龙源电力",
+      "file": "001289.svg",
+      "logoId": "china-longyuan-power-group-corp-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688082",
+      "name": "盛美上海",
+      "file": "688082.svg",
+      "logoId": "acm-research",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688120",
+      "name": "华海清科",
+      "file": "688120.svg",
+      "logoId": "hwatsing-technology-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601229",
+      "name": "上海银行",
+      "file": "601229.svg",
+      "logoId": "bank-of-shanghai-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600019",
+      "name": "宝钢股份",
+      "file": "600019.svg",
+      "logoId": "baoshan-iron-and-steel",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688506",
+      "name": "百利天恒",
+      "file": "688506.svg",
+      "logoId": "sichuan-biokin-pharmaceutical-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601872",
+      "name": "招商轮船",
+      "file": "601872.svg",
+      "logoId": "china-merchants-port-hldgs-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000568",
+      "name": "泸州老窖",
+      "file": "000568.svg",
+      "logoId": "luzhou-lao-jiao-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002028",
+      "name": "思源电气",
+      "file": "002028.svg",
+      "logoId": "sieyuan-electric-c",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600584",
+      "name": "长电科技",
+      "file": "600584.svg",
+      "logoId": "jcet",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688361",
+      "name": "中科飞测",
+      "file": "688361.svg",
+      "logoId": "skyverse-technology-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603296",
+      "name": "华勤技术",
+      "file": "603296.svg",
+      "logoId": "huaqin-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603019",
+      "name": "中科曙光",
+      "file": "603019.svg",
+      "logoId": "dawning-information-industry",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600547",
+      "name": "山东黄金",
+      "file": "600547.svg",
+      "logoId": "sd-gold",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603256",
+      "name": "宏和科技",
+      "file": "603256.svg",
+      "logoId": "grace-fabric-technology-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601111",
+      "name": "中国国航",
+      "file": "601111.svg",
+      "logoId": "air-china-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "001280",
+      "name": "中国铀业",
+      "file": "001280.svg",
+      "logoId": "china-national-uranium-co-ltd-class-a",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000408",
+      "name": "藏格矿业",
+      "file": "000408.svg",
+      "logoId": "zangge-mining-co-l",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600760",
+      "name": "中航沈飞",
+      "file": "600760.svg",
+      "logoId": "avichina-industry-and-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600104",
+      "name": "上汽集团",
+      "file": "600104.svg",
+      "logoId": "saic-motor",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600487",
+      "name": "亨通光电",
+      "file": "600487.svg",
+      "logoId": "hengtong-optic-electric-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600886",
+      "name": "国投电力",
+      "file": "600886.svg",
+      "logoId": "sdic-power-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002493",
+      "name": "荣盛石化",
+      "file": "002493.svg",
+      "logoId": "rongsheng-petro-ch",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600018",
+      "name": "上港集团",
+      "file": "600018.svg",
+      "logoId": "shanghai-international-port-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000657",
+      "name": "中钨高新",
+      "file": "000657.svg",
+      "logoId": "china-tungsten-and-h",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601888",
+      "name": "中国中免",
+      "file": "601888.svg",
+      "logoId": "china-tourism-duty-free",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600926",
+      "name": "杭州银行",
+      "file": "600926.svg",
+      "logoId": "bank-of-hangzhou-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600346",
+      "name": "恒力石化",
+      "file": "600346.svg",
+      "logoId": "hengli-petrochemical",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000166",
+      "name": "申万宏源",
+      "file": "000166.svg",
+      "logoId": "shenwan-hongyuan-group",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "301165",
+      "name": "锐捷网络",
+      "file": "301165.svg",
+      "logoId": "ruijie-networks-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300014",
+      "name": "亿纬锂能",
+      "file": "300014.svg",
+      "logoId": "eve-energy-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603501",
+      "name": "豪威集团",
+      "file": "603501.svg",
+      "logoId": "will-semiconductor-co-ltd-shanghai",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601991",
+      "name": "大唐发电",
+      "file": "601991.svg",
+      "logoId": "datang-international-power-generati",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688111",
+      "name": "金山办公",
+      "file": "688111.svg",
+      "logoId": "beijing-kingsoft-office-software",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "301526",
+      "name": "国际复材",
+      "file": "301526.svg",
+      "logoId": "yunnan-yuntianhua-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601868",
+      "name": "中国能建",
+      "file": "601868.svg",
+      "logoId": "china-energy-engineering-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600011",
+      "name": "华能国际",
+      "file": "600011.svg",
+      "logoId": "huaneng-power",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601390",
+      "name": "中国中铁",
+      "file": "601390.svg",
+      "logoId": "china-railway-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600015",
+      "name": "华夏银行",
+      "file": "600015.svg",
+      "logoId": "hua-xia-bank-co-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "301200",
+      "name": "大族数控",
+      "file": "301200.svg",
+      "logoId": "shenzhen-han-s-cnc",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600905",
+      "name": "三峡能源",
+      "file": "600905.svg",
+      "logoId": "china-three-gorges-renewables",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000977",
+      "name": "浪潮信息",
+      "file": "000977.svg",
+      "logoId": "ieit-systems-co-lt",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "605117",
+      "name": "德业股份",
+      "file": "605117.svg",
+      "logoId": "ningbo-deye-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601727",
+      "name": "上海电气",
+      "file": "601727.svg",
+      "logoId": "shanghai-electric-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601169",
+      "name": "北京银行",
+      "file": "601169.svg",
+      "logoId": "bank-of-beijing-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688783",
+      "name": "西安奕材-U",
+      "file": "688783.svg",
+      "logoId": "xi-an-eswin-material-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000938",
+      "name": "紫光股份",
+      "file": "000938.svg",
+      "logoId": "unisplendour-co-l",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601698",
+      "name": "中国卫通",
+      "file": "601698.svg",
+      "logoId": "china-aerospace-times-electronics",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600160",
+      "name": "巨化股份",
+      "file": "600160.svg",
+      "logoId": "zhejiang-juhua-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000425",
+      "name": "徐工机械",
+      "file": "000425.svg",
+      "logoId": "xcmg-construction",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600489",
+      "name": "中金黄金",
+      "file": "600489.svg",
+      "logoId": "zhongjin-gold-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "605499",
+      "name": "东鹏饮料",
+      "file": "605499.svg",
+      "logoId": "eastroc-beverage-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002460",
+      "name": "赣锋锂业",
+      "file": "002460.svg",
+      "logoId": "ganfeng-lithium",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002736",
+      "name": "国信证券",
+      "file": "002736.svg",
+      "logoId": "guosen-securities",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600089",
+      "name": "特变电工",
+      "file": "600089.svg",
+      "logoId": "tbea-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000100",
+      "name": "TCL科技",
+      "file": "000100.svg",
+      "logoId": "tcl-technology-gro",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601127",
+      "name": "赛力斯",
+      "file": "601127.svg",
+      "logoId": "chongqing-sokon-industry-group-stock-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601800",
+      "name": "中国交建",
+      "file": "601800.svg",
+      "logoId": "china-communications-construction-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688521",
+      "name": "芯原股份",
+      "file": "688521.svg",
+      "logoId": "verisilicon-microelectronics-shanghai",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000988",
+      "name": "华工科技",
+      "file": "000988.svg",
+      "logoId": "huagong-tech-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300857",
+      "name": "协创数据",
+      "file": "300857.svg",
+      "logoId": "sharetronic-data-t",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600522",
+      "name": "中天科技",
+      "file": "600522.svg",
+      "logoId": "jiangsu-zhongtian-technology-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688525",
+      "name": "佰维存储",
+      "file": "688525.svg",
+      "logoId": "biwin-storage-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002602",
+      "name": "世纪华通",
+      "file": "002602.svg",
+      "logoId": "zhejiang-century-g",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300442",
+      "name": "润泽科技",
+      "file": "300442.svg",
+      "logoId": "range-intelligent",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600010",
+      "name": "包钢股份",
+      "file": "600010.svg",
+      "logoId": "inner-mongolia-baotou-steel-union-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000958",
+      "name": "电投产融",
+      "file": "000958.svg",
+      "logoId": "spic-industry-fina",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002600",
+      "name": "领益智造",
+      "file": "002600.svg",
+      "logoId": "lingyi-itech-guan",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601006",
+      "name": "大秦铁路",
+      "file": "601006.svg",
+      "logoId": "daqin-railway",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601012",
+      "name": "隆基绿能",
+      "file": "601012.svg",
+      "logoId": "longi-green-energy-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600585",
+      "name": "海螺水泥",
+      "file": "600585.svg",
+      "logoId": "conch-cement",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002230",
+      "name": "科大讯飞",
+      "file": "002230.svg",
+      "logoId": "iflytek-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600893",
+      "name": "航发动力",
+      "file": "600893.svg",
+      "logoId": "aecc-aviation-power",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002156",
+      "name": "通富微电",
+      "file": "002156.svg",
+      "logoId": "tongfu-microelectr",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688271",
+      "name": "联影医疗",
+      "file": "688271.svg",
+      "logoId": "shanghai-united-imaging-healthcare",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600029",
+      "name": "南方航空",
+      "file": "600029.svg",
+      "logoId": "china-southern-airlines",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002008",
+      "name": "大族激光",
+      "file": "002008.svg",
+      "logoId": "shenzhen-han-s-cnc",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002001",
+      "name": "新 和 成",
+      "file": "002001.svg",
+      "logoId": "zhejiang-nhu-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300498",
+      "name": "温氏股份",
+      "file": "300498.svg",
+      "logoId": "wens-foodstuff-gro",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000538",
+      "name": "云南白药",
+      "file": "000538.svg",
+      "logoId": "yunnan-baiyao-grp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000807",
+      "name": "云铝股份",
+      "file": "000807.svg",
+      "logoId": "yunnan-aluminium",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000895",
+      "name": "双汇发展",
+      "file": "000895.svg",
+      "logoId": "henan-shuang-inve",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000617",
+      "name": "中油资本",
+      "file": "000617.svg",
+      "logoId": "cnpc-capital-compa",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600795",
+      "name": "国电电力",
+      "file": "600795.svg",
+      "logoId": "gd-power-development-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688249",
+      "name": "晶合集成",
+      "file": "688249.svg",
+      "logoId": "nexchip-semiconductor",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600026",
+      "name": "中远海能",
+      "file": "600026.svg",
+      "logoId": "cosco-shipping",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600875",
+      "name": "东方电气",
+      "file": "600875.svg",
+      "logoId": "dong-fang-electric-mach-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601168",
+      "name": "西部矿业",
+      "file": "601168.svg",
+      "logoId": "western-mining",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600236",
+      "name": "桂冠电力",
+      "file": "600236.svg",
+      "logoId": "guangxi-guiguan-electric-power-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601186",
+      "name": "中国铁建",
+      "file": "601186.svg",
+      "logoId": "china-railway-construction",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603893",
+      "name": "瑞芯微",
+      "file": "603893.svg",
+      "logoId": "fuzhou-rockchip-electronics-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002648",
+      "name": "卫星化学",
+      "file": "002648.svg",
+      "logoId": "satellite-chemical",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600673",
+      "name": "东阳光",
+      "file": "600673.svg",
+      "logoId": "guangdong-hec-technology-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002241",
+      "name": "歌尔股份",
+      "file": "002241.svg",
+      "logoId": "goertek-inc",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002128",
+      "name": "电投能源",
+      "file": "002128.svg",
+      "logoId": "inner-mongolia-dia",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601669",
+      "name": "中国电建",
+      "file": "601669.svg",
+      "logoId": "power-construction-of-chinaltd-powerchina-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300015",
+      "name": "爱尔眼科",
+      "file": "300015.svg",
+      "logoId": "aier-eye-hospital",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000630",
+      "name": "铜陵有色",
+      "file": "000630.svg",
+      "logoId": "tongling-nonferrou",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600436",
+      "name": "片仔癀",
+      "file": "600436.svg",
+      "logoId": "zhangzhou-pientzehuang-pharmaceutical-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600115",
+      "name": "中国东航",
+      "file": "600115.svg",
+      "logoId": "china-eastern-airlines",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601916",
+      "name": "浙商银行",
+      "file": "601916.svg",
+      "logoId": "china-zheshang-bank-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688126",
+      "name": "沪硅产业",
+      "file": "688126.svg",
+      "logoId": "national-silicon-industry",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "001309",
+      "name": "德明利",
+      "file": "001309.svg",
+      "logoId": "shenzhen-techwinse",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601825",
+      "name": "沪农商行",
+      "file": "601825.svg",
+      "logoId": "shanghai-rural-commercial-bank-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002311",
+      "name": "海大集团",
+      "file": "002311.svg",
+      "logoId": "guangdong-haid-grp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601689",
+      "name": "拓普集团",
+      "file": "601689.svg",
+      "logoId": "ningbo-tuopu-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000301",
+      "name": "东方盛虹",
+      "file": "000301.svg",
+      "logoId": "jiangsu-eastern-sh",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600674",
+      "name": "川投能源",
+      "file": "600674.svg",
+      "logoId": "sichuan-chuantou-energy-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002027",
+      "name": "分众传媒",
+      "file": "002027.svg",
+      "logoId": "focus-media-inform",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002466",
+      "name": "天齐锂业",
+      "file": "002466.svg",
+      "logoId": "tianqi-lithium-corp",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600958",
+      "name": "东方证券",
+      "file": "600958.svg",
+      "logoId": "dfzq",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601838",
+      "name": "成都银行",
+      "file": "601838.svg",
+      "logoId": "bank-of-chengdu",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688183",
+      "name": "生益电子",
+      "file": "688183.svg",
+      "logoId": "shengyi-electronics",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688818",
+      "name": "电科蓝天",
+      "file": "688818.svg",
+      "logoId": "cetc-lantian-technology-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600039",
+      "name": "四川路桥",
+      "file": "600039.svg",
+      "logoId": "sichuan-road-and-bridge-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "301638",
+      "name": "南网数字",
+      "file": "301638.svg",
+      "logoId": "csg-digital-power-grid-research-institute-co-ltd-class-a",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002202",
+      "name": "金风科技",
+      "file": "002202.svg",
+      "logoId": "xinjiang-goldwind-science-and-technology-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603799",
+      "name": "华友钴业",
+      "file": "603799.svg",
+      "logoId": "zhejiang-huayou-cobalt",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600600",
+      "name": "青岛啤酒",
+      "file": "600600.svg",
+      "logoId": "tsingtao-brew",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688036",
+      "name": "传音控股",
+      "file": "688036.svg",
+      "logoId": "transsion-ltdco",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600549",
+      "name": "厦门钨业",
+      "file": "600549.svg",
+      "logoId": "xiamen-tungsten",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688172",
+      "name": "燕东微",
+      "file": "688172.svg",
+      "logoId": "beijing-yandong-microelectronic-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002709",
+      "name": "天赐材料",
+      "file": "002709.svg",
+      "logoId": "guangzhou-tinci-ma",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601077",
+      "name": "渝农商行",
+      "file": "601077.svg",
+      "logoId": "chongqing-rural-commercial-bank-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000625",
+      "name": "长安汽车",
+      "file": "000625.svg",
+      "logoId": "chong-qing-changan",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603195",
+      "name": "公牛集团",
+      "file": "603195.svg",
+      "logoId": "gongniu-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688396",
+      "name": "华润微",
+      "file": "688396.svg",
+      "logoId": "china-merchants-port-hldgs-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000708",
+      "name": "中信特钢",
+      "file": "000708.svg",
+      "logoId": "citic-pacific-spec",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603228",
+      "name": "景旺电子",
+      "file": "603228.svg",
+      "logoId": "shenzhen-kinwong-electronic-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688729",
+      "name": "屹唐股份",
+      "file": "688729.svg",
+      "logoId": "beijing-e-town-semiconductor-technology-co-ltd-class-a",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002080",
+      "name": "中材科技",
+      "file": "002080.svg",
+      "logoId": "xinjiang-t-shan-ce",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600023",
+      "name": "浙能电力",
+      "file": "600023.svg",
+      "logoId": "zhejiang-zheneng-electric-power-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002409",
+      "name": "雅克科技",
+      "file": "002409.svg",
+      "logoId": "jiangsu-yoke-techn",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688200",
+      "name": "华峰测控",
+      "file": "688200.svg",
+      "logoId": "beijing-huafeng-test-and-control-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "301217",
+      "name": "铜冠铜箔",
+      "file": "301217.svg",
+      "logoId": "anhui-tongguan-cop",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600988",
+      "name": "赤峰黄金",
+      "file": "600988.svg",
+      "logoId": "chifeng-jilong-gold-mining-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "001965",
+      "name": "招商公路",
+      "file": "001965.svg",
+      "logoId": "china-merchants-ex",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600066",
+      "name": "宇通客车",
+      "file": "600066.svg",
+      "logoId": "yutong-bus",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002653",
+      "name": "海思科",
+      "file": "002653.svg",
+      "logoId": "haisco-pharmaceuti",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "603459",
+      "name": "红板科技",
+      "file": "603459.svg",
+      "logoId": "jiangxi-redboard-tech-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002179",
+      "name": "中航光电",
+      "file": "002179.svg",
+      "logoId": "avichina-industry-and-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300866",
+      "name": "安克创新",
+      "file": "300866.svg",
+      "logoId": "anker-innovations",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601179",
+      "name": "中国西电",
+      "file": "601179.svg",
+      "logoId": "china-xd-electric",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600415",
+      "name": "小商品城",
+      "file": "600415.svg",
+      "logoId": "zhejiang-china-commodities-city-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300661",
+      "name": "圣邦股份",
+      "file": "300661.svg",
+      "logoId": "sg-micro",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "001389",
+      "name": "广合科技",
+      "file": "001389.svg",
+      "logoId": "delton-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688002",
+      "name": "睿创微纳",
+      "file": "688002.svg",
+      "logoId": "raytron-technology-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300757",
+      "name": "罗博特科",
+      "file": "300757.svg",
+      "logoId": "robotechnik-intell",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002422",
+      "name": "科伦药业",
+      "file": "002422.svg",
+      "logoId": "sichuan-kelun-phar",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300759",
+      "name": "康龙化成",
+      "file": "300759.svg",
+      "logoId": "pharmaron-beijing-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300475",
+      "name": "香农芯创",
+      "file": "300475.svg",
+      "logoId": "shannon-semiconduc",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600118",
+      "name": "中国卫星",
+      "file": "600118.svg",
+      "logoId": "china-aerospace-times-electronics",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601958",
+      "name": "金钼股份",
+      "file": "601958.svg",
+      "logoId": "jinduicheng-molybdenum-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601788",
+      "name": "光大证券",
+      "file": "601788.svg",
+      "logoId": "china-everbright",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688037",
+      "name": "芯源微",
+      "file": "688037.svg",
+      "logoId": "kingsemi",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002625",
+      "name": "光启技术",
+      "file": "002625.svg",
+      "logoId": "kuang-chi-technolo",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601018",
+      "name": "宁波港",
+      "file": "601018.svg",
+      "logoId": "ningbo-zhoushan-port-company-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688331",
+      "name": "荣昌生物",
+      "file": "688331.svg",
+      "logoId": "remegen-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002837",
+      "name": "英维克",
+      "file": "002837.svg",
+      "logoId": "shenzhen-envicool",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300054",
+      "name": "鼎龙股份",
+      "file": "300054.svg",
+      "logoId": "hubei-dinglong-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000157",
+      "name": "中联重科",
+      "file": "000157.svg",
+      "logoId": "zoomlion-heavy-industry-science-and-technology-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600482",
+      "name": "XD中国动",
+      "file": "600482.svg",
+      "logoId": "china-cssc-limited",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688469",
+      "name": "芯联集成-U",
+      "file": "688469.svg",
+      "logoId": "united-nova-technology-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "001979",
+      "name": "招商蛇口",
+      "file": "001979.svg",
+      "logoId": "china-merchants-sh",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688777",
+      "name": "中控技术",
+      "file": "688777.svg",
+      "logoId": "zhejiang-supcon-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000021",
+      "name": "深科技",
+      "file": "000021.svg",
+      "logoId": "shenzhen-kaifa-tec",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688629",
+      "name": "华丰科技",
+      "file": "688629.svg",
+      "logoId": "sichuan-huafeng-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002851",
+      "name": "麦格米特",
+      "file": "002851.svg",
+      "logoId": "shenzhen-megmeet-e",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600048",
+      "name": "保利发展",
+      "file": "600048.svg",
+      "logoId": "poly-developments-and",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600233",
+      "name": "圆通速递",
+      "file": "600233.svg",
+      "logoId": "yto-express",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688187",
+      "name": "时代电气",
+      "file": "688187.svg",
+      "logoId": "zhuzhou-crrc-times-electric-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000975",
+      "name": "山金国际",
+      "file": "000975.svg",
+      "logoId": "yintai-gold-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600377",
+      "name": "宁沪高速",
+      "file": "600377.svg",
+      "logoId": "jiangsu-expressway",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601607",
+      "name": "上海医药",
+      "file": "601607.svg",
+      "logoId": "shanghai-pharmaceuticals-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601360",
+      "name": "三六零",
+      "file": "601360.svg",
+      "logoId": "360-security-technology",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600196",
+      "name": "复星医药",
+      "file": "600196.svg",
+      "logoId": "shanghai-fosun-pharmaceutical-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600703",
+      "name": "三安光电",
+      "file": "600703.svg",
+      "logoId": "san-an-optoelectronics-coltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002304",
+      "name": "洋河股份",
+      "file": "002304.svg",
+      "logoId": "jiangsu-yanghe-bre",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600009",
+      "name": "上海机场",
+      "file": "600009.svg",
+      "logoId": "shanghai-international-airport",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300666",
+      "name": "江丰电子",
+      "file": "300666.svg",
+      "logoId": "konfoong-materials",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002532",
+      "name": "天山铝业",
+      "file": "002532.svg",
+      "logoId": "tianshan-aluminum",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300223",
+      "name": "北京君正",
+      "file": "300223.svg",
+      "logoId": "ingenic-semiconduc",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "000703",
+      "name": "恒逸石化",
+      "file": "000703.svg",
+      "logoId": "hengyi-petrochemic",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300136",
+      "name": "信维通信",
+      "file": "300136.svg",
+      "logoId": "shenzhen-sunway-co",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "002414",
+      "name": "高德红外",
+      "file": "002414.svg",
+      "logoId": "wuhan-guide-infrar",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "600426",
+      "name": "华鲁恒升",
+      "file": "600426.svg",
+      "logoId": "shandong-hualu-hengsheng-chemical-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "300285",
+      "name": "国瓷材料",
+      "file": "300285.svg",
+      "logoId": "shandong-sinocera",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "601808",
+      "name": "中海油服",
+      "file": "601808.svg",
+      "logoId": "china-oilfield-services",
+      "source": "TradingView symbol logo CDN"
+    },
+    {
+      "code": "688809",
+      "name": "强一股份",
+      "file": "688809.svg",
+      "logoId": "maxone-semiconductor-suzhou-co-ltd",
+      "source": "TradingView symbol logo CDN"
+    }
+  ]
+}

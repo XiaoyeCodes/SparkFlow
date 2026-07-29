@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "research:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-vibe-trading.ps1",
+    "logos:sync": "node scripts/sync-stock-logos.mjs",
     "predev": "npm run research:setup",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",

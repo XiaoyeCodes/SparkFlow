@@ -654,7 +654,12 @@ async function getChinaMarketHeatmap() {
     ),
     fetchJsonWithRetry(industryUrl, 2, 12000),
   ]);
-  const rows = payloads.flatMap((payload) => Array.isArray(payload?.data?.diff) ? payload.data.diff : []).slice(0, 320);
+  const rawRows: Record<string, unknown>[] = payloads.flatMap(
+    (payload) => Array.isArray(payload?.data?.diff) ? payload.data.diff : [],
+  );
+  const rows = Array.from(
+    new Map(rawRows.map((row) => [String(row.f12 || '').trim(), row])).values(),
+  ).filter((row) => String(row.f12 || '').trim()).slice(0, 320);
   if (!Array.isArray(rows) || !rows.length) throw new Error('A 股热力图行情为空');
   const industryRows: Record<string, unknown>[] = Array.isArray(industryPayload?.data?.diff)
     ? industryPayload.data.diff

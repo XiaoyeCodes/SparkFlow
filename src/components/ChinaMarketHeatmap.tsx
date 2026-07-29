@@ -7,9 +7,12 @@ import {
   Minus,
   Plus,
   RefreshCw,
+  Search,
   TriangleAlert,
+  X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 type ChinaHeatmapStock = {
   code: string;
@@ -221,6 +224,24 @@ function calculateLayout(
     .round(true)(root);
 }
 
+function calculateMaxZoom(layout?: HierarchyRectangularNode<HeatmapNode>) {
+  const requiredZoom = (layout?.leaves() ?? []).reduce((required, node) => {
+    const width = node.x1 - node.x0;
+    const height = node.y1 - node.y0;
+    if (width < 3 || height < 3) return required;
+    return Math.max(
+      required,
+      MIN_CHANGE_WIDTH / width,
+      MIN_CHANGE_HEIGHT / height,
+    );
+  }, MIN_ZOOM);
+
+  return Math.min(
+    ABSOLUTE_MAX_ZOOM,
+    Math.max(4, Math.ceil(requiredZoom * 10) / 10),
+  );
+}
+
 function StockCell({
   node,
   selected,
@@ -235,18 +256,24 @@ function StockCell({
   onHover: (stock: ChinaHeatmapStock | null) => void;
 }) {
   const stock = node.data.stock;
+  const [logoFailed, setLogoFailed] = useState(false);
   if (!stock) return null;
 
   const width = node.x1 - node.x0;
   const height = node.y1 - node.y0;
-  if (width < 3 || height < 3) return null;
+  if (width <= 0 || height <= 0) return null;
 
   const visualWidth = width;
   const visualHeight = height;
   const showFullName = visualWidth >= 92 && visualHeight >= 48;
   const showInitial = !showFullName && visualWidth >= 40 && visualHeight >= 28;
-  const showLogo = visualWidth >= 112 && visualHeight >= 96;
-  const showCode = showFullName && visualWidth >= 104 && visualHeight >= 70;
+  const showLogo = showFullName && visualHeight >= 78;
+  const compactLogo = showLogo && visualHeight < 118;
+  const largeLogo = expanded && visualWidth >= 180 && visualHeight >= 150;
+  const showCode = showFullName
+    && visualWidth >= 104
+    && visualHeight >= 70
+    && (!showLogo || visualHeight >= 132);
   const showValue = visualWidth >= MIN_CHANGE_WIDTH && visualHeight >= MIN_CHANGE_HEIGHT;
   const nameSize = expanded && visualWidth >= 180 && visualHeight >= 150
     ? 22
@@ -280,7 +307,7 @@ function StockCell({
         width,
         height,
         backgroundColor: cellColor(stock.changePercent),
-        borderRadius: 3,
+        borderRadius: Math.min(3, width * 0.18, height * 0.18),
         boxShadow: selected ? 'inset 0 0 0 2px #2f8cff' : undefined,
       }}
     >
@@ -294,25 +321,44 @@ function StockCell({
       >
         {showLogo ? (
           <span
-            className={`mb-2 grid shrink-0 place-items-center rounded-full border border-white/24 bg-black/28 font-bold text-white shadow-[0_2px_12px_rgba(0,0,0,0.32)] backdrop-blur-sm ${
-              expanded && visualWidth >= 180 && visualHeight >= 150 ? 'h-14 w-14 text-xl' : 'h-9 w-9 text-sm'
+            className={`grid shrink-0 place-items-center overflow-hidden rounded-lg border border-white/18 bg-white font-bold text-[#111318] shadow-[0_3px_14px_rgba(0,0,0,0.34)] ${
+              largeLogo
+                ? 'mb-2 h-14 w-14 text-xl'
+                : compactLogo
+                  ? 'mb-1 h-8 w-8 text-xs'
+                  : 'mb-1.5 h-10 w-10 text-sm'
             }`}
           >
-            {stock.name.slice(0, 1)}
+            {logoFailed ? (
+              stock.name.slice(0, 1)
+            ) : (
+              <img
+                src={`/stock-logos/${stock.code}.svg`}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                draggable={false}
+                onError={() => setLogoFailed(true)}
+                className="pointer-events-none h-full w-full select-none object-contain"
+              />
+            )}
           </span>
         ) : null}
         {showFullName ? (
-          <span className="max-w-full truncate font-semibold leading-tight" style={{ fontSize: nameSize }}>
+          <span className="max-w-full shrink-0 truncate font-semibold leading-tight" style={{ fontSize: nameSize }}>
             {stock.name}
           </span>
         ) : showInitial ? (
-          <span className="font-semibold leading-none text-white/88" style={{ fontSize: nameSize }}>
+          <span className="shrink-0 font-semibold leading-none text-white/88" style={{ fontSize: nameSize }}>
             {stock.name.slice(0, 1)}
           </span>
         ) : null}
-        {showCode ? <span className="mt-1 text-[9px] leading-none text-white/66">{stock.code}</span> : null}
+        {showCode ? <span className="mt-1 shrink-0 text-[9px] leading-none text-white/66">{stock.code}</span> : null}
         {showValue ? (
-          <span className="mt-1.5 font-mono font-semibold leading-none" style={{ fontSize: valueSize }}>
+          <span
+            className={`${showLogo ? 'mt-1' : 'mt-1.5'} shrink-0 font-mono font-semibold leading-none`}
+            style={{ fontSize: valueSize }}
+          >
             {formatChange(stock.changePercent)}
           </span>
         ) : null}
@@ -359,6 +405,10 @@ export function ChinaMarketHeatmap() {
   const [fullscreen, setFullscreen] = useState(false);
   const [mapView, setMapView] = useState<MapView>(DEFAULT_MAP_VIEW);
   const [dragging, setDragging] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchIndex, setSearchIndex] = useState(0);
+  const [searchPortal, setSearchPortal] = useState<HTMLElement | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     clientX: number;
@@ -372,6 +422,10 @@ export function ChinaMarketHeatmap() {
     };
   } | null>(null);
   const suppressClickRef = useRef(false);
+
+  useEffect(() => {
+    setSearchPortal(document.getElementById('china-market-search-slot'));
+  }, []);
 
   const load = useCallback(async (signal?: AbortSignal, manual = false) => {
     if (manual) setRefreshing(true);
@@ -438,23 +492,101 @@ export function ChinaMarketHeatmap() {
     [activeIndustry, layout],
   );
   const stockNodes = useMemo(() => layout?.leaves() ?? [], [layout]);
-  const maxZoom = useMemo(() => {
-    const requiredZoom = (baseLayout?.leaves() ?? []).reduce((required, node) => {
-      const width = node.x1 - node.x0;
-      const height = node.y1 - node.y0;
-      if (width < 3 || height < 3) return required;
-      return Math.max(
-        required,
-        MIN_CHANGE_WIDTH / width,
-        MIN_CHANGE_HEIGHT / height,
-      );
-    }, MIN_ZOOM);
+  const maxZoom = useMemo(() => calculateMaxZoom(baseLayout), [baseLayout]);
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().replace(/\s+/g, '').toLowerCase();
+    if (!query) return [];
 
-    return Math.min(
-      ABSOLUTE_MAX_ZOOM,
-      Math.max(4, Math.ceil(requiredZoom * 10) / 10),
+    const score = (stock: ChinaHeatmapStock) => {
+      const code = stock.code.toLowerCase();
+      const name = stock.name.replace(/\s+/g, '').toLowerCase();
+      if (code === query) return 0;
+      if (name === query) return 1;
+      if (code.startsWith(query)) return 2;
+      if (name.startsWith(query)) return 3;
+      return 4;
+    };
+
+    return (data?.stocks ?? [])
+      .filter((stock) => (
+        stock.code.toLowerCase().includes(query)
+        || stock.name.replace(/\s+/g, '').toLowerCase().includes(query)
+      ))
+      .sort((a, b) => score(a) - score(b) || b.marketCap - a.marketCap)
+      .slice(0, 6);
+  }, [data?.stocks, searchQuery]);
+
+  useEffect(() => {
+    setSearchIndex((current) => Math.min(current, Math.max(0, searchResults.length - 1)));
+  }, [searchResults.length]);
+
+  const focusSearchedStock = useCallback((stock: ChinaHeatmapStock) => {
+    if (!data?.stocks.length || !size.width || !size.height) return;
+
+    const fullLayout = calculateLayout(
+      data.stocks,
+      size,
+      null,
+      data.industryMarketCaps,
     );
-  }, [baseLayout]);
+    const baseNode = fullLayout?.leaves().find((node) => node.data.stock?.code === stock.code);
+    if (!fullLayout || !baseNode) return;
+
+    const baseWidth = Math.max(1, baseNode.x1 - baseNode.x0);
+    const baseHeight = Math.max(1, baseNode.y1 - baseNode.y0);
+    const fullMaxZoom = calculateMaxZoom(fullLayout);
+    const targetScale = Math.min(
+      fullMaxZoom,
+      Math.max(2.4, 160 / baseWidth, 110 / baseHeight),
+    );
+    const targetSize = {
+      width: Math.round(size.width * targetScale),
+      height: Math.round(size.height * targetScale),
+    };
+    const targetLayout = calculateLayout(
+      data.stocks,
+      targetSize,
+      null,
+      data.industryMarketCaps,
+    );
+    const targetNode = targetLayout?.leaves().find((node) => node.data.stock?.code === stock.code);
+    if (!targetNode) return;
+
+    setActiveIndustry(null);
+    setSelectedCode(stock.code);
+    setHoveredCode('');
+    setMapView(clampMapView({
+      scale: targetScale,
+      x: size.width / 2 - (targetNode.x0 + targetNode.x1) / 2,
+      y: size.height / 2 - (targetNode.y0 + targetNode.y1) / 2,
+    }, size, fullMaxZoom));
+    setSearchQuery(stock.name);
+    setSearchOpen(false);
+    setSearchIndex(0);
+  }, [data, size]);
+
+  const handleSearchKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setSearchOpen(true);
+      setSearchIndex((current) => Math.min(current + 1, Math.max(0, searchResults.length - 1)));
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setSearchIndex((current) => Math.max(0, current - 1));
+      return;
+    }
+    if (event.key === 'Enter' && searchResults[searchIndex]) {
+      event.preventDefault();
+      focusSearchedStock(searchResults[searchIndex]);
+      return;
+    }
+    if (event.key === 'Escape') {
+      setSearchOpen(false);
+      event.currentTarget.blur();
+    }
+  }, [focusSearchedStock, searchIndex, searchResults]);
 
   useEffect(() => {
     const element = ref.current;
@@ -627,12 +759,113 @@ export function ChinaMarketHeatmap() {
     await mapShellRef.current?.requestFullscreen();
   }, []);
 
+  const searchControl = searchPortal ? createPortal(
+    <div className="relative z-[70] w-full">
+      <div className="flex h-10 items-center gap-2 rounded-md border border-white/14 bg-[#0b0d10] px-3 shadow-[0_10px_28px_rgba(0,0,0,0.24)] transition-colors focus-within:border-[#69d5ff]/55">
+        <Search size={15} className="shrink-0 text-white/42" />
+        <input
+          type="text"
+          inputMode="search"
+          value={searchQuery}
+          onChange={(event) => {
+            const value = event.target.value;
+            setSearchQuery(value);
+            setSearchOpen(Boolean(value.trim()));
+            setSearchIndex(0);
+          }}
+          onFocus={() => setSearchOpen(Boolean(searchQuery.trim()))}
+          onBlur={() => window.setTimeout(() => setSearchOpen(false), 120)}
+          onKeyDown={handleSearchKeyDown}
+          placeholder="搜索股票代码或公司名称"
+          className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/32"
+          role="combobox"
+          aria-label="搜索 A 股股票"
+          aria-expanded={searchOpen}
+          aria-controls="china-market-search-results"
+          aria-autocomplete="list"
+        />
+        {searchQuery ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery('');
+              setSearchOpen(false);
+              setSearchIndex(0);
+            }}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded text-white/42 transition hover:bg-white/8 hover:text-white"
+            aria-label="清空股票搜索"
+            title="清空"
+          >
+            <X size={14} />
+          </button>
+        ) : null}
+      </div>
+
+      {searchOpen && searchQuery.trim() ? (
+        <div
+          id="china-market-search-results"
+          role="listbox"
+          className="absolute left-0 right-0 top-[44px] overflow-hidden rounded-md border border-white/14 bg-[#101216] shadow-[0_18px_46px_rgba(0,0,0,0.56)]"
+        >
+          {searchResults.length ? searchResults.map((stock, index) => (
+            <button
+              type="button"
+              key={stock.code}
+              role="option"
+              aria-selected={searchIndex === index}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setSearchIndex(index)}
+              onClick={() => focusSearchedStock(stock)}
+              className={`flex w-full items-center gap-3 border-b border-white/7 px-3 py-2.5 text-left last:border-b-0 ${
+                searchIndex === index ? 'bg-white/10' : 'hover:bg-white/7'
+              }`}
+            >
+              <span className="relative grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-md bg-white text-xs font-bold text-[#111318]">
+                <span>{stock.name.slice(0, 1)}</span>
+                <img
+                  src={`/stock-logos/${stock.code}.svg`}
+                  alt=""
+                  className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                  onError={(event) => {
+                    event.currentTarget.style.display = 'none';
+                  }}
+                />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-white">{stock.name}</span>
+                <span className="mt-0.5 block font-mono text-[10px] text-white/42">
+                  {stock.code} · {stock.industry}
+                </span>
+              </span>
+              <span className={`shrink-0 font-mono text-xs font-semibold ${
+                stock.changePercent > 0.03
+                  ? 'text-[#ff7885]'
+                  : stock.changePercent < -0.03
+                    ? 'text-[#58d7b1]'
+                    : 'text-white/55'
+              }`}>
+                {formatChange(stock.changePercent)}
+              </span>
+            </button>
+          )) : (
+            <div className="px-4 py-4 text-center text-xs text-white/42">
+              当前热力图中未找到匹配股票
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>,
+    searchPortal,
+  ) : null;
+
   return (
-    <div
-      ref={mapShellRef}
-      className="flex h-full min-h-0 flex-col bg-[#060708] text-white"
-      aria-label="A 股大盘热力图"
-    >
+    <>
+      {searchControl}
+      <div
+        ref={mapShellRef}
+        className="flex h-full min-h-0 flex-col bg-[#060708] text-white"
+        aria-label="A 股大盘热力图"
+      >
       {activeIndustry ? (
         <div className="flex h-10 shrink-0 items-center border-b border-white/14 bg-[#090a0c] px-2">
           <button
@@ -672,23 +905,43 @@ export function ChinaMarketHeatmap() {
             }}
           >
             {industryNodes.map((node) => (
-              <div
-                key={`${node.data.name}-frame`}
-                data-industry={node.data.name}
-                className="pointer-events-none absolute z-0 rounded-[5px] bg-[#060709]"
-                style={{
-                  left: node.x0,
-                  top: node.y0,
-                  width: node.x1 - node.x0,
-                  height: node.y1 - node.y0,
-                  borderRadius: 5,
-                }}
-              />
+              (() => {
+                const width = node.x1 - node.x0;
+                const height = node.y1 - node.y0;
+                const compact = width < 54 || height < 48;
+                const members = node.leaves()
+                  .map((leaf) => leaf.data.stock)
+                  .filter((stock): stock is ChinaHeatmapStock => Boolean(stock));
+                const marketCap = members.reduce((sum, stock) => sum + stock.marketCap, 0);
+                const changePercent = marketCap > 0
+                  ? members.reduce(
+                    (sum, stock) => sum + stock.changePercent * stock.marketCap,
+                    0,
+                  ) / marketCap
+                  : 0;
+
+                return (
+                  <div
+                    key={`${node.data.name}-frame`}
+                    data-industry={node.data.name}
+                    className="pointer-events-none absolute z-0 rounded-[5px]"
+                    style={{
+                      left: node.x0,
+                      top: node.y0,
+                      width,
+                      height,
+                      borderRadius: 5,
+                      backgroundColor: compact ? cellColor(changePercent) : '#060709',
+                    }}
+                  />
+                );
+              })()
             ))}
             {industryNodes.map((node) => {
               const width = node.x1 - node.x0;
+              const height = node.y1 - node.y0;
               const visualWidth = width;
-              if (visualWidth < 40) return null;
+              if (visualWidth < 40 || height < 48) return null;
               const label = visualWidth >= 96 ? node.data.name : node.data.name.slice(0, 1);
               return (
                 <button
@@ -832,6 +1085,7 @@ export function ChinaMarketHeatmap() {
           </button>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

@@ -671,15 +671,23 @@ export function Market() {
               <IndexStrip indices={activeIndices} />
 
               <div className="mt-4 grid min-h-[650px] gap-4 xl:grid-cols-[minmax(0,1fr)_410px]">
-                <section className="min-h-[560px] overflow-hidden border border-white/10 bg-[#050608]">
-                  <div className="flex h-[68px] items-center justify-between border-b border-white/10 px-4 sm:px-5">
-                    <div>
+                <section className="flex min-h-[560px] flex-col overflow-hidden border border-white/10 bg-[#050608]">
+                  <div className="flex min-h-[68px] shrink-0 flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3 sm:flex-nowrap sm:px-5">
+                    <div className="shrink-0">
                       <div className="flex items-center gap-2 text-sm font-semibold">
                         <Activity size={16} className="text-[#69d5ff]" />
                         {MARKET_META[activeMarket].chart} · {activeMarket === 'china' ? '东方财富实时数据' : 'TradingView'}
                       </div>
                       <p className="mt-1 text-xs text-white/38">{MARKET_META[activeMarket].description}</p>
                     </div>
+                    {activeMarket === 'china' ? (
+                      <div
+                        id="china-market-search-slot"
+                        className="order-3 w-full sm:order-none sm:mx-3 sm:min-w-[220px] sm:max-w-xl sm:flex-1"
+                      />
+                    ) : (
+                      <div className="flex-1" />
+                    )}
                     <a
                       href={
                         activeMarket === 'china'
@@ -697,7 +705,7 @@ export function Market() {
                       <ArrowUpRight size={17} />
                     </a>
                   </div>
-                  <div className="h-[calc(100%-68px)] min-h-[500px]">
+                  <div className="min-h-[500px] flex-1">
                     {activeMarket === 'china' ? (
                       <ChinaMarketHeatmap />
                     ) : (
