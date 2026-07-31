@@ -27,6 +27,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChinaMarketHeatmap, HongKongMarketHeatmap, UsMarketHeatmap } from '../components/ChinaMarketHeatmap';
+import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
 import { PageTransition } from '../components/PageTransition';
 import { TradingViewHeatmap } from '../components/TradingViewHeatmap';
 import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
@@ -188,6 +189,7 @@ type ToolStep = {
 type ResearchState = {
   sessionId: string;
   attemptId: string;
+  targetLabel: string;
   running: boolean;
   connecting: boolean;
   report: string;
@@ -204,6 +206,7 @@ type AsyncState = 'idle' | 'loading' | 'success' | 'error';
 const EMPTY_RESEARCH: ResearchState = {
   sessionId: '',
   attemptId: '',
+  targetLabel: '',
   running: false,
   connecting: false,
   report: '',
@@ -212,6 +215,44 @@ const EMPTY_RESEARCH: ResearchState = {
   error: '',
   lastEventId: '',
   updatedAt: '',
+};
+
+type ResearchTarget = {
+  kind: 'market' | 'sector';
+  name: string;
+};
+
+type ValuationResearchContext = {
+  methodology: string;
+  periodLabel: string;
+  overall: {
+    temperature: number;
+    zoneLabel: string;
+    currentPe: number;
+    updatedAt: string;
+  };
+  markets: Array<{
+    name: string;
+    temperature: number;
+    currentPe: number;
+    zoneLabel: string;
+  }>;
+  industries: Array<{
+    name: string;
+    temperature: number;
+    currentPe: number;
+    currentPb?: number;
+    zoneLabel: string;
+  }>;
+  bookValueAnchor?: {
+    current: {
+      pb: number;
+      fairPb: number;
+      pbPercentile: number;
+      premiumPercent: number;
+      updatedAt: string;
+    };
+  };
 };
 
 const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart: string; description: string }> = {
@@ -242,7 +283,6 @@ const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart
 };
 
 const researchStorageKey = (mode: MarketChartMode) => `sparkflow.market.research.v2.${mode}`;
-const summaryStorageKey = (mode: MarketChartMode) => `sparkflow.market.summary.v2.${mode}`;
 
 function readStoredResearch(mode: MarketChartMode): ResearchState {
   try {
@@ -281,13 +321,6 @@ export function Market() {
   const [loadState, setLoadState] = useState<AsyncState>('loading');
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
-  const [quickState, setQuickState] = useState<AsyncState>('idle');
-  const [quickSummaries, setQuickSummaries] = useState<Record<MarketChartMode, string>>(() => ({
-    china: window.localStorage.getItem(summaryStorageKey('china')) || '',
-    hongkong: window.localStorage.getItem(summaryStorageKey('hongkong')) || '',
-    us: window.localStorage.getItem(summaryStorageKey('us')) || '',
-    crypto: window.localStorage.getItem(summaryStorageKey('crypto')) || '',
-  }));
   const [regionalRotations, setRegionalRotations] = useState<Partial<Record<MarketChartMode, MarketRotation>>>({});
   const [rotationLoadState, setRotationLoadState] = useState<AsyncState>('idle');
   const [rotationError, setRotationError] = useState('');
@@ -578,7 +611,6 @@ export function Market() {
     return regionalRotations[activeMarket];
   }, [activeIndices, activeMarket, data, regionalRotations]);
   const activeResearch = research[activeMarket];
-  const activeSummary = quickSummaries[activeMarket];
 
   useEffect(() => {
     if (activeMarket === 'china' || activeMarket === 'crypto') {
@@ -610,17 +642,26 @@ export function Market() {
     return () => controller.abort();
   }, [activeMarket, rotationReloadKey]);
 
-  const runVibeResearch = async () => {
+  const runVibeResearch = async (target: ResearchTarget) => {
     if (!data || activeResearch.running || activeResearch.connecting) return;
     const settings = loadIntegrationSettings();
     if (Boolean(settings.ai.apiKey.trim()) !== Boolean(settings.ai.model.trim())) {
       setActionMessage('请从右上角头像进入“设置”，同时填写 AI API Key 和模型名称。');
       return;
     }
-    const prompt = buildDeepResearchPrompt(data, activeMarket);
+    let valuationContext: ValuationResearchContext | undefined;
+    if (activeMarket === 'china') {
+      try {
+        valuationContext = await requestJson<ValuationResearchContext>('/api/china-valuation-temperature');
+      } catch {
+        // Vibe will retrieve valuation evidence itself when the local snapshot is unavailable.
+      }
+    }
+    const prompt = buildDeepResearchPrompt(data, activeMarket, target, valuationContext);
     setActionMessage('');
     updateResearch(activeMarket, () => ({
       ...EMPTY_RESEARCH,
+      targetLabel: target.kind === 'market' ? `${MARKET_META[activeMarket].short}整体` : target.name,
       connecting: true,
       running: true,
       updatedAt: new Date().toISOString(),
@@ -652,31 +693,6 @@ export function Market() {
     }
   };
 
-  const runQuickSummary = async () => {
-    if (!data || quickState === 'loading') return;
-    const settings = loadIntegrationSettings();
-    if (!settings.ai.apiKey || !settings.ai.model) {
-      setActionMessage('请先在右上角头像 → 设置中填写 AI API Key 和模型。');
-      return;
-    }
-    setQuickState('loading');
-    setActionMessage('');
-    try {
-      const payload = await requestJson<{ text: string }>('/api/ai-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildAiPayload(settings, buildQuickSummaryPrompt(data, activeMarket))),
-      });
-      const summary = payload.text || '模型没有返回内容。';
-      setQuickSummaries((current) => ({ ...current, [activeMarket]: summary }));
-      window.localStorage.setItem(summaryStorageKey(activeMarket), summary);
-      setQuickState('success');
-    } catch (requestError) {
-      setQuickState('error');
-      setActionMessage(requestError instanceof Error ? requestError.message : String(requestError));
-    }
-  };
-
   const saveToObsidian = async () => {
     if (!data) return;
     const settings = loadIntegrationSettings();
@@ -693,7 +709,7 @@ export function Market() {
           vaultPath: settings.obsidian.vaultPath,
           folder: settings.obsidian.folder,
           title: `${MARKET_META[activeMarket].short} 每日策略报告`,
-          markdown: buildMarketMarkdown(data, activeMarket, activeResearch.report, activeSummary),
+          markdown: buildMarketMarkdown(data, activeMarket, activeResearch.report),
         }),
       });
       setActionMessage(`已写入 Obsidian：${payload.relativePath}`);
@@ -885,7 +901,7 @@ export function Market() {
                   mode={activeMarket}
                   data={data}
                   state={activeResearch}
-                  onRun={() => void runVibeResearch()}
+                  onRun={(target) => void runVibeResearch(target)}
                 />
               </div>
 
@@ -956,39 +972,14 @@ export function Market() {
                 <ResearchBoard items={data.reports} />
               </div>
 
-              <section className="mt-8 border-y border-white/10 py-7">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                  <SectionHeading eyebrow="Daily Brief" title={`${MARKET_META[activeMarket].short}今日简报`} icon={<Newspaper size={15} />} />
-                  <button
-                    type="button"
-                    onClick={() => void runQuickSummary()}
-                    disabled={quickState === 'loading'}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#69d5ff]/30 bg-[#69d5ff]/8 px-4 text-xs font-semibold text-[#b8edff] transition hover:bg-[#69d5ff]/14 disabled:cursor-wait disabled:opacity-55"
-                  >
-                    {quickState === 'loading' ? <LoaderCircle size={15} className="animate-spin" /> : <Bot size={15} />}
-                    {activeSummary ? '更新今日简报' : '生成今日简报'}
-                  </button>
-                </div>
-                <div className="mt-4 min-h-[150px] border-l-2 border-[#69d5ff]/35 bg-white/[0.025] px-5 py-4">
-                  {activeSummary ? (
-                    <MarkdownContent content={activeSummary} tone="dark" />
-                  ) : (
-                    <p className="text-sm leading-7 text-white/38">
-                      {activeMarket === 'crypto'
-                        ? '根据主要币种、24 小时波动、市场新闻与 Vibe 主动检索结果生成简洁的加密市场总结。'
-                        : '根据指数、板块资金、中文新闻与公开研报生成简洁的当日市场总结。'}
-                    </p>
-                  )}
-                </div>
-              </section>
-
-              <MarketReport
-                ref={reportRef}
-                data={data}
-                mode={activeMarket}
-                deepReport={activeResearch.report}
-                quickSummary={activeSummary}
-              />
+              <div ref={reportRef}>
+                {activeMarket === 'china' ? <MarketTemperaturePanel /> : null}
+                <MarketReport
+                  data={data}
+                  mode={activeMarket}
+                  deepReport={activeResearch.report}
+                />
+              </div>
 
               <SourceBoard sources={data.sources} disclaimer={data.summary.disclaimer} />
             </motion.div>
@@ -1008,10 +999,37 @@ function VibeResearchPanel({
   mode: MarketChartMode;
   data: MarketIntelligence;
   state: ResearchState;
-  onRun: () => void;
+  onRun: (target: ResearchTarget) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [researchKind, setResearchKind] = useState<ResearchTarget['kind']>('market');
+  const [sectorName, setSectorName] = useState('');
   const running = state.running || state.connecting;
+  const sectorSuggestions = useMemo(() => {
+    const regionalDefaults: Record<MarketChartMode, string[]> = {
+      china: [],
+      hongkong: ['互联网科技', '金融', '医药', '消费', '地产', '央企红利'],
+      us: ['大型科技', '半导体', '金融', '医疗', '能源', '工业', '必需消费', '可选消费'],
+      crypto: ['Bitcoin', 'Ethereum', 'DeFi', 'Layer 2', 'AI 加密资产'],
+    };
+    const liveSectors = mode === 'china'
+      ? [...data.sectors.leaders, ...data.sectors.laggards].map((item) => item.name)
+      : [];
+    return [...new Set([...liveSectors, ...regionalDefaults[mode]])].slice(0, 16);
+  }, [data.sectors.laggards, data.sectors.leaders, mode]);
+  const requestedTarget: ResearchTarget = researchKind === 'market'
+    ? { kind: 'market', name: MARKET_META[mode].short }
+    : { kind: 'sector', name: sectorName.trim() };
+  const targetActionLabel = requestedTarget.kind === 'sector' && requestedTarget.name
+    ? `${requestedTarget.name}板块`
+    : `${MARKET_META[mode].short}整体`;
+  const canRun = !running && (requestedTarget.kind === 'market' || Boolean(requestedTarget.name));
+
+  useEffect(() => {
+    setResearchKind('market');
+    setSectorName('');
+  }, [mode]);
+
   return (
     <aside className="flex min-h-[650px] flex-col border border-white/10 bg-[#090a0c]">
       <div className="border-b border-white/10 px-5 py-5">
@@ -1020,7 +1038,10 @@ function VibeResearchPanel({
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-[#75e6b1]">
               <Bot size={14} /> Vibe-Trading Research
             </div>
-            <h2 className="mt-2 text-xl font-semibold">{MARKET_META[mode].short}深度判断</h2>
+            <h2 className="mt-2 text-xl font-semibold">通用市场估值研究</h2>
+            <p className="mt-1 text-[11px] text-white/36">
+              {state.targetLabel ? `最近研究：${state.targetLabel}` : `当前市场：${MARKET_META[mode].short}`}
+            </p>
           </div>
           <span className="border border-white/10 px-2 py-1 font-mono text-xs text-white/48">{data.summary.score}/100</span>
         </div>
@@ -1030,14 +1051,72 @@ function VibeResearchPanel({
           <Metric label="风险状态" value={data.summary.riskLevel} />
           <Metric label={mode === 'crypto' ? '估值代理' : '指数 PE'} value="研究核验" />
         </div>
+
+        <div className="mt-4 border border-white/10 bg-black/20 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/34">研究对象</p>
+          <div className="mt-2 grid grid-cols-2 gap-px bg-white/10">
+            <button
+              type="button"
+              onClick={() => setResearchKind('market')}
+              disabled={running}
+              aria-pressed={researchKind === 'market'}
+              className={`inline-flex h-9 items-center justify-center gap-2 text-xs font-semibold transition ${
+                researchKind === 'market'
+                  ? 'bg-[#75e6b1]/12 text-[#b8f5d7]'
+                  : 'bg-[#090a0c] text-white/46 hover:text-white/75'
+              }`}
+            >
+              <Landmark size={13} /> 整体市场
+            </button>
+            <button
+              type="button"
+              onClick={() => setResearchKind('sector')}
+              disabled={running}
+              aria-pressed={researchKind === 'sector'}
+              className={`inline-flex h-9 items-center justify-center gap-2 text-xs font-semibold transition ${
+                researchKind === 'sector'
+                  ? 'bg-[#75e6b1]/12 text-[#b8f5d7]'
+                  : 'bg-[#090a0c] text-white/46 hover:text-white/75'
+              }`}
+            >
+              <Building2 size={13} /> 指定板块
+            </button>
+          </div>
+          {researchKind === 'sector' ? (
+            <>
+              <input
+                type="text"
+                value={sectorName}
+                onChange={(event) => setSectorName(event.target.value)}
+                disabled={running}
+                list={`market-sector-suggestions-${mode}`}
+                placeholder={mode === 'crypto' ? '输入币种或赛道，例如 Ethereum' : '输入板块，例如 半导体、银行、白酒'}
+                className="mt-2 h-10 w-full border border-white/12 bg-[#08090b] px-3 text-xs text-white outline-none transition placeholder:text-white/24 focus:border-[#75e6b1]/45"
+                aria-label="输入研究板块"
+              />
+              <datalist id={`market-sector-suggestions-${mode}`}>
+                {sectorSuggestions.map((item) => <option key={item} value={item} />)}
+              </datalist>
+            </>
+          ) : null}
+        </div>
+
         <button
           type="button"
-          onClick={onRun}
-          disabled={running}
+          onClick={() => onRun(requestedTarget)}
+          disabled={!canRun}
           className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-[#75e6b1]/35 bg-[#75e6b1]/10 px-4 text-sm font-semibold text-[#b8f5d7] transition hover:bg-[#75e6b1]/16 disabled:cursor-wait disabled:opacity-55"
         >
           {running ? <LoaderCircle size={16} className="animate-spin" /> : <Radar size={16} />}
-          {state.connecting ? '正在连接研究引擎' : state.running ? '正在执行深度研究' : state.report ? '重新研究当前市场' : '启动 Vibe 深度研究'}
+          {state.connecting
+            ? '正在连接研究引擎'
+            : state.running
+              ? `正在研究${state.targetLabel || '市场'}`
+              : state.report
+                ? `重新研究${targetActionLabel}`
+                : researchKind === 'sector'
+                  ? `研究${targetActionLabel}`
+                  : `研究${targetActionLabel}`}
         </button>
       </div>
 
@@ -1083,12 +1162,12 @@ function VibeResearchPanel({
             <p>
               {mode === 'crypto'
                 ? '研究将主动检索币价趋势、ETF 与稳定币资金、合约杠杆、链上指标及监管事件，并把事实、推断和缺失证据分开呈现。'
-                : '研究将主动检索大盘走势、新闻、板块资金、券商观点与指数估值口径，并把事实、推断和缺失证据分开呈现。'}
+                : '研究将主动检索整体或指定板块的估值、基本面、技术趋势、均线状态、资金与重要事件，并把事实、推断和缺失证据分开呈现。'}
             </p>
             <ul className="space-y-2 border-l border-white/12 pl-4">
-              <li>综合判断：趋势、广度、流动性与事件风险</li>
-              <li>{mode === 'crypto' ? '周期判断：估值代理、杠杆拥挤与链上活跃度' : '估值判断：高估风险、低估机会与历史区间'}</li>
-              <li>执行观察：关键点位、触发条件与失效条件</li>
+              <li>一眼结论：高估、合理、低估或证据不足</li>
+              <li>双层表达：先说人话，再给专业估值与基本面依据</li>
+              <li>长期行动：是否适合买入、分批节奏与主要风险</li>
             </ul>
           </div>
         )}
@@ -1369,8 +1448,7 @@ const MarketReport = forwardRef<HTMLDivElement, {
   data: MarketIntelligence;
   mode: MarketChartMode;
   deepReport: string;
-  quickSummary: string;
-}>(function MarketReport({ data, mode, deepReport, quickSummary }, ref) {
+}>(function MarketReport({ data, mode, deepReport }, ref) {
   const indices = data.indices.filter((item) => item.market === mode);
   return (
     <section ref={ref} className="mt-9 overflow-hidden bg-[#f3f0e7] text-[#0a2038] shadow-[0_26px_100px_rgba(0,0,0,0.38)]">
@@ -1425,10 +1503,6 @@ const MarketReport = forwardRef<HTMLDivElement, {
         <div className="mt-8">
           <ReportHeading index="02" title="Vibe-Trading 深度判断" />
           {deepReport ? <MarkdownContent content={deepReport} tone="report" /> : <ReportPlaceholder text="尚未运行深度研究。报告不会用静态文案替代 AI 结论。" />}
-        </div>
-        <div className="mt-8">
-          <ReportHeading index="03" title="今日简报" />
-          {quickSummary ? <MarkdownContent content={quickSummary} tone="report" /> : <ReportPlaceholder text="尚未生成今日简报。" />}
         </div>
         <div className="mt-8 border-t border-[#0a2038]/20 pt-5 text-[10px] leading-5 text-[#0a2038]/55">
           <strong className="text-[#0a2038]">风险声明：</strong>{data.summary.disclaimer}
@@ -1580,11 +1654,24 @@ function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
-function buildDeepResearchPrompt(data: MarketIntelligence, mode: MarketChartMode) {
+function buildDeepResearchPrompt(
+  data: MarketIntelligence,
+  mode: MarketChartMode,
+  target: ResearchTarget,
+  valuationContext?: ValuationResearchContext,
+) {
   const indices = data.indices
     .filter((item) => item.market === mode)
     .map(({ name, price, changePercent, updatedAt, validation, proxyFor }) => ({ name, price, changePercent, updatedAt, validation, proxyFor }));
+  const matchedIndustry = target.kind === 'sector'
+    ? valuationContext?.industries.find((item) => (
+        item.name.includes(target.name) || target.name.includes(item.name)
+      ))
+    : undefined;
   const evidence = {
+    researchTarget: target.kind === 'market'
+      ? `${MARKET_META[mode].short}整体市场`
+      : `${MARKET_META[mode].short} · ${target.name}`,
     market: MARKET_META[mode].label,
     generatedAt: data.generatedAt,
     indices,
@@ -1594,6 +1681,16 @@ function buildDeepResearchPrompt(data: MarketIntelligence, mode: MarketChartMode
     chineseNews: data.news.slice(0, 8).map(({ title, source, publishedAt, url, weight }) => ({ title, source, publishedAt, url, weight })),
     brokerReports: data.reports.slice(0, 6).map(({ title, stockName, institution, publishedAt, rating, url }) => ({ title, stockName, institution, publishedAt, rating, url })),
     sourceStatus: data.sources.map(({ id, provider, ok, note }) => ({ id, provider, ok, note })),
+    localValuationSnapshot: valuationContext
+      ? {
+          methodology: valuationContext.methodology,
+          periodLabel: valuationContext.periodLabel,
+          overall: valuationContext.overall,
+          majorMarkets: valuationContext.markets,
+          matchedIndustry,
+          allMarketMedianPb: valuationContext.bookValueAnchor?.current,
+        }
+      : undefined,
   };
   const modeInstruction =
     mode === 'crypto'
@@ -1602,47 +1699,30 @@ function buildDeepResearchPrompt(data: MarketIntelligence, mode: MarketChartMode
         ? '注意：下方板块净流入是 A 股数据，只能作为亚洲时段风险偏好交叉参考，不得冒充美股板块资金；请自行检索美股行业 ETF 或权威美股资金流数据。MAGS 是 Magnificent 7 ETF 代理，不是官方七巨头指数。'
         : mode === 'hongkong'
           ? '注意：仅聚焦港股，重点覆盖恒生指数、恒生科技指数、行业轮动、南向资金、港元流动性与重要公司事件。下方 A 股板块资金和券商研报只能作为跨市场参考，不得冒充港股资金流。'
-          : '注意：仅聚焦 A 股，覆盖主要指数、行业轮动、市场资金、政策驱动与重要公司事件，不要混入港股市场结论。';
+          : '注意：仅聚焦 A 股，覆盖主要指数、行业轮动、市场资金、政策驱动与重要公司事件，不要混入港股市场结论。前端“温度”仅代表近500日相对分位，PB均值回归的变化仅相对区间起点，不可直接当作绝对高估或低估。';
+  const targetInstruction = target.kind === 'market'
+    ? '研究对象是整体市场。必须同时评价宽基指数估值、市场内部板块分化、盈利周期、流动性和风险溢价，不能用单一指数或少数热门板块代表全市场。'
+    : `研究对象是“${target.name}”板块。必须分析该板块整体而非只挑一家公司，并与整体市场、同类板块及自身历史估值比较；说明板块内部龙头与普通公司的估值分化。`;
   const prompt = [
-    `你是 Vibe-Trading 的中文机构市场策略研究员。请研究“${MARKET_META[mode].label}”，最终输出精美、可直接发布的中文 Markdown 策略报告。`,
+    `你是 Vibe-Trading 的中文机构市场策略研究员。请研究“${evidence.researchTarget}”，面向以3年以上持有为主、不是短线交易者的用户，输出专业但小白也能读懂的中文 Markdown 报告。`,
+    targetInstruction,
     mode === 'crypto'
       ? '先使用可用研究工具主动获取主要币种价格、市场总市值与主导率、现货和衍生品资金、ETF 流量、链上指标、重要新闻与监管事件。不要只复述下方快照。'
-      : '先使用可用研究工具主动获取当前大盘、主要指数、板块资金流入流出、最近重要新闻、券商或权威机构观点，以及指数 PE/PB、历史分位等估值信息。不要只复述下方快照。',
-    '严格区分：已核验事实、合理推断、待核验信息。任何 PE、资金净流入金额、点位和新闻都必须注明日期与来源；没有可靠数据就明确写“未取得可靠口径”，不得编造。',
-    '报告开头先给出“执行摘要”与综合结论：偏多/中性/偏空、风险等级、估值状态（高估/合理/低估/证据不足）、最重要机会与最大风险。',
-    '随后按以下结构输出：1. 指数与市场广度；2. 估值与历史分位；3. 板块资金流；4. 新闻与研报交叉验证；5. 高估风险或低估机会；6. 未来 1-5 个交易日的三种情景；7. 关键观察点位与失效条件；8. 数据缺口与风险声明。',
+      : '先主动获取最新价格与指数走势、PE/PB/PS/股息率及历史分位、盈利增速、ROE、利润率、自由现金流、资产负债质量、行业周期、资金流、重要新闻和权威机构观点。不要只复述前端快照。',
+    '技术面必须覆盖日线与周线趋势、20/60/120/250日均线的位置和方向、成交量、重要支撑压力与趋势失效条件。技术面只用于判断长期资金的入场节奏，不得把短期形态冒充长期投资逻辑。',
+    '严格区分“已核验事实 / 合理推断 / 数据缺口”。所有估值、盈利、资金、点位和新闻必须注明数据日期与来源；至少使用两种估值口径交叉验证。没有可靠数据就写“证据不足”，不得编造。',
+    '报告最开头必须先给出一个醒目的“一眼结论”表格，固定包含：估值状态（只能选低估/合理/偏高/高估/证据不足）、长期基本面（改善/稳定/转弱/证据不足）、技术趋势（上行/震荡/下行）、当前行动（适合分批/等待更好价格/继续持有观察/暂不参与）、结论置信度。紧接着用三句大白话解释“为什么、现在能不能买、买了最需要担心什么”。',
+    '正文按以下结构输出：1. 一眼结论；2. 当前价格到底贵不贵（历史、横向、盈利质量三重比较）；3. 基本面与长期价值；4. 技术面与均线策略；5. 资金、新闻与研报交叉验证；6. 长期投资者操作建议；7. 风险清单与判断失效条件；8. 数据来源与缺口。',
+    '“长期投资者操作建议”必须回答：现在一次性买入是否合适、是否应分批、什么条件下增加投入、什么情况下停止买入或重新评估、可能承受的主要回撤来源。建议只能作为通用研究框架，不得假定用户的资产、收入或风险承受能力。',
+    '同时照顾两类读者：每个专业结论先用一句通俗中文说明，再补充指标与证据；首次出现 PE、PB、ROE、均线等术语时，用括号解释它在本报告中的意义。',
     modeInstruction,
-    '不要给确定收益承诺，不要把规则评分当成事实。报告末尾给出明确但克制的观察建议。',
+    '不要给确定收益承诺，不要提供日内交易指令，不要把规则评分或单一温度当成事实。最终结论允许“结构性偏热但整体合理”等分化判断，不得为了简单而强行二选一。',
     `前端已核验快照：\n${JSON.stringify(evidence, null, 2)}`,
   ].join('\n\n');
   return prompt.slice(0, 4950);
 }
 
-function buildQuickSummaryPrompt(data: MarketIntelligence, mode: MarketChartMode) {
-  const evidence = {
-    market: MARKET_META[mode].label,
-    generatedAt: data.generatedAt,
-    indices: data.indices.filter((item) => item.market === mode).map(({ name, price, changePercent, proxyFor }) => ({ name, price, changePercent, proxyFor })),
-    breadth: data.breadth,
-    sectorLeaders: data.sectors.leaders.slice(0, 4),
-    sectorLaggards: data.sectors.laggards.slice(0, 4),
-    news: data.news.slice(0, 6).map(({ title, source, publishedAt }) => ({ title, source, publishedAt })),
-  };
-  return [
-    `请基于下方已提供证据，为“${MARKET_META[mode].label}”输出中文 Markdown 今日简报。`,
-    '只写四部分：一句话结论、指数表现、资金与新闻、明日观察。控制在 450 字以内。事实与推断分开；不得补写未提供的数据。',
-    mode === 'crypto'
-      ? 'A 股板块资金只能作为传统风险偏好参考，不得写成加密货币资金流；加密市场按 24 小时口径表述。'
-      : mode === 'us'
-        ? 'A 股板块资金只能作为跨市场参考，不得写成美股资金流。'
-        : mode === 'hongkong'
-          ? '页面中的 A 股板块资金流与个股大单仅可作为跨市场参考，不得写成港股资金流。'
-          : '聚焦 A 股市场，不要混入港股市场结论。',
-    JSON.stringify(evidence, null, 2),
-  ].filter(Boolean).join('\n\n');
-}
-
-function buildMarketMarkdown(data: MarketIntelligence, mode: MarketChartMode, deepReport: string, quickSummary: string) {
+function buildMarketMarkdown(data: MarketIntelligence, mode: MarketChartMode, deepReport: string) {
   const indices = data.indices.filter((item) => item.market === mode);
   return [
     `# ${MARKET_META[mode].short}每日策略报告`,
@@ -1658,10 +1738,6 @@ function buildMarketMarkdown(data: MarketIntelligence, mode: MarketChartMode, de
     '## Vibe-Trading 深度判断',
     '',
     deepReport || '尚未运行深度研究。',
-    '',
-    '## 今日简报',
-    '',
-    quickSummary || '尚未生成今日简报。',
     '',
     '## 风险声明',
     '',

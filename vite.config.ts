@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, readFileSync } from 'node:fs';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { createServer as createNetServer } from 'node:net';
@@ -160,6 +161,56 @@ type InvestorLens = {
   confidence: '高' | '中' | '低';
   read: string;
   watch: string;
+};
+
+type ValuationTemperatureRow = {
+  TRADE_DATE?: string;
+  PE_TTM_AVG?: number | string;
+  PE_TTM?: number | string;
+  PB_MRQ?: number | string;
+  CLOSE_PRICE?: number | string;
+  BOARD_CODE?: string;
+  BOARD_NAME?: string;
+  ORIGINALCODE?: string;
+  TOTAL_MARKET_CAP?: number | string;
+};
+
+type ValuationTemperaturePoint = {
+  time: string;
+  value: number;
+};
+
+type ValuationTemperatureItem = {
+  id: string;
+  name: string;
+  code: string;
+  category: 'market' | 'industry';
+  temperature: number;
+  temperatureDelta: number;
+  zone: 'low' | 'fair' | 'high';
+  zoneLabel: string;
+  currentPe: number;
+  currentPb?: number;
+  sampleSize: number;
+  updatedAt: string;
+  marketCap?: number;
+  history?: ValuationTemperaturePoint[];
+};
+
+type MarketCandle = {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
+type AllMarketPbRow = {
+  date?: string;
+  middlePB?: number | string;
+  equalWeightAveragePB?: number | string;
+  close?: number | string;
 };
 
 function sendJson(res: ViteDevServer['middlewares'] extends infer _ ? any : never, status: number, payload: unknown) {
@@ -452,6 +503,14 @@ const marketIndexConfigs = [
   { id: 'sox', secid: '251.SOX', tencent: 'usSOX', name: '费城半导体', region: 'US' as const, market: 'us' as const, weight: 0.07 },
 ];
 
+const chinaValuationMarketConfigs = [
+  { id: 'csi300', marketCode: '000300', ticker: 'sh000300', name: '沪深300', chartName: '沪深300' },
+  { id: 'sh-main', marketCode: '000001', ticker: 'sh000001', name: '沪市主板', chartName: '上证指数' },
+  { id: 'sz-main', marketCode: '399001', ticker: 'sz399001', name: '深市主板', chartName: '深证成指' },
+  { id: 'chinext', marketCode: '399006', ticker: 'sz399006', name: '创业板', chartName: '创业板指' },
+  { id: 'star-market', marketCode: '000688', ticker: 'sh000688', name: '科创板', chartName: '科创50' },
+];
+
 const cryptoAssetConfigs = [
   { id: 'bitcoin', symbol: 'BTC', binance: 'BTCUSDT', name: '比特币' },
   { id: 'ethereum', symbol: 'ETH', binance: 'ETHUSDT', name: '以太坊' },
@@ -469,6 +528,420 @@ function asFiniteNumber(value: unknown) {
 function round(value: number, digits = 2) {
   const scale = 10 ** digits;
   return Math.round(value * scale) / scale;
+}
+
+function dataCenterUrl(reportName: string, params: Record<string, string | number>) {
+  const search = new URLSearchParams({
+    reportName,
+    columns: 'ALL',
+    source: 'WEB',
+    client: 'WEB',
+  });
+  Object.entries(params).forEach(([key, value]) => search.set(key, String(value)));
+  return `https://datacenter-web.eastmoney.com/api/data/v1/get?${search.toString()}`;
+}
+
+function dateOnly(value?: string) {
+  return String(value || '').slice(0, 10);
+}
+
+function percentileRank(values: number[], current: number) {
+  const clean = values.filter((value) => Number.isFinite(value) && value > 0);
+  if (!clean.length || !Number.isFinite(current) || current <= 0) return 50;
+  const lower = clean.filter((value) => value < current).length;
+  const equal = clean.filter((value) => value === current).length;
+  return (lower + equal * 0.5) / clean.length * 100;
+}
+
+function temperatureZone(temperature: number) {
+  if (temperature < 30) return { zone: 'low' as const, zoneLabel: '偏冷 · 近两年低位' };
+  if (temperature < 70) return { zone: 'fair' as const, zoneLabel: '适中 · 近两年中位' };
+  return { zone: 'high' as const, zoneLabel: '偏热 · 近两年高位' };
+}
+
+function buildValuationTemperature(
+  config: { id: string; name: string; code: string; category: 'market' | 'industry'; marketCap?: number },
+  rows: ValuationTemperatureRow[],
+  includeHistory = false,
+): ValuationTemperatureItem | undefined {
+  const ordered = [...rows]
+    .filter((row) => dateOnly(row.TRADE_DATE))
+    .sort((left, right) => dateOnly(left.TRADE_DATE).localeCompare(dateOnly(right.TRADE_DATE)));
+  if (!ordered.length) return undefined;
+
+  const peValues = ordered.map((row) => asFiniteNumber(row.PE_TTM_AVG ?? row.PE_TTM)).filter((value): value is number => value !== undefined && value > 0);
+  const pbValues = ordered.map((row) => asFiniteNumber(row.PB_MRQ)).filter((value): value is number => value !== undefined && value > 0);
+  const temperatureFor = (row: ValuationTemperatureRow) => {
+    const pe = asFiniteNumber(row.PE_TTM_AVG ?? row.PE_TTM);
+    const pb = asFiniteNumber(row.PB_MRQ);
+    const peRank = pe !== undefined && pe > 0 ? percentileRank(peValues, pe) : undefined;
+    const pbRank = pb !== undefined && pb > 0 ? percentileRank(pbValues, pb) : undefined;
+    if (peRank !== undefined && pbRank !== undefined) return peRank * 0.6 + pbRank * 0.4;
+    return peRank ?? pbRank ?? 50;
+  };
+
+  const current = ordered.at(-1)!;
+  const currentPe = asFiniteNumber(current.PE_TTM_AVG ?? current.PE_TTM);
+  if (currentPe === undefined || currentPe <= 0) return undefined;
+  const currentTemperature = Math.max(0, Math.min(100, temperatureFor(current)));
+  const comparison = ordered[Math.max(0, ordered.length - 21)];
+  const comparisonTemperature = temperatureFor(comparison);
+  const zone = temperatureZone(currentTemperature);
+  const history = includeHistory
+    ? ordered.map((row) => ({ time: dateOnly(row.TRADE_DATE), value: round(Math.max(0, Math.min(100, temperatureFor(row))), 1) }))
+    : undefined;
+
+  return {
+    ...config,
+    temperature: round(currentTemperature, 1),
+    temperatureDelta: round(currentTemperature - comparisonTemperature, 1),
+    ...zone,
+    currentPe: round(currentPe, 2),
+    currentPb: asFiniteNumber(current.PB_MRQ) ? round(asFiniteNumber(current.PB_MRQ)!, 2) : undefined,
+    sampleSize: Math.max(peValues.length, pbValues.length),
+    updatedAt: dateOnly(current.TRADE_DATE),
+    history,
+  };
+}
+
+async function getDataCenterRows(url: string) {
+  const payload = await fetchJsonWithRetry(url, 2, 15000);
+  const rows = payload?.result?.data;
+  if (!Array.isArray(rows)) throw new Error('东方财富估值数据为空');
+  return rows as ValuationTemperatureRow[];
+}
+
+async function getMarketValuationTemperature(config: typeof chinaValuationMarketConfigs[number]) {
+  const url = dataCenterUrl('RPT_VALUEMARKET', {
+    pageNumber: 1,
+    pageSize: 500,
+    sortColumns: 'TRADE_DATE',
+    sortTypes: -1,
+    filter: `(TRADE_MARKET_CODE="${config.marketCode}")`,
+  });
+  const rows = await getDataCenterRows(url);
+  return buildValuationTemperature({
+    id: config.id,
+    name: config.name,
+    code: config.marketCode,
+    category: 'market',
+  }, rows, true);
+}
+
+async function getTopIndustryTemperatures() {
+  const latestUrl = dataCenterUrl('RPT_VALUEINDUSTRY_DET', {
+    pageNumber: 1,
+    pageSize: 1,
+    sortColumns: 'TRADE_DATE',
+    sortTypes: -1,
+  });
+  const latestRows = await getDataCenterRows(latestUrl);
+  const latestDate = dateOnly(latestRows[0]?.TRADE_DATE);
+  if (!latestDate) throw new Error('未取得行业估值日期');
+
+  const currentUrl = dataCenterUrl('RPT_VALUEINDUSTRY_DET', {
+    pageNumber: 1,
+    pageSize: 500,
+    sortColumns: 'TOTAL_MARKET_CAP',
+    sortTypes: -1,
+    filter: `(TRADE_DATE='${latestDate}')`,
+  });
+  const currentRows = await getDataCenterRows(currentUrl);
+  const priority = new Map([['半导体', 0], ['银行Ⅱ', 1]]);
+  const selected = currentRows
+    .filter((row) => row.BOARD_CODE && row.BOARD_NAME && (asFiniteNumber(row.PE_TTM) || asFiniteNumber(row.PB_MRQ)))
+    .sort((left, right) => {
+      const leftPriority = priority.get(String(left.BOARD_NAME));
+      const rightPriority = priority.get(String(right.BOARD_NAME));
+      if (leftPriority !== undefined || rightPriority !== undefined) {
+        return (leftPriority ?? 100) - (rightPriority ?? 100);
+      }
+      return (asFiniteNumber(right.TOTAL_MARKET_CAP) || 0) - (asFiniteNumber(left.TOTAL_MARKET_CAP) || 0);
+    })
+    .slice(0, 10);
+
+  const results = await Promise.allSettled(selected.map(async (row) => {
+    const boardCode = String(row.BOARD_CODE);
+    const historyUrl = dataCenterUrl('RPT_VALUEINDUSTRY_DET', {
+      pageNumber: 1,
+      pageSize: 500,
+      sortColumns: 'TRADE_DATE',
+      sortTypes: -1,
+      filter: `(BOARD_CODE="${boardCode}")`,
+    });
+    const historyRows = await getDataCenterRows(historyUrl);
+    return buildValuationTemperature({
+      id: `industry-${boardCode}`,
+      name: String(row.BOARD_NAME).replace(/Ⅱ$/, ''),
+      code: boardCode,
+      category: 'industry',
+      marketCap: asFiniteNumber(row.TOTAL_MARKET_CAP),
+    }, historyRows);
+  }));
+  return results.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : []);
+}
+
+async function getTencentMarketCandles(ticker: string, count = 500) {
+  const search = new URLSearchParams({ param: `${ticker},day,,,${count},qfq` });
+  const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?${search.toString()}`;
+  const payload = await fetchJsonWithRetry(url, 2, 15000);
+  const record = payload?.data?.[ticker];
+  const rows = record?.qfqday || record?.day;
+  if (!Array.isArray(rows)) throw new Error(`腾讯证券 ${ticker} 日 K 数据为空`);
+  const candles = rows.flatMap((row: unknown) => {
+    if (!Array.isArray(row) || row.length < 6) return [];
+    const [time, open, close, high, low, volume] = row;
+    const values = [open, high, low, close, volume].map(Number);
+    if (!String(time) || values.some((value) => !Number.isFinite(value))) return [];
+    return [{
+      time: String(time),
+      open: values[0],
+      high: values[1],
+      low: values[2],
+      close: values[3],
+      volume: values[4],
+    } satisfies MarketCandle];
+  });
+  return { url, candles };
+}
+
+function median(values: number[]) {
+  const ordered = [...values].filter(Number.isFinite).sort((left, right) => left - right);
+  if (!ordered.length) return 0;
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2
+    ? ordered[middle]
+    : (ordered[middle - 1] + ordered[middle]) / 2;
+}
+
+async function getAllMarketPbHistory() {
+  const pageUrl = 'https://legulegu.com/stockdata/all-pb';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const pageResponse = await fetch(pageUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 SparkFlow local research console',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    });
+    if (!pageResponse.ok) throw new Error(`全A市净率页面 HTTP ${pageResponse.status}`);
+    const html = await pageResponse.text();
+    const csrf = html.match(/<meta\s+name="_csrf"\s+content="([^"]+)"/i)?.[1];
+    if (!csrf) throw new Error('全A市净率 CSRF 令牌缺失');
+
+    const setCookies = (pageResponse.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.()
+      || [pageResponse.headers.get('set-cookie') || ''];
+    const cookie = setCookies
+      .flatMap((value) => value.split(/,(?=[^;,]+=)/))
+      .map((value) => value.split(';')[0]?.trim())
+      .filter(Boolean)
+      .join('; ');
+    const shanghaiDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const token = createHash('md5').update(shanghaiDate).digest('hex');
+    const apiUrl = new URL('https://legulegu.com/api/stock-data/market-index-pb');
+    apiUrl.searchParams.set('marketId', 'ALL');
+    apiUrl.searchParams.set('token', token);
+    const dataResponse = await fetch(apiUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 SparkFlow local research console',
+        Accept: 'application/json',
+        Referer: pageUrl,
+        'X-CSRF-Token': csrf,
+        Cookie: cookie,
+      },
+    });
+    if (!dataResponse.ok) throw new Error(`全A市净率接口 HTTP ${dataResponse.status}`);
+    const payload = await dataResponse.json() as { data?: AllMarketPbRow[] };
+    if (!Array.isArray(payload.data) || !payload.data.length) throw new Error('全A市净率历史为空');
+    return {
+      sourceUrl: pageUrl,
+      rows: payload.data,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function getBookValueAnchor() {
+  const [{ sourceUrl, rows }, priceResult] = await Promise.all([
+    getAllMarketPbHistory(),
+    getTencentMarketCandles('sh000985', 2000),
+  ]);
+  const pbByDate = new Map(rows.flatMap((row) => {
+    const time = dateOnly(row.date);
+    const pb = asFiniteNumber(row.middlePB);
+    return time && pb !== undefined && pb > 0 ? [[time, pb] as const] : [];
+  }));
+  const joined = priceResult.candles.flatMap((candle) => {
+    const pb = pbByDate.get(candle.time);
+    if (pb === undefined) return [];
+    return [{
+      time: candle.time,
+      marketValue: candle.close,
+      pb,
+    }];
+  });
+  if (joined.length < 200) throw new Error('中证全指与全A市净率可对齐历史不足');
+
+  const fairPb = median(joined.map((item) => item.pb));
+  const smoothingFactor = 2 / (63 + 1);
+  let smoothedBookValue = joined[0].marketValue / joined[0].pb;
+  const points = joined.map((item, index) => {
+    const bookValue = item.marketValue / item.pb;
+    smoothedBookValue = index === 0
+      ? bookValue
+      : smoothedBookValue + smoothingFactor * (bookValue - smoothedBookValue);
+    return {
+      ...item,
+      bookValue: round(bookValue, 2),
+      anchorValue: round(smoothedBookValue * fairPb, 2),
+    };
+  });
+  const current = points.at(-1)!;
+  const pbPercentile = percentileRank(points.map((item) => item.pb), current.pb);
+  const premiumPercent = (current.marketValue / current.anchorValue - 1) * 100;
+  const status = premiumPercent >= 15
+    ? '显著高于价值锚'
+    : premiumPercent >= 5
+      ? '略高于价值锚'
+      : premiumPercent <= -15
+        ? '显著低于价值锚'
+        : premiumPercent <= -5
+          ? '略低于价值锚'
+          : '接近价值锚';
+
+  return {
+    name: '中证全指',
+    code: '000985',
+    generatedAt: new Date().toISOString(),
+    current: {
+      marketValue: round(current.marketValue, 2),
+      anchorValue: round(current.anchorValue, 2),
+      pb: round(current.pb, 2),
+      fairPb: round(fairPb, 2),
+      pbPercentile: round(pbPercentile, 1),
+      premiumPercent: round(premiumPercent, 1),
+      status,
+      updatedAt: current.time,
+    },
+    points,
+    methodology: `净资产价值锚 = 中证全指点位 ÷ 当日全A中位PB，经 63 个交易日平滑后 × ${round(fairPb, 2)}倍历史中位PB。价格高于价值锚表示PB高于历史中枢，低于价值锚则相反。`,
+    sources: [
+      { label: '中证全指行情 · 腾讯证券', url: priceResult.url },
+      { label: '全A中位市净率 · 乐咕乐股', url: sourceUrl },
+      { label: '中证全指说明 · 中证指数', url: 'https://www.csindex.com.cn/#/indices/family/detail?indexCode=000985' },
+    ],
+  };
+}
+
+function buildCompositeMarketTemperature(markets: ValuationTemperatureItem[]) {
+  const weights = new Map([
+    ['csi300', 0.35],
+    ['sh-main', 0.25],
+    ['sz-main', 0.2],
+    ['chinext', 0.12],
+    ['star-market', 0.08],
+  ]);
+  const available = markets.filter((item) => weights.has(item.id));
+  const totalWeight = available.reduce((sum, item) => sum + (weights.get(item.id) || 0), 0);
+  if (!available.length || totalWeight <= 0) throw new Error('A股综合估值温度暂时不可用');
+  const weighted = (selector: (item: ValuationTemperatureItem) => number) => available.reduce(
+    (sum, item) => sum + selector(item) * (weights.get(item.id) || 0),
+    0,
+  ) / totalWeight;
+
+  const historyByDate = new Map<string, Array<{ value: number; weight: number }>>();
+  available.forEach((item) => {
+    const weight = weights.get(item.id) || 0;
+    item.history?.forEach((point) => {
+      const entries = historyByDate.get(point.time) || [];
+      entries.push({ value: point.value, weight });
+      historyByDate.set(point.time, entries);
+    });
+  });
+  const history = [...historyByDate.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([time, entries]) => {
+      const weight = entries.reduce((sum, entry) => sum + entry.weight, 0);
+      return {
+        time,
+        value: round(entries.reduce((sum, entry) => sum + entry.value * entry.weight, 0) / weight, 1),
+      };
+    });
+
+  const temperature = Math.max(0, Math.min(100, weighted((item) => item.temperature)));
+  return {
+    id: 'all-market',
+    name: 'A股综合',
+    code: 'CN-COMPOSITE',
+    category: 'market' as const,
+    temperature: round(temperature, 1),
+    temperatureDelta: round(weighted((item) => item.temperatureDelta), 1),
+    ...temperatureZone(temperature),
+    currentPe: round(weighted((item) => item.currentPe), 2),
+    sampleSize: Math.min(...available.map((item) => item.sampleSize)),
+    updatedAt: available.map((item) => item.updatedAt).sort().at(-1) || '',
+    history,
+  };
+}
+
+async function getChinaValuationDashboard() {
+  const [marketResult, industryResult, bookValueResult] = await Promise.all([
+    Promise.allSettled(chinaValuationMarketConfigs.map(getMarketValuationTemperature)),
+    getTopIndustryTemperatures(),
+    getBookValueAnchor().catch(() => undefined),
+  ]);
+  const markets = marketResult.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : []);
+  const overall = buildCompositeMarketTemperature(markets);
+
+  const rawCharts = chinaValuationMarketConfigs.flatMap((config) => {
+    const market = markets.find((item) => item.id === config.id);
+    if (!market) return [];
+    return [{
+      id: config.id,
+      name: `${market.name}估值温度`,
+      ticker: config.marketCode,
+      sourceUrl: 'https://data.eastmoney.com/gzfx/',
+      temperature: market.history || [],
+    }];
+  });
+  const csi300Chart = rawCharts.find((item) => item.id === 'csi300');
+  const charts = [
+    ...(csi300Chart ? [{
+      ...csi300Chart,
+      id: 'all-market',
+      name: 'A股综合估值温度',
+      temperature: overall.history,
+    }] : []),
+    ...rawCharts.filter((item) => item.id !== 'csi300'),
+  ];
+  const marketCards = [
+    overall,
+    ...markets.filter((item) => item.id !== 'csi300'),
+  ];
+
+  return {
+    generatedAt: new Date().toISOString(),
+    methodology: '温度为近 500 个交易日估值分位：A股综合温度由沪深300、沪市、深市、创业板与科创板加权；行业使用 PE 60% + PB 40%。温度越高仅表示相对估值越高，不构成买卖信号。',
+    periodLabel: '近 500 个交易日',
+    sources: [
+      { label: '东方财富 Choice 公开估值页', url: 'https://data.eastmoney.com/gzfx/' },
+      { label: '中证全指说明', url: 'https://www.csindex.com.cn/#/indices/family/detail?indexCode=000985' },
+    ],
+    overall: { ...overall, history: undefined },
+    markets: marketCards.map((item) => ({ ...item, history: undefined })),
+    industries: industryResult,
+    charts,
+    bookValueAnchor: bookValueResult,
+  };
 }
 
 async function getEquityIndexSnapshots() {
@@ -1172,6 +1645,8 @@ let hongKongHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof ge
 let hongKongHeatmapInFlight: Promise<Awaited<ReturnType<typeof getHongKongMarketHeatmap>>> | undefined;
 let usHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getUsMarketHeatmap>> } | undefined;
 let usHeatmapInFlight: Promise<Awaited<ReturnType<typeof getUsMarketHeatmap>>> | undefined;
+let chinaValuationCache: { storedAt: number; data: Awaited<ReturnType<typeof getChinaValuationDashboard>> } | undefined;
+let chinaValuationInFlight: Promise<Awaited<ReturnType<typeof getChinaValuationDashboard>>> | undefined;
 let usMarketSystemCache: {
   storedAt: number;
   data: { state: 'normal' | 'halted' | 'unknown'; message: string; updatedAt: string; sourceUrl: string };
@@ -1253,6 +1728,24 @@ async function getCachedMarketQuotes() {
       });
   }
   return marketQuotesInFlight;
+}
+
+async function getCachedChinaValuationDashboard() {
+  const now = Date.now();
+  if (chinaValuationCache && now - chinaValuationCache.storedAt < 15 * 60_000) {
+    return chinaValuationCache.data;
+  }
+  if (!chinaValuationInFlight) {
+    chinaValuationInFlight = getChinaValuationDashboard()
+      .then((data) => {
+        chinaValuationCache = { storedAt: Date.now(), data };
+        return data;
+      })
+      .finally(() => {
+        chinaValuationInFlight = undefined;
+      });
+  }
+  return chinaValuationInFlight;
 }
 
 async function getCachedCryptoMarketSnapshots() {
@@ -2158,6 +2651,11 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/china-market-heatmap') {
             sendJson(res, 200, await getCachedChinaMarketHeatmap());
+            return;
+          }
+
+          if (url.pathname === '/api/china-valuation-temperature') {
+            sendJson(res, 200, await getCachedChinaValuationDashboard());
             return;
           }
 
