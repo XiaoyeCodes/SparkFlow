@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import {
   Activity,
   ArrowUpRight,
@@ -24,10 +25,9 @@ import {
   TrendingUp,
   TriangleAlert,
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { ChinaMarketHeatmap, HongKongMarketHeatmap, UsMarketHeatmap } from '../components/ChinaMarketHeatmap';
 import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
+import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper';
 import { PageTransition } from '../components/PageTransition';
 import { TradingViewHeatmap } from '../components/TradingViewHeatmap';
 import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
@@ -316,6 +316,7 @@ function parseEvent(event: Event) {
 }
 
 export function Market() {
+  const navigate = useNavigate();
   const [activeMarket, setActiveMarket] = useState<MarketChartMode>('china');
   const [data, setData] = useState<MarketIntelligence | null>(null);
   const [loadState, setLoadState] = useState<AsyncState>('loading');
@@ -902,6 +903,7 @@ export function Market() {
                   data={data}
                   state={activeResearch}
                   onRun={(target) => void runVibeResearch(target)}
+                  onOpenAssistant={(sessionId) => navigate('/assistant', { state: { sessionId } })}
                 />
               </div>
 
@@ -977,11 +979,12 @@ export function Market() {
                 <MarketReport
                   data={data}
                   mode={activeMarket}
-                  deepReport={activeResearch.report}
+                  researchComplete={Boolean(activeResearch.report)}
                 />
               </div>
 
               <SourceBoard sources={data.sources} disclaimer={data.summary.disclaimer} />
+              <MarketDisciplineMotto />
             </motion.div>
           ) : loadState === 'loading' ? <LoadingPanel /> : null}
         </div>
@@ -995,11 +998,13 @@ function VibeResearchPanel({
   data,
   state,
   onRun,
+  onOpenAssistant,
 }: {
   mode: MarketChartMode;
   data: MarketIntelligence;
   state: ResearchState;
   onRun: (target: ResearchTarget) => void;
+  onOpenAssistant: (sessionId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [researchKind, setResearchKind] = useState<ResearchTarget['kind']>('market');
@@ -1024,6 +1029,20 @@ function VibeResearchPanel({
     ? `${requestedTarget.name}板块`
     : `${MARKET_META[mode].short}整体`;
   const canRun = !running && (requestedTarget.kind === 'market' || Boolean(requestedTarget.name));
+  const statusLabel = state.connecting
+    ? '正在连接研究引擎'
+    : state.running
+      ? '研究进行中'
+      : state.report
+        ? '研究已完成'
+        : state.error
+          ? '研究失败'
+          : '尚未开始研究';
+  const assistantActionLabel = running
+    ? '前往 AI 助手查看进度'
+    : state.report
+      ? '前往 AI 助手查看报告'
+      : '在 AI 助手中打开研究';
 
   useEffect(() => {
     setResearchKind('market');
@@ -1152,11 +1171,41 @@ function VibeResearchPanel({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-        {state.report ? (
-          <MarkdownContent content={state.report} tone="dark" />
-        ) : state.liveText ? (
-          <div className="whitespace-pre-wrap text-sm leading-7 text-white/54">{state.liveText}</div>
+      <div className="min-h-0 flex-1 px-5 py-5">
+        {state.sessionId ? (
+          <div className="flex h-full min-h-52 flex-col">
+            <div className="flex items-start gap-3 border-b border-white/10 pb-5">
+              <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
+                state.error
+                  ? 'bg-[#ff8a8a]'
+                  : running
+                    ? 'animate-pulse bg-[#d6b566]'
+                    : 'bg-[#75e6b1]'
+              }`} />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white/88">{statusLabel}</p>
+                <p className="mt-1 text-xs leading-5 text-white/38">
+                  {state.targetLabel ? `研究对象：${state.targetLabel}` : `当前市场：${MARKET_META[mode].short}`}
+                </p>
+                {state.updatedAt ? (
+                  <p className="mt-1 font-mono text-[10px] text-white/26">更新于 {formatDateTime(state.updatedAt, true)}</p>
+                ) : null}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onOpenAssistant(state.sessionId)}
+              className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 border border-[#75e6b1]/35 bg-[#75e6b1]/10 px-4 text-sm font-semibold text-[#b8f5d7] transition hover:border-[#75e6b1]/55 hover:bg-[#75e6b1]/16"
+            >
+              {running ? <LoaderCircle size={16} className="animate-spin" /> : <Bot size={16} />}
+              <span>{assistantActionLabel}</span>
+              <ArrowUpRight size={15} />
+            </button>
+            <p className="mt-3 text-center text-[11px] leading-5 text-white/30">
+              完整研究过程、引用来源与最终报告仅在 AI 助手中展示
+            </p>
+          </div>
         ) : (
           <div className="space-y-4 text-sm leading-6 text-white/42">
             <p>
@@ -1447,8 +1496,8 @@ function ResearchBoard({ items }: { items: ResearchReport[] }) {
 const MarketReport = forwardRef<HTMLDivElement, {
   data: MarketIntelligence;
   mode: MarketChartMode;
-  deepReport: string;
-}>(function MarketReport({ data, mode, deepReport }, ref) {
+  researchComplete: boolean;
+}>(function MarketReport({ data, mode, researchComplete }, ref) {
   const indices = data.indices.filter((item) => item.market === mode);
   return (
     <section ref={ref} className="mt-9 overflow-hidden bg-[#f3f0e7] text-[#0a2038] shadow-[0_26px_100px_rgba(0,0,0,0.38)]">
@@ -1502,7 +1551,11 @@ const MarketReport = forwardRef<HTMLDivElement, {
         </div>
         <div className="mt-8">
           <ReportHeading index="02" title="Vibe-Trading 深度判断" />
-          {deepReport ? <MarkdownContent content={deepReport} tone="report" /> : <ReportPlaceholder text="尚未运行深度研究。报告不会用静态文案替代 AI 结论。" />}
+          <ReportPlaceholder
+            text={researchComplete
+              ? '深度研究已完成。完整研究过程、引用来源与最终报告请前往 AI 助手查看。'
+              : '尚未运行深度研究。报告不会用静态文案替代 AI 结论。'}
+          />
         </div>
         <div className="mt-8 border-t border-[#0a2038]/20 pt-5 text-[10px] leading-5 text-[#0a2038]/55">
           <strong className="text-[#0a2038]">风险声明：</strong>{data.summary.disclaimer}
@@ -1512,34 +1565,6 @@ const MarketReport = forwardRef<HTMLDivElement, {
     </section>
   );
 });
-
-function MarkdownContent({ content, tone }: { content: string; tone: 'dark' | 'report' }) {
-  const dark = tone === 'dark';
-  return (
-    <div className={`min-w-0 text-sm leading-7 ${dark ? 'text-white/68' : 'text-[#0a2038]/82'}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          h1: ({ children }) => <h1 className={`mb-4 mt-7 text-2xl font-semibold ${dark ? 'text-white' : 'text-[#071b31]'}`}>{children}</h1>,
-          h2: ({ children }) => <h2 className={`mb-3 mt-7 border-b pb-2 text-lg font-semibold ${dark ? 'border-white/10 text-white' : 'border-[#0a2038]/15 text-[#071b31]'}`}>{children}</h2>,
-          h3: ({ children }) => <h3 className={`mb-2 mt-5 font-semibold ${dark ? 'text-white/90' : 'text-[#071b31]'}`}>{children}</h3>,
-          p: ({ children }) => <p className="my-3">{children}</p>,
-          ul: ({ children }) => <ul className="my-3 list-disc space-y-1 pl-5">{children}</ul>,
-          ol: ({ children }) => <ol className="my-3 list-decimal space-y-1 pl-5">{children}</ol>,
-          strong: ({ children }) => <strong className={dark ? 'font-semibold text-white' : 'font-semibold text-[#071b31]'}>{children}</strong>,
-          blockquote: ({ children }) => <blockquote className={`my-4 border-l-2 pl-4 ${dark ? 'border-[#69d5ff]/40 text-white/52' : 'border-[#b29552] text-[#0a2038]/65'}`}>{children}</blockquote>,
-          table: ({ children }) => <div className="my-5 overflow-x-auto"><table className="w-full min-w-[560px] border-collapse text-left text-xs">{children}</table></div>,
-          th: ({ children }) => <th className={`border px-3 py-2 font-semibold ${dark ? 'border-white/12 bg-white/[0.04] text-white' : 'border-[#0a2038]/18 bg-[#071b31]/6 text-[#071b31]'}`}>{children}</th>,
-          td: ({ children }) => <td className={`border px-3 py-2 align-top ${dark ? 'border-white/10' : 'border-[#0a2038]/15'}`}>{children}</td>,
-          a: ({ children, ...props }) => <a {...props} target="_blank" rel="noreferrer" className={dark ? 'text-[#69d5ff] underline' : 'text-[#245b86] underline'}>{children}</a>,
-          hr: () => <hr className={`my-6 ${dark ? 'border-white/10' : 'border-[#0a2038]/15'}`} />,
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  );
-}
 
 function SourceBoard({ sources, disclaimer }: { sources: MarketIntelligence['sources']; disclaimer: string }) {
   return (
@@ -1559,6 +1584,47 @@ function SourceBoard({ sources, disclaimer }: { sources: MarketIntelligence['sou
         ))}
       </div>
       <p className="mt-4 text-xs leading-5 text-white/28">{disclaimer}</p>
+    </section>
+  );
+}
+
+function MarketDisciplineMotto() {
+  return (
+    <section
+      aria-labelledby="market-discipline-title"
+      className="mt-12 border-y border-[#d6b566]/25 bg-[#d6b566]/[0.025]"
+    >
+      <div className="grid gap-7 px-5 py-8 sm:px-7 sm:py-10 lg:grid-cols-[230px_1fr] lg:gap-10 lg:px-9">
+        <div className="border-b border-[#d6b566]/20 pb-6 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-9">
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#d6b566]">
+            <ShieldCheck size={15} /> Market Discipline
+          </div>
+          <h2 id="market-discipline-title" className="mt-3 text-xl font-semibold text-white">
+            永恒的风险提醒
+          </h2>
+          <p className="mt-3 text-xs leading-5 text-white/34">
+            先求生存，再谈收益。仓位、杠杆与谦逊，是穿越周期的底线。
+          </p>
+        </div>
+
+        <blockquote className="min-w-0">
+          <p className="text-sm leading-7 text-white/62 sm:text-[15px] sm:leading-8">
+            先算失败的后果，再算成功的收益。即便某笔交易拥有60%对40%的胜率优势，一旦违背凯利公式进行过度下注，在长期的方差波动下，最终结果必然是资金归零。无论交易员的个人才华多么出众，一旦无视仓位管理与杠杆风险，市场将会让自以为天才的人，为其傲慢付出惨痛的代价。
+          </p>
+          <p className="mt-6 border-l-2 border-[#d6b566] pl-4 text-lg font-semibold leading-8 text-[#ead59d] sm:text-xl">
+            投资的第一条准则是永远不要亏损；第二条准则是永远不要忘记第一条。
+          </p>
+          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-x-5 gap-y-2 font-mono text-[9px] uppercase tracking-[0.14em] text-white/24">
+              <span>Capital Preservation</span>
+              <span>Position Sizing</span>
+              <span>Leverage Control</span>
+              <span>Humility</span>
+            </div>
+            <MarketRiskWhitepaperLauncher />
+          </div>
+        </blockquote>
+      </div>
     </section>
   );
 }
@@ -1699,27 +1765,37 @@ function buildDeepResearchPrompt(
         ? '注意：下方板块净流入是 A 股数据，只能作为亚洲时段风险偏好交叉参考，不得冒充美股板块资金；请自行检索美股行业 ETF 或权威美股资金流数据。MAGS 是 Magnificent 7 ETF 代理，不是官方七巨头指数。'
         : mode === 'hongkong'
           ? '注意：仅聚焦港股，重点覆盖恒生指数、恒生科技指数、行业轮动、南向资金、港元流动性与重要公司事件。下方 A 股板块资金和券商研报只能作为跨市场参考，不得冒充港股资金流。'
-          : '注意：仅聚焦 A 股，覆盖主要指数、行业轮动、市场资金、政策驱动与重要公司事件，不要混入港股市场结论。前端“温度”仅代表近500日相对分位，PB均值回归的变化仅相对区间起点，不可直接当作绝对高估或低估。';
+          : target.kind === 'market'
+            ? '注意：仅聚焦 A 股整体市场，覆盖主要指数、行业轮动、市场资金、政策驱动与重要公司事件，不要混入港股市场结论。所有数据必须由研究工具主动获取并交叉验证。'
+            : '注意：仅聚焦 A 股，覆盖主要指数、行业轮动、市场资金、政策驱动与重要公司事件，不要混入港股市场结论。前端“温度”仅代表近500日相对分位，PB均值回归的变化仅相对区间起点，不可直接当作绝对高估或低估。';
   const targetInstruction = target.kind === 'market'
     ? '研究对象是整体市场。必须同时评价宽基指数估值、市场内部板块分化、盈利周期、流动性和风险溢价，不能用单一指数或少数热门板块代表全市场。'
     : `研究对象是“${target.name}”板块。必须分析该板块整体而非只挑一家公司，并与整体市场、同类板块及自身历史估值比较；说明板块内部龙头与普通公司的估值分化。`;
+  const omitFrontendSnapshot = mode === 'china' && target.kind === 'market';
+  const researchDataInstruction = mode === 'crypto'
+    ? '先使用可用研究工具主动获取主要币种价格、市场总市值与主导率、现货和衍生品资金、ETF 流量、链上指标、重要新闻与监管事件。'
+    : '先使用可用研究工具主动获取最新价格与指数走势、PE/PB/PS/股息率及历史分位、盈利增速、ROE、利润率、自由现金流、资产负债质量、行业周期、资金流、重要新闻和权威机构观点。';
+  const smartMoneyInstruction = mode === 'crypto'
+    ? '资金与“聪明钱”代理必须重点核验：现货 ETF 净流量、稳定币供给变化、交易所净流入/净流出、长期持有者行为、资金费率、期货基差、未平仓量与清算。不得把单一链上地址或短时大额转账直接称为机构行为。'
+    : mode === 'us'
+      ? '资金与“聪明钱”代理必须重点核验：宽基及行业 ETF/基金净流量、市场宽度、机构持仓披露（注意披露滞后）、期权 Put/Call、VIX、信用利差、公司回购与内部人交易。不得把暗池成交、单一 ETF 流量或滞后的 13F 直接等同实时机构方向。'
+      : mode === 'hongkong'
+        ? '资金与“聪明钱”代理必须重点核验：南向资金净流量及集中度、港股宽基/行业 ETF 申赎、卖空成交、衍生品持仓、市场宽度与港元流动性。不得把单日南向净流入直接等同全部机构看多。'
+        : '资金与“聪明钱”代理必须重点核验：宽基/行业 ETF 申赎与成交、融资融券余额、机构席位或大宗交易、主力资金口径、市场宽度、股债风险溢价及重要长期资金动向。北向资金若因披露口径变化不可用，必须说明；不得把单一主力资金口径直接等同全部机构方向。';
   const prompt = [
-    `你是 Vibe-Trading 的中文机构市场策略研究员。请研究“${evidence.researchTarget}”，面向以3年以上持有为主、不是短线交易者的用户，输出专业但小白也能读懂的中文 Markdown 报告。`,
+    `你是中文机构市场策略研究员。研究“${evidence.researchTarget}”，为持有期3年以上的投资者输出通俗、可核验的 Markdown 报告。`,
     targetInstruction,
-    mode === 'crypto'
-      ? '先使用可用研究工具主动获取主要币种价格、市场总市值与主导率、现货和衍生品资金、ETF 流量、链上指标、重要新闻与监管事件。不要只复述下方快照。'
-      : '先主动获取最新价格与指数走势、PE/PB/PS/股息率及历史分位、盈利增速、ROE、利润率、自由现金流、资产负债质量、行业周期、资金流、重要新闻和权威机构观点。不要只复述前端快照。',
-    '技术面必须覆盖日线与周线趋势、20/60/120/250日均线的位置和方向、成交量、重要支撑压力与趋势失效条件。技术面只用于判断长期资金的入场节奏，不得把短期形态冒充长期投资逻辑。',
-    '严格区分“已核验事实 / 合理推断 / 数据缺口”。所有估值、盈利、资金、点位和新闻必须注明数据日期与来源；至少使用两种估值口径交叉验证。没有可靠数据就写“证据不足”，不得编造。',
-    '报告最开头必须先给出一个醒目的“一眼结论”表格，固定包含：估值状态（只能选低估/合理/偏高/高估/证据不足）、长期基本面（改善/稳定/转弱/证据不足）、技术趋势（上行/震荡/下行）、当前行动（适合分批/等待更好价格/继续持有观察/暂不参与）、结论置信度。紧接着用三句大白话解释“为什么、现在能不能买、买了最需要担心什么”。',
-    '正文按以下结构输出：1. 一眼结论；2. 当前价格到底贵不贵（历史、横向、盈利质量三重比较）；3. 基本面与长期价值；4. 技术面与均线策略；5. 资金、新闻与研报交叉验证；6. 长期投资者操作建议；7. 风险清单与判断失效条件；8. 数据来源与缺口。',
-    '“长期投资者操作建议”必须回答：现在一次性买入是否合适、是否应分批、什么条件下增加投入、什么情况下停止买入或重新评估、可能承受的主要回撤来源。建议只能作为通用研究框架，不得假定用户的资产、收入或风险承受能力。',
-    '同时照顾两类读者：每个专业结论先用一句通俗中文说明，再补充指标与证据；首次出现 PE、PB、ROE、均线等术语时，用括号解释它在本报告中的意义。',
+    `${researchDataInstruction} ${smartMoneyInstruction}`,
+    '技术面覆盖日/周线、20/60/120/250日均线、量价、支撑压力和失效条件。超买超卖至少交叉验证 RSI(14)、均线偏离和市场宽度，可补充布林带、波动率、新高新低比；仅多个指标同向且处于历史极端时使用“严重”二字。',
+    '严格区分已核验事实、合理推断和数据缺口。价格、估值、盈利、资金与新闻注明日期和来源；估值至少两种口径。无可靠证据就写“证据不足”，不得编造。',
+    '开头先给“逆向情绪与资金仪表盘”表格：超买超卖、聪明钱代理方向、逃顶风险、抄底信号、逆向立场（应该贪婪/略偏贪婪/中性/略偏恐惧/应该恐惧）、估值、长期基本面、技术趋势、当前行动、置信度。每项附关键数据/日期/来源。表后用三句话说明市场冷热、资金进退、为什么该贪婪或恐惧。',
+    '逃顶与抄底只能是概率预警，不能断言顶部/底部。逆向立场须结合估值、情绪、资金、宽度和基本面；便宜不等于见底，昂贵不等于马上见顶，证据冲突选“中性”。',
+    '正文结构：1仪表盘；2贵不贵（历史/横向/盈利质量）；3基本面与长期价值；4技术面与超买超卖；5机构/聪明钱代理、新闻和研报验证；6长期操作框架；7风险与失效条件；8来源与缺口。',
+    '操作框架回答：是否适合一次买入或分批、何时增加投入、何时停止买入或重估、主要回撤来源。不得假定用户资产和风险承受力，不给日内指令或收益承诺。专业结论先用白话说明，首次术语用括号解释。',
     modeInstruction,
-    '不要给确定收益承诺，不要提供日内交易指令，不要把规则评分或单一温度当成事实。最终结论允许“结构性偏热但整体合理”等分化判断，不得为了简单而强行二选一。',
-    `前端已核验快照：\n${JSON.stringify(evidence, null, 2)}`,
-  ].join('\n\n');
-  return prompt.slice(0, 4950);
+    omitFrontendSnapshot ? '' : `前端已核验快照(JSON)：${JSON.stringify(evidence)}`,
+  ].filter(Boolean).join('\n\n');
+  return prompt.slice(0, 4900);
 }
 
 function buildMarketMarkdown(data: MarketIntelligence, mode: MarketChartMode, deepReport: string) {

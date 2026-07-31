@@ -187,7 +187,7 @@ type ValuationTemperatureItem = {
   category: 'market' | 'industry';
   temperature: number;
   temperatureDelta: number;
-  zone: 'low' | 'fair' | 'high';
+  zone: 'cold' | 'low' | 'fair' | 'warm' | 'hot';
   zoneLabel: string;
   currentPe: number;
   currentPb?: number;
@@ -210,6 +210,11 @@ type AllMarketPbRow = {
   date?: string;
   middlePB?: number | string;
   equalWeightAveragePB?: number | string;
+  close?: number | string;
+};
+
+type CsiIndexPerformanceRow = {
+  tradeDate?: string;
   close?: number | string;
 };
 
@@ -554,9 +559,11 @@ function percentileRank(values: number[], current: number) {
 }
 
 function temperatureZone(temperature: number) {
-  if (temperature < 30) return { zone: 'low' as const, zoneLabel: '偏冷 · 近两年低位' };
-  if (temperature < 70) return { zone: 'fair' as const, zoneLabel: '适中 · 近两年中位' };
-  return { zone: 'high' as const, zoneLabel: '偏热 · 近两年高位' };
+  if (temperature < 20) return { zone: 'cold' as const, zoneLabel: '极冷 · 短期低位' };
+  if (temperature < 40) return { zone: 'low' as const, zoneLabel: '偏冷 · 短期较低' };
+  if (temperature < 60) return { zone: 'fair' as const, zoneLabel: '中性 · 短期适中' };
+  if (temperature < 80) return { zone: 'warm' as const, zoneLabel: '偏热 · 短期较高' };
+  return { zone: 'hot' as const, zoneLabel: '过热 · 短期高位' };
 }
 
 function buildValuationTemperature(
@@ -770,39 +777,67 @@ async function getAllMarketPbHistory() {
   }
 }
 
+async function getCsiIndexPerformance(indexCode: '000985' | 'H00985') {
+  const shanghaiDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date()).replaceAll('-', '');
+  const search = new URLSearchParams({
+    indexCode,
+    startDate: '20041231',
+    endDate: shanghaiDate,
+  });
+  const url = `https://www.csindex.com.cn/csindex-home/perf/index-perf?${search.toString()}`;
+  const payload = await fetchJsonWithRetry(url, 2, 30000) as { data?: CsiIndexPerformanceRow[] };
+  if (!Array.isArray(payload.data) || !payload.data.length) {
+    throw new Error(`中证指数 ${indexCode} 历史行情为空`);
+  }
+  const points = payload.data.flatMap((row) => {
+    const compactDate = String(row.tradeDate || '');
+    const close = asFiniteNumber(row.close);
+    if (!/^\d{8}$/.test(compactDate) || close === undefined || close <= 0) return [];
+    return [{
+      time: `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`,
+      close,
+    }];
+  });
+  return { url, points };
+}
+
 async function getBookValueAnchor() {
-  const [{ sourceUrl, rows }, priceResult] = await Promise.all([
+  const [{ sourceUrl, rows }, priceResult, totalReturnResult] = await Promise.all([
     getAllMarketPbHistory(),
-    getTencentMarketCandles('sh000985', 2000),
+    getCsiIndexPerformance('000985'),
+    getCsiIndexPerformance('H00985'),
   ]);
   const pbByDate = new Map(rows.flatMap((row) => {
     const time = dateOnly(row.date);
     const pb = asFiniteNumber(row.middlePB);
     return time && pb !== undefined && pb > 0 ? [[time, pb] as const] : [];
   }));
-  const joined = priceResult.candles.flatMap((candle) => {
-    const pb = pbByDate.get(candle.time);
-    if (pb === undefined) return [];
+  const totalReturnByDate = new Map(totalReturnResult.points.map((point) => [point.time, point.close]));
+  const joined = priceResult.points.flatMap((point) => {
+    const pb = pbByDate.get(point.time);
+    const totalReturnValue = totalReturnByDate.get(point.time);
+    if (pb === undefined || totalReturnValue === undefined) return [];
     return [{
-      time: candle.time,
-      marketValue: candle.close,
+      time: point.time,
+      marketValue: point.close,
+      totalReturnValue,
       pb,
     }];
   });
-  if (joined.length < 200) throw new Error('中证全指与全A市净率可对齐历史不足');
+  if (joined.length < 1000) throw new Error('中证全指、全收益与全A市净率可对齐历史不足');
 
   const fairPb = median(joined.map((item) => item.pb));
-  const smoothingFactor = 2 / (63 + 1);
-  let smoothedBookValue = joined[0].marketValue / joined[0].pb;
-  const points = joined.map((item, index) => {
+  const points = joined.map((item) => {
     const bookValue = item.marketValue / item.pb;
-    smoothedBookValue = index === 0
-      ? bookValue
-      : smoothedBookValue + smoothingFactor * (bookValue - smoothedBookValue);
     return {
       ...item,
-      bookValue: round(bookValue, 2),
-      anchorValue: round(smoothedBookValue * fairPb, 2),
+      bookValue: round(bookValue, 6),
+      anchorValue: round(bookValue * fairPb, 2),
     };
   });
   const current = points.at(-1)!;
@@ -824,6 +859,7 @@ async function getBookValueAnchor() {
     generatedAt: new Date().toISOString(),
     current: {
       marketValue: round(current.marketValue, 2),
+      totalReturnValue: round(current.totalReturnValue, 2),
       anchorValue: round(current.anchorValue, 2),
       pb: round(current.pb, 2),
       fairPb: round(fairPb, 2),
@@ -833,9 +869,10 @@ async function getBookValueAnchor() {
       updatedAt: current.time,
     },
     points,
-    methodology: `净资产价值锚 = 中证全指点位 ÷ 当日全A中位PB，经 63 个交易日平滑后 × ${round(fairPb, 2)}倍历史中位PB。价格高于价值锚表示PB高于历史中枢，低于价值锚则相反。`,
+    methodology: `中证全指价格 ÷ 当日全A中位PB得到净资产代理；中证全指全收益用于拆分股息贡献；${round(fairPb, 2)}倍全历史中位PB用于估值中枢参考。净资产代理与全A中位PB均为研究口径，不等同于逐家公司净资产或中证官方加权PB。`,
     sources: [
-      { label: '中证全指行情 · 腾讯证券', url: priceResult.url },
+      { label: '中证全指价格指数 · 中证指数', url: priceResult.url },
+      { label: '中证全指全收益指数 · 中证指数', url: totalReturnResult.url },
       { label: '全A中位市净率 · 乐咕乐股', url: sourceUrl },
       { label: '中证全指说明 · 中证指数', url: 'https://www.csindex.com.cn/#/indices/family/detail?indexCode=000985' },
     ],
@@ -907,7 +944,7 @@ async function getChinaValuationDashboard() {
     if (!market) return [];
     return [{
       id: config.id,
-      name: `${market.name}估值温度`,
+      name: `${market.name}相对估值热度`,
       ticker: config.marketCode,
       sourceUrl: 'https://data.eastmoney.com/gzfx/',
       temperature: market.history || [],
@@ -918,7 +955,7 @@ async function getChinaValuationDashboard() {
     ...(csi300Chart ? [{
       ...csi300Chart,
       id: 'all-market',
-      name: 'A股综合估值温度',
+      name: 'A股综合相对估值热度',
       temperature: overall.history,
     }] : []),
     ...rawCharts.filter((item) => item.id !== 'csi300'),
@@ -930,7 +967,7 @@ async function getChinaValuationDashboard() {
 
   return {
     generatedAt: new Date().toISOString(),
-    methodology: '温度为近 500 个交易日估值分位：A股综合温度由沪深300、沪市、深市、创业板与科创板加权；行业使用 PE 60% + PB 40%。温度越高仅表示相对估值越高，不构成买卖信号。',
+    methodology: '热度为近 500 个交易日相对估值分位：各市场采用 PE 60% + PB 40%；A股综合再按沪深300 35%、沪市25%、深市20%、创业板12%、科创板8%加权。热度仅表示短周期相对位置，不构成定投或买卖信号。',
     periodLabel: '近 500 个交易日',
     sources: [
       { label: '东方财富 Choice 公开估值页', url: 'https://data.eastmoney.com/gzfx/' },

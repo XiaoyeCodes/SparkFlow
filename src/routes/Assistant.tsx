@@ -27,6 +27,7 @@ import { buildAiPayload, loadIntegrationSettings } from '../lib/integrations';
 
 type AssistantRouteState = {
   starmapContext?: string;
+  sessionId?: string;
 };
 
 type RunState = 'idle' | 'connecting' | 'researching' | 'completed' | 'error';
@@ -477,7 +478,7 @@ export function Assistant() {
   useEffect(() => {
     let cancelled = false;
     const restore = async () => {
-      const storedSessionId = window.localStorage.getItem(sessionStorageKey) || '';
+      const storedSessionId = routeState?.sessionId?.trim() || window.localStorage.getItem(sessionStorageKey) || '';
       if (!storedSessionId) return;
       try {
         await openSession(storedSessionId);

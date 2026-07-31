@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ColorType,
   CrosshairMode,
+  LineStyle,
   LineSeries,
   createChart,
   type LineData,
@@ -18,7 +19,7 @@ import {
   Thermometer,
 } from 'lucide-react';
 
-type TemperatureZone = 'low' | 'fair' | 'high';
+type TemperatureZone = 'cold' | 'low' | 'fair' | 'warm' | 'hot';
 
 type TemperatureItem = {
   id: string;
@@ -55,6 +56,7 @@ type BookValueAnchor = {
   generatedAt: string;
   current: {
     marketValue: number;
+    totalReturnValue: number;
     anchorValue: number;
     pb: number;
     fairPb: number;
@@ -66,12 +68,20 @@ type BookValueAnchor = {
   points: Array<{
     time: string;
     marketValue: number;
+    totalReturnValue: number;
     bookValue: number;
     anchorValue: number;
     pb: number;
   }>;
   methodology: string;
   sources: Array<{ label: string; url: string }>;
+};
+
+type BookValueHoverPoint = {
+  time: string;
+  marketValue: number;
+  netAssetBaseline: number;
+  fairValue: number;
 };
 
 type ValuationDashboard = {
@@ -87,17 +97,27 @@ type ValuationDashboard = {
 };
 
 const zoneStyles: Record<TemperatureZone, { accent: string; text: string; background: string }> = {
-  low: {
-    accent: '#1aa382',
+  cold: {
+    accent: '#0f9f88',
     text: 'text-[#6ed5b7]',
-    background: 'bg-[#1aa382]/10',
+    background: 'bg-[#0f9f88]/10',
+  },
+  low: {
+    accent: '#4ea98d',
+    text: 'text-[#8ccfb8]',
+    background: 'bg-[#4ea98d]/10',
   },
   fair: {
     accent: '#d6b566',
     text: 'text-[#e6cd8e]',
     background: 'bg-[#d6b566]/10',
   },
-  high: {
+  warm: {
+    accent: '#c47c55',
+    text: 'text-[#e4aa7d]',
+    background: 'bg-[#c47c55]/10',
+  },
+  hot: {
     accent: '#d04b5a',
     text: 'text-[#ed8e99]',
     background: 'bg-[#d04b5a]/10',
@@ -121,41 +141,71 @@ function formatMarketCap(value?: number) {
 }
 
 function BookValueAnchorChart({ data }: { data: BookValueAnchor }) {
+  const sectionRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [range, setRange] = useState<'3y' | '5y' | 'all'>('all');
+  const [range, setRange] = useState<'1y' | '3y' | '5y' | 'all'>('all');
+  const [hoverPoint, setHoverPoint] = useState<BookValueHoverPoint | null>(null);
   const visiblePoints = useMemo(() => {
     if (range === 'all') return data.points;
     const latestPoint = data.points[data.points.length - 1];
     const latest = new Date(`${latestPoint?.time || data.current.updatedAt}T00:00:00`);
-    latest.setFullYear(latest.getFullYear() - (range === '3y' ? 3 : 5));
+    const years = range === '1y' ? 1 : range === '3y' ? 3 : 5;
+    latest.setFullYear(latest.getFullYear() - years);
     const start = latest.toISOString().slice(0, 10);
     return data.points.filter((point) => point.time >= start);
   }, [data, range]);
-  const meanReversion = useMemo(() => {
+  const returnDecomposition = useMemo(() => {
     const first = visiblePoints[0];
     const last = visiblePoints[visiblePoints.length - 1];
-    if (!first || !last || first.anchorValue <= 0 || first.marketValue <= 0) return null;
+    if (!first || !last || first.bookValue <= 0 || first.marketValue <= 0 || first.totalReturnValue <= 0) return null;
 
-    const estimateFor = (anchorValue: number) => (
-      anchorValue * first.marketValue / first.anchorValue
-    );
-    const estimatedValue = estimateFor(last.anchorValue);
+    const orderedPb = visiblePoints.map((point) => point.pb).sort((left, right) => left - right);
+    const middle = Math.floor(orderedPb.length / 2);
+    const medianPb = orderedPb.length % 2
+      ? orderedPb[middle]
+      : (orderedPb[middle - 1] + orderedPb[middle]) / 2;
+    const lowerPbCount = orderedPb.filter((value) => value < last.pb).length;
+    const equalPbCount = orderedPb.filter((value) => value === last.pb).length;
+    const pbPercentile = (lowerPbCount + equalPbCount * 0.5) / orderedPb.length * 100;
+
+    const priceFactor = last.marketValue / first.marketValue;
+    const totalReturnFactor = last.totalReturnValue / first.totalReturnValue;
+    const netAssetFactor = last.bookValue / first.bookValue;
+    const valuationFactor = last.pb / first.pb;
+    const dividendFactor = totalReturnFactor / priceFactor;
+    const estimatedFairValue = last.bookValue * medianPb;
+    const netAssetBaseline = last.bookValue * first.marketValue / first.bookValue;
 
     return {
+      first,
       last,
-      estimatedValue,
-      priceChange: (last.marketValue / first.marketValue - 1) * 100,
-      netAssetGrowth: (last.anchorValue / first.anchorValue - 1) * 100,
-      valuationChange: (last.marketValue / estimatedValue - 1) * 100,
+      medianPb,
+      pbPercentile,
+      estimatedFairValue,
+      netAssetBaseline,
+      totalReturn: (totalReturnFactor - 1) * 100,
+      netAssetGrowth: (netAssetFactor - 1) * 100,
+      valuationChange: (valuationFactor - 1) * 100,
+      dividendContribution: (dividendFactor - 1) * 100,
+      pbMedianGap: (last.pb / medianPb - 1) * 100,
       points: visiblePoints.map((point) => ({
         ...point,
-        estimatedValue: estimateFor(point.anchorValue),
+        netAssetBaseline: point.bookValue * first.marketValue / first.bookValue,
+        fairValue: point.bookValue * medianPb,
       })),
     };
   }, [visiblePoints]);
 
   useEffect(() => {
-    if (!containerRef.current || !meanReversion?.points.length) return;
+    if (window.location.hash === '#return-decomposition') {
+      sectionRef.current?.scrollIntoView({ block: 'start' });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current || !returnDecomposition?.points.length) return;
+    const latestPoint = returnDecomposition.points[returnDecomposition.points.length - 1];
+    setHoverPoint(latestPoint);
     const chart = createChart(containerRef.current, {
       autoSize: true,
       height: 480,
@@ -171,17 +221,20 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor }) {
       crosshair: {
         mode: CrosshairMode.Normal,
         vertLine: { color: 'rgba(255,255,255,0.22)', labelBackgroundColor: '#34363b' },
-        horzLine: { color: 'rgba(255,255,255,0.14)', labelBackgroundColor: '#34363b' },
+        horzLine: { color: 'rgba(255,255,255,0.14)', labelVisible: false },
       },
       rightPriceScale: {
+        visible: false,
+      },
+      leftPriceScale: {
+        visible: true,
         borderColor: 'rgba(255,255,255,0.08)',
         scaleMargins: { top: 0.08, bottom: 0.08 },
       },
-      leftPriceScale: { visible: false },
       timeScale: {
         borderColor: 'rgba(255,255,255,0.08)',
         rightOffset: 4,
-        barSpacing: range === '3y' ? 5 : 2.5,
+        barSpacing: range === '1y' ? 7 : range === '3y' ? 4 : 2.5,
         minBarSpacing: 0.35,
       },
       handleScroll: {
@@ -200,12 +253,11 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor }) {
     const marketLine = chart.addSeries(LineSeries, {
       color: '#d48419',
       lineWidth: 2,
-      priceScaleId: 'right',
+      priceScaleId: 'left',
       priceLineVisible: false,
-      lastValueVisible: true,
+      lastValueVisible: false,
       crosshairMarkerBorderColor: '#d48419',
       crosshairMarkerBackgroundColor: '#0a0b0d',
-      title: '中证全指',
     });
     marketLine.setData(visiblePoints.map((point) => ({
       time: point.time as Time,
@@ -215,75 +267,124 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor }) {
     const anchorLine = chart.addSeries(LineSeries, {
       color: '#3d648b',
       lineWidth: 2,
-      priceScaleId: 'right',
+      priceScaleId: 'left',
       priceLineVisible: false,
-      lastValueVisible: true,
+      lastValueVisible: false,
       crosshairMarkerBorderColor: '#5b84ac',
       crosshairMarkerBackgroundColor: '#0a0b0d',
-      title: '净资产估算价值',
     });
-    anchorLine.setData(meanReversion.points.map((point) => ({
+    anchorLine.setData(returnDecomposition.points.map((point) => ({
       time: point.time as Time,
-      value: point.estimatedValue,
+      value: point.netAssetBaseline,
     })) as LineData<Time>[]);
+
+    const fairValueLine = chart.addSeries(LineSeries, {
+      color: '#d6b566',
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      priceScaleId: 'left',
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerBorderColor: '#d6b566',
+      crosshairMarkerBackgroundColor: '#0a0b0d',
+    });
+    fairValueLine.setData(returnDecomposition.points.map((point) => ({
+      time: point.time as Time,
+      value: point.fairValue,
+    })) as LineData<Time>[]);
+
+    chart.subscribeCrosshairMove((param) => {
+      if (param.logical === undefined) {
+        setHoverPoint(latestPoint);
+        return;
+      }
+      const index = Math.max(0, Math.min(
+        returnDecomposition.points.length - 1,
+        Math.round(Number(param.logical)),
+      ));
+      setHoverPoint(returnDecomposition.points[index] || latestPoint);
+    });
 
     chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [meanReversion, range, visiblePoints]);
+  }, [range, returnDecomposition, visiblePoints]);
 
-  if (!meanReversion) return null;
+  if (!returnDecomposition) return null;
 
-  const premium = meanReversion.valuationChange;
+  const premium = returnDecomposition.pbMedianGap;
   const tone = premium > 5
     ? 'text-[#ed8e99]'
     : premium < -5
       ? 'text-[#6ed5b7]'
       : 'text-[#e6cd8e]';
   const gapLabel = Math.abs(premium) < 0.05
-    ? '基本不变'
+    ? '接近历史中枢'
     : premium > 0
-      ? `扩张 ${premium.toFixed(1)}%`
-      : `收缩 ${Math.abs(premium).toFixed(1)}%`;
-  const rangeLabel = range === '3y' ? '近 3 年' : range === '5y' ? '近 5 年' : '全部历史';
+      ? `高于中枢 ${premium.toFixed(1)}%`
+      : `低于中枢 ${Math.abs(premium).toFixed(1)}%`;
+  const rangeLabel = range === '1y'
+    ? '近 1 年'
+    : range === '3y'
+      ? '近 3 年'
+      : range === '5y'
+        ? '近 5 年'
+        : '2005 年以来';
   const contributionRows = [
     {
-      label: '净资产增长',
-      value: meanReversion.netAssetGrowth,
+      label: '累计总回报',
+      value: returnDecomposition.totalReturn,
+      color: returnDecomposition.totalReturn >= 0 ? '#d04b5a' : '#1aa382',
+      note: '中证全指全收益指数',
+    },
+    {
+      label: '净资产代理增长',
+      value: returnDecomposition.netAssetGrowth,
       color: '#5b84ac',
-      note: '企业价值增长',
+      note: '价格 ÷ 全A中位PB',
     },
     {
       label: '估值变化',
-      value: meanReversion.valuationChange,
-      color: meanReversion.valuationChange > 0 ? '#d04b5a' : '#1aa382',
-      note: meanReversion.valuationChange > 0 ? '市场情绪抬升' : '市场情绪压低',
+      value: returnDecomposition.valuationChange,
+      color: returnDecomposition.valuationChange > 0 ? '#d04b5a' : '#1aa382',
+      note: '区间起止PB变化',
     },
     {
-      label: '市场价格变化',
-      value: meanReversion.priceChange,
-      color: '#d48419',
-      note: '所选区间涨跌',
+      label: '股息贡献',
+      value: returnDecomposition.dividendContribution,
+      color: '#d6b566',
+      note: '全收益相对价格指数',
     },
   ];
+  const maxContribution = Math.max(...contributionRows.map((item) => Math.abs(item.value)), 1);
+  const investmentGuide = returnDecomposition.pbPercentile < 20
+    ? { level: '明显偏低', action: '可适当提高定投额', color: '#6ed5b7' }
+    : returnDecomposition.pbPercentile < 40
+      ? { level: '略偏低', action: '正常或小幅增加', color: '#74cbb1' }
+      : returnDecomposition.pbPercentile < 60
+        ? { level: '中性', action: '维持基础定投', color: '#e6cd8e' }
+        : returnDecomposition.pbPercentile < 80
+          ? { level: '略偏高', action: '减少新增资金', color: '#e29a66' }
+          : { level: '明显偏高', action: '暂停加码并按目标仓位再平衡', color: '#ed8e99' };
 
   return (
-    <div className="border-t border-white/10 py-7" data-testid="book-value-anchor">
+    <div ref={sectionRef} id="return-decomposition" className="border-t border-white/10 py-7" data-testid="book-value-anchor">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="flex items-center gap-2 text-xs font-semibold text-[#d6b566]">
-            <Scale size={14} /> 均值回归
+            <Scale size={14} /> 回报归因与均值回归
           </p>
-          <h3 className="mt-2 text-xl font-bold text-white sm:text-2xl">A股价格与净资产均值回归参考</h3>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/42">
-            两条线从所选区间同一起点出发。橙线是中证全指价格，蓝线是随全 A 净资产增长推算的基准线；
-            两者的距离表示 PB 相对区间起点的扩张或收缩，不代表市场低估或高估的绝对幅度。
+          <h3 className="mt-2 text-xl font-bold text-white sm:text-2xl">A股回报来源拆分与PB中枢参考</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/42">
+            把总回报拆成净资产代理增长、PB变化与股息贡献。虚线按所选区间的PB中位数估算，
+            用于判断当前估值相对历史中枢的位置，而不是企业内在价值。
           </p>
         </div>
         <div className="flex items-center gap-px border border-white/10 bg-white/10 p-px">
           {([
+            ['1y', '1年'],
             ['3y', '3年'],
             ['5y', '5年'],
-            ['all', '全部'],
+            ['all', '05年以来'],
           ] as const).map(([value, label]) => (
             <button
               key={value}
@@ -300,35 +401,61 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor }) {
         </div>
       </div>
 
-      <div className="mt-5 grid overflow-hidden border border-white/10 bg-[#0a0b0d] lg:grid-cols-[1fr_1fr_1.2fr]">
-        <div className="border-b border-white/8 p-5 lg:border-b-0 lg:border-r">
+      <div className="mt-5 grid overflow-hidden border border-white/10 bg-[#0a0b0d] md:grid-cols-2 xl:grid-cols-[0.9fr_0.9fr_1.05fr_1.25fr]">
+        <div className="border-b border-white/8 p-5 xl:border-b-0 xl:border-r">
           <p className="text-[11px] text-white/38">当前市场价格 · 中证全指</p>
           <p className="mt-2 font-mono text-2xl font-semibold text-[#d99a43]">
-            {meanReversion.last.marketValue.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+            {returnDecomposition.last.marketValue.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
           </p>
         </div>
-        <div className="border-b border-white/8 p-5 lg:border-b-0 lg:border-r">
+        <div className="border-b border-white/8 p-5 md:border-l xl:border-b-0 xl:border-l-0 xl:border-r">
           <p className="flex items-center gap-1.5 text-[11px] text-white/38">
-            净资产增长基准线
-            <span title="以所选区间起点为基准，按全 A 净资产增长推算，仅用于拆分价格变化。">
+            历史PB中枢参考
+            <span title="当前净资产代理乘以所选区间的全A中位PB，仅表示相对历史PB中枢。">
               <CircleHelp size={12} />
             </span>
           </p>
           <p className="mt-2 font-mono text-2xl font-semibold text-[#6f96bc]">
-            {meanReversion.estimatedValue.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+            {returnDecomposition.estimatedFairValue.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
           </p>
         </div>
-        <div className="p-5">
-          <p className="text-[11px] text-white/38">PB 相对区间起点</p>
+        <div className="border-b border-white/8 p-5 md:border-b-0 xl:border-r">
+          <p className="text-[11px] text-white/38">当前PB相对历史中枢</p>
           <p className={`mt-2 font-mono text-2xl font-semibold ${tone}`}>{gapLabel}</p>
           <p className="mt-1 text-[10px] text-white/30">
-            {rangeLabel}基准 · 当前 PB {data.current.pb.toFixed(2)}x · 历史分位 {data.current.pbPercentile.toFixed(1)}%
+            {rangeLabel} · 当前PB {returnDecomposition.last.pb.toFixed(2)}x · 中枢 {returnDecomposition.medianPb.toFixed(2)}x · 分位 {returnDecomposition.pbPercentile.toFixed(1)}%
           </p>
+        </div>
+        <div className="p-5 md:border-l xl:border-l-0">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] text-white/38">定投参考 · 当前PB {returnDecomposition.last.pb.toFixed(2)}x</p>
+              <p className="mt-2 font-mono text-2xl font-semibold" style={{ color: investmentGuide.color }}>
+                {investmentGuide.level}
+              </p>
+            </div>
+            <span className="border border-white/10 px-2 py-1 font-mono text-[10px] text-white/52">
+              {returnDecomposition.pbPercentile.toFixed(1)}%
+            </span>
+          </div>
+          <p className="mt-1 text-xs font-semibold text-white/72">{investmentGuide.action}</p>
+          <div className="relative mt-4 grid h-1.5 grid-cols-5 gap-px bg-black">
+            {['#1aa382', '#4ea98d', '#d6b566', '#c47c55', '#d04b5a'].map((color) => (
+              <span key={color} style={{ backgroundColor: color }} />
+            ))}
+            <span
+              className="absolute top-1/2 h-3.5 w-px -translate-y-1/2 bg-white shadow-[0_0_0_2px_rgba(0,0,0,0.65)]"
+              style={{ left: `${Math.max(1, Math.min(99, returnDecomposition.pbPercentile))}%` }}
+            />
+          </div>
+          <div className="mt-1 flex justify-between font-mono text-[9px] text-white/24">
+            <span>偏低</span><span>中性</span><span>偏高</span>
+          </div>
         </div>
       </div>
 
       <div className="mt-4 border border-white/10 bg-[#0a0b0d] px-5 py-4">
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           {contributionRows.map((item) => (
             <div key={item.label}>
               <div className="flex items-end justify-between gap-3">
@@ -344,7 +471,7 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor }) {
                 <div
                   className="h-full transition-[width] duration-500"
                   style={{
-                    width: `${Math.max(3, Math.min(100, Math.abs(item.value)))}%`,
+                    width: `${Math.max(1.5, Math.abs(item.value) / maxContribution * 100)}%`,
                     backgroundColor: item.color,
                   }}
                 />
@@ -355,27 +482,56 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor }) {
       </div>
 
       <div className="mt-4 overflow-hidden border border-white/10 bg-[#0a0b0d]">
-        <div className="flex items-center justify-center gap-6 border-b border-white/8 py-3 text-xs">
+        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 border-b border-white/8 px-3 py-3 text-xs">
           <span className="flex items-center gap-2 text-[#d99a43]">
-            <span className="h-0.5 w-4 bg-[#d48419]" /> 市场价格
+            <span className="h-0.5 w-4 bg-[#d48419]" /> 中证全指价格
           </span>
           <span className="flex items-center gap-2 text-[#6f96bc]">
-            <span className="h-0.5 w-4 bg-[#3d648b]" /> 净资产增长基准
+            <span className="h-0.5 w-4 bg-[#3d648b]" /> 净资产代理（同起点）
+          </span>
+          <span className="flex items-center gap-2 text-[#e6cd8e]">
+            <span className="w-4 border-t border-dashed border-[#d6b566]" /> 历史PB中枢
           </span>
         </div>
-        <div
-          ref={containerRef}
-          data-testid="book-value-chart"
-          className="h-[360px] w-full sm:h-[480px]"
-          aria-label="A股市场价格与净资产增长基准均值回归参考图"
-        />
+        <div className="relative">
+          <div
+            ref={containerRef}
+            data-testid="book-value-chart"
+            className="h-[360px] w-full sm:h-[480px]"
+            aria-label="A股市场回报来源拆分与PB历史中枢参考图"
+          />
+          {hoverPoint ? (
+            <div
+              data-testid="book-value-hover-readout"
+              className="pointer-events-none absolute right-3 top-3 z-10 w-44 border border-white/12 bg-transparent px-3 py-2.5"
+            >
+              <p className="border-b border-white/8 pb-2 font-mono text-[10px] text-white/42">
+                {hoverPoint.time}
+              </p>
+              <div className="mt-2 space-y-1.5 font-mono text-[10px]">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[#d99a43]">中证全指</span>
+                  <span className="text-white/82">{hoverPoint.marketValue.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[#6f96bc]">净资产代理</span>
+                  <span className="text-white/82">{hoverPoint.netAssetBaseline.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[#e6cd8e]">历史PB中枢</span>
+                  <span className="text-white/82">{hoverPoint.fairValue.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-3 text-[11px] leading-5 text-white/34 lg:flex-row lg:items-start lg:justify-between">
         <p className="max-w-4xl">
-          估算方法：中证全指 ÷ 全 A 中位 PB 得到净资产代理，再将所选区间起点归一为同一价格。
-          蓝线反映净资产增长，并非企业逐项估值或内在价值；公开数据未计入股息再投资。
-          图中的扩张或收缩只相对于所选区间起点，不可单独用于判断高估低估。
+          乘法关系：总回报因子 = 净资产代理增长因子 × PB变化因子 × 股息贡献因子。
+          净资产代理 = 中证全指价格 ÷ 全A中位PB；股息贡献由中证全指全收益相对价格指数计算。
+          由于PB采用全A中位数而非中证官方加权PB，本图是市场研究代理，不构成估值结论或买卖信号。
         </p>
         <div className="flex flex-wrap items-center gap-3">
           {data.sources.map((source) => (
@@ -467,21 +623,19 @@ function TemperatureChart({ series }: { series: MarketChartSeries }) {
       value: item.value,
     })) as LineData<Time>[]);
 
-    temperature.createPriceLine({
-      price: 30,
-      color: 'rgba(26,163,130,0.55)',
-      lineWidth: 1,
-      lineStyle: 2,
-      axisLabelVisible: true,
-      title: '低估 / 中估',
-    });
-    temperature.createPriceLine({
-      price: 70,
-      color: 'rgba(208,75,90,0.55)',
-      lineWidth: 1,
-      lineStyle: 2,
-      axisLabelVisible: true,
-      title: '中估 / 高估',
+    [
+      { price: 20, color: 'rgba(15,159,136,0.42)' },
+      { price: 40, color: 'rgba(78,169,141,0.38)' },
+      { price: 60, color: 'rgba(214,181,102,0.38)' },
+      { price: 80, color: 'rgba(208,75,90,0.42)' },
+    ].forEach(({ price, color }) => {
+      temperature.createPriceLine({
+        price,
+        color,
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: false,
+      });
     });
 
     chart.timeScale().fitContent();
@@ -491,20 +645,24 @@ function TemperatureChart({ series }: { series: MarketChartSeries }) {
   return (
     <div className="relative overflow-hidden bg-[#06090c]">
       <div className="pointer-events-none absolute inset-y-0 left-[58px] right-0 z-0 flex flex-col">
-        <div className="h-[30%] bg-[#d04b5a]/[0.045]" />
-        <div className="h-[40%] bg-[#d6b566]/[0.035]" />
-        <div className="h-[30%] bg-[#1aa382]/[0.045]" />
+        <div className="h-1/5 bg-[#d04b5a]/[0.05]" />
+        <div className="h-1/5 bg-[#c47c55]/[0.04]" />
+        <div className="h-1/5 bg-[#d6b566]/[0.032]" />
+        <div className="h-1/5 bg-[#4ea98d]/[0.038]" />
+        <div className="h-1/5 bg-[#0f9f88]/[0.05]" />
       </div>
       <div className="pointer-events-none absolute inset-y-7 left-[66px] z-20 flex flex-col justify-between py-4">
-        <span className="border-l-2 border-[#d04b5a]/60 pl-2 text-[10px] font-semibold text-[#ed8e99]/75">高温区</span>
-        <span className="border-l-2 border-[#d6b566]/60 pl-2 text-[10px] font-semibold text-[#e6cd8e]/70">中温区</span>
-        <span className="border-l-2 border-[#1aa382]/60 pl-2 text-[10px] font-semibold text-[#6ed5b7]/75">低温区</span>
+        <span className="border-l-2 border-[#d04b5a]/60 pl-2 text-[10px] font-semibold text-[#ed8e99]/75">过热</span>
+        <span className="border-l-2 border-[#c47c55]/60 pl-2 text-[10px] font-semibold text-[#e4aa7d]/75">偏热</span>
+        <span className="border-l-2 border-[#d6b566]/60 pl-2 text-[10px] font-semibold text-[#e6cd8e]/70">中性</span>
+        <span className="border-l-2 border-[#4ea98d]/60 pl-2 text-[10px] font-semibold text-[#8ccfb8]/75">偏冷</span>
+        <span className="border-l-2 border-[#0f9f88]/60 pl-2 text-[10px] font-semibold text-[#6ed5b7]/75">极冷</span>
       </div>
       <div
         ref={containerRef}
         data-testid="temperature-chart"
         className="relative z-10 h-[360px] w-full sm:h-[420px]"
-        aria-label={`${series.name}估值温度历史曲线`}
+        aria-label={`${series.name}近500日相对估值热度曲线`}
       />
     </div>
   );
@@ -587,27 +745,27 @@ export function MarketTemperaturePanel() {
   const markerPosition = Math.max(1.5, Math.min(98.5, data.overall.temperature));
   const pbPercentile = data.bookValueAnchor?.current.pbPercentile;
   const medianPbGap = data.bookValueAnchor?.current.premiumPercent;
-  const valuationConclusion = data.overall.temperature >= 70 && (pbPercentile ?? 50) < 70
+  const valuationConclusion = data.overall.temperature >= 80 && (pbPercentile ?? 50) >= 60
     ? {
-        title: '结构性偏热，整体估值中性',
-        detail: '近500日 PE 热度处于高位，但全 A 中位 PB 仍在历史中位区域，当前不是“全面高估”或“明显低估”的单边市场。',
-        tone: 'text-[#e6cd8e]',
+        title: '短中长期估值均偏高',
+        detail: '近500日相对估值热度与较长历史PB分位同时偏高，需要关注估值回归风险。',
+        tone: 'text-[#ed8e99]',
       }
-    : data.overall.temperature >= 70
+    : data.overall.temperature >= 60 && (pbPercentile ?? 50) < 60
       ? {
-          title: '整体估值偏高',
-          detail: '近期 PE 热度与较长历史 PB 分位同时偏高，需要更重视估值回归风险。',
-          tone: 'text-[#ed8e99]',
+          title: '短期偏热，中长期中性偏低',
+          detail: '主要市场PE、PB相对最近500日处于较高位置，但全A长期PB尚未进入偏高区，不代表全面高估。',
+          tone: 'text-[#e4aa7d]',
         }
-      : data.overall.temperature < 30 && (pbPercentile ?? 50) <= 30
+      : data.overall.temperature < 40 && (pbPercentile ?? 50) <= 40
         ? {
-            title: '整体估值偏低',
-            detail: '近期 PE 热度与较长历史 PB 分位同时偏低，但仍需结合盈利趋势确认。',
+            title: '短中长期估值均偏低',
+            detail: '近500日相对估值热度与较长历史PB分位同时偏低，但仍需结合盈利和风险偏好确认。',
             tone: 'text-[#6ed5b7]',
           }
         : {
-            title: '整体估值中性',
-            detail: '近期 PE 热度与较长历史 PB 分位未形成一致的极端信号，适合继续观察结构差异。',
+            title: '短中长期信号未形成共振',
+            detail: '短周期热度与长期PB分位没有出现一致的极端信号，应分别观察市场拥挤度与定投位置。',
             tone: 'text-[#e6cd8e]',
           };
 
@@ -616,11 +774,11 @@ export function MarketTemperaturePanel() {
       <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-[#74c9dd]">
-            <Thermometer size={14} /> Valuation temperature
+            <Thermometer size={14} /> Relative valuation heat
           </p>
-          <h2 className="mt-2 text-2xl font-bold text-white sm:text-3xl">A股估值温度计</h2>
+          <h2 className="mt-2 text-2xl font-bold text-white sm:text-3xl">A股近500日相对估值热度</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-white/48">
-            用公开估值分位观察市场冷热。温度表示近500个交易日 PE 的相对位置，不等同于全市场的绝对高估或低估。
+            PE 60% + PB 40%，主要市场加权。热度只反映约两年的短周期相对位置，不等同于长期估值或定投信号。
           </p>
         </div>
         <div className="flex items-center gap-3 text-xs text-white/42">
@@ -653,11 +811,11 @@ export function MarketTemperaturePanel() {
           </div>
           <div className="grid gap-px overflow-hidden border border-white/10 bg-white/10 sm:grid-cols-3">
             <div className="bg-[#090b0d] p-4">
-              <p className="text-[10px] text-white/34">短期 PE 热度</p>
+              <p className="text-[10px] text-white/34">短周期 PE/PB 热度</p>
               <p className={`mt-2 font-mono text-xl font-semibold ${overallStyle.text}`}>
                 {data.overall.temperature.toFixed(0)}°
               </p>
-              <p className="mt-1 text-[10px] text-white/28">近500个交易日</p>
+              <p className="mt-1 text-[10px] text-white/28">近500日 · PE 60% + PB 40%</p>
             </div>
             <div className="bg-[#090b0d] p-4">
               <p className="text-[10px] text-white/34">全 A 中位 PB 分位</p>
@@ -689,12 +847,12 @@ export function MarketTemperaturePanel() {
         <div className="border border-white/10 bg-[#090b0d] p-5 sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold text-white/48">近500日 PE 热度</p>
+              <p className="text-xs font-semibold text-white/48">近500日 PE/PB 综合热度</p>
               <div className="mt-2 flex items-end gap-2">
                 <strong className={`font-mono text-6xl leading-none ${overallStyle.text}`}>
                   {data.overall.temperature.toFixed(0)}
                 </strong>
-                <span className="mb-1 text-xl text-white/42">°C</span>
+                <span className="mb-1 text-xl text-white/42">°</span>
               </div>
             </div>
             <span className={`px-2.5 py-1 text-xs font-semibold ${overallStyle.background} ${overallStyle.text}`}>
@@ -704,19 +862,23 @@ export function MarketTemperaturePanel() {
 
           <div className="relative mt-8 pt-4">
             <div className="flex h-2 overflow-hidden bg-white/[0.04]">
-              <div className="w-[30%] bg-[#1aa382]" />
-              <div className="w-[40%] bg-[#d6b566]" />
-              <div className="w-[30%] bg-[#d04b5a]" />
+              <div className="w-1/5 bg-[#0f9f88]" />
+              <div className="w-1/5 bg-[#4ea98d]" />
+              <div className="w-1/5 bg-[#d6b566]" />
+              <div className="w-1/5 bg-[#c47c55]" />
+              <div className="w-1/5 bg-[#d04b5a]" />
             </div>
             <span
               className="absolute top-0 h-5 w-px bg-white shadow-[0_0_10px_rgba(255,255,255,0.7)]"
               style={{ left: `${markerPosition}%` }}
             />
             <div className="mt-2 flex justify-between font-mono text-[10px] text-white/34">
-              <span>0 冷</span>
-              <span>30</span>
-              <span>70</span>
-              <span>热 100</span>
+              <span>0 极冷</span>
+              <span>20</span>
+              <span>40</span>
+              <span>60</span>
+              <span>80</span>
+              <span>过热 100</span>
             </div>
           </div>
 
@@ -806,10 +968,10 @@ export function MarketTemperaturePanel() {
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="flex items-center gap-2 text-xs font-semibold text-[#d6b566]">
-                <BarChart3 size={14} /> 估值温度历史
+                <BarChart3 size={14} /> 相对估值热度历史
               </p>
               <h3 className="mt-1 text-lg font-bold text-white">{selectedSeries.name}</h3>
-              <p className="mt-1 text-xs text-white/38">近 500 个交易日 · 历史估值分位</p>
+              <p className="mt-1 text-xs text-white/38">PE 60% + PB 40% · 近500个交易日相对分位</p>
             </div>
             <span className="flex items-center gap-2 font-mono text-xs text-[#e6cd8e]">
               <span className="h-0.5 w-4 bg-[#d6b566]" />
