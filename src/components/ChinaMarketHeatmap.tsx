@@ -18,6 +18,7 @@ type ChinaHeatmapStock = {
   code: string;
   name: string;
   exchange?: string;
+  logoUrl?: string;
   price: number;
   changePercent: number;
   marketCap: number;
@@ -66,6 +67,13 @@ type RegionalHeatmapConfig = {
   defaultCoverage: string;
   industryDisplayPriority: string[];
   logoPath?: (stock: ChinaHeatmapStock) => string;
+  formatPrice?: (value: number) => string;
+  formatMarketCap?: (value: number) => string;
+  searchEntityLabel?: string;
+  industryAreaExponent?: number;
+  stockAreaExponent?: number;
+  industryAreaMultipliers?: Record<string, number>;
+  stockAreaMultipliers?: Record<string, number>;
 };
 
 const REFRESH_INTERVAL_MS = 3_000;
@@ -114,6 +122,26 @@ const US_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   defaultCoverage: '纳斯达克与纽交所总市值前 320 家公司',
   industryDisplayPriority: ['信息技术', '金融'],
   logoPath: (stock) => `/stock-logos/us-${stock.code}.svg`,
+};
+
+const CRYPTO_HEATMAP_CONFIG: RegionalHeatmapConfig = {
+  endpoint: '/api/crypto-market-heatmap',
+  marketName: '加密市场',
+  ariaLabel: '加密资产市场热力图',
+  searchSlotId: 'crypto-market-search-slot',
+  searchResultsId: 'crypto-market-search-results',
+  loadingText: '正在整理主流加密资产热力图',
+  errorFallback: '加密资产热力图加载失败',
+  defaultCoverage: '主流加密资产市值前 120 项',
+  industryDisplayPriority: ['公链与基础层', 'DeFi', 'Layer 2', '交易平台', 'AI 与算力', 'Meme'],
+  logoPath: (stock) => stock.logoUrl || '',
+  formatPrice: formatCryptoPrice,
+  formatMarketCap: formatUsdMarketCap,
+  searchEntityLabel: '资产',
+  industryAreaExponent: 0.55,
+  stockAreaExponent: 0.5,
+  industryAreaMultipliers: { 公链与基础层: 1.75 },
+  stockAreaMultipliers: { BTC: 1.9 },
 };
 
 function formatMarketCap(value: number) {
@@ -208,8 +236,15 @@ function groupStocks(stocks: ChinaHeatmapStock[]) {
   return industries;
 }
 
-function createWeightedStockNodes(stocks: ChinaHeatmapStock[], targetWeight?: number) {
-  const scores = stocks.map((stock) => Math.pow(stock.marketCap, STOCK_AREA_EXPONENT));
+function createWeightedStockNodes(
+  stocks: ChinaHeatmapStock[],
+  targetWeight?: number,
+  stockAreaExponent = STOCK_AREA_EXPONENT,
+  stockAreaMultipliers?: Record<string, number>,
+) {
+  const scores = stocks.map((stock) => (
+    Math.pow(stock.marketCap, stockAreaExponent) * (stockAreaMultipliers?.[stock.code] ?? 1)
+  ));
   const scoreTotal = scores.reduce((sum, score) => sum + score, 0);
   const groupWeight = targetWeight ?? scoreTotal;
 
@@ -224,12 +259,21 @@ function buildTree(
   stocks: ChinaHeatmapStock[],
   activeIndustry: string | null,
   industryMarketCaps?: Record<string, number>,
+  industryAreaExponent = INDUSTRY_AREA_EXPONENT,
+  stockAreaExponent = STOCK_AREA_EXPONENT,
+  industryAreaMultipliers?: Record<string, number>,
+  stockAreaMultipliers?: Record<string, number>,
 ) {
   if (activeIndustry) {
     const members = stocks.filter((stock) => stock.industry === activeIndustry);
     return {
       name: activeIndustry,
-      children: createWeightedStockNodes(members),
+      children: createWeightedStockNodes(
+        members,
+        undefined,
+        stockAreaExponent,
+        stockAreaMultipliers,
+      ),
     } satisfies HeatmapNode;
   }
 
@@ -238,10 +282,16 @@ function buildTree(
     children: [...groupStocks(stocks).entries()].map(([industry, members]) => {
       const sampledMarketCap = members.reduce((sum, stock) => sum + stock.marketCap, 0);
       const industryMarketCap = industryMarketCaps?.[industry] ?? sampledMarketCap;
-      const industryWeight = Math.pow(industryMarketCap, INDUSTRY_AREA_EXPONENT);
+      const industryWeight = Math.pow(industryMarketCap, industryAreaExponent)
+        * (industryAreaMultipliers?.[industry] ?? 1);
       return {
         name: industry,
-        children: createWeightedStockNodes(members, industryWeight),
+        children: createWeightedStockNodes(
+          members,
+          industryWeight,
+          stockAreaExponent,
+          stockAreaMultipliers,
+        ),
       };
     }),
   } satisfies HeatmapNode;
@@ -253,10 +303,22 @@ function calculateLayout(
   activeIndustry: string | null,
   industryMarketCaps: Record<string, number> | undefined,
   industryDisplayPriority: string[],
+  industryAreaExponent = INDUSTRY_AREA_EXPONENT,
+  stockAreaExponent = STOCK_AREA_EXPONENT,
+  industryAreaMultipliers?: Record<string, number>,
+  stockAreaMultipliers?: Record<string, number>,
 ) {
   if (!stocks.length || size.width < 10 || size.height < 10) return undefined;
 
-  const root = hierarchy<HeatmapNode>(buildTree(stocks, activeIndustry, industryMarketCaps))
+  const root = hierarchy<HeatmapNode>(buildTree(
+    stocks,
+    activeIndustry,
+    industryMarketCaps,
+    industryAreaExponent,
+    stockAreaExponent,
+    industryAreaMultipliers,
+    stockAreaMultipliers,
+  ))
     .sum((node) => node.weight ?? 0)
     .sort((left, right) => {
       if (left.depth === 1 && right.depth === 1) {
@@ -295,6 +357,19 @@ function calculateMaxZoom(layout?: HierarchyRectangularNode<HeatmapNode>) {
   );
 }
 
+function formatUsdMarketCap(value: number) {
+  if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
+  if (value >= 1e9) return `$${(value / 1e9).toFixed(value >= 1e11 ? 0 : 1)}B`;
+  return `$${(value / 1e6).toFixed(0)}M`;
+}
+
+function formatCryptoPrice(value: number) {
+  if (value >= 1_000) return `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  if (value >= 1) return `$${value.toFixed(2)}`;
+  if (value >= 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(8)}`;
+}
+
 export function ChinaMarketHeatmap() {
   return <RegionalMarketHeatmap config={CHINA_HEATMAP_CONFIG} />;
 }
@@ -307,11 +382,17 @@ export function UsMarketHeatmap() {
   return <RegionalMarketHeatmap config={US_HEATMAP_CONFIG} />;
 }
 
+export function CryptoMarketHeatmap() {
+  return <RegionalMarketHeatmap config={CRYPTO_HEATMAP_CONFIG} />;
+}
+
 function StockCell({
   node,
   selected,
   expanded,
   logoPath,
+  priceFormatter = (value) => value.toFixed(2),
+  marketCapFormatter = formatMarketCap,
   onSelect,
   onHover,
 }: {
@@ -319,6 +400,8 @@ function StockCell({
   selected: boolean;
   expanded: boolean;
   logoPath?: (stock: ChinaHeatmapStock) => string;
+  priceFormatter?: (value: number) => string;
+  marketCapFormatter?: (value: number) => string;
   onSelect: (stock: ChinaHeatmapStock) => void;
   onHover: (stock: ChinaHeatmapStock | null) => void;
 }) {
@@ -354,7 +437,7 @@ function StockCell({
     : visualWidth >= 112
       ? 14
       : 11;
-  const tooltip = `${stock.name}（${stock.code}）\n现价 ${stock.price.toFixed(2)}\n涨跌 ${formatChange(stock.changePercent)}\n总市值 ${formatMarketCap(stock.marketCap)}`;
+  const tooltip = `${stock.name}（${stock.code}）\n现价 ${priceFormatter(stock.price)}\n涨跌 ${formatChange(stock.changePercent)}\n总市值 ${marketCapFormatter(stock.marketCap)}`;
 
   return (
     <button
@@ -549,8 +632,12 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       activeIndustry,
       data?.industryMarketCaps,
       config.industryDisplayPriority,
+      config.industryAreaExponent,
+      config.stockAreaExponent,
+      config.industryAreaMultipliers,
+      config.stockAreaMultipliers,
     ),
-    [activeIndustry, config.industryDisplayPriority, data?.industryMarketCaps, data?.stocks, size],
+    [activeIndustry, config.industryAreaExponent, config.industryAreaMultipliers, config.industryDisplayPriority, config.stockAreaExponent, config.stockAreaMultipliers, data?.industryMarketCaps, data?.stocks, size],
   );
   const scaledSize = useMemo(() => ({
     width: Math.max(0, Math.round(size.width * mapView.scale)),
@@ -563,8 +650,12 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       activeIndustry,
       data?.industryMarketCaps,
       config.industryDisplayPriority,
+      config.industryAreaExponent,
+      config.stockAreaExponent,
+      config.industryAreaMultipliers,
+      config.stockAreaMultipliers,
     ),
-    [activeIndustry, config.industryDisplayPriority, data?.industryMarketCaps, data?.stocks, scaledSize],
+    [activeIndustry, config.industryAreaExponent, config.industryAreaMultipliers, config.industryDisplayPriority, config.stockAreaExponent, config.stockAreaMultipliers, data?.industryMarketCaps, data?.stocks, scaledSize],
   );
   const industryNodes = useMemo(
     () => activeIndustry ? [] : layout?.children ?? [],
@@ -608,6 +699,10 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       null,
       data.industryMarketCaps,
       config.industryDisplayPriority,
+      config.industryAreaExponent,
+      config.stockAreaExponent,
+      config.industryAreaMultipliers,
+      config.stockAreaMultipliers,
     );
     const baseNode = fullLayout?.leaves().find((node) => node.data.stock?.code === stock.code);
     if (!fullLayout || !baseNode) return;
@@ -629,6 +724,10 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       null,
       data.industryMarketCaps,
       config.industryDisplayPriority,
+      config.industryAreaExponent,
+      config.stockAreaExponent,
+      config.industryAreaMultipliers,
+      config.stockAreaMultipliers,
     );
     const targetNode = targetLayout?.leaves().find((node) => node.data.stock?.code === stock.code);
     if (!targetNode) return;
@@ -645,7 +744,15 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
     setSearchQuery(stock.name);
     setSearchOpen(false);
     setSearchIndex(0);
-  }, [config.industryDisplayPriority, data, size]);
+  }, [
+    config.industryAreaExponent,
+    config.industryAreaMultipliers,
+    config.industryDisplayPriority,
+    config.stockAreaExponent,
+    config.stockAreaMultipliers,
+    data,
+    size,
+  ]);
 
   const handleSearchKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
@@ -861,10 +968,10 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
           onFocus={() => setSearchOpen(Boolean(searchQuery.trim()))}
           onBlur={() => window.setTimeout(() => setSearchOpen(false), 120)}
           onKeyDown={handleSearchKeyDown}
-          placeholder={`搜索${config.marketName}代码或公司名称`}
+          placeholder={`搜索${config.marketName}代码或${config.searchEntityLabel ?? '公司'}名称`}
           className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/32"
           role="combobox"
-          aria-label={`搜索${config.marketName}股票`}
+          aria-label={`搜索${config.marketName}${config.searchEntityLabel ?? '股票'}`}
           aria-expanded={searchOpen}
           aria-controls={config.searchResultsId}
           aria-autocomplete="list"
@@ -936,7 +1043,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
             </button>
           )) : (
             <div className="px-4 py-4 text-center text-xs text-white/42">
-              当前热力图中未找到匹配股票
+              当前热力图中未找到匹配{config.searchEntityLabel ?? '股票'}
             </div>
           )}
         </div>
@@ -1063,6 +1170,8 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
                 selected={node.data.stock?.code === selectedCode}
                 expanded={Boolean(activeIndustry)}
                 logoPath={config.logoPath}
+                priceFormatter={config.formatPrice}
+                marketCapFormatter={config.formatMarketCap}
                 onSelect={selectStock}
                 onHover={(stock) => {
                   if (!dragging) {
@@ -1121,11 +1230,11 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
             </div>
             <div className="hidden h-8 w-px bg-white/12 sm:block" />
             <div className="hidden shrink-0 sm:block">
-              <p className="font-mono text-sm font-semibold">{focusedStock.price.toFixed(2)}</p>
+              <p className="font-mono text-sm font-semibold">{config.formatPrice?.(focusedStock.price) ?? focusedStock.price.toFixed(2)}</p>
               <p className="mt-0.5 text-[9px] text-white/40">价格</p>
             </div>
             <div className="hidden shrink-0 sm:block">
-              <p className="font-mono text-sm font-semibold">{formatMarketCap(focusedStock.marketCap)}</p>
+              <p className="font-mono text-sm font-semibold">{config.formatMarketCap?.(focusedStock.marketCap) ?? formatMarketCap(focusedStock.marketCap)}</p>
               <p className="mt-0.5 text-[9px] text-white/40">总市值</p>
             </div>
             <div className="shrink-0">

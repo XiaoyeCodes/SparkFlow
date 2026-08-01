@@ -8,8 +8,6 @@ import {
   Bot,
   Building2,
   CheckCircle2,
-  ChevronDown,
-  Circle,
   Database,
   Download,
   FileText,
@@ -25,11 +23,10 @@ import {
   TrendingUp,
   TriangleAlert,
 } from 'lucide-react';
-import { ChinaMarketHeatmap, HongKongMarketHeatmap, UsMarketHeatmap } from '../components/ChinaMarketHeatmap';
+import { ChinaMarketHeatmap, CryptoMarketHeatmap, HongKongMarketHeatmap, UsMarketHeatmap } from '../components/ChinaMarketHeatmap';
 import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
 import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper';
 import { PageTransition } from '../components/PageTransition';
-import { TradingViewHeatmap } from '../components/TradingViewHeatmap';
 import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 
@@ -179,6 +176,31 @@ type MarketIntelligence = {
   }>;
 };
 
+type ValuationAnchorSnapshot = {
+  id: string;
+  name: string;
+  current: {
+    pb: number;
+    fairPb: number;
+    pbPercentile: number;
+    premiumPercent: number;
+    status: string;
+    updatedAt: string;
+  };
+};
+
+type AShareValuationSnapshot = {
+  overall: {
+    temperature: number;
+    temperatureDelta: number;
+    zoneLabel: string;
+    currentPe: number;
+    updatedAt: string;
+  };
+  bookValueAnchor?: ValuationAnchorSnapshot;
+  bookValueAnchors?: ValuationAnchorSnapshot[];
+};
+
 type ToolStep = {
   id: string;
   tool: string;
@@ -218,42 +240,20 @@ const EMPTY_RESEARCH: ResearchState = {
 };
 
 type ResearchTarget = {
-  kind: 'market' | 'sector';
+  kind: 'market' | 'index' | 'sector';
   name: string;
+  code?: string;
+  description?: string;
 };
 
-type ValuationResearchContext = {
-  methodology: string;
-  periodLabel: string;
-  overall: {
-    temperature: number;
-    zoneLabel: string;
-    currentPe: number;
-    updatedAt: string;
-  };
-  markets: Array<{
-    name: string;
-    temperature: number;
-    currentPe: number;
-    zoneLabel: string;
-  }>;
-  industries: Array<{
-    name: string;
-    temperature: number;
-    currentPe: number;
-    currentPb?: number;
-    zoneLabel: string;
-  }>;
-  bookValueAnchor?: {
-    current: {
-      pb: number;
-      fairPb: number;
-      pbPercentile: number;
-      premiumPercent: number;
-      updatedAt: string;
-    };
-  };
-};
+const A_SHARE_INDEX_TARGETS = [
+  { name: '中证全指', code: '000985', description: '覆盖沪深北市场主要A股，用作全市场长期估值锚。' },
+  { name: '沪深300', code: '000300', description: '沪深市场大盘核心资产代表。' },
+  { name: '中证500', code: '000905', description: '剔除沪深300后具有代表性的中小市值公司。' },
+  { name: '中证A500', code: '000510', description: '强调行业代表性并覆盖各行业核心公司。' },
+  { name: '创业板综', code: '399102', description: '覆盖创业板市场的综合指数。' },
+  { name: '科创50', code: '000688', description: '科创板中市值大、流动性好的50只代表性证券。' },
+] as const;
 
 const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart: string; description: string }> = {
   china: {
@@ -319,6 +319,7 @@ export function Market() {
   const navigate = useNavigate();
   const [activeMarket, setActiveMarket] = useState<MarketChartMode>('china');
   const [data, setData] = useState<MarketIntelligence | null>(null);
+  const [aShareValuation, setAShareValuation] = useState<AShareValuationSnapshot | null>(null);
   const [loadState, setLoadState] = useState<AsyncState>('loading');
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
@@ -342,7 +343,7 @@ export function Market() {
   const eventSourcesRef = useRef(new Map<MarketChartMode, EventSource>());
   const pollingRef = useRef(new Map<MarketChartMode, number>());
   const quoteRequestRef = useRef(false);
-  const reportRef = useRef<HTMLDivElement | null>(null);
+  const reportRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     researchRef.current = research;
@@ -376,6 +377,20 @@ export function Market() {
   useEffect(() => {
     void loadMarket();
   }, [loadMarket]);
+
+  useEffect(() => {
+    let cancelled = false;
+    requestJson<AShareValuationSnapshot>('/api/china-valuation-temperature')
+      .then((payload) => {
+        if (!cancelled) setAShareValuation(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setAShareValuation(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!data) return;
@@ -650,15 +665,7 @@ export function Market() {
       setActionMessage('请从右上角头像进入“设置”，同时填写 AI API Key 和模型名称。');
       return;
     }
-    let valuationContext: ValuationResearchContext | undefined;
-    if (activeMarket === 'china') {
-      try {
-        valuationContext = await requestJson<ValuationResearchContext>('/api/china-valuation-temperature');
-      } catch {
-        // Vibe will retrieve valuation evidence itself when the local snapshot is unavailable.
-      }
-    }
-    const prompt = buildDeepResearchPrompt(data, activeMarket, target, valuationContext);
+    const prompt = buildDeepResearchPrompt(activeMarket, target);
     setActionMessage('');
     updateResearch(activeMarket, () => ({
       ...EMPTY_RESEARCH,
@@ -709,8 +716,8 @@ export function Market() {
         body: JSON.stringify({
           vaultPath: settings.obsidian.vaultPath,
           folder: settings.obsidian.folder,
-          title: `${MARKET_META[activeMarket].short} 每日策略报告`,
-          markdown: buildMarketMarkdown(data, activeMarket, activeResearch.report),
+          title: `${MARKET_META[activeMarket].short} 估值与逆向信号日报`,
+          markdown: buildMarketMarkdown(data, activeMarket, activeResearch.report, activeRotation, aShareValuation),
         }),
       });
       setActionMessage(`已写入 Obsidian：${payload.relativePath}`);
@@ -724,31 +731,84 @@ export function Market() {
     setActionMessage('正在排版 PDF 报告…');
     try {
       const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
-      const canvas = await html2canvas(reportRef.current, {
-        scale: 1.7,
+      const reportElement = reportRef.current;
+      await document.fonts.ready;
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      const pageElements = Array.from(reportElement.querySelectorAll<HTMLElement>('[data-pdf-page]'));
+      const exportPages = pageElements.length ? pageElements : [reportElement];
+      const pageCanvases = await Promise.all(exportPages.map((pageElement) => html2canvas(pageElement, {
+        scale: 2.6,
         backgroundColor: '#f3f0e7',
         useCORS: true,
         logging: false,
-      });
+      })));
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const imageHeight = canvas.height * pageWidth / canvas.width;
-      const image = canvas.toDataURL('image/jpeg', 0.94);
-      let offset = 0;
-      pdf.addImage(image, 'JPEG', 0, offset, pageWidth, imageHeight, undefined, 'FAST');
-      while (imageHeight + offset > pageHeight) {
-        offset -= pageHeight;
-        pdf.addPage();
-        pdf.addImage(image, 'JPEG', 0, offset, pageWidth, imageHeight, undefined, 'FAST');
-      }
+      const runningHeaderHeight = 17;
+      const runningFooterHeight = 13;
+
+      const exportDate = new Date().toISOString().slice(0, 10);
+      pageCanvases.forEach((pageCanvas, pageIndex) => {
+        if (pageIndex > 0) pdf.addPage();
+        pdf.setFillColor(245, 246, 243);
+        pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+
+        if (pageIndex > 0) {
+          pdf.setFillColor(8, 29, 50);
+          pdf.rect(0, 0, pageWidth, 15.4, 'F');
+          pdf.setFillColor(195, 164, 87);
+          pdf.rect(0, 15.4, pageWidth, 0.8, 'F');
+          pdf.setTextColor(216, 189, 121);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(7.4);
+          pdf.text('SPARKFLOW INVESTMENT RESEARCH', 12, 6.3);
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(5.6);
+          pdf.text('VALUATION & CONTRARIAN SIGNALS', 12, 10.8);
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFontSize(5.2);
+          pdf.text('MARKET INTELLIGENCE', pageWidth - 12, 6.3, { align: 'right' });
+          pdf.setTextColor(216, 189, 121);
+          pdf.text(`CONTINUED · ${String(pageIndex + 1).padStart(2, '0')}`, pageWidth - 12, 10.8, { align: 'right' });
+        }
+
+        const contentTop = pageIndex === 0 ? 0 : runningHeaderHeight;
+        const availableContentHeight = pageHeight - contentTop - runningFooterHeight;
+        const naturalSliceHeight = pageCanvas.height * pageWidth / pageCanvas.width;
+        const contentScale = Math.min(1, availableContentHeight / naturalSliceHeight);
+        const sliceWidth = pageWidth * contentScale;
+        const sliceHeight = naturalSliceHeight * contentScale;
+        const sliceLeft = (pageWidth - sliceWidth) / 2;
+        pdf.addImage(pageCanvas.toDataURL('image/png'), 'PNG', sliceLeft, contentTop, sliceWidth, sliceHeight);
+
+        const footerTop = pageHeight - runningFooterHeight;
+        pdf.setFillColor(245, 246, 243);
+        pdf.rect(0, footerTop, pageWidth, runningFooterHeight, 'F');
+        pdf.setDrawColor(16, 38, 59);
+        pdf.setLineWidth(0.2);
+        pdf.line(12, footerTop + 2, pageWidth - 12, footerTop + 2);
+        pdf.setFillColor(178, 142, 62);
+        pdf.rect(12, footerTop + 5, 1.2, 1.2, 'F');
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(5.2);
+        pdf.setTextColor(16, 38, 59);
+        pdf.text('SPARKFLOW INVESTMENT RESEARCH', 15.2, pageHeight - 6.2);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(95, 106, 115);
+        pdf.text('RESEARCH REFERENCE ONLY', pageWidth / 2, pageHeight - 6.2, { align: 'center' });
+        pdf.text(`${exportDate}  |  ${String(pageIndex + 1).padStart(2, '0')} / ${String(pageCanvases.length).padStart(2, '0')}`, pageWidth - 12, pageHeight - 6.2, { align: 'right' });
+      });
       const marketSlug: Record<MarketChartMode, string> = {
         china: 'China-A',
         hongkong: 'Hong-Kong',
         us: 'US',
         crypto: 'Crypto',
       };
-      pdf.save(`SparkFlow-${marketSlug[activeMarket]}-Market-${new Date().toISOString().slice(0, 10)}.pdf`);
+      pdf.save(`SparkFlow-${marketSlug[activeMarket]}-Market-${exportDate}.pdf`);
       setActionMessage('PDF 报告已导出。');
     } catch (requestError) {
       setActionMessage(requestError instanceof Error ? requestError.message : 'PDF 导出失败');
@@ -836,28 +896,22 @@ export function Market() {
                     <div className="shrink-0">
                       <div className="flex items-center gap-2 text-sm font-semibold">
                         <Activity size={16} className="text-[#69d5ff]" />
-                        {MARKET_META[activeMarket].chart} · {
-                          activeMarket !== 'crypto'
-                            ? '东方财富实时数据'
-                            : 'TradingView'
-                        }
+                        {MARKET_META[activeMarket].chart} · {activeMarket === 'crypto' ? 'CoinGecko + Binance' : '东方财富实时数据'}
                       </div>
                       <p className="mt-1 text-xs text-white/38">{MARKET_META[activeMarket].description}</p>
                     </div>
-                    {activeMarket !== 'crypto' ? (
-                      <div
-                        id={
-                          activeMarket === 'china'
-                            ? 'china-market-search-slot'
-                            : activeMarket === 'hongkong'
-                              ? 'hong-kong-market-search-slot'
-                              : 'us-market-search-slot'
-                        }
-                        className="order-3 w-full sm:order-none sm:mx-3 sm:min-w-[220px] sm:max-w-xl sm:flex-1"
-                      />
-                    ) : (
-                      <div className="flex-1" />
-                    )}
+                    <div
+                      id={
+                        activeMarket === 'china'
+                          ? 'china-market-search-slot'
+                          : activeMarket === 'hongkong'
+                            ? 'hong-kong-market-search-slot'
+                            : activeMarket === 'us'
+                              ? 'us-market-search-slot'
+                              : 'crypto-market-search-slot'
+                      }
+                      className="order-3 w-full sm:order-none sm:mx-3 sm:min-w-[220px] sm:max-w-xl sm:flex-1"
+                    />
                     <a
                       href={
                         activeMarket === 'china'
@@ -865,21 +919,17 @@ export function Market() {
                           : activeMarket === 'hongkong'
                             ? 'https://quote.eastmoney.com/center/hkstock.html'
                           : activeMarket === 'crypto'
-                            ? 'https://cn.tradingview.com/heatmap/crypto/'
+                            ? 'https://www.coingecko.com/zh'
                             : 'https://quote.eastmoney.com/center/mgsc.html'
                       }
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex h-9 w-9 items-center justify-center text-white/50 transition hover:text-white"
                       aria-label={
-                        activeMarket !== 'crypto'
-                          ? '在东方财富打开'
-                          : '在 TradingView 打开'
+                        activeMarket !== 'crypto' ? '在东方财富打开' : '在 CoinGecko 打开'
                       }
                       title={
-                        activeMarket !== 'crypto'
-                          ? '在东方财富打开'
-                          : '在 TradingView 打开'
+                        activeMarket !== 'crypto' ? '在东方财富打开' : '在 CoinGecko 打开'
                       }
                     >
                       <ArrowUpRight size={17} />
@@ -893,7 +943,7 @@ export function Market() {
                     ) : activeMarket === 'us' ? (
                       <UsMarketHeatmap />
                     ) : (
-                      <TradingViewHeatmap mode={activeMarket} />
+                      <CryptoMarketHeatmap />
                     )}
                   </div>
                 </section>
@@ -974,12 +1024,14 @@ export function Market() {
                 <ResearchBoard items={data.reports} />
               </div>
 
-              <div ref={reportRef}>
-                {activeMarket === 'china' ? <MarketTemperaturePanel /> : null}
+              {activeMarket === 'china' ? <MarketTemperaturePanel /> : null}
+              <div aria-hidden="true" className="pointer-events-none fixed left-[-10000px] top-0 w-[820px]">
                 <MarketReport
+                  ref={reportRef}
                   data={data}
                   mode={activeMarket}
-                  researchComplete={Boolean(activeResearch.report)}
+                  rotation={activeRotation}
+                  valuation={activeMarket === 'china' ? aShareValuation : null}
                 />
               </div>
 
@@ -1006,9 +1058,9 @@ function VibeResearchPanel({
   onRun: (target: ResearchTarget) => void;
   onOpenAssistant: (sessionId: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
   const [researchKind, setResearchKind] = useState<ResearchTarget['kind']>('market');
   const [sectorName, setSectorName] = useState('');
+  const [selectedIndexCode, setSelectedIndexCode] = useState<string>(A_SHARE_INDEX_TARGETS[0].code);
   const running = state.running || state.connecting;
   const sectorSuggestions = useMemo(() => {
     const regionalDefaults: Record<MarketChartMode, string[]> = {
@@ -1022,22 +1074,27 @@ function VibeResearchPanel({
       : [];
     return [...new Set([...liveSectors, ...regionalDefaults[mode]])].slice(0, 16);
   }, [data.sectors.laggards, data.sectors.leaders, mode]);
+  const selectedIndex = A_SHARE_INDEX_TARGETS.find((item) => item.code === selectedIndexCode) || A_SHARE_INDEX_TARGETS[0];
   const requestedTarget: ResearchTarget = researchKind === 'market'
     ? { kind: 'market', name: MARKET_META[mode].short }
-    : { kind: 'sector', name: sectorName.trim() };
-  const targetActionLabel = requestedTarget.kind === 'sector' && requestedTarget.name
-    ? `${requestedTarget.name}板块`
-    : `${MARKET_META[mode].short}整体`;
+    : researchKind === 'index'
+      ? { kind: 'index', ...selectedIndex }
+      : { kind: 'sector', name: sectorName.trim() };
+  const targetActionLabel = requestedTarget.kind === 'market'
+    ? `${MARKET_META[mode].short}整体`
+    : requestedTarget.kind === 'index'
+      ? `${requestedTarget.name}指数`
+      : requestedTarget.name
+        ? `${requestedTarget.name}板块`
+        : '指定板块';
   const canRun = !running && (requestedTarget.kind === 'market' || Boolean(requestedTarget.name));
-  const statusLabel = state.connecting
-    ? '正在连接研究引擎'
-    : state.running
-      ? '研究进行中'
-      : state.report
-        ? '研究已完成'
-        : state.error
-          ? '研究失败'
-          : '尚未开始研究';
+  const statusLabel = running
+    ? '研究中'
+    : state.report
+      ? '研究已完成'
+      : state.error
+        ? '研究失败'
+        : '尚未开始研究';
   const assistantActionLabel = running
     ? '前往 AI 助手查看进度'
     : state.report
@@ -1047,6 +1104,7 @@ function VibeResearchPanel({
   useEffect(() => {
     setResearchKind('market');
     setSectorName('');
+    setSelectedIndexCode(A_SHARE_INDEX_TARGETS[0].code);
   }, [mode]);
 
   return (
@@ -1057,23 +1115,23 @@ function VibeResearchPanel({
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-[#75e6b1]">
               <Bot size={14} /> Vibe-Trading Research
             </div>
-            <h2 className="mt-2 text-xl font-semibold">通用市场估值研究</h2>
+            <h2 className="mt-2 text-xl font-semibold">估值与逆向信号研究</h2>
             <p className="mt-1 text-[11px] text-white/36">
               {state.targetLabel ? `最近研究：${state.targetLabel}` : `当前市场：${MARKET_META[mode].short}`}
             </p>
           </div>
-          <span className="border border-white/10 px-2 py-1 font-mono text-xs text-white/48">{data.summary.score}/100</span>
+          <span className="border border-white/10 px-2 py-1 font-mono text-xs text-white/48">数据置信 {data.confidence}%</span>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden border border-white/10 bg-white/10">
-          <Metric label="跨市场环境" value={data.summary.scoreLabel} />
-          <Metric label="数据置信" value={`${data.confidence}%`} />
-          <Metric label="风险状态" value={data.summary.riskLevel} />
-          <Metric label={mode === 'crypto' ? '估值代理' : '指数 PE'} value="研究核验" />
+          <Metric label="报告首屏" value="表格结论" />
+          <Metric label="估值口径" value={mode === 'crypto' ? '链上与资金代理' : 'PE / PB 分位'} />
+          <Metric label="逆向信号" value="逃顶 · 抄底" />
+          <Metric label="大众破圈热度" value={mode === 'china' ? '韭菜指数' : '公众关注度'} />
         </div>
 
         <div className="mt-4 border border-white/10 bg-black/20 p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/34">研究对象</p>
-          <div className="mt-2 grid grid-cols-2 gap-px bg-white/10">
+          <div className={`mt-2 grid gap-px bg-white/10 ${mode === 'china' ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <button
               type="button"
               onClick={() => setResearchKind('market')}
@@ -1087,6 +1145,21 @@ function VibeResearchPanel({
             >
               <Landmark size={13} /> 整体市场
             </button>
+            {mode === 'china' ? (
+              <button
+                type="button"
+                onClick={() => setResearchKind('index')}
+                disabled={running}
+                aria-pressed={researchKind === 'index'}
+                className={`inline-flex h-9 items-center justify-center gap-2 text-xs font-semibold transition ${
+                  researchKind === 'index'
+                    ? 'bg-[#75e6b1]/12 text-[#b8f5d7]'
+                    : 'bg-[#090a0c] text-white/46 hover:text-white/75'
+                }`}
+              >
+                <Activity size={13} /> 宽基指数
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setResearchKind('sector')}
@@ -1098,9 +1171,30 @@ function VibeResearchPanel({
                   : 'bg-[#090a0c] text-white/46 hover:text-white/75'
               }`}
             >
-              <Building2 size={13} /> 指定板块
+              <Building2 size={13} /> 行业板块
             </button>
           </div>
+          {researchKind === 'index' && mode === 'china' ? (
+            <div className="mt-2 grid grid-cols-2 gap-px border border-white/10 bg-white/10">
+              {A_SHARE_INDEX_TARGETS.map((item) => {
+                const selected = item.code === selectedIndexCode;
+                return (
+                  <button
+                    key={item.code}
+                    type="button"
+                    onClick={() => setSelectedIndexCode(item.code)}
+                    disabled={running}
+                    aria-pressed={selected}
+                    title={item.description}
+                    className={`min-h-11 px-3 py-2 text-left transition ${selected ? 'bg-[#15342c] text-[#c8f6df]' : 'bg-[#08090b] text-white/48 hover:text-white/78'}`}
+                  >
+                    <span className="block text-[11px] font-semibold">{item.name}</span>
+                    <span className="mt-0.5 block font-mono text-[9px] opacity-45">{item.code}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           {researchKind === 'sector' ? (
             <>
               <input
@@ -1131,57 +1225,26 @@ function VibeResearchPanel({
             ? '正在连接研究引擎'
             : state.running
               ? `正在研究${state.targetLabel || '市场'}`
-              : state.report
-                ? `重新研究${targetActionLabel}`
-                : researchKind === 'sector'
-                  ? `研究${targetActionLabel}`
-                  : `研究${targetActionLabel}`}
+              : `研究${targetActionLabel}`}
         </button>
       </div>
-
-      {running || state.tools.length ? (
-        <div className="border-b border-white/10">
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            className="flex w-full items-center gap-2 px-5 py-3 text-left text-xs text-white/58 hover:text-white"
-          >
-            <ChevronDown size={14} className={expanded ? '' : '-rotate-90'} />
-            {running ? <LoaderCircle size={13} className="animate-spin text-[#75e6b1]" /> : <CheckCircle2 size={13} className="text-[#75e6b1]" />}
-            {running ? '研究路径正在运行' : `研究过程完成 · ${state.tools.length} 个步骤`}
-          </button>
-          {expanded ? (
-            <div className="max-h-44 space-y-2 overflow-y-auto border-t border-white/8 px-5 py-3">
-              {state.tools.map((tool) => (
-                <div key={tool.id} className="flex items-center gap-2 text-[11px] text-white/46">
-                  {tool.status === 'running' ? (
-                    <LoaderCircle size={12} className="animate-spin text-[#d6b566]" />
-                  ) : tool.status === 'error' ? (
-                    <TriangleAlert size={12} className="text-[#ff8a8a]" />
-                  ) : (
-                    <Circle size={10} className="fill-[#75e6b1] text-[#75e6b1]" />
-                  )}
-                  <span className="truncate">{formatToolName(tool.tool)}</span>
-                  {tool.elapsedMs ? <span className="ml-auto font-mono text-white/26">{(tool.elapsedMs / 1000).toFixed(1)}s</span> : null}
-                </div>
-              ))}
-              {!state.tools.length ? <p className="text-xs text-white/34">正在规划研究路径…</p> : null}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
 
       <div className="min-h-0 flex-1 px-5 py-5">
         {state.sessionId ? (
           <div className="flex h-full min-h-52 flex-col">
             <div className="flex items-start gap-3 border-b border-white/10 pb-5">
-              <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
-                state.error
-                  ? 'bg-[#ff8a8a]'
-                  : running
-                    ? 'animate-pulse bg-[#d6b566]'
-                    : 'bg-[#75e6b1]'
-              }`} />
+              <span className="relative mt-1.5 h-2.5 w-2.5 shrink-0">
+                {running ? <span className="absolute inset-0 animate-ping rounded-full bg-[#d6b566]/70" /> : null}
+                <span className={`absolute inset-0 rounded-full ${
+                  state.error
+                    ? 'bg-[#ff8a8a]'
+                    : running
+                      ? 'animate-pulse bg-[#d6b566]'
+                      : state.report
+                        ? 'bg-[#75e6b1]'
+                        : 'bg-white/25'
+                }`} />
+              </span>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-white/88">{statusLabel}</p>
                 <p className="mt-1 text-xs leading-5 text-white/38">
@@ -1211,12 +1274,12 @@ function VibeResearchPanel({
             <p>
               {mode === 'crypto'
                 ? '研究将主动检索币价趋势、ETF 与稳定币资金、合约杠杆、链上指标及监管事件，并把事实、推断和缺失证据分开呈现。'
-                : '研究将主动检索整体或指定板块的估值、基本面、技术趋势、均线状态、资金与重要事件，并把事实、推断和缺失证据分开呈现。'}
+                : '报告开头先给表格结论，再展开估值、热度、逃顶抄底、情绪拥挤、资金和基本面证据。'}
             </p>
             <ul className="space-y-2 border-l border-white/12 pl-4">
-              <li>一眼结论：高估、合理、低估或证据不足</li>
-              <li>双层表达：先说人话，再给专业估值与基本面依据</li>
-              <li>长期行动：是否适合买入、分批节奏与主要风险</li>
+              <li>首屏总表：点位、估值、逆向信号与大众破圈热度</li>
+              <li>指数可选：全市场或六个主要A股宽基分别研究</li>
+              <li>行动纪律：追高、观望、再平衡或分批投入</li>
             </ul>
           </div>
         )}
@@ -1493,74 +1556,290 @@ function ResearchBoard({ items }: { items: ResearchReport[] }) {
   );
 }
 
-const MarketReport = forwardRef<HTMLDivElement, {
+type DailyBriefTone = 'positive' | 'neutral' | 'warning';
+
+type DailyBriefWatchItem = {
+  title: string;
+  current: string;
+  condition: string;
+  status: string;
+  tone: DailyBriefTone;
+};
+
+function buildDailyBrief(
+  data: MarketIntelligence,
+  mode: MarketChartMode,
+  rotation?: MarketRotation,
+  valuation?: AShareValuationSnapshot | null,
+) {
+  const indices = data.indices.filter((item) => item.market === mode);
+  const sortedIndices = indices.slice().sort((left, right) => right.changePercent - left.changePercent);
+  const strongest = sortedIndices[0];
+  const averageChange = indices.length
+    ? indices.reduce((sum, item) => sum + item.changePercent, 0) / indices.length
+    : 0;
+  const isChina = mode === 'china';
+  const breadthPercent = isChina
+    ? data.breadth.advanceRatio * 100
+    : indices.length
+      ? indices.filter((item) => item.changePercent > 0.03).length / indices.length * 100
+      : 50;
+  const normalizedFlow = isChina
+    ? (data.sectors.flowBalance + 1) / 2 * 100
+    : Math.max(0, Math.min(100, 50 + averageChange * 10));
+  const positiveSectorRatio = isChina ? data.sectors.positiveRatio * 100 : breadthPercent;
+  const crowdScore = Math.max(0, Math.min(100,
+    breadthPercent * 0.45 + positiveSectorRatio * 0.25 + normalizedFlow * 0.30,
+  ));
+  const leader = rotation?.leaders[0];
+  const anchors = valuation?.bookValueAnchors?.length
+    ? valuation.bookValueAnchors
+    : valuation?.bookValueAnchor
+      ? [valuation.bookValueAnchor]
+      : [];
+  const primaryAnchor = valuation?.bookValueAnchor || anchors[0];
+  const valuationAvailable = isChina && Boolean(primaryAnchor);
+  const currentPb = primaryAnchor?.current.pb;
+  const fairPb = primaryAnchor?.current.fairPb;
+  const pbPercentile = primaryAnchor?.current.pbPercentile ?? 50;
+  const premiumPercent = primaryAnchor?.current.premiumPercent ?? 0;
+  const shortHeat = valuationAvailable ? valuation!.overall.temperature : 50;
+  const shortHeatDelta = valuationAvailable ? valuation!.overall.temperatureDelta : 0;
+  const topRisk = valuationAvailable
+    ? pbPercentile * 0.50 + shortHeat * 0.30 + crowdScore * 0.20
+    : 50;
+  const bottomOpportunity = valuationAvailable
+    ? (100 - pbPercentile) * 0.50 + (100 - shortHeat) * 0.30 + (100 - crowdScore) * 0.20
+    : 50;
+  const greedConfirmed = crowdScore >= 75;
+  const fearConfirmed = crowdScore <= 25;
+  const topConfirmed = valuationAvailable && pbPercentile >= 80 && shortHeat >= 80 && greedConfirmed;
+  const bottomConfirmed = valuationAvailable && pbPercentile <= 20 && shortHeat <= 20 && fearConfirmed;
+  const hotAnchors = anchors.filter((item) => item.current.pbPercentile >= 80);
+  const coldAnchors = anchors.filter((item) => item.current.pbPercentile <= 20);
+
+  const contrarian = !valuationAvailable
+    ? {
+        title: '长期估值数据尚未接入',
+        action: '不输出逃顶或抄底结论',
+        detail: '当前市场缺少与A股同口径的长期PB历史，因此只保留行情观察。',
+        tone: 'neutral' as DailyBriefTone,
+      }
+    : topConfirmed
+      ? {
+          title: '高估与一致乐观共振',
+          action: '停止追高，分批降低超出目标仓位的部分',
+          detail: '长期PB、短期估值温度与市场情绪同时进入高位区，逃顶风险信号已触发；不建议一次性清仓。',
+          tone: 'warning' as DailyBriefTone,
+        }
+      : bottomConfirmed
+        ? {
+            title: '低估与市场恐慌共振',
+            action: '在既定风险预算内，分批提高基础定投',
+            detail: '长期PB、短期估值温度与市场情绪同时进入低位区，逆向买入信号已触发；不建议一次性重仓。',
+            tone: 'positive' as DailyBriefTone,
+          }
+        : hotAnchors.length && shortHeat >= 70
+          ? {
+              title: '局部高估，短期情绪偏热',
+              action: '停止追高高估方向，分批再平衡超配板块',
+              detail: `${hotAnchors.map((item) => item.name).join('、')}已进入PB历史高分位，但全市场尚未形成全面逃顶信号。`,
+              tone: 'warning' as DailyBriefTone,
+            }
+          : coldAnchors.length && shortHeat <= 30
+            ? {
+                title: '局部低估，情绪仍然低迷',
+                action: '维持基础定投，低估方向可分批增加',
+                detail: `${coldAnchors.map((item) => item.name).join('、')}处于PB历史低分位，但仍需等待市场恐慌与估值形成更强共振。`,
+                tone: 'positive' as DailyBriefTone,
+              }
+            : shortHeat >= 70 && greedConfirmed
+              ? {
+                  title: '短期拥挤，长期估值尚未过热',
+                  action: '不追高，维持核心仓位并等待估值确认',
+                  detail: '市场情绪已经热起来，但全A长期PB尚未进入高估区，不宜仅凭上涨情绪全面卖出。',
+                  tone: 'neutral' as DailyBriefTone,
+                }
+              : shortHeat <= 30 && fearConfirmed
+                ? {
+                    title: '短期低迷，长期估值尚未极低',
+                    action: '保持基础定投，不因低迷一次性重仓',
+                    detail: '市场情绪低迷，但长期PB尚未进入极低区，抄底信号仍需等待估值确认。',
+                    tone: 'neutral' as DailyBriefTone,
+                  }
+                : {
+                    title: '估值与情绪均未进入极端区',
+                    action: '维持基础仓位，等待赔率进一步倾斜',
+                    detail: '当前没有满足双重确认的逃顶或抄底信号。',
+                    tone: 'neutral' as DailyBriefTone,
+                  };
+
+  const watchItems: DailyBriefWatchItem[] = [
+    {
+      title: '全市场逃顶风险',
+      current: valuationAvailable ? `PB分位 ${pbPercentile.toFixed(1)}% · 温度 ${shortHeat.toFixed(0)}° · 情绪 ${crowdScore.toFixed(0)}°` : '估值数据暂缺',
+      condition: 'PB分位≥80%、短期温度≥80°且情绪≥75°时触发；只分批处理超配仓位。',
+      status: topConfirmed ? '已触发' : '未触发',
+      tone: topConfirmed ? 'warning' : 'neutral',
+    },
+    {
+      title: '局部高估提醒',
+      current: hotAnchors.length ? hotAnchors.map((item) => `${item.name} ${item.current.pbPercentile.toFixed(1)}%`).join(' · ') : '暂无指数进入80%以上',
+      condition: '单个宽基PB分位≥80%先视为局部风险，不直接推导全市场见顶。',
+      status: hotAnchors.length ? '局部触发' : '未触发',
+      tone: hotAnchors.length ? 'warning' : 'neutral',
+    },
+    {
+      title: '全市场抄底机会',
+      current: valuationAvailable ? `PB分位 ${pbPercentile.toFixed(1)}% · 温度 ${shortHeat.toFixed(0)}° · 情绪 ${crowdScore.toFixed(0)}°` : '估值数据暂缺',
+      condition: 'PB分位≤20%、短期温度≤20°且情绪≤25°时触发；采用分批定投而非一次性押注。',
+      status: bottomConfirmed ? '已触发' : '未触发',
+      tone: bottomConfirmed ? 'positive' : 'neutral',
+    },
+    {
+      title: '市场情绪确认',
+      current: `${breadthPercent.toFixed(1)}%上涨 · 情绪温度 ${crowdScore.toFixed(0)}°${leader ? ` · ${leader.name}资金居前` : ''}`,
+      condition: '情绪只用于确认估值信号；高涨不等于立即见顶，恐慌也不等于立即见底。',
+      status: greedConfirmed ? '一致乐观' : fearConfirmed ? '明显恐慌' : '中性',
+      tone: greedConfirmed ? 'warning' : fearConfirmed ? 'positive' : 'neutral',
+    },
+  ];
+
+  return {
+    indices,
+    breadthPercent,
+    normalizedFlow,
+    crowdScore,
+    currentPb,
+    fairPb,
+    pbPercentile,
+    premiumPercent,
+    shortHeat,
+    shortHeatDelta,
+    topRisk,
+    bottomOpportunity,
+    topConfirmed,
+    bottomConfirmed,
+    contrarian,
+    valuationAvailable,
+    anchors,
+    hotAnchors,
+    coldAnchors,
+    strongest,
+    watchItems,
+    leaders: rotation?.leaders.slice(0, 3) || [],
+    laggards: rotation?.laggards.slice(0, 3) || [],
+  };
+}
+
+const MarketReport = forwardRef<HTMLElement, {
   data: MarketIntelligence;
   mode: MarketChartMode;
-  researchComplete: boolean;
-}>(function MarketReport({ data, mode, researchComplete }, ref) {
-  const indices = data.indices.filter((item) => item.market === mode);
+  rotation?: MarketRotation;
+  valuation?: AShareValuationSnapshot | null;
+}>(function MarketReport({ data, mode, rotation, valuation }, ref) {
+  const brief = buildDailyBrief(data, mode, rotation, valuation);
+  const indexTimestamps = brief.indices
+    .map((item) => item.updatedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  const marketTimestamp = valuation?.overall.updatedAt || indexTimestamps[indexTimestamps.length - 1] || data.generatedAt;
+  const reportDate = formatChineseReportDate(marketTimestamp);
+  const conclusionStyle = {
+    positive: 'border-[#147557] bg-[#147557]/8 text-[#11664d]',
+    neutral: 'border-[#b28e3e] bg-[#b28e3e]/8 text-[#765d24]',
+    warning: 'border-[#a33333] bg-[#a33333]/8 text-[#8e2929]',
+  }[brief.contrarian.tone];
+
   return (
-    <section ref={ref} className="mt-9 overflow-hidden bg-[#f3f0e7] text-[#0a2038] shadow-[0_26px_100px_rgba(0,0,0,0.38)]">
-      <div className="border-b-[5px] border-[#b29552] bg-[#071b31] px-6 py-7 text-white sm:px-9">
+    <section ref={ref} className="mx-auto mt-9 w-full max-w-[820px] overflow-hidden bg-[#f5f6f3] text-[#10263b] shadow-[0_26px_100px_rgba(0,0,0,0.38)]">
+      <div data-pdf-page="overview" className="bg-[#f5f6f3]">
+        <header data-pdf-block className="border-b-[4px] border-[#c3a457] bg-[#081d32] px-5 py-6 text-white sm:px-8 sm:py-7">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#d8bd79]">SparkFlow Investment Research</p>
-            <h2 className="mt-3 text-2xl font-semibold sm:text-3xl">{MARKET_META[mode].short}每日策略报告</h2>
-            <p className="mt-2 text-sm text-white/58">Market Intelligence · Vibe-Trading Deep Research</p>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[#d8bd79]">SparkFlow Contrarian Valuation</p>
+            <h2 className="mt-3 text-2xl font-semibold sm:text-[28px]">{MARKET_META[mode].short}估值与逆向信号日报</h2>
+            <p className="mt-2 text-xs text-white/58">当前估值 · 逃顶风险 · 抄底机会 · 分批行动</p>
           </div>
-          <div className="text-left sm:text-right">
-            <p className="font-mono text-3xl font-semibold text-[#e7cf92]">{data.summary.score}</p>
-            <p className="mt-1 text-[10px] uppercase text-white/45">Cross-market environment score</p>
+          <div className="flex items-end justify-between gap-8 sm:text-right">
+            <div>
+              <p className="font-mono text-2xl font-semibold text-[#ef9a9a]">{Math.round(brief.topRisk)}<span className="ml-1 text-xs text-white/38">/100</span></p>
+              <p className="mt-1 text-[9px] text-white/42">逃顶风险</p>
+            </div>
+            <div>
+              <p className="font-mono text-2xl font-semibold text-[#7dc9ad]">{Math.round(brief.bottomOpportunity)}<span className="ml-1 text-xs text-white/38">/100</span></p>
+              <p className="mt-1 text-[9px] text-white/42">抄底机会</p>
+            </div>
           </div>
+        </div>
+        <p className="mt-5 border-t border-white/10 pt-3 text-[10px] text-white/42">{reportDate} · 概率预警，不是顶部或底部断言</p>
+        </header>
+
+        <ReportIndexStrip indices={brief.indices} />
+
+        <div className="px-5 py-6 sm:px-8 sm:py-7">
+        <div data-pdf-block className={`border-l-[3px] px-4 py-4 sm:px-5 ${conclusionStyle}`}>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.16em] opacity-70">今日逆向判断</p>
+              <p className="mt-2 text-lg font-semibold leading-7">{brief.contrarian.title}</p>
+            </div>
+            <span className="w-fit border border-current/30 px-2 py-1 text-[9px] font-semibold">
+              {brief.topConfirmed ? '逃顶预警已触发' : brief.bottomConfirmed ? '抄底信号已触发' : '全市场极端信号未触发'}
+            </span>
+          </div>
+          <p className="mt-3 text-sm font-semibold leading-6 text-[#10263b]">行动：{brief.contrarian.action}</p>
+          <p className="mt-1.5 text-[11px] leading-5 text-[#10263b]/58">{brief.contrarian.detail}</p>
+        </div>
+
+        <div data-pdf-block className="mt-5 grid grid-cols-2 border-l border-t border-[#10263b]/14 sm:grid-cols-4">
+          <ReportMetric label="当前 PB" value={brief.valuationAvailable ? `${brief.currentPb?.toFixed(2)}x` : '--'} note={brief.valuationAvailable ? `历史中枢 ${brief.fairPb?.toFixed(2)}x` : '长期估值待接入'} />
+          <ReportMetric label="PB 历史分位" value={brief.valuationAvailable ? `${brief.pbPercentile.toFixed(1)}%` : '--'} note={getValuationBand(brief.pbPercentile)} />
+          <ReportMetric label="短期估值温度" value={brief.valuationAvailable ? `${brief.shortHeat.toFixed(0)}°` : '--'} note={brief.valuationAvailable ? `20日变化 ${formatSignedNumber(brief.shortHeatDelta, 1)}°` : '短期热度待接入'} />
+          <ReportMetric label="市场情绪温度" value={`${brief.crowdScore.toFixed(0)}°`} note={brief.crowdScore >= 75 ? '一致乐观' : brief.crowdScore <= 25 ? '明显低迷' : '尚未极端'} />
+        </div>
+
+        <div data-pdf-block className="mt-7">
+          <ReportHeading index="01" title="逃顶与抄底雷达" />
+          <div className="border-y border-[#10263b]/14 py-4">
+            <SignalGauge label="逃顶风险" score={brief.topRisk} tone="warning" status={brief.topConfirmed ? '已触发' : '未触发'} />
+            <SignalGauge label="抄底机会" score={brief.bottomOpportunity} tone="positive" status={brief.bottomConfirmed ? '已触发' : '未触发'} />
+            <p className="mt-4 text-[9px] leading-4 text-[#10263b]/46">
+              计算口径：长期 PB 历史分位 50% + 短期估值温度 30% + 市场情绪 20%。只有估值与情绪同时进入极端区才触发行动，避免在上涨途中盲目逃顶，也避免在下跌途中一次性抄底。
+            </p>
+          </div>
+        </div>
         </div>
       </div>
-      <div className="px-6 py-7 sm:px-9">
-        <div className="grid gap-px overflow-hidden border border-[#0a2038]/15 bg-[#0a2038]/15 sm:grid-cols-3">
-          <ReportMetric label="市场立场" value={data.summary.stance} />
-          <ReportMetric label="风险水平" value={data.summary.riskLevel} />
-          <ReportMetric label="数据置信度" value={`${data.confidence}% · ${data.confidenceLabel}`} />
+
+      <div data-pdf-page="details" className="bg-[#f5f6f3] px-5 py-6 sm:px-8 sm:py-7">
+        <ValuationTable anchors={brief.anchors} />
+
+        <div data-pdf-block className="mt-7">
+          <ReportHeading index="03" title="市场情绪只做确认" />
+          <div className="grid grid-cols-2 border-l border-t border-[#10263b]/14 sm:grid-cols-4">
+            <ReportMetric label="上涨家数占比" value={`${brief.breadthPercent.toFixed(1)}%`} note={brief.breadthPercent >= 70 ? '叫好声偏高' : brief.breadthPercent <= 30 ? '低迷扩散' : '涨跌分化'} />
+            <ReportMetric label="正向板块占比" value={`${(data.sectors.positiveRatio * 100).toFixed(1)}%`} note="观察乐观扩散" />
+            <ReportMetric label="资金强弱" value={`${brief.normalizedFlow.toFixed(0)}/100`} note={brief.normalizedFlow >= 65 ? '流入偏强' : brief.normalizedFlow <= 35 ? '流出偏强' : '方向有限'} />
+            <ReportMetric label="最强指数" value={brief.strongest?.name || '--'} note={brief.strongest ? formatSignedPercent(brief.strongest.changePercent) : '行情待接入'} />
+          </div>
+          <p className="mt-3 text-[9px] leading-4 text-[#10263b]/46">上涨家数、板块扩散与资金强弱用于判断市场是否“一致叫好”或“普遍低迷”；它们不能脱离长期估值单独构成卖出或买入理由。</p>
         </div>
-        <div className="mt-7">
-          <ReportHeading index="01" title={mode === 'crypto' ? '主要币种快照' : '主要指数快照'} />
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-y border-[#0a2038]/20 text-[#0a2038]/58">
-                  <th className="px-2 py-2.5 font-semibold">{mode === 'crypto' ? '资产' : '指数'}</th>
-                  <th className="px-2 py-2.5 font-semibold">{mode === 'crypto' ? '美元价格' : '点位'}</th>
-                  <th className="px-2 py-2.5 font-semibold">{mode === 'crypto' ? '24h 涨跌' : '涨跌'}</th>
-                  <th className="px-2 py-2.5 font-semibold">交叉校验</th>
-                  <th className="px-2 py-2.5 font-semibold">{mode === 'crypto' ? '研究口径' : '估值口径'}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {indices.map((item) => (
-                  <tr key={item.id} className="border-b border-[#0a2038]/10">
-                    <td className="px-2 py-2.5 font-semibold">{item.name}{item.proxyFor ? '（代理）' : ''}</td>
-                    <td className="px-2 py-2.5 font-mono">{formatNumber(item.price)}</td>
-                    <td className={`px-2 py-2.5 font-mono ${item.changePercent >= 0 ? 'text-[#a33333]' : 'text-[#147557]'}`}>
-                      {item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
-                    </td>
-                    <td className="px-2 py-2.5">{item.validation.status === 'verified' ? '双源通过' : '单源/待复核'}</td>
-                    <td className="px-2 py-2.5">{mode === 'crypto' ? '链上与衍生品由 Vibe 核验' : '由 Vibe 检索核验'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+        <div data-pdf-block className="mt-7">
+          <ReportHeading index="04" title="触发条件与行动清单" />
+          <div className="border-y border-[#10263b]/16">
+            {brief.watchItems.map((item, index) => (
+              <ReportWatchRow key={item.title} index={index + 1} item={item} />
+            ))}
           </div>
         </div>
-        <div className="mt-8">
-          <ReportHeading index="02" title="Vibe-Trading 深度判断" />
-          <ReportPlaceholder
-            text={researchComplete
-              ? '深度研究已完成。完整研究过程、引用来源与最终报告请前往 AI 助手查看。'
-              : '尚未运行深度研究。报告不会用静态文案替代 AI 结论。'}
-          />
-        </div>
-        <div className="mt-8 border-t border-[#0a2038]/20 pt-5 text-[10px] leading-5 text-[#0a2038]/55">
-          <strong className="text-[#0a2038]">风险声明：</strong>{data.summary.disclaimer}
-          行情、资金、新闻与研报可能存在延迟、口径差异及来源偏差。指数估值必须由原始发布方或 Vibe 检索结果复核。
-        </div>
+
+        <footer data-pdf-block className="mt-7 border-t border-[#10263b]/18 pt-4 text-[9px] leading-4 text-[#10263b]/46">
+          <p><strong className="text-[#10263b]/72">数据说明：</strong>估值截至 {formatDateTime(marketTimestamp, true)}；报告生成于 {formatDateTime(data.generatedAt, true)}。PB 分位反映相对历史位置，不等同企业内在价值。</p>
+          <p className="mt-1"><strong className="text-[#10263b]/72">行动纪律：</strong>逃顶与抄底均为概率预警，只处理偏离目标仓位的部分；高估时分批再平衡，低估时按风险预算分批投入，不使用一次性清仓或满仓表达。</p>
+          <p className="mt-1"><strong className="text-[#10263b]/72">风险声明：</strong>{data.summary.disclaimer}</p>
+        </footer>
       </div>
     </section>
   );
@@ -1672,11 +1951,69 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ReportMetric({ label, value }: { label: string; value: string }) {
+function ReportIndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
+  if (!indices.length) {
+    return <p data-pdf-block className="border-b border-[#10263b]/14 bg-[#eef0ec] px-6 py-5 text-[11px] text-[#10263b]/48">今日主要指数行情暂未接入。</p>;
+  }
+
+  const visibleIndices = indices.slice(0, 5);
+  const indexTimestamps = visibleIndices
+    .map((index) => index.updatedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  const latestTimestamp = indexTimestamps[indexTimestamps.length - 1];
+
   return (
-    <div className="bg-[#f3f0e7] px-4 py-4">
-      <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[#0a2038]/45">{label}</p>
-      <p className="mt-2 text-sm font-semibold text-[#071b31]">{value}</p>
+    <div data-pdf-block className="border-b border-[#10263b]/14 bg-[#eef0ec] px-4 pb-4 pt-3 sm:px-6">
+      <div className="mb-2.5 flex items-center justify-between border-b border-[#10263b]/12 pb-2">
+        <div className="flex items-center gap-2">
+          <span className="h-3 w-0.5 bg-[#b28e3e]" />
+          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#8b6e2e]">今日主要指数</p>
+        </div>
+        <p className="font-mono text-[8px] text-[#10263b]/38">数据截至 {formatDateTime(latestTimestamp, true)}</p>
+      </div>
+      <div className="grid border-l border-t border-[#10263b]/12" style={{ gridTemplateColumns: `repeat(${visibleIndices.length}, minmax(0, 1fr))` }}>
+        {visibleIndices.map((index) => {
+          const changeTone = index.changePercent > 0.03
+            ? 'text-[#a33333]'
+            : index.changePercent < -0.03
+              ? 'text-[#147557]'
+              : 'text-[#10263b]/68';
+          return (
+            <div key={index.id} className="min-w-0 overflow-visible border-b border-r border-[#10263b]/12 bg-[#f8f8f4] px-3 py-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p
+                    className="min-h-[20px] overflow-visible whitespace-nowrap py-px text-[10px] font-semibold leading-[18px] text-[#10263b]"
+                    style={{ fontFamily: '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif' }}
+                  >
+                    {index.name}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[7px] text-[#10263b]/38">{index.code} · {index.region}</p>
+                </div>
+                <span className={`mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full ${index.validation.status === 'verified' ? 'bg-[#62c9a5]' : 'bg-[#d8bd79]'}`} />
+              </div>
+              <div className="mt-3">
+                <p className={`whitespace-nowrap font-mono text-[14px] font-semibold ${changeTone}`}>{formatNumber(index.price)}</p>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <p className="whitespace-nowrap font-mono text-[7px] text-[#10263b]/34">涨跌额 {formatSignedNumber(index.change, 2)}</p>
+                  <p className={`shrink-0 whitespace-nowrap font-mono text-[8px] font-semibold ${changeTone}`}>{formatSignedPercent(index.changePercent)}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ReportMetric({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <div className="border-b border-r border-[#10263b]/14 bg-[#f5f6f3] px-3 py-3.5">
+      <p className="text-[8px] font-semibold uppercase tracking-[0.1em] text-[#10263b]/42">{label}</p>
+      <p className="mt-1.5 font-mono text-base font-semibold text-[#10263b]">{value}</p>
+      <p className="mt-1 text-[9px] text-[#10263b]/42">{note}</p>
     </div>
   );
 }
@@ -1691,8 +2028,107 @@ function ReportHeading({ index, title }: { index: string; title: string }) {
   );
 }
 
-function ReportPlaceholder({ text }: { text: string }) {
-  return <div className="border border-[#0a2038]/15 bg-white/35 px-4 py-5 text-sm text-[#0a2038]/55">{text}</div>;
+function SignalGauge({
+  label,
+  score,
+  status,
+  tone,
+}: {
+  label: string;
+  score: number;
+  status: string;
+  tone: 'positive' | 'warning';
+}) {
+  const value = Math.max(0, Math.min(100, score));
+  const colors = tone === 'warning'
+    ? { bar: 'bg-[#b44444]', text: 'text-[#963333]', track: 'bg-[#a33333]/10' }
+    : { bar: 'bg-[#238467]', text: 'text-[#147557]', track: 'bg-[#147557]/10' };
+
+  return (
+    <div className="grid gap-2 py-2 sm:grid-cols-[92px_1fr_82px] sm:items-center">
+      <div className="flex items-baseline justify-between gap-3 sm:block">
+        <p className={`text-xs font-semibold ${colors.text}`}>{label}</p>
+        <p className="font-mono text-lg font-semibold text-[#10263b] sm:mt-1">{Math.round(value)}<span className="text-[10px] text-[#10263b]/36">/100</span></p>
+      </div>
+      <div className={`relative h-2 ${colors.track}`}>
+        <span className={`absolute inset-y-0 left-0 ${colors.bar}`} style={{ width: `${value}%` }} />
+        <span className="absolute inset-y-[-3px] left-1/2 w-px bg-[#10263b]/28" />
+      </div>
+      <p className={`text-right text-[10px] font-semibold ${colors.text}`}>{status}</p>
+    </div>
+  );
+}
+
+function ValuationTable({ anchors }: { anchors: ValuationAnchorSnapshot[] }) {
+  if (!anchors.length) {
+    return (
+      <div data-pdf-block className="mt-7">
+        <ReportHeading index="02" title="宽基估值分位" />
+        <p className="border-y border-[#10263b]/14 py-5 text-[11px] text-[#10263b]/48">当前市场尚未接入可比的长期 PB 历史数据。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div data-pdf-block className="mt-1">
+      <ReportHeading index="02" title="宽基估值分位" />
+      <ValuationTablePart anchors={anchors} />
+    </div>
+  );
+}
+
+function ValuationTablePart({ anchors }: { anchors: ValuationAnchorSnapshot[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] border-collapse text-left text-[11px]">
+        <thead>
+          <tr className="border-y border-[#10263b]/18 text-[#10263b]/48">
+            <th className="px-2 py-2.5 font-semibold">宽基指数</th>
+            <th className="px-2 py-2.5 text-right font-semibold">当前 PB</th>
+            <th className="px-2 py-2.5 text-right font-semibold">历史分位</th>
+            <th className="px-2 py-2.5 text-right font-semibold">相对中枢</th>
+            <th className="px-2 py-2.5 text-right font-semibold">估值状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          {anchors.map((anchor) => {
+            const percentile = anchor.current.pbPercentile;
+            const tone = percentile >= 80 ? 'text-[#a33333]' : percentile <= 20 ? 'text-[#147557]' : percentile >= 60 ? 'text-[#a5683f]' : 'text-[#8b6e2e]';
+            return (
+              <tr key={anchor.id} className="border-b border-[#10263b]/10">
+                <td className="px-2 py-2.5 font-semibold text-[#10263b]">{anchor.name}</td>
+                <td className="px-2 py-2.5 text-right font-mono">{anchor.current.pb.toFixed(2)}x</td>
+                <td className={`px-2 py-2.5 text-right font-mono font-semibold ${tone}`}>{percentile.toFixed(1)}%</td>
+                <td className={`px-2 py-2.5 text-right font-mono ${anchor.current.premiumPercent >= 0 ? 'text-[#a33333]' : 'text-[#147557]'}`}>{formatSignedPercent(anchor.current.premiumPercent)}</td>
+                <td className={`px-2 py-2.5 text-right font-semibold ${tone}`}>{getValuationBand(percentile)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ReportWatchRow({ index, item }: { index: number; item: DailyBriefWatchItem }) {
+  const tone = {
+    positive: { dot: 'bg-[#147557]', text: 'text-[#147557]' },
+    neutral: { dot: 'bg-[#b28e3e]', text: 'text-[#8b6e2e]' },
+    warning: { dot: 'bg-[#a33333]', text: 'text-[#a33333]' },
+  }[item.tone];
+  return (
+    <div className="grid gap-2 border-b border-[#10263b]/10 py-3 last:border-b-0 sm:grid-cols-[26px_1.05fr_0.75fr_1.5fr] sm:items-center">
+      <span className="font-mono text-[10px] text-[#8b6e2e]">{String(index).padStart(2, '0')}</span>
+      <p className="text-xs font-semibold text-[#10263b]">{item.title}</p>
+      <div className={`flex items-center gap-1.5 text-[10px] font-semibold ${tone.text}`}>
+        <span className={`h-1.5 w-1.5 ${tone.dot}`} /> {item.status}
+      </div>
+      <div>
+        <p className="text-[10px] font-semibold text-[#10263b]/70">{item.current}</p>
+        <p className="mt-0.5 text-[9px] leading-4 text-[#10263b]/46">{item.condition}</p>
+      </div>
+    </div>
+  );
 }
 
 function LoadingPanel() {
@@ -1721,122 +2157,152 @@ function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void
 }
 
 function buildDeepResearchPrompt(
-  data: MarketIntelligence,
   mode: MarketChartMode,
   target: ResearchTarget,
-  valuationContext?: ValuationResearchContext,
 ) {
-  const indices = data.indices
-    .filter((item) => item.market === mode)
-    .map(({ name, price, changePercent, updatedAt, validation, proxyFor }) => ({ name, price, changePercent, updatedAt, validation, proxyFor }));
-  const matchedIndustry = target.kind === 'sector'
-    ? valuationContext?.industries.find((item) => (
-        item.name.includes(target.name) || target.name.includes(item.name)
-      ))
-    : undefined;
-  const evidence = {
-    researchTarget: target.kind === 'market'
-      ? `${MARKET_META[mode].short}整体市场`
-      : `${MARKET_META[mode].short} · ${target.name}`,
-    market: MARKET_META[mode].label,
-    generatedAt: data.generatedAt,
-    indices,
-    aShareBreadth: data.breadth,
-    aShareSectorLeaders: data.sectors.leaders.slice(0, 6),
-    aShareSectorLaggards: data.sectors.laggards.slice(0, 5),
-    chineseNews: data.news.slice(0, 8).map(({ title, source, publishedAt, url, weight }) => ({ title, source, publishedAt, url, weight })),
-    brokerReports: data.reports.slice(0, 6).map(({ title, stockName, institution, publishedAt, rating, url }) => ({ title, stockName, institution, publishedAt, rating, url })),
-    sourceStatus: data.sources.map(({ id, provider, ok, note }) => ({ id, provider, ok, note })),
-    localValuationSnapshot: valuationContext
-      ? {
-          methodology: valuationContext.methodology,
-          periodLabel: valuationContext.periodLabel,
-          overall: valuationContext.overall,
-          majorMarkets: valuationContext.markets,
-          matchedIndustry,
-          allMarketMedianPb: valuationContext.bookValueAnchor?.current,
-        }
-      : undefined,
-  };
+  const researchTarget = target.kind === 'market'
+    ? `${MARKET_META[mode].short}整体市场`
+    : target.kind === 'index'
+      ? `${target.name}指数（${target.code}）`
+      : `${MARKET_META[mode].short} · ${target.name}板块`;
+  const targetInstruction = target.kind === 'market'
+    ? mode === 'china'
+      ? '整体A股以中证全指为主要价格与长期估值锚，同时比较沪深300、中证500、中证A500、创业板综、科创50；必须指出全市场结论与局部宽基风险的差异。'
+      : '研究整体市场，必须同时评价主要指数、内部板块分化、盈利周期、流动性和风险溢价，不能用单一资产代表全市场。'
+    : target.kind === 'index'
+      ? `研究对象严格限定为${target.name}（代码${target.code}）。${target.description || ''} 价格、PE、PB、盈利、历史分位和信号均以该指数口径为主；可与中证全指及同类宽基比较，但不得用其他指数数据替代目标指数。先核验指数代码与官方编制方。`
+      : `研究“${target.name}”板块整体而非单家公司，并与全市场、同类板块及自身历史估值比较，说明龙头与普通公司的估值分化。`;
   const modeInstruction =
     mode === 'crypto'
-      ? '注意：加密资产没有股票式 PE/PB。请自行检索并交叉验证现货与期货成交、资金费率、未平仓合约、强平、稳定币供给、链上活跃度、MVRV 等估值代理、美国现货 ETF 净流量和监管事件。下方 A 股板块资金和券商研报只能作为传统风险偏好参考，不得冒充加密市场数据。'
+      ? '加密资产没有股票式PE/PB，改用MVRV、实现市值、稳定币供给、ETF净流量、资金费率、期货基差、未平仓量、清算和链上活跃度；不得用A股数据替代。'
       : mode === 'us'
-        ? '注意：下方板块净流入是 A 股数据，只能作为亚洲时段风险偏好交叉参考，不得冒充美股板块资金；请自行检索美股行业 ETF 或权威美股资金流数据。MAGS 是 Magnificent 7 ETF 代理，不是官方七巨头指数。'
+        ? '美股资金使用宽基/行业ETF流量、市场宽度、Put/Call、VIX、信用利差、回购和机构披露；注明13F等数据滞后，不得用A股资金替代。'
         : mode === 'hongkong'
-          ? '注意：仅聚焦港股，重点覆盖恒生指数、恒生科技指数、行业轮动、南向资金、港元流动性与重要公司事件。下方 A 股板块资金和券商研报只能作为跨市场参考，不得冒充港股资金流。'
-          : target.kind === 'market'
-            ? '注意：仅聚焦 A 股整体市场，覆盖主要指数、行业轮动、市场资金、政策驱动与重要公司事件，不要混入港股市场结论。所有数据必须由研究工具主动获取并交叉验证。'
-            : '注意：仅聚焦 A 股，覆盖主要指数、行业轮动、市场资金、政策驱动与重要公司事件，不要混入港股市场结论。前端“温度”仅代表近500日相对分位，PB均值回归的变化仅相对区间起点，不可直接当作绝对高估或低估。';
-  const targetInstruction = target.kind === 'market'
-    ? '研究对象是整体市场。必须同时评价宽基指数估值、市场内部板块分化、盈利周期、流动性和风险溢价，不能用单一指数或少数热门板块代表全市场。'
-    : `研究对象是“${target.name}”板块。必须分析该板块整体而非只挑一家公司，并与整体市场、同类板块及自身历史估值比较；说明板块内部龙头与普通公司的估值分化。`;
-  const omitFrontendSnapshot = mode === 'china' && target.kind === 'market';
+          ? '港股重点核验恒生指数、恒生科技、南向资金、卖空成交、衍生品持仓、市场宽度和港元流动性；不得用A股资金替代。'
+          : 'A股资金重点核验宽基/行业ETF申赎、融资融券、机构席位或大宗交易、市场宽度、股债风险溢价及长期资金；主力资金只是一种代理，不等同全部机构。';
   const researchDataInstruction = mode === 'crypto'
-    ? '先使用可用研究工具主动获取主要币种价格、市场总市值与主导率、现货和衍生品资金、ETF 流量、链上指标、重要新闻与监管事件。'
-    : '先使用可用研究工具主动获取最新价格与指数走势、PE/PB/PS/股息率及历史分位、盈利增速、ROE、利润率、自由现金流、资产负债质量、行业周期、资金流、重要新闻和权威机构观点。';
-  const smartMoneyInstruction = mode === 'crypto'
-    ? '资金与“聪明钱”代理必须重点核验：现货 ETF 净流量、稳定币供给变化、交易所净流入/净流出、长期持有者行为、资金费率、期货基差、未平仓量与清算。不得把单一链上地址或短时大额转账直接称为机构行为。'
-    : mode === 'us'
-      ? '资金与“聪明钱”代理必须重点核验：宽基及行业 ETF/基金净流量、市场宽度、机构持仓披露（注意披露滞后）、期权 Put/Call、VIX、信用利差、公司回购与内部人交易。不得把暗池成交、单一 ETF 流量或滞后的 13F 直接等同实时机构方向。'
-      : mode === 'hongkong'
-        ? '资金与“聪明钱”代理必须重点核验：南向资金净流量及集中度、港股宽基/行业 ETF 申赎、卖空成交、衍生品持仓、市场宽度与港元流动性。不得把单日南向净流入直接等同全部机构看多。'
-        : '资金与“聪明钱”代理必须重点核验：宽基/行业 ETF 申赎与成交、融资融券余额、机构席位或大宗交易、主力资金口径、市场宽度、股债风险溢价及重要长期资金动向。北向资金若因披露口径变化不可用，必须说明；不得把单一主力资金口径直接等同全部机构方向。';
+    ? '主动获取最新价格、现货和衍生品资金、ETF流量、链上指标、重要新闻与监管事件。'
+    : '主动获取目标最新点位与涨跌、20/60/120/250日走势、PE/PB/股息率及1/3/5/10年历史分位、盈利增速、ROE、资金流、市场宽度、重要新闻和权威机构观点。';
   const prompt = [
-    `你是中文机构市场策略研究员。研究“${evidence.researchTarget}”，为持有期3年以上的投资者输出通俗、可核验的 Markdown 报告。`,
+    `你是中文机构市场策略研究员。研究“${researchTarget}”，为持有期3年以上的投资者输出通俗、可核验的Markdown报告。`,
     targetInstruction,
-    `${researchDataInstruction} ${smartMoneyInstruction}`,
-    '技术面覆盖日/周线、20/60/120/250日均线、量价、支撑压力和失效条件。超买超卖至少交叉验证 RSI(14)、均线偏离和市场宽度，可补充布林带、波动率、新高新低比；仅多个指标同向且处于历史极端时使用“严重”二字。',
-    '严格区分已核验事实、合理推断和数据缺口。价格、估值、盈利、资金与新闻注明日期和来源；估值至少两种口径。无可靠证据就写“证据不足”，不得编造。',
-    '开头先给“逆向情绪与资金仪表盘”表格：超买超卖、聪明钱代理方向、逃顶风险、抄底信号、逆向立场（应该贪婪/略偏贪婪/中性/略偏恐惧/应该恐惧）、估值、长期基本面、技术趋势、当前行动、置信度。每项附关键数据/日期/来源。表后用三句话说明市场冷热、资金进退、为什么该贪婪或恐惧。',
-    '逃顶与抄底只能是概率预警，不能断言顶部/底部。逆向立场须结合估值、情绪、资金、宽度和基本面；便宜不等于见底，昂贵不等于马上见顶，证据冲突选“中性”。',
-    '正文结构：1仪表盘；2贵不贵（历史/横向/盈利质量）；3基本面与长期价值；4技术面与超买超卖；5机构/聪明钱代理、新闻和研报验证；6长期操作框架；7风险与失效条件；8来源与缺口。',
-    '操作框架回答：是否适合一次买入或分批、何时增加投入、何时停止买入或重估、主要回撤来源。不得假定用户资产和风险承受力，不给日内指令或收益承诺。专业结论先用白话说明，首次术语用括号解释。',
-    modeInstruction,
-    omitFrontendSnapshot ? '' : `前端已核验快照(JSON)：${JSON.stringify(evidence)}`,
+    `${researchDataInstruction} ${modeInstruction}`,
+    '【输出硬规则】报告第一行必须是“## 一页结论”，不得先写前言、过程或免责声明。紧接一张Markdown表格，列为“指标｜当前读数｜评分/分位｜状态｜对投资者的含义｜截止日与来源”。按顺序必须包含：目标指数价格与当日涨跌、价格热度、PE及历史分位、PB及历史分位、股息率/盈利、逃顶指数、抄底指数、韭菜指数（大众破圈热度）、聪明钱方向、市场宽度、逆向立场、当前行动。缺失项保留并写“证据不足”，不得删除或猜数。',
+    '表格后立即给“## 现在该怎么做”，只用一张表写：市场阶段、逆向立场（应该贪婪/略偏贪婪/中性/略偏恐惧/应该恐惧）、当前动作（停止追高/维持/分批再平衡/分批投入）、触发条件、失效条件。再用三句话概括：现在贵不贵、市场是否一致叫好或普遍低迷、为什么采取该动作。',
+    '【评分定义】价格热度0-100综合20/60/120/250日均线偏离、RSI(14)、成交与一年价格分位。逃顶指数0-100：估值高位35%、技术过热20%、韭菜破圈与乐观一致性20%、聪明钱流出或价资背离15%、盈利/宽度恶化10%。抄底指数0-100：估值低位35%、技术超卖20%、大众冷落与市场恐慌20%、聪明钱企稳15%、盈利/宽度止跌10%。两者独立评分，不强制相加为100。',
+    '“韭菜指数”是非官方的“大众破圈热度”，专门判断股票是否从专业投资圈扩散到平时不关注市场的小白和普通大众，不等同价格热度、估值或市场宽度。0-100综合：百度/微信等泛大众搜索趋势30%、非财经社媒与大众话题提及25%、新增开户/散户成交等参与代理20%、非财经媒体和情绪化标题15%、可靠调查或线下讨论代理10%。必须列出每个分项、原始证据和覆盖率；无法获得线下讨论时明确缺失，按可用权重重算并降低置信度，绝不凭感觉打分。0-20无人问津，20-40仅投资圈关注，40-60大众开始留意，60-80明显破圈，80-100全民热议。',
+    '聪明钱只能写“代理方向”，至少交叉验证两类独立证据；单日主力净流入、单一ETF或滞后持仓不能直接称为机构一致行为。技术超买超卖至少由RSI、均线偏离和市场宽度交叉验证，仅多个指标同向且处于历史极端时使用“严重”。',
+    '首屏之后再专业展开：1价格与估值；2逃顶/抄底评分拆解；3韭菜指数的大众破圈证据；4市场宽度、聪明钱和资金证据；5盈利质量与长期基本面；6技术趋势；7分批行动框架；8风险、失效条件、来源与数据缺口。整体市场报告另附六个宽基估值对比表；单指数报告只把同类指数作为比较基准。',
+    '严格区分已核验事实、合理推断和数据缺口。价格、估值、资金与新闻注明日期及可点击来源，优先指数公司、交易所和权威数据源；估值至少两种口径。不得使用前端快照或未核验缓存冒充证据。逃顶、抄底只是概率预警；便宜不等于见底，昂贵不等于马上见顶，证据冲突选“中性”。不提供日内指令、满仓/清仓建议或收益承诺。',
   ].filter(Boolean).join('\n\n');
   return prompt.slice(0, 4900);
 }
 
-function buildMarketMarkdown(data: MarketIntelligence, mode: MarketChartMode, deepReport: string) {
-  const indices = data.indices.filter((item) => item.market === mode);
+function buildMarketMarkdown(
+  data: MarketIntelligence,
+  mode: MarketChartMode,
+  deepReport: string,
+  rotation?: MarketRotation,
+  valuation?: AShareValuationSnapshot | null,
+) {
+  const brief = buildDailyBrief(data, mode, rotation, valuation);
+  const anchorRows = brief.anchors.length
+    ? brief.anchors.map((anchor) => `| ${anchor.name} | ${anchor.current.pb.toFixed(2)}x | ${anchor.current.pbPercentile.toFixed(1)}% | ${formatSignedPercent(anchor.current.premiumPercent)} | ${getValuationBand(anchor.current.pbPercentile)} |`)
+    : ['| 暂无可比数据 | -- | -- | -- | -- |'];
   return [
-    `# ${MARKET_META[mode].short}每日策略报告`,
+    `# ${MARKET_META[mode].short}估值与逆向信号日报`,
     '',
     `- 生成时间：${formatDateTime(data.generatedAt, true)}`,
-    `- 跨市场环境分：${data.summary.score}/100（${data.summary.scoreLabel}）`,
-    `- 市场立场：${data.summary.stance}`,
+    `- 逃顶风险：${Math.round(brief.topRisk)}/100（${brief.topConfirmed ? '已触发' : '未触发'}）`,
+    `- 抄底机会：${Math.round(brief.bottomOpportunity)}/100（${brief.bottomConfirmed ? '已触发' : '未触发'}）`,
     `- 数据置信度：${data.confidence}%（${data.confidenceLabel}）`,
     '',
-    `## ${mode === 'crypto' ? '主要币种' : '主要指数'}`,
-    ...indices.map((item) => `- ${item.name}${item.proxyFor ? '（代理）' : ''}：${formatNumber(item.price)}，${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toFixed(2)}%`),
+    '## 今日逆向判断',
     '',
-    '## Vibe-Trading 深度判断',
+    `**${brief.contrarian.title}**`,
     '',
-    deepReport || '尚未运行深度研究。',
+    `行动：${brief.contrarian.action}`,
+    '',
+    brief.contrarian.detail,
+    '',
+    '## 当前估值',
+    '',
+    `- 当前 PB：${brief.valuationAvailable ? `${brief.currentPb?.toFixed(2)}x` : '数据待接入'}`,
+    `- 历史 PB 中枢：${brief.valuationAvailable ? `${brief.fairPb?.toFixed(2)}x` : '数据待接入'}`,
+    `- PB 历史分位：${brief.valuationAvailable ? `${brief.pbPercentile.toFixed(1)}%（${getValuationBand(brief.pbPercentile)}）` : '数据待接入'}`,
+    `- 短期估值温度：${brief.valuationAvailable ? `${brief.shortHeat.toFixed(0)}°（20日 ${formatSignedNumber(brief.shortHeatDelta, 1)}°）` : '数据待接入'}`,
+    `- 市场情绪温度：${brief.crowdScore.toFixed(0)}°`,
+    '',
+    '## 逃顶与抄底雷达',
+    '',
+    `- **逃顶风险 ${Math.round(brief.topRisk)}/100**：${brief.topConfirmed ? '长期估值、短期温度与一致乐观已形成共振；只分批降低超配仓位。' : '全市场条件尚未同时满足。'}`,
+    `- **抄底机会 ${Math.round(brief.bottomOpportunity)}/100**：${brief.bottomConfirmed ? '低估、低温与市场恐慌已形成共振；按风险预算分批投入。' : '全市场条件尚未同时满足。'}`,
+    '- 计算口径：长期 PB 历史分位 50% + 短期估值温度 30% + 市场情绪 20%。',
+    '',
+    '## 宽基估值分位',
+    '',
+    '| 宽基指数 | 当前 PB | 历史分位 | 相对中枢 | 状态 |',
+    '| --- | ---: | ---: | ---: | --- |',
+    ...anchorRows,
+    '',
+    '## 情绪确认',
+    '',
+    `- 上涨家数占比：${brief.breadthPercent.toFixed(1)}%`,
+    `- 正向板块占比：${(data.sectors.positiveRatio * 100).toFixed(1)}%`,
+    `- 资金强弱：${brief.normalizedFlow.toFixed(0)}/100`,
+    `- 最强指数：${brief.strongest ? `${brief.strongest.name} ${formatSignedPercent(brief.strongest.changePercent)}` : '数据暂缺'}`,
+    '- 情绪只用于确认估值信号，不能脱离估值单独构成买卖理由。',
+    '',
+    '## 触发条件与行动清单',
+    '',
+    ...brief.watchItems.map((item, index) => `${index + 1}. **${item.title}｜${item.status}**：${item.current}。${item.condition}`),
+    '',
+    '## AI 深度研究状态',
+    '',
+    deepReport
+      ? '完整研究已经生成。研究正文、引用来源与推理过程请前往 SparkFlow AI 助手查看。'
+      : '本期尚未运行深度研究；日报不使用静态文案替代AI结论。',
     '',
     '## 风险声明',
+    '',
+    '逃顶与抄底是概率预警，不是顶部或底部断言。高估时只分批再平衡偏离目标仓位的部分，低估时只按风险预算分批投入。',
     '',
     data.summary.disclaimer,
   ].join('\n');
 }
 
-function formatToolName(tool: string) {
-  const labels: Record<string, string> = {
-    run_swarm: '运行多智能体研究',
-    web_search: '检索公开信息',
-    search_web: '检索公开信息',
-    market_snapshot: '获取市场快照',
-    get_market_snapshot: '获取市场快照',
-    fetch_market_data: '获取市场数据',
-    search_research_reports: '检索公开研报',
-    calculate_metrics: '计算市场指标',
-  };
-  return labels[tool] || tool.replace(/_/g, ' ');
-}
-
 function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatChineseReportDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+  }).formatToParts(date);
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  return `${byType.get('year')}年${byType.get('month')}月${byType.get('day')}日 · ${byType.get('weekday')}`;
+}
+
+function formatSignedPercent(value: number) {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
+function formatSignedNumber(value: number, digits = 0) {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
+}
+
+function getValuationBand(percentile: number) {
+  if (percentile <= 20) return '明显偏低';
+  if (percentile <= 40) return '略偏低';
+  if (percentile < 60) return '中性';
+  if (percentile < 80) return '略偏高';
+  return '明显偏高';
 }
 
 function formatMoney(value: number) {

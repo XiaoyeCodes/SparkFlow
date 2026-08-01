@@ -113,6 +113,7 @@ type MarketIndexSnapshot = {
 type ChinaHeatmapStock = {
   code: string;
   name: string;
+  logoUrl?: string;
   price: number;
   changePercent: number;
   marketCap: number;
@@ -211,6 +212,14 @@ type AllMarketPbRow = {
   middlePB?: number | string;
   equalWeightAveragePB?: number | string;
   close?: number | string;
+};
+
+type IndexPbRow = {
+  date?: string;
+  close?: number | string;
+  pb?: number | string;
+  addPb?: number | string;
+  middlePb?: number | string;
 };
 
 type CsiIndexPerformanceRow = {
@@ -516,6 +525,55 @@ const chinaValuationMarketConfigs = [
   { id: 'star-market', marketCode: '000688', ticker: 'sh000688', name: '科创板', chartName: '科创50' },
 ];
 
+const bookValueIndexConfigs = [
+  {
+    id: 'csi300',
+    name: '沪深300',
+    code: '000300',
+    pbIndexCode: '000300.SH',
+    pagePath: 'index-pb?indexCode=000300.SH',
+    priceIndexCode: '000300',
+    totalReturnIndexCode: 'H00300',
+    pbLabel: '沪深300加权PB',
+  },
+  {
+    id: 'csi500',
+    name: '中证500',
+    code: '000905',
+    pbIndexCode: '000905.SH',
+    pagePath: 'index-pb?indexCode=000905.SH',
+    priceIndexCode: '000905',
+    totalReturnIndexCode: 'H00905',
+    pbLabel: '中证500加权PB',
+  },
+  {
+    id: 'csi-a500',
+    name: '中证A500',
+    code: '000510',
+    pbIndexCode: '000510.CSI',
+    pagePath: 'index-pb?indexCode=000510.CSI',
+    priceIndexCode: '000510',
+    pbLabel: '中证A500加权PB',
+  },
+  {
+    id: 'chinext-board',
+    name: '创业板综',
+    code: '399102',
+    pbIndexCode: '4',
+    pagePath: 'cybPB',
+    pbLabel: '创业板全市场加权PB',
+  },
+  {
+    id: 'star50',
+    name: '科创50',
+    code: '000688',
+    pbIndexCode: '000688.SH',
+    pagePath: 'index-pb?indexCode=000688.SH',
+    priceIndexCode: '000688',
+    pbLabel: '科创50加权PB',
+  },
+] as const;
+
 const cryptoAssetConfigs = [
   { id: 'bitcoin', symbol: 'BTC', binance: 'BTCUSDT', name: '比特币' },
   { id: 'ethereum', symbol: 'ETH', binance: 'ETHUSDT', name: '以太坊' },
@@ -524,6 +582,56 @@ const cryptoAssetConfigs = [
   { id: 'ripple', symbol: 'XRP', binance: 'XRPUSDT', name: 'XRP' },
   { id: 'dogecoin', symbol: 'DOGE', binance: 'DOGEUSDT', name: 'Dogecoin' },
 ];
+
+type CryptoMarketUniverseRow = {
+  id: string;
+  symbol: string;
+  name: string;
+  image?: string;
+  current_price: number;
+  market_cap: number;
+  market_cap_rank?: number;
+  price_change_percentage_24h?: number;
+  last_updated?: string;
+};
+
+const CRYPTO_STABLECOINS = new Set(['USDT', 'USDC', 'USDS', 'DAI', 'FDUSD', 'USDE', 'PYUSD', 'USD1', 'TUSD', 'USDD', 'FRAX', 'GHO', 'LUSD']);
+const CRYPTO_MEME_ASSETS = new Set(['DOGE', 'SHIB', 'PEPE', 'BONK', 'WIF', 'FLOKI', 'BRETT', 'MOG', 'POPCAT', 'SPX', 'PENGU', 'TRUMP']);
+const CRYPTO_EXCHANGE_ASSETS = new Set(['BNB', 'CRO', 'LEO', 'OKB', 'BGB', 'KCS', 'GT', 'HT', 'MX', 'WBT']);
+const CRYPTO_DEFI_ASSETS = new Set(['UNI', 'AAVE', 'SKY', 'MKR', 'LDO', 'ENA', 'CRV', 'PENDLE', 'JUP', 'RUNE', 'CAKE', 'COMP', 'SNX', 'SUSHI', '1INCH', 'DYDX', 'INJ', 'HYPE']);
+const CRYPTO_LAYER2_ASSETS = new Set(['ARB', 'OP', 'MNT', 'STRK', 'ZK', 'IMX', 'POL', 'STX', 'METIS', 'ZRO']);
+const CRYPTO_AI_ASSETS = new Set(['TAO', 'FET', 'RENDER', 'RNDR', 'GRT', 'VIRTUAL', 'AKT', 'AIOZ', 'WLD', 'KAITO']);
+const CRYPTO_RWA_ASSETS = new Set(['ONDO', 'QNT', 'XDC', 'CFG', 'OM', 'PLUME', 'FIGR_HELOC']);
+const CRYPTO_GAMING_ASSETS = new Set(['GALA', 'SAND', 'MANA', 'APE', 'AXS', 'RON', 'BEAM', 'FLOW', 'CHZ']);
+const CRYPTO_PRIVACY_ASSETS = new Set(['XMR', 'ZEC', 'DASH', 'ROSE', 'SCRT']);
+const CRYPTO_INFRA_ASSETS = new Set(['LINK', 'FIL', 'AR', 'THETA', 'TIA', 'PYTH', 'JASMY', 'IOTA', 'GNO']);
+const CRYPTO_PAYMENT_ASSETS = new Set(['XRP', 'XLM', 'LTC', 'BCH', 'HBAR', 'ALGO']);
+const CRYPTO_EXCLUDED_IDS = new Set([
+  'wrapped-bitcoin',
+  'wrapped-ethereum',
+  'weth',
+  'staked-ether',
+  'lido-staked-ether',
+  'coinbase-wrapped-btc',
+  'binance-peg-weth',
+  'wrapped-steth',
+  'renbtc',
+]);
+
+function classifyCryptoAsset(symbol: string) {
+  if (CRYPTO_STABLECOINS.has(symbol)) return '稳定币';
+  if (CRYPTO_MEME_ASSETS.has(symbol)) return 'Meme';
+  if (CRYPTO_EXCHANGE_ASSETS.has(symbol)) return '交易平台';
+  if (CRYPTO_DEFI_ASSETS.has(symbol)) return 'DeFi';
+  if (CRYPTO_LAYER2_ASSETS.has(symbol)) return 'Layer 2';
+  if (CRYPTO_AI_ASSETS.has(symbol)) return 'AI 与算力';
+  if (CRYPTO_RWA_ASSETS.has(symbol)) return 'RWA';
+  if (CRYPTO_GAMING_ASSETS.has(symbol)) return '游戏与 NFT';
+  if (CRYPTO_PRIVACY_ASSETS.has(symbol)) return '隐私资产';
+  if (CRYPTO_INFRA_ASSETS.has(symbol)) return '数据与基础设施';
+  if (CRYPTO_PAYMENT_ASSETS.has(symbol)) return '支付与跨境';
+  return '公链与基础层';
+}
 
 function asFiniteNumber(value: unknown) {
   const number = Number(value);
@@ -777,7 +885,60 @@ async function getAllMarketPbHistory() {
   }
 }
 
-async function getCsiIndexPerformance(indexCode: '000985' | 'H00985') {
+async function getIndexPbHistory(config: typeof bookValueIndexConfigs[number]) {
+  const pageUrl = `https://legulegu.com/stockdata/${config.pagePath}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const pageResponse = await fetch(pageUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 SparkFlow local research console',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    });
+    if (!pageResponse.ok) throw new Error(`${config.name}市净率页面 HTTP ${pageResponse.status}`);
+    const html = await pageResponse.text();
+    const csrf = html.match(/<meta\s+name="_csrf"\s+content="([^"]+)"/i)?.[1];
+    if (!csrf) throw new Error(`${config.name}市净率 CSRF 令牌缺失`);
+
+    const setCookies = (pageResponse.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.()
+      || [pageResponse.headers.get('set-cookie') || ''];
+    const cookie = setCookies
+      .flatMap((value) => value.split(/,(?=[^;,]+=)/))
+      .map((value) => value.split(';')[0]?.trim())
+      .filter(Boolean)
+      .join('; ');
+    const shanghaiDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const token = createHash('md5').update(shanghaiDate).digest('hex');
+    const apiUrl = new URL('https://legulegu.com/api/stockdata/index-basic-pb');
+    apiUrl.searchParams.set('indexCode', config.pbIndexCode);
+    apiUrl.searchParams.set('token', token);
+    const dataResponse = await fetch(apiUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 SparkFlow local research console',
+        Accept: 'application/json',
+        Referer: pageUrl,
+        'X-CSRF-Token': csrf,
+        Cookie: cookie,
+      },
+    });
+    if (!dataResponse.ok) throw new Error(`${config.name}市净率接口 HTTP ${dataResponse.status}`);
+    const payload = await dataResponse.json() as { data?: IndexPbRow[] };
+    if (!Array.isArray(payload.data) || !payload.data.length) throw new Error(`${config.name}市净率历史为空`);
+    return { sourceUrl: pageUrl, rows: payload.data };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function getCsiIndexPerformance(indexCode: string) {
   const shanghaiDate = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric',
@@ -804,6 +965,78 @@ async function getCsiIndexPerformance(indexCode: '000985' | 'H00985') {
     }];
   });
   return { url, points };
+}
+
+async function getIndexBookValueAnchor(config: typeof bookValueIndexConfigs[number]) {
+  const [{ sourceUrl, rows }, priceResult, totalReturnResult] = await Promise.all([
+    getIndexPbHistory(config),
+    'priceIndexCode' in config ? getCsiIndexPerformance(config.priceIndexCode) : Promise.resolve(undefined),
+    'totalReturnIndexCode' in config ? getCsiIndexPerformance(config.totalReturnIndexCode) : Promise.resolve(undefined),
+  ]);
+  const priceByDate = new Map(priceResult?.points.map((point) => [point.time, point.close]) || []);
+  const totalReturnByDate = new Map(totalReturnResult?.points.map((point) => [point.time, point.close]) || []);
+  const joined = rows.flatMap((row) => {
+    const time = dateOnly(row.date);
+    const pb = asFiniteNumber(row.pb);
+    const marketValue = priceByDate.get(time) ?? asFiniteNumber(row.close);
+    if (!time || pb === undefined || pb <= 0 || marketValue === undefined || marketValue <= 0) return [];
+    const totalReturnValue = totalReturnByDate.get(time);
+    return [{ time, marketValue, totalReturnValue, pb }];
+  }).sort((left, right) => left.time.localeCompare(right.time));
+  if (joined.length < 200) throw new Error(`${config.name}价格与市净率可对齐历史不足`);
+
+  const fairPb = median(joined.map((item) => item.pb));
+  const points = joined.map((item) => {
+    const bookValue = item.marketValue / item.pb;
+    return {
+      time: item.time,
+      marketValue: round(item.marketValue, 2),
+      ...(item.totalReturnValue !== undefined ? { totalReturnValue: round(item.totalReturnValue, 2) } : {}),
+      pb: round(item.pb, 4),
+      bookValue: round(bookValue, 6),
+      anchorValue: round(bookValue * fairPb, 2),
+    };
+  });
+  const current = points.at(-1)!;
+  const pbPercentile = percentileRank(points.map((item) => item.pb), current.pb);
+  const premiumPercent = (current.marketValue / current.anchorValue - 1) * 100;
+  const status = premiumPercent >= 15
+    ? '显著高于价值锚'
+    : premiumPercent >= 5
+      ? '略高于价值锚'
+      : premiumPercent <= -15
+        ? '显著低于价值锚'
+        : premiumPercent <= -5
+          ? '略低于价值锚'
+          : '接近价值锚';
+  const hasTotalReturn = Boolean(totalReturnResult && points[0]?.totalReturnValue && current.totalReturnValue);
+
+  return {
+    id: config.id,
+    name: config.name,
+    code: config.code,
+    pbLabel: config.pbLabel,
+    generatedAt: new Date().toISOString(),
+    hasTotalReturn,
+    current: {
+      marketValue: round(current.marketValue, 2),
+      ...(current.totalReturnValue !== undefined ? { totalReturnValue: round(current.totalReturnValue, 2) } : {}),
+      anchorValue: round(current.anchorValue, 2),
+      pb: round(current.pb, 2),
+      fairPb: round(fairPb, 2),
+      pbPercentile: round(pbPercentile, 1),
+      premiumPercent: round(premiumPercent, 1),
+      status,
+      updatedAt: current.time,
+    },
+    points,
+    methodology: `${config.name}净资产代理 = 指数价格 ÷ ${config.pbLabel}；虚线按所选区间PB中位数重估。${hasTotalReturn ? '全收益指数用于拆分股息贡献。' : '因缺少同口径全收益历史，暂不单独拆分股息贡献。'}该代理不等同于指数公司官方净资产或企业内在价值。`,
+    sources: [
+      { label: `${config.name}市净率 · 乐咕乐股`, url: sourceUrl },
+      ...(priceResult ? [{ label: `${config.name}价格指数 · 中证指数`, url: priceResult.url }] : []),
+      ...(totalReturnResult ? [{ label: `${config.name}全收益指数 · 中证指数`, url: totalReturnResult.url }] : []),
+    ],
+  };
 }
 
 async function getBookValueAnchor() {
@@ -854,9 +1087,12 @@ async function getBookValueAnchor() {
           : '接近价值锚';
 
   return {
+    id: 'csi-all-share',
     name: '中证全指',
     code: '000985',
+    pbLabel: '全A中位PB',
     generatedAt: new Date().toISOString(),
+    hasTotalReturn: true,
     current: {
       marketValue: round(current.marketValue, 2),
       totalReturnValue: round(current.totalReturnValue, 2),
@@ -931,12 +1167,29 @@ function buildCompositeMarketTemperature(markets: ValuationTemperatureItem[]) {
 }
 
 async function getChinaValuationDashboard() {
-  const [marketResult, industryResult, bookValueResult] = await Promise.all([
+  const [marketResult, industryResult, allMarketBookValueResult] = await Promise.all([
     Promise.allSettled(chinaValuationMarketConfigs.map(getMarketValuationTemperature)),
     getTopIndustryTemperatures(),
-    getBookValueAnchor().catch(() => undefined),
+    getBookValueAnchor()
+      .catch(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return getBookValueAnchor();
+      })
+      .catch(() => undefined),
   ]);
+  const indexBookValueResults = await Promise.allSettled(bookValueIndexConfigs.map(async (config, index) => {
+    try {
+      return await getIndexBookValueAnchor(config);
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 350 + index * 150));
+      return getIndexBookValueAnchor(config);
+    }
+  }));
   const markets = marketResult.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : []);
+  const bookValueAnchors = [
+    ...(allMarketBookValueResult ? [allMarketBookValueResult] : []),
+    ...indexBookValueResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+  ];
   const overall = buildCompositeMarketTemperature(markets);
 
   const rawCharts = chinaValuationMarketConfigs.flatMap((config) => {
@@ -977,7 +1230,8 @@ async function getChinaValuationDashboard() {
     markets: marketCards.map((item) => ({ ...item, history: undefined })),
     industries: industryResult,
     charts,
-    bookValueAnchor: bookValueResult,
+    bookValueAnchor: allMarketBookValueResult,
+    bookValueAnchors,
   };
 }
 
@@ -1340,6 +1594,94 @@ async function getUsMarketHeatmap() {
   };
 }
 
+async function getCryptoMarketUniverse() {
+  const sourceUrl = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=180&page=1&sparkline=false&price_change_percentage=24h&locale=zh';
+  let text: string;
+  try {
+    text = await fetchRoutedText(sourceUrl, 'direct', 15000, 'application/json');
+  } catch {
+    text = await fetchRoutedText(sourceUrl, 'proxy', 15000, 'application/json');
+  }
+  const payload = JSON.parse(text) as CryptoMarketUniverseRow[];
+  if (!Array.isArray(payload) || !payload.length) throw new Error('CoinGecko 加密资产市值数据为空');
+
+  const symbols = new Set<string>();
+  const rows = payload.filter((row) => {
+    const symbol = String(row.symbol || '').trim().toUpperCase();
+    const marketCap = asFiniteNumber(row.market_cap);
+    if (
+      !row.id
+      || !symbol
+      || symbols.has(symbol)
+      || CRYPTO_EXCLUDED_IDS.has(row.id)
+      || classifyCryptoAsset(symbol) === '稳定币'
+      || !marketCap
+      || marketCap <= 0
+    ) return false;
+    symbols.add(symbol);
+    return true;
+  }).slice(0, 120);
+  if (!rows.length) throw new Error('CoinGecko 加密资产市值数据缺少有效项目');
+  return { sourceUrl, rows };
+}
+
+async function getCryptoMarketHeatmap() {
+  const universe = await getCachedCryptoHeatmapUniverse();
+  const binanceUrl = 'https://api.binance.com/api/v3/ticker/24hr?type=MINI';
+  const binanceResult = await Promise.allSettled([
+    fetchRoutedText(binanceUrl, 'proxy', 12000, 'application/json'),
+  ]);
+  const binanceRows = binanceResult[0].status === 'fulfilled'
+    ? JSON.parse(binanceResult[0].value) as Array<Record<string, unknown>>
+    : [];
+  const tickerByPair = new Map(
+    Array.isArray(binanceRows)
+      ? binanceRows.map((row) => [String(row.symbol || '').trim().toUpperCase(), row])
+      : [],
+  );
+
+  const stocks: ChinaHeatmapStock[] = universe.rows.flatMap((row) => {
+    const code = String(row.symbol || '').trim().toUpperCase();
+    const ticker = tickerByPair.get(`${code}USDT`);
+    const marketCap = asFiniteNumber(row.market_cap);
+    const price = asFiniteNumber(ticker?.lastPrice) ?? asFiniteNumber(row.current_price);
+    const openPrice = asFiniteNumber(ticker?.openPrice);
+    const tickerPrice = asFiniteNumber(ticker?.lastPrice);
+    const changePercent = tickerPrice !== undefined && openPrice !== undefined && openPrice > 0
+      ? (tickerPrice - openPrice) / openPrice * 100
+      : asFiniteNumber(row.price_change_percentage_24h) ?? 0;
+    if (!code || !row.name || price === undefined || !marketCap || marketCap <= 0) return [];
+    const closeTime = asFiniteNumber(ticker?.closeTime);
+    return [{
+      code,
+      name: String(row.name).trim(),
+      logoUrl: row.image,
+      price,
+      changePercent,
+      marketCap,
+      industry: classifyCryptoAsset(code),
+      updatedAt: closeTime ? new Date(closeTime).toISOString() : row.last_updated,
+      sourceUrl: `https://www.coingecko.com/zh/数字货币/${encodeURIComponent(row.id)}`,
+    }];
+  });
+  if (!stocks.length) throw new Error('加密资产热力图缺少有效行情');
+
+  const industryMarketCaps = stocks.reduce<Record<string, number>>((result, stock) => {
+    result[stock.industry] = (result[stock.industry] || 0) + stock.marketCap;
+    return result;
+  }, {});
+  const binanceAvailable = tickerByPair.size > 0;
+  return {
+    generatedAt: new Date().toISOString(),
+    count: stocks.length,
+    coverage: `全球市值前 ${stocks.length} 项非稳定币加密资产 · 赛道面积按美元市值聚合`,
+    source: binanceAvailable ? 'CoinGecko 市值 + Binance 行情' : 'CoinGecko',
+    sourceUrl: universe.sourceUrl,
+    industryMarketCaps,
+    stocks,
+  };
+}
+
 async function getSectorPulse() {
   const makeUrl = (descending: boolean) => `https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=50&po=${descending ? 1 : 0}&np=1&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=f12,f14,f2,f3,f62,f184`;
   const url = makeUrl(true);
@@ -1676,6 +2018,10 @@ let marketQuotesCache: { storedAt: number; data: Awaited<ReturnType<typeof getMa
 let marketQuotesInFlight: Promise<Awaited<ReturnType<typeof getMarketIndexSnapshots>>> | undefined;
 let cryptoQuotesCache: { storedAt: number; data: Awaited<ReturnType<typeof getCryptoMarketSnapshots>> } | undefined;
 let cryptoQuotesInFlight: Promise<Awaited<ReturnType<typeof getCryptoMarketSnapshots>>> | undefined;
+let cryptoHeatmapUniverseCache: { storedAt: number; data: Awaited<ReturnType<typeof getCryptoMarketUniverse>> } | undefined;
+let cryptoHeatmapUniverseInFlight: Promise<Awaited<ReturnType<typeof getCryptoMarketUniverse>>> | undefined;
+let cryptoHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getCryptoMarketHeatmap>> } | undefined;
+let cryptoHeatmapInFlight: Promise<Awaited<ReturnType<typeof getCryptoMarketHeatmap>>> | undefined;
 let chinaHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getChinaMarketHeatmap>> } | undefined;
 let chinaHeatmapInFlight: Promise<Awaited<ReturnType<typeof getChinaMarketHeatmap>>> | undefined;
 let hongKongHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getHongKongMarketHeatmap>> } | undefined;
@@ -2654,6 +3000,42 @@ async function writeObsidianNote(body: { vaultPath?: string; folder?: string; ti
   return { path: targetPath, relativePath: relative };
 }
 
+async function getCachedCryptoHeatmapUniverse() {
+  const now = Date.now();
+  if (cryptoHeatmapUniverseCache && now - cryptoHeatmapUniverseCache.storedAt < 60_000) {
+    return cryptoHeatmapUniverseCache.data;
+  }
+  if (!cryptoHeatmapUniverseInFlight) {
+    cryptoHeatmapUniverseInFlight = getCryptoMarketUniverse()
+      .then((data) => {
+        cryptoHeatmapUniverseCache = { storedAt: Date.now(), data };
+        return data;
+      })
+      .finally(() => {
+        cryptoHeatmapUniverseInFlight = undefined;
+      });
+  }
+  return cryptoHeatmapUniverseInFlight;
+}
+
+async function getCachedCryptoMarketHeatmap() {
+  const now = Date.now();
+  if (cryptoHeatmapCache && now - cryptoHeatmapCache.storedAt < 2_500) {
+    return cryptoHeatmapCache.data;
+  }
+  if (!cryptoHeatmapInFlight) {
+    cryptoHeatmapInFlight = getCryptoMarketHeatmap()
+      .then((data) => {
+        cryptoHeatmapCache = { storedAt: Date.now(), data };
+        return data;
+      })
+      .finally(() => {
+        cryptoHeatmapInFlight = undefined;
+      });
+  }
+  return cryptoHeatmapInFlight;
+}
+
 function allWeatherApiPlugin() {
   return {
     name: 'sparkflow-allweather-api',
@@ -2688,6 +3070,11 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/china-market-heatmap') {
             sendJson(res, 200, await getCachedChinaMarketHeatmap());
+            return;
+          }
+
+          if (url.pathname === '/api/crypto-market-heatmap') {
+            sendJson(res, 200, await getCachedCryptoMarketHeatmap());
             return;
           }
 
@@ -2818,6 +3205,7 @@ function allWeatherApiPlugin() {
             sendJson(res, 200, await writeObsidianNote(body));
             return;
           }
+
         } catch (error) {
           if (res.headersSent) {
             if (!res.writableEnded) res.end();

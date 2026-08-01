@@ -332,9 +332,11 @@ export function Assistant() {
   const activeAttemptRef = useRef('');
   const completedAttemptsRef = useRef(new Set<string>());
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const latestQuestionEndRef = useRef<HTMLDivElement | null>(null);
+  const pendingQuestionScrollRef = useRef<ScrollBehavior | null>(null);
 
   const isRunning = runState === 'connecting' || runState === 'researching';
+  const latestUserMessageId = [...messages].reverse().find((message) => message.role === 'user')?.id || '';
 
   const applyProgressSnapshot = useCallback((sid: string, snapshot: ResearchSnapshot) => {
     writeResearchSnapshot(sid, snapshot);
@@ -392,6 +394,7 @@ export function Assistant() {
     setRunState('idle');
     setError('');
     setNotice('');
+    pendingQuestionScrollRef.current = null;
     window.localStorage.removeItem(sessionStorageKey);
     setHistoryOpen(false);
     window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -427,6 +430,7 @@ export function Assistant() {
         setLiveText(snapshot?.liveText || '');
         setNotice(snapshot?.notice || '');
         setRunState(snapshot?.runState || 'idle');
+        pendingQuestionScrollRef.current = 'auto';
         setMessages(
           history
             .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -499,8 +503,15 @@ export function Assistant() {
   }, [historyCollapsed]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: isRunning ? 'smooth' : 'auto', block: 'end' });
-  }, [messages, tools, liveText, isRunning]);
+    const behavior = pendingQuestionScrollRef.current;
+    if (!behavior || !latestQuestionEndRef.current) return;
+
+    pendingQuestionScrollRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      latestQuestionEndRef.current?.scrollIntoView({ behavior, block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages]);
 
   const finishAttempt = (sid: string, attemptId: string, summary: string) => {
     const source = eventSourcesRef.current.get(sid);
@@ -765,6 +776,7 @@ export function Assistant() {
     setTools([]);
     setLiveText('');
     setRunState('connecting');
+    pendingQuestionScrollRef.current = 'smooth';
     setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', content: question }]);
 
     let preparedSessionId = '';
@@ -1045,10 +1057,15 @@ export function Assistant() {
               <div className="space-y-9">
                 {messages.map((message) =>
                   message.role === 'user' ? (
-                    <div key={message.id} className="flex justify-end">
-                      <div className="max-w-[86%] rounded-lg bg-[#ff7a12] px-4 py-3 text-sm font-medium leading-6 text-white md:max-w-[72%]">
-                        <p className="whitespace-pre-wrap">{message.content}</p>
+                    <div key={message.id}>
+                      <div className="flex justify-end">
+                        <div className="max-w-[86%] rounded-lg bg-[#ff7a12] px-4 py-3 text-sm font-medium leading-6 text-white md:max-w-[72%]">
+                          <p className="whitespace-pre-wrap">{message.content}</p>
+                        </div>
                       </div>
+                      {message.id === latestUserMessageId ? (
+                        <div ref={latestQuestionEndRef} className="h-px scroll-mt-24" aria-hidden="true" />
+                      ) : null}
                     </div>
                   ) : (
                     <motion.article
@@ -1117,7 +1134,6 @@ export function Assistant() {
                 <span>{error}</span>
               </div>
             ) : null}
-            <div ref={endRef} />
           </div>
 
           <div className="sticky bottom-0 z-20 border-t border-white/10 bg-[#08090b]/95 pb-2 pt-4 backdrop-blur-xl">
