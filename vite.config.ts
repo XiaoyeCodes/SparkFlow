@@ -527,6 +527,17 @@ const chinaValuationMarketConfigs = [
 
 const bookValueIndexConfigs = [
   {
+    id: 'sse-composite',
+    name: '上证指数',
+    code: '000001',
+    pbIndexCode: '1',
+    pagePath: 'index-basic?indexCode=1',
+    pbField: 'addPb',
+    eastmoneySecid: '1.000001',
+    priceSourceName: '东方财富',
+    pbLabel: '上证A股加权PB',
+  },
+  {
     id: 'csi300',
     name: '沪深300',
     code: '000300',
@@ -834,13 +845,15 @@ async function getAllMarketPbHistory() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
   try {
-    const pageResponse = await fetch(pageUrl, {
+    const pageInit: RequestInit & { dispatcher?: any } = {
       signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 SparkFlow local research console',
         Accept: 'text/html,application/xhtml+xml',
       },
-    });
+    };
+    pageInit.dispatcher = foreignProxyAgent;
+    const pageResponse = await fetch(pageUrl, pageInit);
     if (!pageResponse.ok) throw new Error(`全A市净率页面 HTTP ${pageResponse.status}`);
     const html = await pageResponse.text();
     const csrf = html.match(/<meta\s+name="_csrf"\s+content="([^"]+)"/i)?.[1];
@@ -863,7 +876,7 @@ async function getAllMarketPbHistory() {
     const apiUrl = new URL('https://legulegu.com/api/stock-data/market-index-pb');
     apiUrl.searchParams.set('marketId', 'ALL');
     apiUrl.searchParams.set('token', token);
-    const dataResponse = await fetch(apiUrl, {
+    const dataInit: RequestInit & { dispatcher?: any } = {
       signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 SparkFlow local research console',
@@ -872,7 +885,9 @@ async function getAllMarketPbHistory() {
         'X-CSRF-Token': csrf,
         Cookie: cookie,
       },
-    });
+    };
+    dataInit.dispatcher = foreignProxyAgent;
+    const dataResponse = await fetch(apiUrl, dataInit);
     if (!dataResponse.ok) throw new Error(`全A市净率接口 HTTP ${dataResponse.status}`);
     const payload = await dataResponse.json() as { data?: AllMarketPbRow[] };
     if (!Array.isArray(payload.data) || !payload.data.length) throw new Error('全A市净率历史为空');
@@ -890,13 +905,15 @@ async function getIndexPbHistory(config: typeof bookValueIndexConfigs[number]) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   try {
-    const pageResponse = await fetch(pageUrl, {
+    const pageInit: RequestInit & { dispatcher?: any } = {
       signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 SparkFlow local research console',
         Accept: 'text/html,application/xhtml+xml',
       },
-    });
+    };
+    pageInit.dispatcher = foreignProxyAgent;
+    const pageResponse = await fetch(pageUrl, pageInit);
     if (!pageResponse.ok) throw new Error(`${config.name}市净率页面 HTTP ${pageResponse.status}`);
     const html = await pageResponse.text();
     const csrf = html.match(/<meta\s+name="_csrf"\s+content="([^"]+)"/i)?.[1];
@@ -919,7 +936,7 @@ async function getIndexPbHistory(config: typeof bookValueIndexConfigs[number]) {
     const apiUrl = new URL('https://legulegu.com/api/stockdata/index-basic-pb');
     apiUrl.searchParams.set('indexCode', config.pbIndexCode);
     apiUrl.searchParams.set('token', token);
-    const dataResponse = await fetch(apiUrl, {
+    const dataInit: RequestInit & { dispatcher?: any } = {
       signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 SparkFlow local research console',
@@ -928,7 +945,9 @@ async function getIndexPbHistory(config: typeof bookValueIndexConfigs[number]) {
         'X-CSRF-Token': csrf,
         Cookie: cookie,
       },
-    });
+    };
+    dataInit.dispatcher = foreignProxyAgent;
+    const dataResponse = await fetch(apiUrl, dataInit);
     if (!dataResponse.ok) throw new Error(`${config.name}市净率接口 HTTP ${dataResponse.status}`);
     const payload = await dataResponse.json() as { data?: IndexPbRow[] };
     if (!Array.isArray(payload.data) || !payload.data.length) throw new Error(`${config.name}市净率历史为空`);
@@ -967,17 +986,46 @@ async function getCsiIndexPerformance(indexCode: string) {
   return { url, points };
 }
 
+async function getEastMoneyIndexPerformance(secid: string) {
+  const search = new URLSearchParams({
+    secid,
+    fields1: 'f1,f2,f3,f4,f5,f6',
+    fields2: 'f51,f52,f53,f54,f55,f56',
+    klt: '101',
+    fqt: '0',
+    beg: '20041231',
+    end: '20500101',
+  });
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?${search.toString()}`;
+  const payload = await fetchJsonWithRetry(url, 2, 30000) as { data?: { klines?: string[] } };
+  const klines = payload.data?.klines;
+  if (!Array.isArray(klines) || !klines.length) {
+    throw new Error(`东方财富指数 ${secid} 历史行情为空`);
+  }
+  const points = klines.flatMap((row) => {
+    const columns = row.split(',');
+    const time = dateOnly(columns[0]);
+    const close = asFiniteNumber(columns[2]);
+    return time && close !== undefined && close > 0 ? [{ time, close }] : [];
+  });
+  return { url, points };
+}
+
 async function getIndexBookValueAnchor(config: typeof bookValueIndexConfigs[number]) {
   const [{ sourceUrl, rows }, priceResult, totalReturnResult] = await Promise.all([
     getIndexPbHistory(config),
-    'priceIndexCode' in config ? getCsiIndexPerformance(config.priceIndexCode) : Promise.resolve(undefined),
+    'priceIndexCode' in config
+      ? getCsiIndexPerformance(config.priceIndexCode)
+      : 'eastmoneySecid' in config
+        ? getEastMoneyIndexPerformance(config.eastmoneySecid)
+        : Promise.resolve(undefined),
     'totalReturnIndexCode' in config ? getCsiIndexPerformance(config.totalReturnIndexCode) : Promise.resolve(undefined),
   ]);
   const priceByDate = new Map(priceResult?.points.map((point) => [point.time, point.close]) || []);
   const totalReturnByDate = new Map(totalReturnResult?.points.map((point) => [point.time, point.close]) || []);
   const joined = rows.flatMap((row) => {
     const time = dateOnly(row.date);
-    const pb = asFiniteNumber(row.pb);
+    const pb = asFiniteNumber('pbField' in config ? row[config.pbField] : row.pb);
     const marketValue = priceByDate.get(time) ?? asFiniteNumber(row.close);
     if (!time || pb === undefined || pb <= 0 || marketValue === undefined || marketValue <= 0) return [];
     const totalReturnValue = totalReturnByDate.get(time);
@@ -1032,8 +1080,11 @@ async function getIndexBookValueAnchor(config: typeof bookValueIndexConfigs[numb
     points,
     methodology: `${config.name}净资产代理 = 指数价格 ÷ ${config.pbLabel}；虚线按所选区间PB中位数重估。${hasTotalReturn ? '全收益指数用于拆分股息贡献。' : '因缺少同口径全收益历史，暂不单独拆分股息贡献。'}该代理不等同于指数公司官方净资产或企业内在价值。`,
     sources: [
-      { label: `${config.name}市净率 · 乐咕乐股`, url: sourceUrl },
-      ...(priceResult ? [{ label: `${config.name}价格指数 · 中证指数`, url: priceResult.url }] : []),
+      { label: `${config.pbLabel} · 乐咕乐股`, url: sourceUrl },
+      ...(priceResult ? [{
+        label: `${config.name}价格指数 · ${'priceSourceName' in config ? config.priceSourceName : '中证指数'}`,
+        url: priceResult.url,
+      }] : []),
       ...(totalReturnResult ? [{ label: `${config.name}全收益指数 · 中证指数`, url: totalReturnResult.url }] : []),
     ],
   };
@@ -1177,18 +1228,23 @@ async function getChinaValuationDashboard() {
       })
       .catch(() => undefined),
   ]);
-  const indexBookValueResults = await Promise.allSettled(bookValueIndexConfigs.map(async (config, index) => {
+  const indexBookValueAnchors = [];
+  for (const [index, config] of bookValueIndexConfigs.entries()) {
     try {
-      return await getIndexBookValueAnchor(config);
+      indexBookValueAnchors.push(await getIndexBookValueAnchor(config));
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 350 + index * 150));
-      return getIndexBookValueAnchor(config);
+      try {
+        indexBookValueAnchors.push(await getIndexBookValueAnchor(config));
+      } catch {
+        // Keep the rest of the valuation dashboard available when one upstream series is unavailable.
+      }
     }
-  }));
+  }
   const markets = marketResult.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : []);
   const bookValueAnchors = [
     ...(allMarketBookValueResult ? [allMarketBookValueResult] : []),
-    ...indexBookValueResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+    ...indexBookValueAnchors,
   ];
   const overall = buildCompositeMarketTemperature(markets);
 
@@ -2115,7 +2171,11 @@ async function getCachedMarketQuotes() {
 
 async function getCachedChinaValuationDashboard() {
   const now = Date.now();
-  if (chinaValuationCache && now - chinaValuationCache.storedAt < 15 * 60_000) {
+  const expectedAnchorCount = bookValueIndexConfigs.length + 1;
+  const cacheTtl = chinaValuationCache?.data.bookValueAnchors.length === expectedAnchorCount
+    ? 15 * 60_000
+    : 30_000;
+  if (chinaValuationCache && now - chinaValuationCache.storedAt < cacheTtl) {
     return chinaValuationCache.data;
   }
   if (!chinaValuationInFlight) {
