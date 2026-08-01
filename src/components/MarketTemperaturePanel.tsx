@@ -18,6 +18,7 @@ import {
   Scale,
   Thermometer,
 } from 'lucide-react';
+import { ValuationGuideWhitepaperLauncher } from './ValuationGuideWhitepaper';
 
 type TemperatureZone = 'cold' | 'low' | 'fair' | 'warm' | 'hot';
 
@@ -164,6 +165,7 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor[] }) {
     const first = visiblePoints[0];
     const last = visiblePoints[visiblePoints.length - 1];
     if (!first || !last || first.bookValue <= 0 || first.marketValue <= 0) return null;
+    const useRawNetAssetProxy = activeData.id === 'sse-composite';
 
     const orderedPb = visiblePoints.map((point) => point.pb).sort((left, right) => left - right);
     const middle = Math.floor(orderedPb.length / 2);
@@ -186,7 +188,9 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor[] }) {
     const valuationFactor = last.pb / first.pb;
     const dividendFactor = totalReturnFactor / priceFactor;
     const estimatedFairValue = last.bookValue * medianPb;
-    const netAssetBaseline = last.bookValue * first.marketValue / first.bookValue;
+    const netAssetBaseline = useRawNetAssetProxy
+      ? last.bookValue
+      : last.bookValue * first.marketValue / first.bookValue;
 
     return {
       first,
@@ -203,11 +207,13 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor[] }) {
       pbMedianGap: (last.pb / medianPb - 1) * 100,
       points: visiblePoints.map((point) => ({
         ...point,
-        netAssetBaseline: point.bookValue * first.marketValue / first.bookValue,
+        netAssetBaseline: useRawNetAssetProxy
+          ? point.bookValue
+          : point.bookValue * first.marketValue / first.bookValue,
         fairValue: point.bookValue * medianPb,
       })),
     };
-  }, [visiblePoints]);
+  }, [activeData.id, visiblePoints]);
 
   useEffect(() => {
     if (window.location.hash === '#return-decomposition') {
@@ -398,6 +404,7 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor[] }) {
             虚线按所选区间的PB中位数估算，
             用于判断当前估值相对历史中枢的位置，而不是企业内在价值。
           </p>
+          <ValuationGuideWhitepaperLauncher />
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
           <div className="flex max-w-full flex-wrap items-center gap-px border border-white/10 bg-white/10 p-px">
@@ -524,7 +531,8 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor[] }) {
             <span className="h-0.5 w-4 bg-[#d48419]" /> {activeData.name}价格
           </span>
           <span className="flex items-center gap-2 text-[#6f96bc]">
-            <span className="h-0.5 w-4 bg-[#3d648b]" /> 净资产代理（同起点）
+            <span className="h-0.5 w-4 bg-[#3d648b]" />
+            {activeData.id === 'sse-composite' ? '净资产代理（1x PB）' : '净资产代理（同起点）'}
           </span>
           <span className="flex items-center gap-2 text-[#e6cd8e]">
             <span className="w-4 border-t border-dashed border-[#d6b566]" /> 历史PB中枢
