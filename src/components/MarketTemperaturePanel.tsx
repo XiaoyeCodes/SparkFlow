@@ -88,6 +88,9 @@ type BookValueHoverPoint = {
 };
 
 type ValuationDashboard = {
+  market?: 'china' | 'hongkong' | 'us';
+  marketLabel?: string;
+  coverage?: string;
   generatedAt: string;
   methodology: string;
   periodLabel: string;
@@ -144,13 +147,26 @@ function formatMarketCap(value?: number) {
   return `${(value / 100_000_000_000).toFixed(1)} 千亿`;
 }
 
-function BookValueAnchorChart({ data }: { data: BookValueAnchor[] }) {
+function BookValueAnchorChart({
+  data,
+  marketLabel,
+  selectedMarketId,
+}: {
+  data: BookValueAnchor[];
+  marketLabel: string;
+  selectedMarketId?: string;
+}) {
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [selectedId, setSelectedId] = useState(data[0]?.id || 'csi-all-share');
   const [range, setRange] = useState<'1y' | '3y' | '5y' | 'all'>('all');
   const [hoverPoint, setHoverPoint] = useState<BookValueHoverPoint | null>(null);
   const activeData = data.find((item) => item.id === selectedId) || data[0];
+
+  useEffect(() => {
+    const requestedId = selectedMarketId === 'all-market' ? data[0]?.id : selectedMarketId;
+    if (requestedId && data.some((item) => item.id === requestedId)) setSelectedId(requestedId);
+  }, [data, selectedMarketId]);
   const visiblePoints = useMemo(() => {
     if (range === 'all') return activeData.points;
     const latestPoint = activeData.points[activeData.points.length - 1];
@@ -390,7 +406,7 @@ function BookValueAnchorChart({ data }: { data: BookValueAnchor[] }) {
           <p className="flex items-center gap-2 text-xs font-semibold text-[#d6b566]">
             <Scale size={14} /> 回报归因与均值回归
           </p>
-          <h3 className="mt-2 text-xl font-bold text-white sm:text-2xl">A股指数回报来源拆分与PB中枢参考</h3>
+          <h3 className="mt-2 text-xl font-bold text-white sm:text-2xl">{marketLabel}指数回报来源拆分与PB中枢参考</h3>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-white/42">
             {activeData.hasTotalReturn
               ? '把总回报拆成净资产代理增长、PB变化与股息贡献。'
@@ -707,9 +723,9 @@ function TemperatureChart({ series }: { series: MarketChartSeries }) {
   );
 }
 
-function LoadingState() {
+function LoadingState({ marketLabel }: { marketLabel: string }) {
   return (
-    <section className="mt-8 border-y border-white/10 py-10" data-testid="china-temperature-panel">
+    <section className="mt-8 border-y border-white/10 py-10" data-testid={`${marketLabel}-temperature-panel`}>
       <div className="animate-pulse">
         <div className="h-4 w-40 bg-white/10" />
         <div className="mt-4 h-9 w-72 max-w-full bg-white/10" />
@@ -723,7 +739,8 @@ function LoadingState() {
   );
 }
 
-export function MarketTemperaturePanel() {
+export function MarketTemperaturePanel({ mode = 'china' }: { mode?: 'china' | 'hongkong' | 'us' }) {
+  const marketLabel = mode === 'china' ? 'A股' : mode === 'hongkong' ? '港股' : '美股';
   const [data, setData] = useState<ValuationDashboard | null>(null);
   const [selectedId, setSelectedId] = useState('all-market');
   const [reloadKey, setReloadKey] = useState(0);
@@ -731,8 +748,9 @@ export function MarketTemperaturePanel() {
 
   useEffect(() => {
     const controller = new AbortController();
+    setData(null);
     setError('');
-    fetch('/api/china-valuation-temperature', { signal: controller.signal })
+    fetch(`/api/valuation-temperature?market=${mode}`, { signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload?.error || '估值温度数据暂时不可用');
@@ -749,7 +767,7 @@ export function MarketTemperaturePanel() {
         setError(reason instanceof Error ? reason.message : '估值温度数据暂时不可用');
       });
     return () => controller.abort();
-  }, [reloadKey]);
+  }, [mode, reloadKey]);
 
   const selectedMarket = useMemo(
     () => data?.markets.find((item) => item.id === selectedId) || data?.overall,
@@ -760,11 +778,11 @@ export function MarketTemperaturePanel() {
     [data, selectedId],
   );
 
-  if (!data && !error) return <LoadingState />;
+  if (!data && !error) return <LoadingState marketLabel={marketLabel} />;
 
   if (!data) {
     return (
-      <section className="mt-8 border-y border-white/10 py-10" data-testid="china-temperature-panel">
+      <section className="mt-8 border-y border-white/10 py-10" data-testid={`${mode}-temperature-panel`}>
         <div className="flex min-h-48 flex-col items-center justify-center text-center">
           <Thermometer className="text-[#d6b566]" size={26} />
           <p className="mt-4 text-sm text-white/60">{error}</p>
@@ -782,9 +800,14 @@ export function MarketTemperaturePanel() {
 
   const activeTemperature = selectedMarket || data.overall;
   const activeStyle = zoneStyles[activeTemperature.zone];
+  const displayMarketLabel = data.marketLabel || marketLabel;
+  const activeAnchor = selectedId === 'all-market'
+    ? data.bookValueAnchors?.[0] || data.bookValueAnchor
+    : data.bookValueAnchors?.find((item) => item.id === selectedId) || data.bookValueAnchor;
+  const longTermPbLabel = activeAnchor?.pbLabel || (mode === 'china' ? '全A长期PB' : `${displayMarketLabel}成份股样本PB`);
   const markerPosition = Math.max(1.5, Math.min(98.5, activeTemperature.temperature));
-  const pbPercentile = data.bookValueAnchor?.current.pbPercentile;
-  const medianPbGap = data.bookValueAnchor?.current.premiumPercent;
+  const pbPercentile = activeAnchor?.current.pbPercentile;
+  const medianPbGap = activeAnchor?.current.premiumPercent;
   const valuationConclusion = selectedId === 'all-market'
     ? data.overall.temperature >= 80 && (pbPercentile ?? 50) >= 60
       ? {
@@ -795,7 +818,7 @@ export function MarketTemperaturePanel() {
       : data.overall.temperature >= 60 && (pbPercentile ?? 50) < 60
         ? {
             title: '短期偏热，中长期中性偏低',
-            detail: '主要市场PE、PB相对最近500日处于较高位置，但全A长期PB尚未进入偏高区，不代表全面高估。',
+            detail: `主要市场PE、PB相对最近500日处于较高位置，但${longTermPbLabel}尚未进入偏高区，不代表全面高估。`,
             tone: 'text-[#e4aa7d]',
           }
         : data.overall.temperature < 40 && (pbPercentile ?? 50) <= 40
@@ -812,7 +835,7 @@ export function MarketTemperaturePanel() {
     : activeTemperature.temperature >= 80
       ? {
           title: `${activeTemperature.name}短期估值过热`,
-          detail: `该市场PE/PB热度处于近500日高位；全A长期PB仅作为背景，不能替代${activeTemperature.name}自身的长期估值判断。`,
+          detail: `该市场PE/PB热度处于近500日高位；${longTermPbLabel}仅作为背景，不能替代${activeTemperature.name}自身的长期估值判断。`,
           tone: 'text-[#ed8e99]',
         }
       : activeTemperature.temperature >= 60
@@ -840,15 +863,16 @@ export function MarketTemperaturePanel() {
               };
 
   return (
-    <section className="mt-8 border-y border-white/10 py-8 sm:py-10" data-testid="china-temperature-panel">
+    <section className="mt-8 border-y border-white/10 py-8 sm:py-10" data-testid={`${mode}-temperature-panel`}>
       <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-[#74c9dd]">
             <Thermometer size={14} /> Relative valuation heat
           </p>
-          <h2 className="mt-2 text-2xl font-bold text-white sm:text-3xl">A股近500日相对估值热度</h2>
+          <h2 className="mt-2 text-2xl font-bold text-white sm:text-3xl">{displayMarketLabel}近500日相对估值热度</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-white/48">
-            PE 60% + PB 40%，主要市场加权。热度只反映约两年的短周期相对位置，不等同于长期估值或定投信号。
+            PE 60% + PB 40%。热度只反映约两年的短周期相对位置，不等同于长期估值或定投信号。
+            {data.coverage ? ` ${data.coverage}。` : ''}
           </p>
         </div>
         <div className="flex items-center gap-3 text-xs text-white/42">
@@ -888,7 +912,7 @@ export function MarketTemperaturePanel() {
               <p className="mt-1 text-[10px] text-white/28">近500日 · PE 60% + PB 40%</p>
             </div>
             <div className="bg-[#090b0d] p-4">
-              <p className="text-[10px] text-white/34">全 A 中位 PB 分位</p>
+              <p className="text-[10px] text-white/34">{mode === 'china' ? '全 A 中位 PB 分位' : `${displayMarketLabel}样本 PB 分位`}</p>
               <p className="mt-2 font-mono text-xl font-semibold text-[#e6cd8e]">
                 {pbPercentile !== undefined ? `${pbPercentile.toFixed(1)}%` : '--'}
               </p>
@@ -1032,9 +1056,9 @@ export function MarketTemperaturePanel() {
       </div>
 
       {data.bookValueAnchors?.length ? (
-        <BookValueAnchorChart data={data.bookValueAnchors} />
+        <BookValueAnchorChart data={data.bookValueAnchors} marketLabel={displayMarketLabel} selectedMarketId={selectedId} />
       ) : data.bookValueAnchor ? (
-        <BookValueAnchorChart data={[data.bookValueAnchor]} />
+        <BookValueAnchorChart data={[data.bookValueAnchor]} marketLabel={displayMarketLabel} selectedMarketId={selectedId} />
       ) : null}
 
       {selectedSeries && selectedMarket ? (

@@ -18,6 +18,7 @@ import {
   Radar,
   RefreshCw,
   Save,
+  Search,
   ShieldCheck,
   TrendingDown,
   TrendingUp,
@@ -121,6 +122,40 @@ type ResearchReport = {
   epsThisYear?: number;
   epsNextYear?: number;
   url: string;
+};
+
+type RegionalMarketContent = {
+  market: 'hongkong' | 'us';
+  generatedAt: string;
+  news: NewsItem[];
+  reports: ResearchReport[];
+  sources: Array<{ label: string; url: string }>;
+  note: string;
+};
+
+type InstitutionRating = {
+  market: 'hongkong' | 'us';
+  symbol: string;
+  companyName: string;
+  price: number;
+  consensus: string;
+  summary: string;
+  analystCount: number;
+  targetPrice: { low?: number; average?: number; high?: number };
+  distribution: { buy: number; hold: number; sell: number };
+  brokers: string[];
+  reports: Array<{
+    id: string;
+    title: string;
+    institution: string;
+    publishedAt?: string;
+    rating: string;
+    url: string;
+  }>;
+  sourceLabel: string;
+  sourceUrl: string;
+  updatedAt: string;
+  note: string;
 };
 
 type ScoreDimension = {
@@ -255,6 +290,27 @@ const A_SHARE_INDEX_TARGETS = [
   { name: '科创50', code: '000688', description: '科创板中市值大、流动性好的50只代表性证券。' },
 ] as const;
 
+const HONG_KONG_INDEX_TARGETS = [
+  { name: '恒生指数', code: 'HSI', description: '香港市场最具代表性的大盘蓝筹指数。' },
+  { name: '恒生科技指数', code: 'HSTECH', description: '覆盖香港上市、与科技主题高度相关的龙头公司。' },
+  { name: '恒生中国企业指数', code: 'HSCEI', description: '衡量香港上市中国内地企业的核心表现。' },
+  { name: '恒生综合指数', code: 'HSCI', description: '覆盖香港主板大部分市值，用作港股全市场宽基参考。' },
+] as const;
+
+const US_INDEX_TARGETS = [
+  { name: '标普500', code: 'SPX', description: '覆盖美国大型上市公司的核心宽基指数。' },
+  { name: '纳斯达克100', code: 'NDX', description: '以大型非金融成长与科技公司为主的宽基指数。' },
+  { name: '道琼斯工业指数', code: 'DJIA', description: '由美国大型蓝筹公司构成的价格加权指数。' },
+  { name: '费城半导体指数', code: 'SOX', description: '覆盖全球主要半导体设计、制造与设备公司。' },
+] as const;
+
+const INDEX_RESEARCH_TARGETS: Record<MarketChartMode, readonly { name: string; code: string; description: string }[]> = {
+  china: A_SHARE_INDEX_TARGETS,
+  hongkong: HONG_KONG_INDEX_TARGETS,
+  us: US_INDEX_TARGETS,
+  crypto: [],
+};
+
 const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart: string; description: string }> = {
   china: {
     label: 'A股',
@@ -319,11 +375,14 @@ export function Market() {
   const navigate = useNavigate();
   const [activeMarket, setActiveMarket] = useState<MarketChartMode>('china');
   const [data, setData] = useState<MarketIntelligence | null>(null);
-  const [aShareValuation, setAShareValuation] = useState<AShareValuationSnapshot | null>(null);
+  const [valuationSnapshots, setValuationSnapshots] = useState<Partial<Record<'china' | 'hongkong' | 'us', AShareValuationSnapshot>>>({});
   const [loadState, setLoadState] = useState<AsyncState>('loading');
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [regionalRotations, setRegionalRotations] = useState<Partial<Record<MarketChartMode, MarketRotation>>>({});
+  const [regionalContent, setRegionalContent] = useState<Partial<Record<'hongkong' | 'us', RegionalMarketContent>>>({});
+  const [regionalContentState, setRegionalContentState] = useState<AsyncState>('idle');
+  const [regionalContentError, setRegionalContentError] = useState('');
   const [rotationLoadState, setRotationLoadState] = useState<AsyncState>('idle');
   const [rotationError, setRotationError] = useState('');
   const [rotationReloadKey, setRotationReloadKey] = useState(0);
@@ -379,18 +438,23 @@ export function Market() {
   }, [loadMarket]);
 
   useEffect(() => {
+    if (activeMarket === 'crypto') return;
     let cancelled = false;
-    requestJson<AShareValuationSnapshot>('/api/china-valuation-temperature')
+    requestJson<AShareValuationSnapshot>(`/api/valuation-temperature?market=${activeMarket}`)
       .then((payload) => {
-        if (!cancelled) setAShareValuation(payload);
+        if (!cancelled) setValuationSnapshots((current) => ({ ...current, [activeMarket]: payload }));
       })
       .catch(() => {
-        if (!cancelled) setAShareValuation(null);
+        if (!cancelled) setValuationSnapshots((current) => {
+          const next = { ...current };
+          delete next[activeMarket];
+          return next;
+        });
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeMarket]);
 
   useEffect(() => {
     if (!data) return;
@@ -438,6 +502,27 @@ export function Market() {
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+    };
+  }, [activeMarket]);
+
+  useEffect(() => {
+    if (activeMarket !== 'hongkong' && activeMarket !== 'us') return;
+    let cancelled = false;
+    setRegionalContentState('loading');
+    setRegionalContentError('');
+    requestJson<RegionalMarketContent>(`/api/regional-market-content?market=${activeMarket}`)
+      .then((payload) => {
+        if (cancelled) return;
+        setRegionalContent((current) => ({ ...current, [activeMarket]: payload }));
+        setRegionalContentState('success');
+      })
+      .catch((requestError) => {
+        if (cancelled) return;
+        setRegionalContentState('error');
+        setRegionalContentError(requestError instanceof Error ? requestError.message : String(requestError));
+      });
+    return () => {
+      cancelled = true;
     };
   }, [activeMarket]);
 
@@ -627,6 +712,25 @@ export function Market() {
     return regionalRotations[activeMarket];
   }, [activeIndices, activeMarket, data, regionalRotations]);
   const activeResearch = research[activeMarket];
+  const activeValuation = activeMarket === 'crypto' ? null : valuationSnapshots[activeMarket] || null;
+  const activeRegionalContent = activeMarket === 'hongkong' || activeMarket === 'us'
+    ? regionalContent[activeMarket]
+    : undefined;
+  const activeNews = activeRegionalContent?.news || data?.news || [];
+  const activeReports = activeRegionalContent?.reports || data?.reports || [];
+  const activeSources = activeRegionalContent
+    ? [
+        ...(data?.sources.filter((source) => source.id === 'indices') || []),
+        ...activeRegionalContent.sources.map((source, index) => ({
+          id: `regional-content-${index}`,
+          label: source.label,
+          url: source.url,
+          provider: activeMarket === 'hongkong' ? '港股公开数据与中文索引' : '美股公开数据与中文索引',
+          ok: activeRegionalContent.news.length > 0 || activeRegionalContent.reports.length > 0,
+          note: `${activeRegionalContent.news.length} 条新闻 · ${activeRegionalContent.reports.length} 份公开研究`,
+        })),
+      ]
+    : data?.sources || [];
 
   useEffect(() => {
     if (activeMarket === 'china' || activeMarket === 'crypto') {
@@ -717,7 +821,7 @@ export function Market() {
           vaultPath: settings.obsidian.vaultPath,
           folder: settings.obsidian.folder,
           title: `${MARKET_META[activeMarket].short} 估值与逆向信号日报`,
-          markdown: buildMarketMarkdown(data, activeMarket, activeResearch.report, activeRotation, aShareValuation),
+          markdown: buildMarketMarkdown(data, activeMarket, activeResearch.report, activeRotation, activeValuation),
         }),
       });
       setActionMessage(`已写入 Obsidian：${payload.relativePath}`);
@@ -1020,22 +1124,35 @@ export function Market() {
               </div>
 
               <div className="mt-7 grid gap-4 xl:grid-cols-2">
-                <NewsBoard items={data.news} />
-                <ResearchBoard items={data.reports} />
+                <NewsBoard items={activeNews} />
+                <ResearchBoard items={activeReports} />
               </div>
 
-              {activeMarket === 'china' ? <MarketTemperaturePanel /> : null}
+              {(activeMarket === 'hongkong' || activeMarket === 'us') ? (
+                <>
+                  {regionalContentState === 'error' ? (
+                    <p className="mt-3 text-xs text-[#e4aa7d]">市场内容更新失败：{regionalContentError}</p>
+                  ) : activeRegionalContent?.note ? (
+                    <p className="mt-3 text-[11px] text-white/30">{activeRegionalContent.note}</p>
+                  ) : null}
+                  <InstitutionRatingBoard market={activeMarket} />
+                </>
+              ) : null}
+
+              {activeMarket !== 'crypto' ? (
+                <MarketTemperaturePanel mode={activeMarket as 'china' | 'hongkong' | 'us'} />
+              ) : null}
               <div aria-hidden="true" className="pointer-events-none fixed left-[-10000px] top-0 w-[820px]">
                 <MarketReport
                   ref={reportRef}
                   data={data}
                   mode={activeMarket}
                   rotation={activeRotation}
-                  valuation={activeMarket === 'china' ? aShareValuation : null}
+                  valuation={activeValuation}
                 />
               </div>
 
-              <SourceBoard sources={data.sources} disclaimer={data.summary.disclaimer} />
+              <SourceBoard sources={activeSources} disclaimer={data.summary.disclaimer} />
               <MarketDisciplineMotto />
             </motion.div>
           ) : loadState === 'loading' ? <LoadingPanel /> : null}
@@ -1062,6 +1179,7 @@ function VibeResearchPanel({
   const [sectorName, setSectorName] = useState('');
   const [selectedIndexCode, setSelectedIndexCode] = useState<string>(A_SHARE_INDEX_TARGETS[0].code);
   const running = state.running || state.connecting;
+  const indexTargets = INDEX_RESEARCH_TARGETS[mode];
   const sectorSuggestions = useMemo(() => {
     const regionalDefaults: Record<MarketChartMode, string[]> = {
       china: [],
@@ -1074,10 +1192,10 @@ function VibeResearchPanel({
       : [];
     return [...new Set([...liveSectors, ...regionalDefaults[mode]])].slice(0, 16);
   }, [data.sectors.laggards, data.sectors.leaders, mode]);
-  const selectedIndex = A_SHARE_INDEX_TARGETS.find((item) => item.code === selectedIndexCode) || A_SHARE_INDEX_TARGETS[0];
+  const selectedIndex = indexTargets.find((item) => item.code === selectedIndexCode) || indexTargets[0];
   const requestedTarget: ResearchTarget = researchKind === 'market'
     ? { kind: 'market', name: MARKET_META[mode].short }
-    : researchKind === 'index'
+    : researchKind === 'index' && selectedIndex
       ? { kind: 'index', ...selectedIndex }
       : { kind: 'sector', name: sectorName.trim() };
   const targetActionLabel = requestedTarget.kind === 'market'
@@ -1104,7 +1222,7 @@ function VibeResearchPanel({
   useEffect(() => {
     setResearchKind('market');
     setSectorName('');
-    setSelectedIndexCode(A_SHARE_INDEX_TARGETS[0].code);
+    setSelectedIndexCode(INDEX_RESEARCH_TARGETS[mode][0]?.code || '');
   }, [mode]);
 
   return (
@@ -1131,7 +1249,7 @@ function VibeResearchPanel({
 
         <div className="mt-4 border border-white/10 bg-black/20 p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/34">研究对象</p>
-          <div className={`mt-2 grid gap-px bg-white/10 ${mode === 'china' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          <div className={`mt-2 grid gap-px bg-white/10 ${indexTargets.length ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <button
               type="button"
               onClick={() => setResearchKind('market')}
@@ -1145,7 +1263,7 @@ function VibeResearchPanel({
             >
               <Landmark size={13} /> 整体市场
             </button>
-            {mode === 'china' ? (
+            {indexTargets.length ? (
               <button
                 type="button"
                 onClick={() => setResearchKind('index')}
@@ -1174,9 +1292,9 @@ function VibeResearchPanel({
               <Building2 size={13} /> 行业板块
             </button>
           </div>
-          {researchKind === 'index' && mode === 'china' ? (
+          {researchKind === 'index' && indexTargets.length ? (
             <div className="mt-2 grid grid-cols-2 gap-px border border-white/10 bg-white/10">
-              {A_SHARE_INDEX_TARGETS.map((item) => {
+              {indexTargets.map((item) => {
                 const selected = item.code === selectedIndexCode;
                 return (
                   <button
@@ -1278,7 +1396,7 @@ function VibeResearchPanel({
             </p>
             <ul className="space-y-2 border-l border-white/12 pl-4">
               <li>首屏总表：点位、估值、逆向信号与大众破圈热度</li>
-              <li>指数可选：全市场或六个主要A股宽基分别研究</li>
+              <li>指数可选：整体市场或{indexTargets.length || '主要'}个代表性宽基分别研究</li>
               <li>行动纪律：追高、观望、再平衡或分批投入</li>
             </ul>
           </div>
@@ -1556,6 +1674,173 @@ function ResearchBoard({ items }: { items: ResearchReport[] }) {
   );
 }
 
+function translateConsensus(value: string) {
+  const normalized = value.toLowerCase();
+  if (normalized.includes('strong buy')) return '强力买入';
+  if (normalized.includes('buy')) return '买入';
+  if (normalized.includes('hold')) return '持有';
+  if (normalized.includes('sell')) return '卖出';
+  return value;
+}
+
+function InstitutionRatingBoard({ market }: { market: 'hongkong' | 'us' }) {
+  const defaultQuery = market === 'hongkong' ? '00700' : 'AAPL';
+  const [query, setQuery] = useState(defaultQuery);
+  const [result, setResult] = useState<InstitutionRating | null>(null);
+  const [state, setState] = useState<AsyncState>('idle');
+  const [error, setError] = useState('');
+
+  const loadRating = useCallback(async (value: string) => {
+    if (!value.trim()) return;
+    setState('loading');
+    setError('');
+    try {
+      const payload = await requestJson<InstitutionRating>(
+        `/api/institution-rating?market=${market}&query=${encodeURIComponent(value.trim())}`,
+      );
+      setResult(payload);
+      setState('success');
+    } catch (requestError) {
+      setResult(null);
+      setState('error');
+      setError(requestError instanceof Error ? requestError.message : String(requestError));
+    }
+  }, [market]);
+
+  useEffect(() => {
+    const next = market === 'hongkong' ? '00700' : 'AAPL';
+    setQuery(next);
+    void loadRating(next);
+  }, [loadRating, market]);
+
+  const targetUpside = result?.targetPrice.average && result.price > 0
+    ? (result.targetPrice.average / result.price - 1) * 100
+    : undefined;
+
+  return (
+    <section className="mt-7 border border-white/10 bg-white/[0.025] p-5 sm:p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <SectionHeading eyebrow="Public analyst rating" title="机构个股评级公开档案" icon={<Landmark size={15} />} />
+        <form
+          className="flex w-full max-w-xl gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void loadRating(query);
+          }}
+        >
+          <label className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/28" size={15} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={market === 'hongkong' ? '输入 00700 或 腾讯' : '输入 AAPL 或 Apple'}
+              className="h-10 w-full border border-white/12 bg-[#090a0c] pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-white/24 focus:border-[#74c9dd]/55"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={state === 'loading'}
+            className="inline-flex h-10 min-w-24 items-center justify-center gap-2 border border-[#74c9dd]/35 px-4 text-xs font-semibold text-[#9adbea] transition hover:border-[#74c9dd]/70 disabled:opacity-50"
+          >
+            {state === 'loading' ? <LoaderCircle className="animate-spin" size={14} /> : <Search size={14} />}
+            查询
+          </button>
+        </form>
+      </div>
+
+      {error ? <p className="mt-5 border border-[#d04b5a]/25 bg-[#d04b5a]/[0.05] p-4 text-sm text-[#ed8e99]">{error}</p> : null}
+      {result ? (
+        <div className="mt-5 grid gap-4 xl:grid-cols-[0.9fr_1.35fr]">
+          <div className="border border-white/10 bg-[#090a0c] p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs text-white/36">{result.symbol} · {result.sourceLabel}</p>
+                <h3 className="mt-1 text-xl font-bold text-white">{result.companyName}</h3>
+              </div>
+              <span className="border border-[#d6b566]/25 px-2.5 py-1 text-xs font-semibold text-[#e6cd8e]">
+                {translateConsensus(result.consensus)}
+              </span>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-white/56">{result.summary}</p>
+            <div className="mt-5 grid grid-cols-2 gap-px overflow-hidden border border-white/8 bg-white/8">
+              <div className="bg-[#0c0e11] p-3">
+                <p className="text-[10px] text-white/32">当前价格</p>
+                <p className="mt-1 font-mono text-lg font-semibold text-white/82">{result.price.toLocaleString()}</p>
+              </div>
+              <div className="bg-[#0c0e11] p-3">
+                <p className="text-[10px] text-white/32">平均目标价</p>
+                <p className="mt-1 font-mono text-lg font-semibold text-[#9adbea]">
+                  {result.targetPrice.average?.toLocaleString() || '--'}
+                </p>
+              </div>
+              <div className="bg-[#0c0e11] p-3">
+                <p className="text-[10px] text-white/32">隐含空间</p>
+                <p className={`mt-1 font-mono text-lg font-semibold ${targetUpside === undefined ? 'text-white/50' : targetUpside >= 0 ? 'text-[#6ed5b7]' : 'text-[#ed8e99]'}`}>
+                  {targetUpside === undefined ? '--' : `${targetUpside >= 0 ? '+' : ''}${targetUpside.toFixed(1)}%`}
+                </p>
+              </div>
+              <div className="bg-[#0c0e11] p-3">
+                <p className="text-[10px] text-white/32">公开样本</p>
+                <p className="mt-1 font-mono text-lg font-semibold text-white/82">{result.analystCount}</p>
+              </div>
+            </div>
+            {(result.distribution.buy + result.distribution.hold + result.distribution.sell) > 0 ? (
+              <div className="mt-4">
+                <div className="flex justify-between text-[10px] text-white/38">
+                  <span>买入 {result.distribution.buy}</span>
+                  <span>持有 {result.distribution.hold}</span>
+                  <span>卖出 {result.distribution.sell}</span>
+                </div>
+                <div className="mt-2 flex h-1.5 overflow-hidden bg-white/8">
+                  {(['buy', 'hold', 'sell'] as const).map((key) => {
+                    const total = result.distribution.buy + result.distribution.hold + result.distribution.sell;
+                    const colors = { buy: '#1aa382', hold: '#d6b566', sell: '#d04b5a' };
+                    return <span key={key} style={{ width: `${result.distribution[key] / total * 100}%`, backgroundColor: colors[key] }} />;
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="border border-white/10 bg-[#090a0c] p-5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-white/52">公开机构与评级记录</p>
+              <a href={result.sourceUrl} target="_blank" rel="noreferrer" className="text-[10px] text-[#74c9dd] hover:text-[#a7e7f4]">
+                查看原始来源 ↗
+              </a>
+            </div>
+            {result.reports.length ? (
+              <div className="mt-3 divide-y divide-white/8">
+                {result.reports.slice(0, 7).map((report) => (
+                  <a key={report.id} href={report.url} target="_blank" rel="noreferrer" className="block py-3 first:pt-0">
+                    <div className="flex items-center gap-2 text-[10px] text-white/32">
+                      <span>{report.institution}</span><span>{report.publishedAt || '日期未标注'}</span>
+                      <span className="ml-auto text-[#e6cd8e]">{report.rating}</span>
+                    </div>
+                    <p className="mt-1.5 text-sm leading-6 text-white/68 hover:text-white">{report.title}</p>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4">
+                <p className="text-xs leading-5 text-white/42">覆盖机构</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {result.brokers.slice(0, 14).map((broker) => (
+                    <span key={broker} className="border border-white/8 px-2 py-1 text-[10px] text-white/46">{broker}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="mt-4 border-t border-white/8 pt-3 text-[10px] leading-5 text-white/28">{result.note}</p>
+          </div>
+        </div>
+      ) : state === 'loading' ? (
+        <div className="mt-5 h-56 animate-pulse border border-white/8 bg-white/[0.025]" />
+      ) : null}
+    </section>
+  );
+}
+
 type DailyBriefTone = 'positive' | 'neutral' | 'warning';
 
 type DailyBriefWatchItem = {
@@ -1598,7 +1883,7 @@ function buildDailyBrief(
       ? [valuation.bookValueAnchor]
       : [];
   const primaryAnchor = valuation?.bookValueAnchor || anchors[0];
-  const valuationAvailable = isChina && Boolean(primaryAnchor);
+  const valuationAvailable = Boolean(primaryAnchor);
   const currentPb = primaryAnchor?.current.pb;
   const fairPb = primaryAnchor?.current.fairPb;
   const pbPercentile = primaryAnchor?.current.pbPercentile ?? 50;
@@ -1622,7 +1907,7 @@ function buildDailyBrief(
     ? {
         title: '长期估值数据尚未接入',
         action: '不输出逃顶或抄底结论',
-        detail: '当前市场缺少与A股同口径的长期PB历史，因此只保留行情观察。',
+        detail: '当前市场缺少可比的长期PB历史，因此只保留行情观察。',
         tone: 'neutral' as DailyBriefTone,
       }
     : topConfirmed
@@ -1657,7 +1942,7 @@ function buildDailyBrief(
               ? {
                   title: '短期拥挤，长期估值尚未过热',
                   action: '不追高，维持核心仓位并等待估值确认',
-                  detail: '市场情绪已经热起来，但全A长期PB尚未进入高估区，不宜仅凭上涨情绪全面卖出。',
+                  detail: '市场情绪已经热起来，但长期PB尚未进入高估区，不宜仅凭上涨情绪全面卖出。',
                   tone: 'neutral' as DailyBriefTone,
                 }
               : shortHeat <= 30 && fearConfirmed
@@ -2168,9 +2453,13 @@ function buildDeepResearchPrompt(
   const targetInstruction = target.kind === 'market'
     ? mode === 'china'
       ? '整体A股以中证全指为主要价格与长期估值锚，同时比较沪深300、中证500、中证A500、创业板综、科创50；必须指出全市场结论与局部宽基风险的差异。'
-      : '研究整体市场，必须同时评价主要指数、内部板块分化、盈利周期、流动性和风险溢价，不能用单一资产代表全市场。'
+      : mode === 'hongkong'
+        ? '整体港股以恒生指数与恒生综合指数为主要价格和估值锚，同时比较恒生科技与恒生中国企业指数；必须指出大盘、科技和中国企业板块估值分化，不能用单一指数代表全市场。'
+        : mode === 'us'
+          ? '整体美股以标普500为主要价格和估值锚，同时比较纳斯达克100、道琼斯工业指数和费城半导体指数；必须指出大盘、成长、蓝筹和半导体估值分化，不能用七巨头代表全市场。'
+          : '研究整体市场，必须同时评价主要资产、内部赛道分化、流动性和风险溢价，不能用单一资产代表全市场。'
     : target.kind === 'index'
-      ? `研究对象严格限定为${target.name}（代码${target.code}）。${target.description || ''} 价格、PE、PB、盈利、历史分位和信号均以该指数口径为主；可与中证全指及同类宽基比较，但不得用其他指数数据替代目标指数。先核验指数代码与官方编制方。`
+      ? `研究对象严格限定为${target.name}（代码${target.code}）。${target.description || ''} 价格、PE、PB、盈利、历史分位和信号均以该指数口径为主；可与${mode === 'china' ? '中证全指及A股同类宽基' : mode === 'hongkong' ? '恒生综合指数及港股同类宽基' : '标普500及美股同类宽基'}比较，但不得用其他指数数据替代目标指数。先核验指数代码与官方编制方。`
       : `研究“${target.name}”板块整体而非单家公司，并与全市场、同类板块及自身历史估值比较，说明龙头与普通公司的估值分化。`;
   const modeInstruction =
     mode === 'crypto'
@@ -2192,7 +2481,7 @@ function buildDeepResearchPrompt(
     '【评分定义】价格热度0-100综合20/60/120/250日均线偏离、RSI(14)、成交与一年价格分位。逃顶指数0-100：估值高位35%、技术过热20%、韭菜破圈与乐观一致性20%、聪明钱流出或价资背离15%、盈利/宽度恶化10%。抄底指数0-100：估值低位35%、技术超卖20%、大众冷落与市场恐慌20%、聪明钱企稳15%、盈利/宽度止跌10%。两者独立评分，不强制相加为100。',
     '“韭菜指数”是非官方的“大众破圈热度”，专门判断股票是否从专业投资圈扩散到平时不关注市场的小白和普通大众，不等同价格热度、估值或市场宽度。0-100综合：百度/微信等泛大众搜索趋势30%、非财经社媒与大众话题提及25%、新增开户/散户成交等参与代理20%、非财经媒体和情绪化标题15%、可靠调查或线下讨论代理10%。必须列出每个分项、原始证据和覆盖率；无法获得线下讨论时明确缺失，按可用权重重算并降低置信度，绝不凭感觉打分。0-20无人问津，20-40仅投资圈关注，40-60大众开始留意，60-80明显破圈，80-100全民热议。',
     '聪明钱只能写“代理方向”，至少交叉验证两类独立证据；单日主力净流入、单一ETF或滞后持仓不能直接称为机构一致行为。技术超买超卖至少由RSI、均线偏离和市场宽度交叉验证，仅多个指标同向且处于历史极端时使用“严重”。',
-    '首屏之后再专业展开：1价格与估值；2逃顶/抄底评分拆解；3韭菜指数的大众破圈证据；4市场宽度、聪明钱和资金证据；5盈利质量与长期基本面；6技术趋势；7分批行动框架；8风险、失效条件、来源与数据缺口。整体市场报告另附六个宽基估值对比表；单指数报告只把同类指数作为比较基准。',
+    `首屏之后再专业展开：1价格与估值；2逃顶/抄底评分拆解；3韭菜指数的大众破圈证据；4市场宽度、聪明钱和资金证据；5盈利质量与长期基本面；6技术趋势；7分批行动框架；8风险、失效条件、来源与数据缺口。整体市场报告另附${mode === 'china' ? '六个A股宽基' : mode === 'hongkong' ? '恒指、恒科、国企和恒生综合' : mode === 'us' ? '标普、纳指、道指和费城半导体' : '主要资产'}估值对比表；单指数报告只把同类指数作为比较基准。`,
     '严格区分已核验事实、合理推断和数据缺口。价格、估值、资金与新闻注明日期及可点击来源，优先指数公司、交易所和权威数据源；估值至少两种口径。不得使用前端快照或未核验缓存冒充证据。逃顶、抄底只是概率预警；便宜不等于见底，昂贵不等于马上见顶，证据冲突选“中性”。不提供日内指令、满仓/清仓建议或收益承诺。',
   ].filter(Boolean).join('\n\n');
   return prompt.slice(0, 4900);

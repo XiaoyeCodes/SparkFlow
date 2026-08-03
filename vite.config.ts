@@ -117,6 +117,8 @@ type ChinaHeatmapStock = {
   price: number;
   changePercent: number;
   marketCap: number;
+  pe?: number;
+  pb?: number;
   industry: string;
   updatedAt?: string;
   sourceUrl: string;
@@ -584,6 +586,80 @@ const bookValueIndexConfigs = [
     pbLabel: '科创50加权PB',
   },
 ] as const;
+
+type RegionalValuationMode = 'hongkong' | 'us';
+
+type RegionalIndexValuationConfig = {
+  id: string;
+  name: string;
+  code: string;
+  secid: string;
+  officialUrl: string;
+  sampleCodes: readonly string[];
+  yahooSymbol?: string;
+};
+
+type RegionalValuationConfig = {
+  label: string;
+  sampleSize: number;
+  indices: readonly RegionalIndexValuationConfig[];
+};
+
+const regionalValuationConfigs: Record<RegionalValuationMode, RegionalValuationConfig> = {
+  hongkong: {
+    label: '港股',
+    sampleSize: 8,
+    indices: [
+      {
+        id: 'hsi', name: '恒生指数', code: 'HSI', secid: '100.HSI',
+        officialUrl: 'https://www.hsi.com.hk/eng/indexes/all-indexes/hsi',
+        sampleCodes: ['00700', '09988', '00005', '01299', '00939', '01398', '00941', '00388'],
+      },
+      {
+        id: 'hstech', name: '恒生科技指数', code: 'HSTECH', secid: '124.HSTECH',
+        officialUrl: 'https://www.hsi.com.hk/eng/indexes/all-indexes/hstech',
+        sampleCodes: ['00700', '09988', '01810', '03690', '09618', '09999', '01024', '00981'],
+      },
+      {
+        id: 'hscei', name: '恒生中国企业指数', code: 'HSCEI', secid: '100.HSCEI',
+        officialUrl: 'https://www.hsi.com.hk/eng/indexes/all-indexes/hscei',
+        sampleCodes: ['00700', '09988', '00939', '01398', '00941', '01810', '03690', '02628'],
+      },
+      {
+        id: 'hsci', name: '恒生综合指数', code: 'HSCI', secid: '124.HSCI',
+        officialUrl: 'https://www.hsi.com.hk/eng/indexes/all-indexes/hsci',
+        sampleCodes: ['00700', '09988', '00005', '01299', '00939', '01398', '00941', '01810'],
+      },
+    ],
+  },
+  us: {
+    label: '美股',
+    sampleSize: 8,
+    indices: [
+      {
+        id: 'sp500', name: '标普500', code: 'SPX', secid: '100.SPX',
+        officialUrl: 'https://www.spglobal.com/spdji/en/indices/equity/sp-500/',
+        sampleCodes: ['NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOG', 'META', 'BRK_B', 'AVGO'],
+      },
+      {
+        id: 'nasdaq100', name: '纳斯达克100', code: 'NDX', secid: '100.NDX',
+        officialUrl: 'https://indexes.nasdaqomx.com/Index/Overview/NDX',
+        sampleCodes: ['NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOG', 'META', 'AVGO', 'TSLA'],
+      },
+      {
+        id: 'dow', name: '道琼斯工业指数', code: 'DJIA', secid: '100.DJIA',
+        officialUrl: 'https://www.spglobal.com/spdji/en/indices/equity/dow-jones-industrial-average/',
+        sampleCodes: ['GS', 'MSFT', 'HD', 'CAT', 'MCD', 'AMZN', 'NVDA', 'AAPL'],
+      },
+      {
+        id: 'sox', name: '费城半导体指数', code: 'SOX', secid: '251.SOX',
+        officialUrl: 'https://indexes.nasdaqomx.com/Index/Overview/SOX',
+        sampleCodes: ['NVDA', 'AVGO', 'AMD', 'MU', 'ASML', 'AMAT', 'LRCX', 'QCOM'],
+        yahooSymbol: '^SOX',
+      },
+    ],
+  },
+};
 
 const cryptoAssetConfigs = [
   { id: 'bitcoin', symbol: 'BTC', binance: 'BTCUSDT', name: '比特币' },
@@ -1291,6 +1367,345 @@ async function getChinaValuationDashboard() {
   };
 }
 
+type YahooFundamentalPoint = {
+  effectiveDate: string;
+  equity: number;
+  shares: number;
+  netIncome?: number;
+};
+
+type YahooPricePoint = {
+  time: string;
+  close: number;
+};
+
+function yahooSymbolForStock(mode: RegionalValuationMode, stock: ChinaHeatmapStock) {
+  if (mode === 'hongkong') return `${stock.code.replace(/^0+/, '').padStart(4, '0')}.HK`;
+  return stock.code.replace(/[._]/g, '-').toUpperCase();
+}
+
+const yahooFundamentalCache = new Map<string, { storedAt: number; data: Awaited<ReturnType<typeof getYahooFundamentalHistory>> }>();
+const yahooFundamentalInFlight = new Map<string, Promise<Awaited<ReturnType<typeof getYahooFundamentalHistory>>>>();
+
+async function getYahooFundamentalHistory(symbol: string) {
+  const encoded = encodeURIComponent(symbol);
+  const period2 = Math.floor(Date.now() / 1000) + 86400;
+  const period1 = period2 - 7 * 366 * 86400;
+  const fundamentalUrl = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encoded}?symbol=${encoded}&type=annualStockholdersEquity,annualDilutedAverageShares,annualBasicAverageShares,annualNetIncome&period1=${period1}&period2=${period2}`;
+  const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=5y&interval=1d&events=history`;
+  const [fundamentalText, chartText] = await Promise.all([
+    fetchRoutedText(fundamentalUrl, 'proxy', 18000, 'application/json'),
+    fetchRoutedText(chartUrl, 'proxy', 18000, 'application/json'),
+  ]);
+  const fundamentalPayload = JSON.parse(fundamentalText) as Record<string, any>;
+  const chartPayload = JSON.parse(chartText) as Record<string, any>;
+  const series = Array.isArray(fundamentalPayload?.timeseries?.result)
+    ? fundamentalPayload.timeseries.result as Array<Record<string, any>>
+    : [];
+  const valuesFor = (type: string) => {
+    const record = series.find((item) => item?.meta?.type?.includes(type));
+    const values = Array.isArray(record?.[type]) ? record[type] as Array<Record<string, any>> : [];
+    return new Map(values.flatMap((item) => {
+      const date = dateOnly(item.asOfDate);
+      const value = asFiniteNumber(item?.reportedValue?.raw);
+      return date && value !== undefined ? [[date, value] as const] : [];
+    }));
+  };
+  const equities = valuesFor('annualStockholdersEquity');
+  const dilutedShares = valuesFor('annualDilutedAverageShares');
+  const basicShares = valuesFor('annualBasicAverageShares');
+  const netIncome = valuesFor('annualNetIncome');
+  const fundamentals: YahooFundamentalPoint[] = [...equities.entries()].flatMap(([date, equity]) => {
+    const shares = dilutedShares.get(date) ?? basicShares.get(date);
+    if (!shares || shares <= 0 || equity <= 0) return [];
+    const effective = new Date(`${date}T00:00:00Z`);
+    effective.setUTCDate(effective.getUTCDate() + 90);
+    return [{
+      effectiveDate: effective.toISOString().slice(0, 10),
+      equity,
+      shares,
+      netIncome: netIncome.get(date),
+    }];
+  }).sort((left, right) => left.effectiveDate.localeCompare(right.effectiveDate));
+
+  const chart = chartPayload?.chart?.result?.[0];
+  const timestamps = Array.isArray(chart?.timestamp) ? chart.timestamp as number[] : [];
+  const closes = Array.isArray(chart?.indicators?.quote?.[0]?.close)
+    ? chart.indicators.quote[0].close as Array<number | null>
+    : [];
+  const prices: YahooPricePoint[] = timestamps.flatMap((timestamp, index) => {
+    const close = asFiniteNumber(closes[index]);
+    if (!timestamp || close === undefined || close <= 0) return [];
+    return [{ time: new Date(timestamp * 1000).toISOString().slice(0, 10), close }];
+  });
+  if (fundamentals.length < 2 || prices.length < 200) throw new Error(`${symbol} 公开财务历史不足`);
+  return { symbol, fundamentalUrl, chartUrl, fundamentals, prices };
+}
+
+async function getCachedYahooFundamentalHistory(symbol: string) {
+  const cached = yahooFundamentalCache.get(symbol);
+  if (cached && Date.now() - cached.storedAt < 6 * 60 * 60 * 1000) return cached.data;
+  const activeRequest = yahooFundamentalInFlight.get(symbol);
+  if (activeRequest) return activeRequest;
+  const request = getYahooFundamentalHistory(symbol)
+    .then((data) => {
+      yahooFundamentalCache.set(symbol, { storedAt: Date.now(), data });
+      return data;
+    })
+    .finally(() => yahooFundamentalInFlight.delete(symbol));
+  yahooFundamentalInFlight.set(symbol, request);
+  return request;
+}
+
+function buildRegionalIndustryTemperatures(stocks: ChinaHeatmapStock[], updatedAt: string) {
+  const grouped = new Map<string, ChinaHeatmapStock[]>();
+  stocks.forEach((stock) => {
+    const peers = grouped.get(stock.industry) || [];
+    peers.push(stock);
+    grouped.set(stock.industry, peers);
+  });
+  const metrics = [...grouped.entries()].flatMap(([name, peers]) => {
+    const eligible = peers.filter((stock) => stock.marketCap > 0 && stock.pe && stock.pe > 0 && stock.pe < 500 && stock.pb && stock.pb > 0 && stock.pb < 80);
+    if (eligible.length < 2) return [];
+    const marketCap = eligible.reduce((sum, stock) => sum + stock.marketCap, 0);
+    const earnings = eligible.reduce((sum, stock) => sum + stock.marketCap / stock.pe!, 0);
+    const book = eligible.reduce((sum, stock) => sum + stock.marketCap / stock.pb!, 0);
+    if (earnings <= 0 || book <= 0) return [];
+    return [{ name, marketCap, pe: marketCap / earnings, pb: marketCap / book, sampleSize: eligible.length }];
+  }).sort((left, right) => right.marketCap - left.marketCap).slice(0, 10);
+  const peValues = metrics.map((item) => item.pe);
+  const pbValues = metrics.map((item) => item.pb);
+  return metrics.map((item, index) => {
+    const temperature = percentileRank(peValues, item.pe) * 0.6 + percentileRank(pbValues, item.pb) * 0.4;
+    return {
+      id: `regional-industry-${index}`,
+      name: item.name,
+      code: `REGION-${index}`,
+      category: 'industry' as const,
+      temperature: round(temperature, 1),
+      temperatureDelta: 0,
+      ...temperatureZone(temperature),
+      currentPe: round(item.pe, 2),
+      currentPb: round(item.pb, 2),
+      sampleSize: item.sampleSize,
+      updatedAt,
+      marketCap: item.marketCap,
+    };
+  });
+}
+
+function normalizeRegionalStockCode(mode: RegionalValuationMode, value: string) {
+  if (mode === 'hongkong') return value.replace(/\D/g, '').padStart(5, '0');
+  return value.replace(/[._-]/g, '').toUpperCase();
+}
+
+async function getRegionalIndexPerformance(indexConfig: RegionalIndexValuationConfig) {
+  const eastMoneyResult = await getEastMoneyIndexPerformance(indexConfig.secid);
+  if (eastMoneyResult.points.length >= 250 || !indexConfig.yahooSymbol) return eastMoneyResult;
+
+  const encoded = encodeURIComponent(indexConfig.yahooSymbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=5y&interval=1d&events=history`;
+  const payload = JSON.parse(await fetchRoutedText(url, 'proxy', 18000, 'application/json')) as Record<string, any>;
+  const chart = payload?.chart?.result?.[0];
+  const timestamps = Array.isArray(chart?.timestamp) ? chart.timestamp as number[] : [];
+  const closes = Array.isArray(chart?.indicators?.quote?.[0]?.close)
+    ? chart.indicators.quote[0].close as Array<number | null>
+    : [];
+  const points = timestamps.flatMap((timestamp, index) => {
+    const close = asFiniteNumber(closes[index]);
+    if (!timestamp || close === undefined || close <= 0) return [];
+    return [{ time: new Date(timestamp * 1000).toISOString().slice(0, 10), close }];
+  });
+  if (points.length < 250) return eastMoneyResult;
+  return { url, points };
+}
+
+async function buildRegionalIndexValuation(
+  mode: RegionalValuationMode,
+  config: RegionalValuationConfig,
+  indexConfig: RegionalIndexValuationConfig,
+  stocks: ChinaHeatmapStock[],
+) {
+  const eligibleStocks = stocks
+    .filter((stock) => stock.marketCap > 0 && stock.pe && stock.pe > 0 && stock.pb && stock.pb > 0)
+    .sort((left, right) => right.marketCap - left.marketCap);
+  const stocksByCode = new Map(eligibleStocks.map((stock) => [normalizeRegionalStockCode(mode, stock.code), stock]));
+  const preferredStocks = indexConfig.sampleCodes.flatMap((code) => {
+    const stock = stocksByCode.get(normalizeRegionalStockCode(mode, code));
+    return stock ? [stock] : [];
+  });
+  const candidates = [...new Map([...preferredStocks, ...eligibleStocks]
+    .map((stock) => [normalizeRegionalStockCode(mode, stock.code), stock])).values()]
+    .slice(0, config.sampleSize + 8);
+  const settled = await Promise.allSettled(candidates.map((stock) => (
+    getCachedYahooFundamentalHistory(yahooSymbolForStock(mode, stock))
+  )));
+  const samples = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []).slice(0, config.sampleSize);
+  if (samples.length < 4) throw new Error(`${indexConfig.name}公开财务样本不足，暂时无法生成估值代理`);
+
+  const indexResult = await getRegionalIndexPerformance(indexConfig);
+  const priceMaps = samples.map((sample) => new Map(sample.prices.map((point) => [point.time, point.close])));
+  const rawProxyRows = indexResult.points.slice(-1350).flatMap((indexPoint) => {
+    let marketCap = 0;
+    let bookValue = 0;
+    let netIncome = 0;
+    let contributors = 0;
+    samples.forEach((sample, sampleIndex) => {
+      const price = priceMaps[sampleIndex].get(indexPoint.time);
+      const fundamental = sample.fundamentals.filter((item) => item.effectiveDate <= indexPoint.time).at(-1);
+      if (!price || !fundamental) return;
+      marketCap += price * fundamental.shares;
+      bookValue += fundamental.equity;
+      netIncome += fundamental.netIncome || 0;
+      contributors += 1;
+    });
+    if (contributors < Math.max(3, Math.floor(samples.length * 0.55)) || marketCap <= 0 || bookValue <= 0 || netIncome <= 0) return [];
+    return [{
+      time: indexPoint.time,
+      marketValue: indexPoint.close,
+      pe: marketCap / netIncome,
+      pb: marketCap / bookValue,
+    }];
+  });
+  if (rawProxyRows.length < 250) throw new Error(`${indexConfig.name}估值代理可对齐历史不足`);
+
+  const sampleSymbols = new Set(samples.map((sample) => sample.symbol));
+  const currentSampleStocks = candidates.filter((stock) => sampleSymbols.has(yahooSymbolForStock(mode, stock)));
+  const currentMarketCap = currentSampleStocks.reduce((sum, stock) => sum + stock.marketCap, 0);
+  const currentEarnings = currentSampleStocks.reduce((sum, stock) => sum + stock.marketCap / stock.pe!, 0);
+  const currentBookValue = currentSampleStocks.reduce((sum, stock) => sum + stock.marketCap / stock.pb!, 0);
+  const directPe = currentEarnings > 0 ? currentMarketCap / currentEarnings : rawProxyRows.at(-1)!.pe;
+  const directPb = currentBookValue > 0 ? currentMarketCap / currentBookValue : rawProxyRows.at(-1)!.pb;
+  const peScale = directPe / rawProxyRows.at(-1)!.pe;
+  const pbScale = directPb / rawProxyRows.at(-1)!.pb;
+  const proxyRows = rawProxyRows.map((point) => ({
+    ...point,
+    pe: point.pe * peScale,
+    pb: point.pb * pbScale,
+  }));
+
+  const latest = proxyRows.at(-1)!;
+  const valuationRows: ValuationTemperatureRow[] = proxyRows.slice(-500).map((point) => ({
+    TRADE_DATE: point.time,
+    PE_TTM_AVG: point.pe,
+    PB_MRQ: point.pb,
+  }));
+  const temperatureWithHistory = buildValuationTemperature({
+    id: indexConfig.id,
+    name: indexConfig.name,
+    code: indexConfig.code,
+    category: 'market',
+  }, valuationRows, true)!;
+  const fairPb = median(proxyRows.map((point) => point.pb));
+  const anchorPoints = proxyRows.map((point) => {
+    const bookValue = point.marketValue / point.pb;
+    return {
+      time: point.time,
+      marketValue: round(point.marketValue, 2),
+      pb: round(point.pb, 4),
+      bookValue: round(bookValue, 6),
+      anchorValue: round(bookValue * fairPb, 2),
+    };
+  });
+  const anchorCurrent = anchorPoints.at(-1)!;
+  const pbPercentile = percentileRank(anchorPoints.map((point) => point.pb), anchorCurrent.pb);
+  const premiumPercent = (anchorCurrent.marketValue / anchorCurrent.anchorValue - 1) * 100;
+  const status = premiumPercent >= 15
+    ? '显著高于价值锚'
+    : premiumPercent >= 5
+      ? '略高于价值锚'
+      : premiumPercent <= -15
+        ? '显著低于价值锚'
+        : premiumPercent <= -5
+          ? '略低于价值锚'
+          : '接近价值锚';
+  const sampleNames = samples.map((sample) => sample.symbol).join('、');
+  const bookValueAnchor = {
+    id: indexConfig.id,
+    name: indexConfig.name,
+    code: indexConfig.code,
+    pbLabel: `${indexConfig.name}成份股样本加权PB`,
+    generatedAt: new Date().toISOString(),
+    hasTotalReturn: false,
+    current: {
+      marketValue: round(anchorCurrent.marketValue, 2),
+      anchorValue: round(anchorCurrent.anchorValue, 2),
+      pb: round(anchorCurrent.pb, 2),
+      fairPb: round(fairPb, 2),
+      pbPercentile: round(pbPercentile, 1),
+      premiumPercent: round(premiumPercent, 1),
+      status,
+      updatedAt: anchorCurrent.time,
+    },
+    points: anchorPoints,
+    methodology: `${indexConfig.name}价格除以代表性成份股公开年报净资产所构造的加权PB代理；财报按披露后90日生效以降低前视偏差，并用东方财富当前个股PB校准最新截面。样本为 ${sampleNames}。该序列用于观察方向与历史中枢，不等同于指数公司授权PB。`,
+    sources: [
+      { label: `${indexConfig.name}历史行情 · 东方财富`, url: indexResult.url },
+      { label: '公司年报财务序列 · Yahoo Finance', url: 'https://finance.yahoo.com/' },
+      { label: `${indexConfig.name}官方指数页`, url: indexConfig.officialUrl },
+    ],
+  };
+
+  return {
+    temperature: temperatureWithHistory,
+    chart: {
+      id: indexConfig.id,
+      name: `${indexConfig.name}相对估值热度`,
+      ticker: indexConfig.code,
+      sourceUrl: indexConfig.officialUrl,
+      temperature: temperatureWithHistory.history || [],
+    },
+    anchor: bookValueAnchor,
+    sampleCount: samples.length,
+    latestTime: latest.time,
+  };
+}
+
+async function getRegionalValuationDashboard(mode: RegionalValuationMode) {
+  const config = regionalValuationConfigs[mode];
+  const heatmap = mode === 'hongkong'
+    ? await getCachedHongKongMarketHeatmap()
+    : await getCachedUsMarketHeatmap();
+  const settled = await Promise.allSettled(config.indices.map((indexConfig) => (
+    buildRegionalIndexValuation(mode, config, indexConfig, heatmap.stocks)
+  )));
+  const indexResults = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+  if (!indexResults.length) throw new Error(`${config.label}主要指数公开财务样本不足，暂时无法生成估值代理`);
+
+  const primary = indexResults[0];
+  const overallWithHistory = {
+    ...primary.temperature,
+    id: 'all-market',
+  };
+  const marketCards = [
+    { ...overallWithHistory, history: undefined },
+    ...indexResults.slice(1).map((result) => ({ ...result.temperature, history: undefined })),
+  ];
+  const charts = [
+    { ...primary.chart, id: 'all-market' },
+    ...indexResults.slice(1).map((result) => result.chart),
+  ];
+  const bookValueAnchors = indexResults.map((result) => result.anchor);
+  const industries = buildRegionalIndustryTemperatures(heatmap.stocks, primary.latestTime);
+  const sources = [...new Map(bookValueAnchors.flatMap((anchor) => anchor.sources)
+    .map((source) => [source.url, source])).values()];
+  return {
+    market: mode,
+    marketLabel: config.label,
+    generatedAt: new Date().toISOString(),
+    methodology: `近500个交易日估值热度按指数分别采用代表性成份股加权PE 60% + PB 40%的历史分位；历史形态来自公开年报与指数行情，最新截面以东方财富个股PE/PB校准；行业卡片为当前横截面相对温度。覆盖 ${indexResults.length} 个主要指数，属于公开样本代理，不是交易所授权指数估值。`,
+    periodLabel: '近 500 个交易日',
+    sources,
+    overall: { ...overallWithHistory, history: undefined },
+    markets: marketCards,
+    industries,
+    charts,
+    bookValueAnchor: primary.anchor,
+    bookValueAnchors,
+    coverage: `${indexResults.length} 个主要指数 · 每个指数 ${Math.min(...indexResults.map((result) => result.sampleCount))}-${Math.max(...indexResults.map((result) => result.sampleCount))} 家代表性成份股`,
+  };
+}
+
 async function getEquityIndexSnapshots() {
   const eastmoneyUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${marketIndexConfigs
     .map((item) => item.secid)
@@ -1536,7 +1951,7 @@ async function getChinaMarketHeatmap() {
 }
 
 async function getHongKongMarketHeatmap() {
-  const baseUrl = 'https://push2delay.eastmoney.com/api/qt/clist/get?pz=100&po=1&np=1&fltt=2&invt=2&fid=f20&fs=m:116+t:3&fields=f12,f14,f2,f3,f20,f100,f124';
+  const baseUrl = 'https://push2delay.eastmoney.com/api/qt/clist/get?pz=100&po=1&np=1&fltt=2&invt=2&fid=f20&fs=m:116+t:3&fields=f12,f14,f2,f3,f9,f20,f23,f100,f124';
   const payloads = await Promise.all(
     [1, 2, 3, 4, 5].map((page) => fetchJsonWithRetry(`${baseUrl}&pn=${page}`, 2, 12000)),
   );
@@ -1568,6 +1983,8 @@ async function getHongKongMarketHeatmap() {
       price,
       changePercent,
       marketCap,
+      pe: asFiniteNumber(row.f9),
+      pb: asFiniteNumber(row.f23),
       industry: String(row.f100 || '其他').trim() || '其他',
       updatedAt: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
       sourceUrl: `https://quote.eastmoney.com/hk/${code}.html`,
@@ -1592,7 +2009,7 @@ async function getHongKongMarketHeatmap() {
 }
 
 async function getUsMarketHeatmap() {
-  const baseUrl = 'https://push2delay.eastmoney.com/api/qt/clist/get?pz=100&po=1&np=1&fltt=2&invt=2&fid=f20&fs=m:105,m:106&fields=f12,f13,f14,f2,f3,f20,f100,f124';
+  const baseUrl = 'https://push2delay.eastmoney.com/api/qt/clist/get?pz=100&po=1&np=1&fltt=2&invt=2&fid=f20&fs=m:105,m:106&fields=f12,f13,f14,f2,f3,f9,f20,f23,f100,f124';
   const payloads = await Promise.all(
     [1, 2, 3, 4, 5].map((page) => fetchJsonWithRetry(`${baseUrl}&pn=${page}`, 2, 12000)),
   );
@@ -1627,6 +2044,8 @@ async function getUsMarketHeatmap() {
       price,
       changePercent,
       marketCap,
+      pe: asFiniteNumber(row.f9),
+      pb: asFiniteNumber(row.f23),
       industry: String(row.f100 || '其他').trim() || '其他',
       updatedAt: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
       sourceUrl: `https://quote.eastmoney.com/us/${encodeURIComponent(code)}.html`,
@@ -1799,6 +2218,205 @@ async function getResearchReportFeed() {
     }];
   });
   return { url, reports };
+}
+
+const regionalContentQueries: Record<RegionalValuationMode, { news: string; research: string }> = {
+  hongkong: {
+    news: '港股 OR 恒生指数 OR 恒生科技 市场',
+    research: '港股 券商 研报 OR 评级 OR 目标价',
+  },
+  us: {
+    news: '美股 OR 标普500 OR 纳斯达克 市场',
+    research: '美股 券商 研报 OR 评级 OR 目标价',
+  },
+};
+
+function googleNewsRssUrl(query: string) {
+  const search = new URLSearchParams({ q: query, hl: 'zh-CN', gl: 'CN', ceid: 'CN:zh-Hans' });
+  return `https://news.google.com/rss/search?${search.toString()}`;
+}
+
+function parseGoogleNewsItems(xml: string, label: string) {
+  const sourceConfig: NewsSourceConfig = {
+    id: `google-${label}`,
+    label,
+    category: 'finance',
+    sourceWeight: 76,
+    origin: 'foreign',
+    route: 'proxy',
+    url: 'https://news.google.com/',
+    kind: 'rss',
+  };
+  const blocks = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
+  return blocks.slice(0, 18).map((block, index) => {
+    const title = stripTags(pickXml(block, 'title'));
+    const source = stripTags(pickXml(block, 'source')) || label;
+    return enrichNewsItem({
+      id: `regional-${label}-${index}-${title}`,
+      title,
+      url: decodeXml(pickXml(block, 'link')) || 'https://news.google.com/',
+      source,
+      origin: 'foreign',
+      route: 'proxy',
+      publishedAt: parseDate(pickXml(block, 'pubDate')),
+      summary: stripTags(pickXml(block, 'description')).slice(0, 180),
+    }, sourceConfig);
+  }).filter((item) => item.title);
+}
+
+function inferPublicRating(title: string) {
+  for (const rating of ['强烈推荐', '买入', '增持', '推荐', '持有', '中性', '减持', '卖出']) {
+    if (title.includes(rating)) return rating;
+  }
+  return '公开研究';
+}
+
+function officialRegionalReports(mode: RegionalValuationMode): ResearchReport[] {
+  if (mode === 'hongkong') {
+    return [
+      {
+        id: 'hkex-monthly-bulletin', title: '香港市场月报与成交统计', stockCode: '', stockName: '港股市场',
+        institution: '香港交易所', analysts: '', rating: '市场研究', industry: '全市场',
+        url: 'https://www.hkex.com.hk/Market-Data/Statistics/Consolidated-Reports/Monthly-Bulletin?sc_lang=zh-HK',
+      },
+      {
+        id: 'hsi-index-insights', title: '恒生指数系列数据与指数研究', stockCode: '', stockName: '恒生指数',
+        institution: '恒生指数公司', analysts: '', rating: '指数研究', industry: '全市场',
+        url: 'https://www.hsi.com.hk/chi/indexes/all-indexes/hsi',
+      },
+    ];
+  }
+  return [
+    {
+      id: 'sp-market-attributes', title: 'U.S. Equities Market Attributes', stockCode: 'SPX', stockName: '标普500',
+      institution: 'S&P Dow Jones Indices', analysts: '', rating: '市场研究', industry: '全市场',
+      url: 'https://www.spglobal.com/spdji/en/commentary/article/us-equities-market-attributes',
+    },
+    {
+      id: 'nasdaq-market-review', title: '美国市场月度回顾与展望', stockCode: 'NDX', stockName: '纳斯达克',
+      institution: 'Nasdaq Market Intelligence Desk', analysts: '', rating: '市场研究', industry: '全市场',
+      url: 'https://www.nasdaq.com/authors/market-intelligence-desk-team',
+    },
+  ];
+}
+
+async function getRegionalMarketContent(mode: RegionalValuationMode) {
+  const queries = regionalContentQueries[mode];
+  const newsUrl = googleNewsRssUrl(queries.news);
+  const researchUrl = googleNewsRssUrl(queries.research);
+  const [newsText, researchText] = await Promise.all([
+    fetchRoutedText(newsUrl, 'proxy', 16000),
+    fetchRoutedText(researchUrl, 'proxy', 16000),
+  ]);
+  const news = parseGoogleNewsItems(newsText, mode === 'hongkong' ? '港股公开新闻' : '美股公开新闻');
+  const publicResearch = parseGoogleNewsItems(researchText, mode === 'hongkong' ? '港股公开研报' : '美股公开研报')
+    .slice(0, 10)
+    .map((item, index): ResearchReport => ({
+      id: `regional-report-${mode}-${index}`,
+      title: item.title,
+      stockCode: '',
+      stockName: '',
+      institution: item.source,
+      analysts: '',
+      publishedAt: item.publishedAt?.slice(0, 10),
+      rating: inferPublicRating(item.title),
+      industry: mode === 'hongkong' ? '港股' : '美股',
+      url: item.url,
+    }));
+  return {
+    market: mode,
+    generatedAt: new Date().toISOString(),
+    news: news.slice(0, 12),
+    reports: [...officialRegionalReports(mode), ...publicResearch].slice(0, 12),
+    sources: [
+      { label: 'Google 新闻中文索引', url: newsUrl },
+      ...(mode === 'hongkong'
+        ? [{ label: '香港交易所公开统计', url: 'https://www.hkex.com.hk/Market-Data/Statistics/Consolidated-Reports/Monthly-Bulletin?sc_lang=zh-HK' }]
+        : [{ label: 'S&P DJI 公开市场研究', url: 'https://www.spglobal.com/spdji/en/research-insights/' }]),
+    ],
+    note: '新闻与研报标题仅收录中文公开页面；点击后由原始发布方负责内容与访问权限。',
+  };
+}
+
+async function resolveRegionalStock(mode: RegionalValuationMode, query: string) {
+  const heatmap = mode === 'hongkong'
+    ? await getCachedHongKongMarketHeatmap()
+    : await getCachedUsMarketHeatmap();
+  const normalized = query.trim().toLowerCase().replace(/^0+/, '');
+  return heatmap.stocks.find((stock) => (
+    stock.code.toLowerCase() === query.trim().toLowerCase()
+    || stock.code.toLowerCase().replace(/^0+/, '') === normalized
+    || stock.name.toLowerCase().includes(query.trim().toLowerCase())
+  ));
+}
+
+async function getInstitutionRating(mode: RegionalValuationMode, rawQuery: string) {
+  const query = rawQuery.trim();
+  if (!query) throw new Error('请输入股票代码或公司名称');
+  const stock = await resolveRegionalStock(mode, query);
+  if (!stock) throw new Error(`未在${regionalValuationConfigs[mode].label}热力图样本中找到“${query}”`);
+
+  if (mode === 'us') {
+    const symbol = stock.code.replace('.', '-').toUpperCase();
+    const [ratingsText, targetText] = await Promise.all([
+      fetchRoutedText(`https://api.nasdaq.com/api/analyst/${encodeURIComponent(symbol)}/ratings`, 'proxy', 16000, 'application/json'),
+      fetchRoutedText(`https://api.nasdaq.com/api/analyst/${encodeURIComponent(symbol)}/targetprice`, 'proxy', 16000, 'application/json'),
+    ]);
+    const ratings = JSON.parse(ratingsText)?.data || {};
+    const targets = JSON.parse(targetText)?.data || {};
+    const consensus = targets.consensusOverview || {};
+    return {
+      market: mode,
+      symbol: stock.code,
+      companyName: stock.name,
+      price: stock.price,
+      consensus: ratings.meanRatingType || targets.historicalConsensus?.at(-1)?.z?.consensus || '暂无共识',
+      summary: ratings.ratingsSummary || 'Nasdaq 暂未提供评级摘要',
+      analystCount: Number(String(ratings.ratingsSummary || '').match(/\d+/)?.[0] || 0),
+      targetPrice: {
+        low: asFiniteNumber(consensus.lowPriceTarget),
+        average: asFiniteNumber(consensus.priceTarget),
+        high: asFiniteNumber(consensus.highPriceTarget),
+      },
+      distribution: { buy: consensus.buy || 0, hold: consensus.hold || 0, sell: consensus.sell || 0 },
+      brokers: Array.isArray(ratings.brokerNames) ? ratings.brokerNames.slice(0, 18) : [],
+      reports: [],
+      sourceLabel: 'Nasdaq Analyst Research / TipRanks',
+      sourceUrl: `https://www.nasdaq.com/market-activity/stocks/${symbol.toLowerCase()}/analyst-research`,
+      updatedAt: new Date().toISOString(),
+      note: '这是公开分析师共识与目标价区间，不代表 SparkFlow 或 Nasdaq 的买卖建议。',
+    };
+  }
+
+  const researchUrl = googleNewsRssUrl(`"${stock.name}" 券商 评级 目标价 港股`);
+  const reports = parseGoogleNewsItems(
+    await fetchRoutedText(researchUrl, 'proxy', 16000),
+    `${stock.name}公开评级`,
+  ).slice(0, 10).map((item) => ({
+    id: item.id,
+    title: item.title,
+    institution: item.source,
+    publishedAt: item.publishedAt?.slice(0, 10),
+    rating: inferPublicRating(item.title),
+    url: item.url,
+  }));
+  return {
+    market: mode,
+    symbol: stock.code,
+    companyName: stock.name,
+    price: stock.price,
+    consensus: reports[0]?.rating || '暂无统一共识',
+    summary: `已找到 ${reports.length} 条可回溯的中文公开评级或目标价报道。`,
+    analystCount: reports.length,
+    targetPrice: {},
+    distribution: { buy: 0, hold: 0, sell: 0 },
+    brokers: [...new Set(reports.map((item) => item.institution))],
+    reports,
+    sourceLabel: '中文公开评级报道索引',
+    sourceUrl: researchUrl,
+    updatedAt: new Date().toISOString(),
+    note: '港股免费公开源缺少统一的分析师共识接口，因此仅展示可点击核验的评级报道，不拼接虚构目标价。',
+  };
 }
 
 const bullishNewsKeywords = ['回购', '增持', '上调', '增长', '改善', '扩张', '降准', '降息', '支持', '突破', '中标', '盈利', '景气', '复苏', '创新高'];
@@ -2086,6 +2704,10 @@ let usHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getUsMar
 let usHeatmapInFlight: Promise<Awaited<ReturnType<typeof getUsMarketHeatmap>>> | undefined;
 let chinaValuationCache: { storedAt: number; data: Awaited<ReturnType<typeof getChinaValuationDashboard>> } | undefined;
 let chinaValuationInFlight: Promise<Awaited<ReturnType<typeof getChinaValuationDashboard>>> | undefined;
+const regionalValuationCache = new Map<RegionalValuationMode, { storedAt: number; data: Awaited<ReturnType<typeof getRegionalValuationDashboard>> }>();
+const regionalValuationInFlight = new Map<RegionalValuationMode, Promise<Awaited<ReturnType<typeof getRegionalValuationDashboard>>>>();
+const regionalContentCache = new Map<RegionalValuationMode, { storedAt: number; data: Awaited<ReturnType<typeof getRegionalMarketContent>> }>();
+const regionalContentInFlight = new Map<RegionalValuationMode, Promise<Awaited<ReturnType<typeof getRegionalMarketContent>>>>();
 let usMarketSystemCache: {
   storedAt: number;
   data: { state: 'normal' | 'halted' | 'unknown'; message: string; updatedAt: string; sourceUrl: string };
@@ -2189,6 +2811,36 @@ async function getCachedChinaValuationDashboard() {
       });
   }
   return chinaValuationInFlight;
+}
+
+async function getCachedRegionalValuationDashboard(mode: RegionalValuationMode) {
+  const cached = regionalValuationCache.get(mode);
+  if (cached && Date.now() - cached.storedAt < 30 * 60_000) return cached.data;
+  const running = regionalValuationInFlight.get(mode);
+  if (running) return running;
+  const request = getRegionalValuationDashboard(mode)
+    .then((data) => {
+      regionalValuationCache.set(mode, { storedAt: Date.now(), data });
+      return data;
+    })
+    .finally(() => regionalValuationInFlight.delete(mode));
+  regionalValuationInFlight.set(mode, request);
+  return request;
+}
+
+async function getCachedRegionalMarketContent(mode: RegionalValuationMode) {
+  const cached = regionalContentCache.get(mode);
+  if (cached && Date.now() - cached.storedAt < 10 * 60_000) return cached.data;
+  const running = regionalContentInFlight.get(mode);
+  if (running) return running;
+  const request = getRegionalMarketContent(mode)
+    .then((data) => {
+      regionalContentCache.set(mode, { storedAt: Date.now(), data });
+      return data;
+    })
+    .finally(() => regionalContentInFlight.delete(mode));
+  regionalContentInFlight.set(mode, request);
+  return request;
 }
 
 async function getCachedCryptoMarketSnapshots() {
@@ -3140,6 +3792,41 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/china-valuation-temperature') {
             sendJson(res, 200, await getCachedChinaValuationDashboard());
+            return;
+          }
+
+          if (url.pathname === '/api/valuation-temperature') {
+            const market = String(url.searchParams.get('market') || 'china');
+            if (market === 'china') {
+              sendJson(res, 200, await getCachedChinaValuationDashboard());
+              return;
+            }
+            if (market !== 'hongkong' && market !== 'us') {
+              sendJson(res, 400, { error: '仅支持 A 股、港股和美股估值市场' });
+              return;
+            }
+            sendJson(res, 200, await getCachedRegionalValuationDashboard(market));
+            return;
+          }
+
+          if (url.pathname === '/api/regional-market-content') {
+            const market = String(url.searchParams.get('market') || '');
+            if (market !== 'hongkong' && market !== 'us') {
+              sendJson(res, 400, { error: '仅支持港股和美股市场内容' });
+              return;
+            }
+            sendJson(res, 200, await getCachedRegionalMarketContent(market));
+            return;
+          }
+
+          if (url.pathname === '/api/institution-rating') {
+            const market = String(url.searchParams.get('market') || '');
+            const query = String(url.searchParams.get('query') || '');
+            if (market !== 'hongkong' && market !== 'us') {
+              sendJson(res, 400, { error: '机构评级目前支持港股和美股' });
+              return;
+            }
+            sendJson(res, 200, await getInstitutionRating(market, query));
             return;
           }
 
