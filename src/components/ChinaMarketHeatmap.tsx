@@ -154,18 +154,17 @@ function formatChange(value: number) {
 }
 
 function cellColor(changePercent: number) {
-  const intensity = Math.min(Math.abs(changePercent) / 7, 1);
   if (changePercent > 0.03) {
+    const intensity = Math.min(Math.abs(changePercent) / 7, 1);
     const red = Math.round(116 + intensity * 126);
     const green = Math.round(30 + intensity * 24);
     const blue = Math.round(43 + intensity * 26);
     return `rgb(${red} ${green} ${blue})`;
   }
   if (changePercent < -0.03) {
-    const red = Math.round(13 - intensity * 3);
-    const green = Math.round(70 + intensity * 83);
-    const blue = Math.round(53 + intensity * 76);
-    return `rgb(${red} ${green} ${blue})`;
+    const intensity = Math.min(Math.abs(changePercent) / 10, 1);
+    const mix = (from: number, to: number) => Math.round(from + (to - from) * intensity);
+    return `rgb(${mix(4, 11)} ${mix(73, 166)} ${mix(42, 96)})`;
   }
   return 'rgb(62 64 68)';
 }
@@ -1292,7 +1291,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
         </div>
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 bg-[#c33144]" />上涨</span>
-          <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 bg-[#0d8d70]" />下跌</span>
+          <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 bg-[#087d48]" />下跌</span>
           <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 bg-[#3e4044]" />平盘</span>
           <button
             type="button"
