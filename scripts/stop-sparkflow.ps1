@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$Root,
-  [int]$FallbackPort = 5173
+  [int]$FallbackPort = 5180
 )
 
 $rootPath = (Resolve-Path -LiteralPath $Root).Path

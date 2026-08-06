@@ -10,11 +10,9 @@ import {
   CheckCircle2,
   Database,
   Download,
-  FileText,
   Gauge,
   Landmark,
   LoaderCircle,
-  Newspaper,
   Radar,
   RefreshCw,
   Save,
@@ -25,6 +23,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { ChinaMarketHeatmap, CryptoMarketHeatmap, HongKongMarketHeatmap, UsMarketHeatmap } from '../components/ChinaMarketHeatmap';
+import { BitcoinCycleChart } from '../components/BitcoinCycleChart';
 import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
 import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper';
 import { PageTransition } from '../components/PageTransition';
@@ -1068,74 +1067,64 @@ export function Market() {
                 </div>
               ) : null}
 
-              <div className="mt-8 border-t border-white/10 pt-7">
-                <SectionHeading
-                  eyebrow="Capital Rotation"
-                  title={getRotationTitle(activeMarket)}
-                  icon={<Gauge size={15} />}
-                />
-                <div className="-mt-2 mb-4 flex flex-wrap items-center justify-between gap-3 text-xs leading-5 text-white/36">
-                  <p>{activeRotation?.coverage || getRotationLoadingText(activeMarket)}</p>
-                  {activeRotation ? (
-                    <a
-                      href={activeRotation.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="shrink-0 text-white/46 transition hover:text-white"
-                    >
-                      {activeRotation.source} · {formatDateTime(activeRotation.generatedAt, true)}
-                    </a>
-                  ) : null}
-                </div>
-                {activeRotation ? (
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <SectorBoard
-                      title={activeMarket === 'china' ? '资金流入前列' : activeMarket === 'crypto' ? '领涨赛道' : '领涨板块'}
-                      items={activeRotation.leaders}
-                      mode="leader"
-                      metric={activeRotation.metric}
-                      currency={activeRotation.currency}
-                    />
-                    <SectorBoard
-                      title={activeMarket === 'china' ? '资金流出前列' : activeMarket === 'crypto' ? '落后赛道' : '落后板块'}
-                      items={activeRotation.laggards}
-                      mode="laggard"
-                      metric={activeRotation.metric}
-                      currency={activeRotation.currency}
-                    />
-                  </div>
-                ) : rotationLoadState === 'error' ? (
-                  <div className="flex min-h-40 items-center justify-center border border-[#d6b566]/20 bg-[#d6b566]/[0.04] px-5 text-center">
-                    <div>
-                      <TriangleAlert className="mx-auto text-[#d6b566]" size={20} />
-                      <p className="mt-3 text-sm text-white/68">{rotationError || '板块数据暂时不可用'}</p>
-                      <button
-                        type="button"
-                        onClick={() => setRotationReloadKey((current) => current + 1)}
-                        className="mt-3 inline-flex h-8 items-center gap-2 border border-white/14 px-3 text-xs font-semibold text-white/64 transition hover:border-white/30 hover:text-white"
-                      >
-                        <RefreshCw size={13} /> 重试
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <RotationSkeleton />
-                )}
-              </div>
-
-              <div className="mt-7 grid gap-4 xl:grid-cols-2">
-                <NewsBoard items={activeNews} />
-                <ResearchBoard items={activeReports} />
-              </div>
-
-              {(activeMarket === 'hongkong' || activeMarket === 'us') ? (
+              {activeMarket === 'crypto' ? (
                 <>
-                  {regionalContentState === 'error' ? (
-                    <p className="mt-3 text-xs text-[#e4aa7d]">市场内容更新失败：{regionalContentError}</p>
-                  ) : activeRegionalContent?.note ? (
-                    <p className="mt-3 text-[11px] text-white/30">{activeRegionalContent.note}</p>
-                  ) : null}
-                  <InstitutionRatingBoard market={activeMarket} />
+                  <div className="mt-8 border-t border-white/10 pt-7">
+                    <SectionHeading
+                      eyebrow="Capital Rotation"
+                      title={getRotationTitle(activeMarket)}
+                      icon={<Gauge size={15} />}
+                    />
+                    <div className="-mt-2 mb-4 flex flex-wrap items-center justify-between gap-3 text-xs leading-5 text-white/36">
+                      <p>{activeRotation?.coverage || getRotationLoadingText(activeMarket)}</p>
+                      {activeRotation ? (
+                        <a
+                          href={activeRotation.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0 text-white/46 transition hover:text-white"
+                        >
+                          {activeRotation.source} · {formatDateTime(activeRotation.generatedAt, true)}
+                        </a>
+                      ) : null}
+                    </div>
+                    {activeRotation ? (
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        <SectorBoard
+                          title="领涨赛道"
+                          items={activeRotation.leaders}
+                          mode="leader"
+                          metric={activeRotation.metric}
+                          currency={activeRotation.currency}
+                        />
+                        <SectorBoard
+                          title="落后赛道"
+                          items={activeRotation.laggards}
+                          mode="laggard"
+                          metric={activeRotation.metric}
+                          currency={activeRotation.currency}
+                        />
+                      </div>
+                    ) : rotationLoadState === 'error' ? (
+                      <div className="flex min-h-40 items-center justify-center border border-[#d6b566]/20 bg-[#d6b566]/[0.04] px-5 text-center">
+                        <div>
+                          <TriangleAlert className="mx-auto text-[#d6b566]" size={20} />
+                          <p className="mt-3 text-sm text-white/68">{rotationError || '板块数据暂时不可用'}</p>
+                          <button
+                            type="button"
+                            onClick={() => setRotationReloadKey((current) => current + 1)}
+                            className="mt-3 inline-flex h-8 items-center gap-2 border border-white/14 px-3 text-xs font-semibold text-white/64 transition hover:border-white/30 hover:text-white"
+                          >
+                            <RefreshCw size={13} /> 重试
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <RotationSkeleton />
+                    )}
+                  </div>
+
+                  <BitcoinCycleChart />
                 </>
               ) : null}
 
@@ -1626,51 +1615,6 @@ function RotationSkeleton() {
         </div>
       ))}
     </div>
-  );
-}
-
-function NewsBoard({ items }: { items: NewsItem[] }) {
-  return (
-    <section className="border border-white/10 bg-white/[0.025] p-5">
-      <SectionHeading eyebrow="Chinese Market News" title="高权重市场催化" icon={<Newspaper size={15} />} />
-      <div className="divide-y divide-white/8">
-        {items.slice(0, 8).map((item) => (
-          <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="block py-3.5 first:pt-0 last:pb-0">
-            <div className="flex items-center gap-2 text-[10px] text-white/34">
-              <span>{item.source}</span>
-              <span>{formatDateTime(item.publishedAt)}</span>
-              <span className="ml-auto border border-white/8 px-1.5 py-0.5">权重 {item.weight}</span>
-            </div>
-            <p className="mt-2 text-sm font-semibold leading-6 text-white/76 transition hover:text-white">{item.title}</p>
-          </a>
-        ))}
-        {!items.length ? <p className="py-5 text-sm text-white/40">当前没有可用的中文市场新闻。</p> : null}
-      </div>
-    </section>
-  );
-}
-
-function ResearchBoard({ items }: { items: ResearchReport[] }) {
-  return (
-    <section className="border border-white/10 bg-white/[0.025] p-5">
-      <SectionHeading eyebrow="Broker Research" title="最新公开研报覆盖" icon={<FileText size={15} />} />
-      <div className="divide-y divide-white/8">
-        {items.slice(0, 8).map((item) => (
-          <a key={item.id} href={item.url} target="_blank" rel="noreferrer" className="block py-3.5 first:pt-0 last:pb-0">
-            <div className="flex items-center gap-2 text-[10px] text-white/34">
-              <span>{item.institution || '机构未标注'}</span>
-              <span>{item.publishedAt || '日期未知'}</span>
-              <span className="ml-auto border border-[#d6b566]/18 px-1.5 py-0.5 text-[#d6b566]">{item.rating || '未评级'}</span>
-            </div>
-            <p className="mt-2 text-sm font-semibold leading-6 text-white/76 transition hover:text-white">
-              {item.stockName ? `${item.stockName}：` : ''}{item.title}
-            </p>
-            <p className="mt-1 text-xs text-white/34">{item.industry || '行业未标注'}</p>
-          </a>
-        ))}
-        {!items.length ? <p className="py-5 text-sm text-white/40">当前没有可用的公开研报。</p> : null}
-      </div>
-    </section>
   );
 }
 

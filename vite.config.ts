@@ -2220,6 +2220,146 @@ async function getResearchReportFeed() {
   return { url, reports };
 }
 
+const bitcoinHalvings = [
+  { date: '2012-11-28', label: '第一次减半', blockReward: '50 → 25 BTC' },
+  { date: '2016-07-09', label: '第二次减半', blockReward: '25 → 12.5 BTC' },
+  { date: '2020-05-11', label: '第三次减半', blockReward: '12.5 → 6.25 BTC' },
+  { date: '2024-04-20', label: '第四次减半', blockReward: '6.25 → 3.125 BTC' },
+];
+
+const bitcoinProjectedHalvings = [
+  { date: '2028-04-17', label: '预计第五次减半', blockReward: '3.125 → 1.5625 BTC', estimated: true },
+  { date: '2032-04-14', label: '预计第六次减半', blockReward: '1.5625 → 0.78125 BTC', estimated: true },
+];
+
+function buildBitcoinProjection(points: Array<{ time: string; value: number }>) {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const latest = points[points.length - 1];
+  const latestAt = Date.parse(`${latest.time}T00:00:00Z`);
+  const horizonAt = Date.parse('2035-12-31T00:00:00Z');
+  const yearMs = 365.25 * dayMs;
+  const initialAnnualGrowth = 0.18;
+  const growthDecay = 0.08;
+  const trendAt = (timestamp: number) => {
+    const years = Math.max(0, (timestamp - latestAt) / yearMs);
+    const cumulativeGrowth = initialAnnualGrowth / growthDecay * (1 - Math.exp(-growthDecay * years));
+    return latest.value * Math.exp(cumulativeGrowth);
+  };
+  const cycleAnchors = [
+    { time: latestAt, adjustment: 0 },
+    { time: Date.parse('2026-11-15T00:00:00Z'), adjustment: Math.log(0.68) },
+    { time: Date.parse('2028-04-17T00:00:00Z'), adjustment: 0 },
+    { time: Date.parse('2029-08-30T00:00:00Z'), adjustment: Math.log(1.45) },
+    { time: Date.parse('2030-10-15T00:00:00Z'), adjustment: Math.log(0.72) },
+    { time: Date.parse('2032-04-14T00:00:00Z'), adjustment: 0 },
+    { time: Date.parse('2033-08-27T00:00:00Z'), adjustment: Math.log(1.32) },
+    { time: Date.parse('2034-10-15T00:00:00Z'), adjustment: Math.log(0.82) },
+    { time: horizonAt, adjustment: 0 },
+  ].filter((anchor, index) => index === 0 || anchor.time > latestAt);
+  const cycleAdjustmentAt = (timestamp: number) => {
+    const endIndex = cycleAnchors.findIndex((anchor) => anchor.time >= timestamp);
+    if (endIndex <= 0) return cycleAnchors[0].adjustment;
+    const start = cycleAnchors[endIndex - 1];
+    const end = cycleAnchors[endIndex];
+    const progress = (timestamp - start.time) / Math.max(1, end.time - start.time);
+    const eased = (1 - Math.cos(Math.PI * progress)) / 2;
+    return start.adjustment + (end.adjustment - start.adjustment) * eased;
+  };
+  const maturePoints = points.filter((point) => point.time >= '2020-01-01');
+  const matureReturns = maturePoints.slice(1).map((point, index) => (
+    Math.log(point.value / maturePoints[index].value)
+  ));
+  const returnMean = matureReturns.reduce((sum, value) => sum + value, 0) / Math.max(1, matureReturns.length);
+  let randomState = 0x5f3759df;
+  const nextRandom = () => {
+    randomState ^= randomState << 13;
+    randomState ^= randomState >>> 17;
+    randomState ^= randomState << 5;
+    return (randomState >>> 0) / 4294967296;
+  };
+  let sampledBlockStart = 0;
+  let sampledBlockOffset = 14;
+  let volatilityNoise = 0;
+  const projectionValueAt = (timestamp: number, step: number) => {
+    if (sampledBlockOffset >= 14) {
+      sampledBlockStart = Math.floor(nextRandom() * Math.max(1, matureReturns.length - 14));
+      sampledBlockOffset = 0;
+    }
+    const sampledReturn = matureReturns[sampledBlockStart + sampledBlockOffset] ?? 0;
+    sampledBlockOffset += 1;
+    const years = Math.max(0, (timestamp - latestAt) / yearMs);
+    const volatilityScale = 0.58 * Math.exp(-0.045 * years);
+    const shock = Math.max(-0.12, Math.min(0.12, sampledReturn - returnMean));
+    volatilityNoise = Math.max(-0.24, Math.min(0.24, volatilityNoise * 0.965 + shock * volatilityScale));
+    if (step === 0) volatilityNoise = 0;
+    return Math.max(0.01, trendAt(timestamp) * Math.exp(cycleAdjustmentAt(timestamp) + volatilityNoise));
+  };
+  const projectionPoints = [{ time: latest.time, value: latest.value }];
+  let step = 1;
+  for (let timestamp = latestAt + dayMs; timestamp < horizonAt; timestamp += dayMs) {
+    projectionPoints.push({
+      time: new Date(timestamp).toISOString().slice(0, 10),
+      value: round(projectionValueAt(timestamp, step), 2),
+    });
+    step += 1;
+  }
+  projectionPoints.push({ time: '2035-12-31', value: round(projectionValueAt(horizonAt, step), 2) });
+  bitcoinProjectedHalvings.forEach((halving) => {
+    const timestamp = Date.parse(`${halving.date}T00:00:00Z`);
+    const existing = projectionPoints.find((point) => point.time === halving.date);
+    if (!existing) projectionPoints.push({ time: halving.date, value: round(trendAt(timestamp) * Math.exp(cycleAdjustmentAt(timestamp)), 2) });
+  });
+  const sortedProjectionPoints = [...new Map(projectionPoints.map((point) => [point.time, point])).values()]
+    .sort((left, right) => left.time.localeCompare(right.time));
+  const horizonValue = trendAt(horizonAt) * Math.exp(cycleAdjustmentAt(horizonAt));
+  const uncertainty = 0.5;
+  return {
+    horizon: '2035-12-31',
+    model: '成熟市场增速衰减趋势 + 减半周期锚点 + 2020年以来真实日收益区块重采样',
+    points: sortedProjectionPoints,
+    futureHalvings: bitcoinProjectedHalvings,
+    horizonScenario: {
+      low: round(horizonValue * Math.exp(-uncertainty), 0),
+      base: round(horizonValue, 0),
+      high: round(horizonValue * Math.exp(uncertainty), 0),
+    },
+    assumptions: [
+      '长期趋势锚定最新价格，假设年化中枢增速从约18%逐步衰减至2035年的约8%。',
+      '未来两轮周期峰值仅取趋势中枢约1.45倍和1.32倍，回撤阶段取约0.72倍和0.82倍。',
+      '曲线波动按2020年以来连续14日真实收益区块重采样，并逐年降低波动率；未纳入未来突发事件。',
+    ],
+    researchSources: [
+      { label: 'Coinbase Institutional · Halving Supply, Demand and Statistics', url: 'https://www.coinbase.com/institutional/research-insights/research/monthly-outlook/monthly-outlook-mar-2024' },
+      { label: 'Coinbase Institutional · Post-halving Patterns', url: 'https://www.coinbase.com/institutional/research-insights/research/monthly-outlook/monthly-outlook-apr-2024' },
+      { label: 'Galaxy Research · Bitcoin Four-year Cycle Compression', url: 'https://www.galaxy.com/insights/research/bitcoin-four-year-cycle-where-is-the-bottom' },
+      { label: 'CME Group · Bitcoin Halving and Market Maturity', url: 'https://www.cmegroup.com/insights/economic-research/2024/can-bitcoin-halving-emulate-searing-rallies-of-the-past.html' },
+    ],
+  };
+}
+
+async function getBitcoinCycleHistory() {
+  const sourceUrl = 'https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=PriceUSD&frequency=1d&start_time=2011-01-01&page_size=10000';
+  const payload = JSON.parse(
+    await fetchRoutedText(sourceUrl, 'proxy', 30000, 'application/json'),
+  ) as { data?: Array<{ time?: string; PriceUSD?: string }> };
+  const points = (payload.data || []).flatMap((row) => {
+    const value = asFiniteNumber(row.PriceUSD);
+    const time = String(row.time || '').slice(0, 10);
+    return value !== undefined && value > 0 && /^\d{4}-\d{2}-\d{2}$/.test(time)
+      ? [{ time, value: round(value, 4) }]
+      : [];
+  });
+  if (points.length < 1_000) throw new Error('Coin Metrics 返回的比特币历史样本不足');
+  return {
+    generatedAt: new Date().toISOString(),
+    source: { label: 'Coin Metrics Community API', url: sourceUrl },
+    methodology: '价格为 Coin Metrics BTC PriceUSD 日度参考价；减半日期按比特币区块高度事件标注。图表默认采用线性价格轴，并提供对数轴作为长期周期观察工具。',
+    points,
+    halvings: bitcoinHalvings,
+    projection: buildBitcoinProjection(points),
+  };
+}
+
 const regionalContentQueries: Record<RegionalValuationMode, { news: string; research: string }> = {
   hongkong: {
     news: '港股 OR 恒生指数 OR 恒生科技 市场',
@@ -2696,6 +2836,8 @@ let cryptoHeatmapUniverseCache: { storedAt: number; data: Awaited<ReturnType<typ
 let cryptoHeatmapUniverseInFlight: Promise<Awaited<ReturnType<typeof getCryptoMarketUniverse>>> | undefined;
 let cryptoHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getCryptoMarketHeatmap>> } | undefined;
 let cryptoHeatmapInFlight: Promise<Awaited<ReturnType<typeof getCryptoMarketHeatmap>>> | undefined;
+let bitcoinCycleCache: { storedAt: number; data: Awaited<ReturnType<typeof getBitcoinCycleHistory>> } | undefined;
+let bitcoinCycleInFlight: Promise<Awaited<ReturnType<typeof getBitcoinCycleHistory>>> | undefined;
 let chinaHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getChinaMarketHeatmap>> } | undefined;
 let chinaHeatmapInFlight: Promise<Awaited<ReturnType<typeof getChinaMarketHeatmap>>> | undefined;
 let hongKongHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getHongKongMarketHeatmap>> } | undefined;
@@ -3748,6 +3890,23 @@ async function getCachedCryptoMarketHeatmap() {
   return cryptoHeatmapInFlight;
 }
 
+async function getCachedBitcoinCycleHistory() {
+  if (bitcoinCycleCache && Date.now() - bitcoinCycleCache.storedAt < 6 * 60 * 60_000) {
+    return bitcoinCycleCache.data;
+  }
+  if (!bitcoinCycleInFlight) {
+    bitcoinCycleInFlight = getBitcoinCycleHistory()
+      .then((data) => {
+        bitcoinCycleCache = { storedAt: Date.now(), data };
+        return data;
+      })
+      .finally(() => {
+        bitcoinCycleInFlight = undefined;
+      });
+  }
+  return bitcoinCycleInFlight;
+}
+
 function allWeatherApiPlugin() {
   return {
     name: 'sparkflow-allweather-api',
@@ -3787,6 +3946,11 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/crypto-market-heatmap') {
             sendJson(res, 200, await getCachedCryptoMarketHeatmap());
+            return;
+          }
+
+          if (url.pathname === '/api/bitcoin-cycle-history') {
+            sendJson(res, 200, await getCachedBitcoinCycleHistory());
             return;
           }
 

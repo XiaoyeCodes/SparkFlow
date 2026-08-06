@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$Root,
-  [int]$PreferredPort = 5173
+  [int]$PreferredPort = 5180
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,13 +53,22 @@ function Get-ListenerProcessId([int]$Port) {
 $existingPort = 0
 if ((Test-Path -LiteralPath $portFile) -and [int]::TryParse([string](Get-Content -LiteralPath $portFile -ErrorAction SilentlyContinue | Select-Object -First 1), [ref]$existingPort)) {
   if (Test-PortListening $existingPort) {
-    Write-Host "SparkFlow is already running at http://127.0.0.1:$existingPort/"
-    $existingListenerPid = Get-ListenerProcessId $existingPort
-    if ($existingListenerPid -gt 0) {
-      Write-Host "Listener PID: $existingListenerPid"
+    if ($existingPort -ne $PreferredPort) {
+      Write-Host "SparkFlow is running on old port $existingPort; moving it to fixed port $PreferredPort..."
+      $stopScript = Join-Path $rootPath 'scripts\stop-sparkflow.ps1'
+      & $stopScript -Root $rootPath -FallbackPort $existingPort
+      if (Test-PortListening $existingPort) {
+        throw "Could not stop the recorded SparkFlow instance on port $existingPort. Run stop-sparkflow.bat and try again."
+      }
+    } else {
+      Write-Host "SparkFlow is already running at http://127.0.0.1:$PreferredPort/"
+      $existingListenerPid = Get-ListenerProcessId $existingPort
+      if ($existingListenerPid -gt 0) {
+        Write-Host "Listener PID: $existingListenerPid"
+      }
+      Write-Host 'Use stop-sparkflow.bat to stop it.'
+      exit 0
     }
-    Write-Host 'Use stop-sparkflow.bat to stop it.'
-    exit 0
   }
 }
 
@@ -97,15 +106,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $port = $PreferredPort
-$maxPort = $PreferredPort + 100
-while (-not (Test-PortAvailable $port)) {
-  if ($port -eq $PreferredPort) {
-    Write-Host "Port $PreferredPort is busy; searching for a free port..."
-  }
-  $port += 1
-  if ($port -gt $maxPort) {
-    throw "Could not find a free port in range $PreferredPort-$maxPort."
-  }
+if (-not (Test-PortAvailable $port)) {
+  throw "Fixed port $port is already in use. Release the port and run start-sparkflow.bat again."
 }
 
 $command = "npm run dev -- --port $port --strictPort"

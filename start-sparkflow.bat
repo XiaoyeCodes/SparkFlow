@@ -8,7 +8,7 @@ set "ERR_FILE=%ROOT%\vite-server.err.log"
 
 echo Starting SparkFlow in the background...
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\start-sparkflow.ps1" -Root "%ROOT%" -PreferredPort 5173
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\start-sparkflow.ps1" -Root "%ROOT%" -PreferredPort 5180
 
 echo.
 echo Logs:

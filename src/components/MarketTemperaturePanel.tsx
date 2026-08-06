@@ -1087,17 +1087,17 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: 'china' | 'h
           <div className="overflow-hidden border border-white/10 bg-[#06090c]">
             <TemperatureChart key={selectedSeries.id} series={selectedSeries} />
           </div>
-          <div className="mt-4 flex flex-col gap-3 text-[11px] leading-5 text-white/34 lg:flex-row lg:items-start lg:justify-between">
-            <p className="max-w-4xl">{data.methodology}</p>
-            <div className="flex shrink-0 items-center gap-3">
-              <Activity size={13} />
+          <div className="mt-4 text-[11px] leading-5 text-white/34" data-testid="valuation-history-notes">
+            <p className="max-w-5xl break-words" data-testid="valuation-methodology">{data.methodology}</p>
+            <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/8 pt-3">
+              <Activity className="shrink-0" size={13} />
               {data.sources.map((source) => (
                 <a
                   key={source.url}
                   href={source.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="transition hover:text-white/70"
+                  className="max-w-full break-words transition hover:text-white/70"
                 >
                   {source.label}
                 </a>
@@ -1106,7 +1106,7 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: 'china' | 'h
                 href="https://www.tradingview.com/"
                 target="_blank"
                 rel="noreferrer"
-                className="transition hover:text-white/70"
+                className="max-w-full break-words transition hover:text-white/70"
               >
                 图表技术 TradingView
               </a>
