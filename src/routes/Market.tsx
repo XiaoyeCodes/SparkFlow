@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ChinaMarketHeatmap, CryptoMarketHeatmap, HongKongMarketHeatmap, UsMarketHeatmap } from '../components/ChinaMarketHeatmap';
 import { BitcoinCycleChart } from '../components/BitcoinCycleChart';
+import { GlobalMacroCommandCenter } from '../components/GlobalMacroCommandCenter';
 import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
 import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper';
 import { PageTransition } from '../components/PageTransition';
@@ -31,6 +32,7 @@ import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/i
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 
 type MarketChartMode = 'china' | 'hongkong' | 'us' | 'crypto';
+type MarketDashboardView = 'global' | 'markets';
 
 type UsMarketSystemStatus = {
   state: 'normal' | 'halted' | 'unknown';
@@ -373,6 +375,7 @@ function parseEvent(event: Event) {
 export function Market() {
   const navigate = useNavigate();
   const [activeMarket, setActiveMarket] = useState<MarketChartMode>('china');
+  const [dashboardView, setDashboardView] = useState<MarketDashboardView>('global');
   const [data, setData] = useState<MarketIntelligence | null>(null);
   const [valuationSnapshots, setValuationSnapshots] = useState<Partial<Record<'china' | 'hongkong' | 'us', AShareValuationSnapshot>>>({});
   const [loadState, setLoadState] = useState<AsyncState>('loading');
@@ -920,6 +923,16 @@ export function Market() {
 
   const latestAt = data ? formatDateTime(data.generatedAt, true) : '--';
 
+  if (dashboardView === 'global') {
+    return (
+      <PageTransition>
+      <section className="h-[calc(100vh-var(--nav-height))] min-h-[640px] overflow-hidden bg-[#030405] text-white">
+          <GlobalMacroCommandCenter onOpenMarket={(mode) => { setActiveMarket(mode); setDashboardView('markets'); }} />
+        </section>
+      </PageTransition>
+    );
+  }
+
   return (
     <PageTransition>
       <section className="min-h-screen bg-[#030405] px-3 pb-16 pt-[calc(var(--nav-height)+20px)] text-white sm:px-5 lg:px-7">
@@ -954,13 +967,20 @@ export function Market() {
 
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-stretch lg:justify-between">
             <div className="flex w-full border border-white/10 bg-white/[0.035] p-1 lg:max-w-[620px]">
+              <button
+                type="button"
+                onClick={() => setDashboardView('global')}
+                className="flex min-h-11 flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold text-white/52 transition hover:bg-[#69d5ff]/12 hover:text-[#9deaff]"
+              >
+                <Radar size={15} /> 全球
+              </button>
               {(Object.keys(MARKET_META) as MarketChartMode[]).map((mode) => (
                 <button
                   type="button"
                   key={mode}
-                  onClick={() => setActiveMarket(mode)}
+                  onClick={() => { setActiveMarket(mode); setDashboardView('markets'); }}
                   className={`flex min-h-11 flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold transition ${
-                    activeMarket === mode ? 'bg-white text-black' : 'text-white/52 hover:text-white'
+                    dashboardView === 'markets' && activeMarket === mode ? 'bg-white text-black' : 'text-white/52 hover:text-white'
                   }`}
                 >
                   {mode === 'china'
@@ -974,11 +994,11 @@ export function Market() {
                 </button>
               ))}
             </div>
-            <MarketSessionIndicator
+            {dashboardView === 'markets' ? <MarketSessionIndicator
               mode={activeMarket}
               usSystemState={usMarketSystem.state}
               usSystemMessage={usMarketSystem.message}
-            />
+            /> : null}
           </div>
 
           {error ? <ErrorPanel message={error} onRetry={() => void loadMarket()} /> : null}

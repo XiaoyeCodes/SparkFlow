@@ -2985,6 +2985,597 @@ async function getCachedRegionalMarketContent(mode: RegionalValuationMode) {
   return request;
 }
 
+type GlobalMacroRegion = 'global' | 'apac' | 'middleEast' | 'europe' | 'americas';
+
+type GlobalMacroQuoteConfig = {
+  id: string;
+  name: string;
+  symbol: string;
+  market?: 'china' | 'hongkong' | 'us' | 'crypto';
+  region: Exclude<GlobalMacroRegion, 'global'>;
+  latitude: number;
+  longitude: number;
+  timezone: string;
+  sessions: Array<[number, number]>;
+};
+
+const globalMacroQuotes: GlobalMacroQuoteConfig[] = [
+  { id: 'china', name: '上证综指', symbol: '000001.SS', market: 'china', region: 'apac', latitude: 31.23824, longitude: 121.50668, timezone: 'Asia/Shanghai', sessions: [[9.5, 11.5], [13, 15]] },
+  { id: 'hongkong', name: '恒生指数', symbol: '^HSI', market: 'hongkong', region: 'apac', latitude: 22.28389, longitude: 114.15823, timezone: 'Asia/Hong_Kong', sessions: [[9.5, 12], [13, 16]] },
+  { id: 'japan', name: '日经225', symbol: '^N225', region: 'apac', latitude: 35.6826, longitude: 139.7788, timezone: 'Asia/Tokyo', sessions: [[9, 11.5], [12.5, 15.5]] },
+  { id: 'korea', name: '韩国KOSPI', symbol: '^KS11', region: 'apac', latitude: 37.5236, longitude: 126.92714, timezone: 'Asia/Seoul', sessions: [[9, 15.5]] },
+  { id: 'india', name: '印度NIFTY 50', symbol: '^NSEI', region: 'apac', latitude: 19.0602, longitude: 72.85978, timezone: 'Asia/Kolkata', sessions: [[9.25, 15.5]] },
+  { id: 'australia', name: '澳洲ASX 200', symbol: '^AXJO', region: 'apac', latitude: -33.8679, longitude: 151.21016, timezone: 'Australia/Sydney', sessions: [[10, 16]] },
+  { id: 'us', name: '标普500', symbol: '^GSPC', market: 'us', region: 'americas', latitude: 40.70707, longitude: -74.01118, timezone: 'America/New_York', sessions: [[9.5, 16]] },
+  { id: 'nasdaq', name: '纳斯达克综指', symbol: '^IXIC', market: 'us', region: 'americas', latitude: 40.75628, longitude: -73.98586, timezone: 'America/New_York', sessions: [[9.5, 16]] },
+  { id: 'vix', name: 'CBOE VIX', symbol: '^VIX', market: 'us', region: 'americas', latitude: 41.87662, longitude: -87.63954, timezone: 'America/Chicago', sessions: [[8.5, 15]] },
+  { id: 'euro', name: 'Euro Stoxx 50', symbol: '^STOXX50E', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]] },
+  { id: 'germany', name: '德国DAX', symbol: '^GDAXI', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]] },
+  { id: 'france', name: '法国CAC 40', symbol: '^FCHI', region: 'europe', latitude: 48.89063, longitude: 2.24669, timezone: 'Europe/Paris', sessions: [[9, 17.5]] },
+  { id: 'uk', name: '富时100', symbol: '^FTSE', region: 'europe', latitude: 51.51504, longitude: -0.09908, timezone: 'Europe/London', sessions: [[8, 16.5]] },
+  { id: 'russia', name: '俄罗斯RTS', symbol: 'RTSI.ME', region: 'europe', latitude: 55.75583, longitude: 37.6173, timezone: 'Europe/Moscow', sessions: [[10, 18.75]] },
+  { id: 'saudi', name: '沙特TASI', symbol: '^TASI.SR', region: 'middleEast', latitude: 24.68695, longitude: 46.68538, timezone: 'Asia/Riyadh', sessions: [[10, 15]] },
+  { id: 'israel', name: '以色列TA-35', symbol: 'TA35.TA', region: 'middleEast', latitude: 32.06519, longitude: 34.77099, timezone: 'Asia/Jerusalem', sessions: [[9.75, 17.25]] },
+  { id: 'south-africa', name: '南非JSE Top 40', symbol: '^J200.JO', region: 'middleEast', latitude: -26.1029, longitude: 28.05761, timezone: 'Africa/Johannesburg', sessions: [[9, 17]] },
+  { id: 'nigeria', name: '尼日利亚NGX全股', symbol: 'NGX:ASI', region: 'middleEast', latitude: 6.44831, longitude: 3.3899, timezone: 'Africa/Lagos', sessions: [[9.5, 14.5]] },
+  { id: 'latin-america', name: 'MSCI拉美（ETF代理）', symbol: 'LTAM.AS', region: 'americas', latitude: -23.5456, longitude: -46.634, timezone: 'America/Sao_Paulo', sessions: [[10, 17]] },
+];
+
+const globalMacroCommodities = [
+  ['wti', 'WTI原油', 'CL=F'], ['brent', '布伦特原油', 'BZ=F'], ['gas', '天然气', 'NG=F'],
+  ['gold', '黄金', 'GC=F'], ['silver', '白银', 'SI=F'], ['copper', '铜', 'HG=F'],
+  ['bitcoin', '比特币', 'BTC-USD'], ['ethereum', '以太坊', 'ETH-USD'],
+] as const;
+
+type GlobalHeatmapConfig = { symbol: string; name: string; sector: string; weight: number };
+
+const globalHeatmapConfigs: Record<string, GlobalHeatmapConfig[]> = {
+  japan: [
+    { symbol: '7203.T', name: 'Toyota', sector: 'Automotive', weight: 15 }, { symbol: '8306.T', name: 'MUFG', sector: 'Financials', weight: 11 },
+    { symbol: '6758.T', name: 'Sony', sector: 'Technology', weight: 10 }, { symbol: '6501.T', name: 'Hitachi', sector: 'Industrials', weight: 9 },
+    { symbol: '9983.T', name: 'Fast Retailing', sector: 'Consumer', weight: 9 }, { symbol: '6861.T', name: 'Keyence', sector: 'Technology', weight: 8 },
+    { symbol: '7974.T', name: 'Nintendo', sector: 'Consumer', weight: 8 }, { symbol: '9984.T', name: 'SoftBank Group', sector: 'Technology', weight: 8 },
+    { symbol: '8035.T', name: 'Tokyo Electron', sector: 'Technology', weight: 7 }, { symbol: '6098.T', name: 'Recruit', sector: 'Services', weight: 6 },
+  ],
+  korea: [
+    { symbol: '005930.KS', name: 'Samsung Electronics', sector: 'Technology', weight: 20 }, { symbol: '000660.KS', name: 'SK Hynix', sector: 'Technology', weight: 14 },
+    { symbol: '373220.KS', name: 'LG Energy Solution', sector: 'Battery', weight: 10 }, { symbol: '005380.KS', name: 'Hyundai Motor', sector: 'Automotive', weight: 9 },
+    { symbol: '207940.KS', name: 'Samsung Biologics', sector: 'Healthcare', weight: 8 }, { symbol: '000270.KS', name: 'Kia', sector: 'Automotive', weight: 8 },
+    { symbol: '068270.KS', name: 'Celltrion', sector: 'Healthcare', weight: 7 }, { symbol: '105560.KS', name: 'KB Financial', sector: 'Financials', weight: 6 },
+    { symbol: '035420.KS', name: 'NAVER', sector: 'Internet', weight: 6 }, { symbol: '035720.KS', name: 'Kakao', sector: 'Internet', weight: 5 },
+  ],
+  india: [
+    { symbol: 'RELIANCE.NS', name: 'Reliance', sector: 'Energy', weight: 16 }, { symbol: 'HDFCBANK.NS', name: 'HDFC Bank', sector: 'Financials', weight: 14 },
+    { symbol: 'BHARTIARTL.NS', name: 'Bharti Airtel', sector: 'Communication', weight: 11 }, { symbol: 'TCS.NS', name: 'TCS', sector: 'Technology', weight: 11 },
+    { symbol: 'ICICIBANK.NS', name: 'ICICI Bank', sector: 'Financials', weight: 10 }, { symbol: 'SBIN.NS', name: 'State Bank of India', sector: 'Financials', weight: 8 },
+    { symbol: 'INFY.NS', name: 'Infosys', sector: 'Technology', weight: 8 }, { symbol: 'LICI.NS', name: 'LIC India', sector: 'Financials', weight: 7 },
+    { symbol: 'HINDUNILVR.NS', name: 'Hindustan Unilever', sector: 'Consumer', weight: 6 }, { symbol: 'ITC.NS', name: 'ITC', sector: 'Consumer', weight: 6 },
+  ],
+  australia: [
+    { symbol: 'BHP.AX', name: 'BHP', sector: 'Materials', weight: 17 }, { symbol: 'CBA.AX', name: 'Commonwealth Bank', sector: 'Financials', weight: 16 },
+    { symbol: 'CSL.AX', name: 'CSL', sector: 'Healthcare', weight: 10 }, { symbol: 'NAB.AX', name: 'National Australia Bank', sector: 'Financials', weight: 9 },
+    { symbol: 'WBC.AX', name: 'Westpac', sector: 'Financials', weight: 8 }, { symbol: 'ANZ.AX', name: 'ANZ Group', sector: 'Financials', weight: 8 },
+    { symbol: 'WES.AX', name: 'Wesfarmers', sector: 'Consumer', weight: 7 }, { symbol: 'MQG.AX', name: 'Macquarie Group', sector: 'Financials', weight: 7 },
+    { symbol: 'GMG.AX', name: 'Goodman Group', sector: 'Real Estate', weight: 6 }, { symbol: 'RIO.AX', name: 'Rio Tinto', sector: 'Materials', weight: 6 },
+  ],
+  euro: [
+    { symbol: 'ASML.AS', name: 'ASML', sector: 'Technology', weight: 17 }, { symbol: 'SAP.DE', name: 'SAP', sector: 'Technology', weight: 14 },
+    { symbol: 'MC.PA', name: 'LVMH', sector: 'Consumer', weight: 12 }, { symbol: 'NOVO-B.CO', name: 'Novo Nordisk', sector: 'Healthcare', weight: 11 },
+    { symbol: 'OR.PA', name: "L'Oreal", sector: 'Consumer', weight: 8 }, { symbol: 'SIE.DE', name: 'Siemens', sector: 'Industrials', weight: 8 },
+    { symbol: 'TTE.PA', name: 'TotalEnergies', sector: 'Energy', weight: 8 }, { symbol: 'AIR.PA', name: 'Airbus', sector: 'Industrials', weight: 7 },
+    { symbol: 'RMS.PA', name: 'Hermes', sector: 'Consumer', weight: 6 }, { symbol: 'SU.PA', name: 'Schneider Electric', sector: 'Industrials', weight: 6 },
+  ],
+  uk: [
+    { symbol: 'SHEL.L', name: 'Shell', sector: 'Energy', weight: 16 }, { symbol: 'AZN.L', name: 'AstraZeneca', sector: 'Healthcare', weight: 14 },
+    { symbol: 'HSBA.L', name: 'HSBC', sector: 'Financials', weight: 13 }, { symbol: 'ULVR.L', name: 'Unilever', sector: 'Consumer', weight: 10 },
+    { symbol: 'BP.L', name: 'BP', sector: 'Energy', weight: 9 }, { symbol: 'GSK.L', name: 'GSK', sector: 'Healthcare', weight: 8 },
+    { symbol: 'BATS.L', name: 'British American Tobacco', sector: 'Consumer', weight: 7 }, { symbol: 'REL.L', name: 'RELX', sector: 'Services', weight: 7 },
+    { symbol: 'RIO.L', name: 'Rio Tinto', sector: 'Materials', weight: 6 }, { symbol: 'LSEG.L', name: 'London Stock Exchange', sector: 'Financials', weight: 6 },
+  ],
+  saudi: [
+    { symbol: '2222.SR', name: 'Saudi Aramco', sector: 'Energy', weight: 22 }, { symbol: '1120.SR', name: 'Al Rajhi Bank', sector: 'Financials', weight: 16 },
+    { symbol: '2010.SR', name: 'SABIC', sector: 'Materials', weight: 11 }, { symbol: '1180.SR', name: 'Saudi National Bank', sector: 'Financials', weight: 10 },
+    { symbol: '7010.SR', name: 'STC', sector: 'Communication', weight: 9 }, { symbol: '1211.SR', name: "Ma'aden", sector: 'Materials', weight: 8 },
+    { symbol: '1010.SR', name: 'Riyad Bank', sector: 'Financials', weight: 7 }, { symbol: '2280.SR', name: 'Almarai', sector: 'Consumer', weight: 6 },
+    { symbol: '7020.SR', name: 'Mobily', sector: 'Communication', weight: 5 }, { symbol: '7203.SR', name: 'Elm', sector: 'Technology', weight: 5 },
+  ],
+};
+
+const globalNewsQueries: Record<GlobalMacroRegion, Array<[string, string]>> = {
+  global: [
+    ['央行', '(美联储 OR 欧洲央行 OR 中国人民银行 OR 日本央行) (利率决议 OR 加息 OR 降息 OR 通胀) when:1d'],
+    ['数据', '(CPI OR 非农 OR GDP OR PMI OR 通胀 OR 就业) (公布 OR 超预期 OR 低于预期 OR 经济) when:1d'],
+    ['市场', '(全球股市 OR 美债 OR 美元 OR 原油) (暴跌 OR 暴涨 OR 熔断 OR 风险 OR 波动) when:1d'],
+    ['政策', '(关税 OR 财政 OR 制裁 OR 监管 OR 贸易政策) (全球 OR 美国 OR 中国 OR 欧盟 OR 市场) when:1d'],
+    ['地缘', '(战争 OR 冲突 OR 制裁 OR OPEC OR 霍尔木兹 OR 航运) (市场 OR 经济 OR 能源) when:1d'],
+    ['灾害', '(地震 OR 台风 OR 洪水 OR 火灾) (经济 OR 供应链 OR 能源) when:1d'],
+    ['快讯', '(美联储 OR 央行 OR 全球经济 OR 关税 OR 美债 OR 原油 OR 地缘冲突) when:1d'],
+  ],
+  apac: [['亚太', '(中国 OR 日本 OR 韩国 OR 印度 OR 澳洲) (央行 OR 股市 OR 通胀 OR 利率) when:1d'], ['地缘', '(亚太 OR 台海 OR 朝鲜半岛) (冲突 OR 制裁 OR 风险) when:1d']],
+  middleEast: [['中东', '(中东 OR 以色列 OR 伊朗) (冲突 OR 原油 OR 制裁) when:1d'], ['能源', '(OPEC OR 原油 OR 霍尔木兹) (减产 OR 供应 OR 风险) when:1d']],
+  europe: [['欧洲', '(欧洲央行 OR 欧元区 OR 英国央行) (利率 OR 通胀 OR 经济) when:1d'], ['地缘', '(欧洲 OR 俄乌) (冲突 OR 制裁 OR 能源) when:1d']],
+  americas: [['美洲', '(美联储 OR 美国经济 OR 标普500) (利率 OR 通胀 OR 就业 OR 风险) when:1d'], ['财报', '(美股 OR 纳斯达克) (财报 OR 业绩 OR 指引) when:1d']],
+};
+
+const globalMacroCuratedNewsSources = newsSources.filter((source) => (
+  ['wallstreetcn', 'chinanews-finance', 'chinanews-world', 'gov-cn'].includes(source.id)
+));
+
+function globalSession(config: GlobalMacroQuoteConfig) {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: config.timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  const weekday = value('weekday');
+  const hour = Number(value('hour')) % 24;
+  const minute = Number(value('minute'));
+  const minuteOfDay = hour + minute / 60;
+  const isWeekday = !['Sat', 'Sun'].includes(weekday);
+  const live = isWeekday && config.sessions.some(([start, end]) => minuteOfDay >= start && minuteOfDay < end);
+  const pre = isWeekday && config.sessions.some(([start]) => minuteOfDay >= start - 0.5 && minuteOfDay < start);
+  return live
+    ? { label: '交易中', tone: 'live' as const }
+    : pre ? { label: '即将开盘', tone: 'pre' as const }
+      : { label: isWeekday ? '已收盘 / 休市' : '周末休市', tone: 'closed' as const };
+}
+
+const yahooMacroQuoteCache = new Map<string, Awaited<ReturnType<typeof readYahooMacroQuote>>>();
+
+async function readYahooMacroQuote(symbol: string, range = '1mo') {
+  const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d&events=history`;
+  const text = await fetchRoutedText(requestUrl, 'proxy', 13000, 'application/json,text/plain,*/*');
+  const payload = JSON.parse(text) as Record<string, any>;
+  const result = payload?.chart?.result?.[0];
+  const times = Array.isArray(result?.timestamp) ? result.timestamp as number[] : [];
+  const closes = Array.isArray(result?.indicators?.quote?.[0]?.close) ? result.indicators.quote[0].close as Array<number | null> : [];
+  const history = times.flatMap((timestamp, index) => {
+    const close = asFiniteNumber(closes[index]);
+    return close !== undefined && close > 0 ? [{ time: new Date(timestamp * 1000).toISOString(), value: close }] : [];
+  });
+  const latest = history.at(-1);
+  const prior = history.at(-2);
+  if (!latest) throw new Error(`${symbol} 无可用报价`);
+  return { price: latest.value, change: prior ? latest.value - prior.value : 0, changePercent: prior?.value ? (latest.value / prior.value - 1) * 100 : 0, updatedAt: latest.time, sourceUrl: `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`, history };
+}
+
+async function getYahooMacroQuote(symbol: string, range = '1mo') {
+  const cacheKey = `${symbol}:${range}`;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const quote = await readYahooMacroQuote(symbol, range);
+      yahooMacroQuoteCache.set(cacheKey, quote);
+      return quote;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  const cached = yahooMacroQuoteCache.get(cacheKey);
+  if (cached) return cached;
+  throw lastError instanceof Error ? lastError : new Error(`${symbol} 行情暂时不可用`);
+}
+
+async function getYahooMacroSnapshot(symbol: string) {
+  const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d&events=history`;
+  const text = await fetchRoutedText(requestUrl, 'proxy', 13000, 'application/json,text/plain,*/*');
+  const payload = JSON.parse(text) as Record<string, any>;
+  const meta = payload?.chart?.result?.[0]?.meta;
+  const price = asFiniteNumber(meta?.regularMarketPrice);
+  const previous = asFiniteNumber(meta?.chartPreviousClose ?? meta?.previousClose);
+  const timestamp = asFiniteNumber(meta?.regularMarketTime);
+  if (price === undefined) throw new Error(`${symbol} 快照行情暂时不可用`);
+  const updatedAt = timestamp ? new Date(timestamp * 1000).toISOString() : new Date().toISOString();
+  return {
+    price,
+    change: previous === undefined ? 0 : price - previous,
+    changePercent: previous ? (price / previous - 1) * 100 : 0,
+    updatedAt,
+    sourceUrl: `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`,
+    history: [{ time: updatedAt, value: price }],
+  };
+}
+
+async function getNgxAllShareQuote() {
+  const sourceUrl = 'https://www.stockmarketnigeria.com/';
+  const html = await fetchText(sourceUrl, 18000);
+  const indexMatch = html.match(/NGX All-Share Index[\s\S]{0,500}?market-card-value[^>]*>\s*([\d,]+(?:\.\d+)?)/i);
+  const changeMatch = html.match(/ASI Daily Change[\s\S]{0,500}?market-card-value[^>]*>\s*([+-]?[\d,]+(?:\.\d+)?)[\s\S]{0,300}?market-card-change[^>]*>\s*([+-]?[\d.]+)%/i);
+  const price = asFiniteNumber(indexMatch?.[1]?.replace(/,/g, ''));
+  const change = asFiniteNumber(changeMatch?.[1]?.replace(/,/g, ''));
+  const changePercent = asFiniteNumber(changeMatch?.[2]);
+  if (price === undefined || changePercent === undefined) throw new Error('NGX 全股指数行情解析失败');
+  const updatedMatch = html.match(/Last updated:\s*<strong>([^<]+)<\/strong>/i);
+  const parsedUpdatedAt = updatedMatch?.[1] ? new Date(`${updatedMatch[1]} GMT+0100`) : null;
+  const updatedAt = parsedUpdatedAt && !Number.isNaN(parsedUpdatedAt.getTime()) ? parsedUpdatedAt.toISOString() : new Date().toISOString();
+  return {
+    price,
+    change: change ?? 0,
+    changePercent,
+    updatedAt,
+    sourceUrl,
+    history: [{ time: updatedAt, value: price }],
+  };
+}
+
+function parseFredSeries(csv: string) {
+  const rows = csv.trim().split(/\r?\n/).slice(1).map((line) => line.split(','));
+  const values = rows.flatMap((row) => {
+    const rawValue = row[1]?.trim();
+    if (!rawValue || rawValue === '.') return [];
+    const value = asFiniteNumber(rawValue);
+    return row[0] && value !== undefined ? [{ time: `${row[0]}T00:00:00.000Z`, value }] : [];
+  });
+  return values;
+}
+
+async function getFredMacroMetric(id: string, seriesIds: string[], label: string, display: (value: number) => string, transform?: (history: Array<{ time: string; value: number }>) => Array<{ time: string; value: number }>) {
+  let lastError: unknown;
+  for (const seriesId of seriesIds) {
+    const sourceUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`;
+    try {
+      const csv = await fetchText(sourceUrl, 18000);
+      const raw = parseFredSeries(csv);
+      const history = transform ? transform(raw) : raw;
+      const latest = history.at(-1);
+      const previous = history.at(-2);
+      if (!latest) throw new Error(`${label} 无可用 FRED 数据`);
+      return { id, label, value: latest.value, display: display(latest.value), change: previous ? latest.value - previous.value : null, updatedAt: latest.time, sourceUrl, status: 'delayed' as const, history: history.slice(-48) };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${label} 暂时不可用`);
+}
+
+async function getGscpiMetric() {
+  const sourceUrl = 'https://www.newyorkfed.org/medialibrary/research/interactives/data/gscpi/gscpi_interactive_data.csv';
+  const csv = await fetchRoutedText(sourceUrl, 'direct', 20000, 'text/csv,text/plain,*/*');
+  const rows = csv.trim().split(/\r?\n/).map((line) => line.split(','));
+  const latestVintageIndex = rows[0]?.length - 1;
+  if (!latestVintageIndex || latestVintageIndex < 1) throw new Error('GSCPI 数据格式异常');
+  const history = rows.slice(1).flatMap((row) => {
+    const value = asFiniteNumber(row[latestVintageIndex]?.trim());
+    const timestamp = Date.parse(row[0]?.trim() || '');
+    return value !== undefined && Number.isFinite(timestamp)
+      ? [{ time: new Date(timestamp).toISOString(), value }]
+      : [];
+  });
+  const latest = history.at(-1);
+  const previous = history.at(-2);
+  if (!latest) throw new Error('GSCPI 暂无有效数据');
+  return {
+    id: 'gscpi',
+    label: '供应链压力',
+    value: latest.value,
+    display: latest.value.toFixed(2),
+    change: previous ? latest.value - previous.value : null,
+    updatedAt: latest.time,
+    sourceUrl,
+    status: 'delayed' as const,
+    history: history.slice(-48),
+  };
+}
+
+const globalPmiConfigs = [
+  { id: 'pmi-us', label: '美国 PMI', slug: 'united-states' },
+  { id: 'pmi-china', label: '中国 PMI', slug: 'china' },
+  { id: 'pmi-europe', label: '欧洲 PMI', slug: 'euro-area' },
+  { id: 'pmi-japan', label: '日本 PMI', slug: 'japan' },
+  { id: 'pmi-korea', label: '韩国 PMI', slug: 'south-korea' },
+] as const;
+
+function pmiObservationTime(monthName: string) {
+  const month = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+    .indexOf(monthName.toLowerCase());
+  const now = new Date();
+  if (month < 0) return now.toISOString();
+  const year = month > now.getUTCMonth() ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
+  return new Date(Date.UTC(year, month, 1)).toISOString();
+}
+
+async function getGlobalPmiMetric(config: (typeof globalPmiConfigs)[number]) {
+  const sourceUrl = `https://tradingeconomics.com/${config.slug}/manufacturing-pmi`;
+  const html = await fetchRoutedText(sourceUrl, 'direct', 20000, 'text/html,application/xhtml+xml,*/*');
+  const description = decodeXml(html.match(/<meta[^>]+id=["']metaDesc["'][^>]+content=["']([^"']+)["']/i)?.[1] || '');
+  const changed = description.match(/(?:increased|decreased)\s+to\s+([\d.]+)\s+points\s+in\s+([A-Za-z]+).*?from\s+([\d.]+)\s+points/i);
+  const unchanged = description.match(/remained\s+unchanged\s+at\s+([\d.]+)\s+points\s+in\s+([A-Za-z]+)/i);
+  const currentValue = asFiniteNumber(changed?.[1] || unchanged?.[1]);
+  const previousValue = asFiniteNumber(changed?.[3] || unchanged?.[1]);
+  const monthName = changed?.[2] || unchanged?.[2];
+  if (currentValue === undefined || previousValue === undefined || !monthName) {
+    throw new Error(`${config.label} 页面数据格式异常`);
+  }
+  const updatedAt = pmiObservationTime(monthName);
+  const previousDate = new Date(updatedAt);
+  previousDate.setUTCMonth(previousDate.getUTCMonth() - 1);
+  return {
+    id: config.id,
+    label: config.label,
+    value: currentValue,
+    display: currentValue.toFixed(2),
+    change: currentValue - previousValue,
+    updatedAt,
+    sourceUrl,
+    status: 'delayed' as const,
+    history: [{ time: previousDate.toISOString(), value: previousValue }, { time: updatedAt, value: currentValue }],
+  };
+}
+
+async function getGlobalMacroNews(region: GlobalMacroRegion) {
+  const queries = globalNewsQueries[region];
+  const [settled, curatedSettled] = await Promise.all([
+    Promise.allSettled(queries.map(async ([category, query]) => {
+      const url = googleNewsRssUrl(query);
+      const xml = await fetchRoutedText(url, 'proxy', 14000);
+      return parseGoogleNewsItems(xml, `全球宏观·${category}`).slice(0, 8).map((item) => ({ id: item.id, title: item.title, source: item.source, url: item.url, publishedAt: item.publishedAt, category, region }));
+    })),
+    Promise.allSettled(globalMacroCuratedNewsSources.map(fetchNewsSource)),
+  ]);
+  const curatedItems = curatedSettled.flatMap((result) => result.status === 'fulfilled' ? result.value : []).map((item) => ({
+    id: `curated-${item.id}`,
+    title: item.title,
+    source: item.source,
+    url: item.url,
+    publishedAt: item.publishedAt,
+    category: item.category === 'world' ? '国际' : item.category === 'livelihood' ? '政策' : '财经',
+    region,
+  }));
+  const impactRules = [
+    { score: 92, test: /(紧急降息|紧急加息|意外降息|意外加息|利率决议|宣布制裁|战争爆发|发动袭击|停火协议|主权违约|银行挤兑|金融危机|熔断|资本管制|霍尔木兹.*关闭)/i },
+    { score: 76, test: /(非农|消费者价格指数|\bCPI\b|\bGDP\b|\bPMI\b|通胀率|失业率|就业报告|央行|美联储|欧洲央行|中国人民银行|日本央行|关税|财政刺激|债务上限|OPEC|原油供应|制裁|战争|冲突|地震|台风|洪水|供应链中断)/i },
+    { score: 54, test: /(通胀|就业|债券|美债|美元|汇率|全球股市|标普500|纳斯达克|道指|原油|能源|航运|贸易|财政|货币政策|监管|选举|灾害|系统性风险)/i },
+    { score: 34, test: /(股市|指数|期货|黄金|铜|天然气|经济增长|经济衰退|市场波动)/i },
+  ];
+  const scopeTerms = [/(全球|世界经济|国际市场)/i, /(美国|美联储|美债|美元)/i, /(中国|中国人民银行|人民币)/i, /(欧盟|欧元区|欧洲央行)/i, /(日本|日本央行|日元)/i, /(央行|利率|通胀|就业|GDP|PMI|CPI|非农)/i, /(战争|冲突|制裁|关税|贸易|财政)/i, /(原油|能源|航运|供应链)/i];
+  const newInformationTerms = /(宣布|决定|公布|发布|通过|签署|启动|暂停|上调|下调|超预期|低于预期|爆发|袭击|制裁|违约|熔断|中断)/i;
+  const companyHeavyTerms = /(个股|股价|盘前|盘后|财报|业绩|营收|净利润|目标价|评级|融资|新品|公司宣布|上市公司)/i;
+  const commentaryTerms = /(观点|评论|喊话|警告|预计|预测|预期|概率|押注|展望|前瞻|公布前|静待|或将|可能|分析|专家|好时机|建仓|称)/i;
+  const officialSources = /(Federal Reserve|美联储|欧洲央行|中国人民银行|日本央行|美国劳工统计局|BLS|国家统计局|财政部|商务部|国务院|World Bank|世界银行|IMF|国际货币基金组织|OPEC)/i;
+  const trustedSources = /(新华社|人民日报|央视|中央广播电视总台|中国政府网|中国新闻网|澎湃新闻|界面新闻|21世纪经济报道|财联社|第一财经|华尔街见闻|经济日报|证券时报|上海证券报|路透|Reuters|Bloomberg|CNBC|Financial Times|Associated Press|AP News|BBC|日经|Nikkei|The Wall Street Journal|华尔街日报)/i;
+  const topicRules = [
+    ['inflation', /(CPI|消费者价格|通胀)/i],
+    ['employment', /(非农|就业|失业)/i],
+    ['central-bank', /(利率决议|加息|降息|央行|美联储)/i],
+    ['trade-policy', /(关税|贸易政策|出口管制|财政刺激|债务上限)/i],
+    ['geopolitics', /(战争|冲突|袭击|停火|制裁)/i],
+    ['energy', /(OPEC|原油|能源|霍尔木兹)/i],
+    ['market-risk', /(熔断|暴跌|暴涨|违约|银行挤兑|金融危机|系统性风险)/i],
+    ['disaster', /(地震|台风|洪水|火灾|供应链中断)/i],
+  ] as const;
+  const now = Date.now();
+  const dateKey = (value: number) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date(value));
+    const part = (type: string) => parts.find((item) => item.type === type)?.value || '';
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  };
+  const today = dateKey(now);
+  const normalizedTitle = (title: string) => title
+    .replace(/\s+-\s+[^-]{2,30}$/u, '')
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+    .toLowerCase();
+  const seen = new Set<string>();
+  const items = settled
+    .flatMap((result) => result.status === 'fulfilled' ? result.value : [])
+    .concat(curatedItems)
+    .flatMap((item) => {
+      if (!item.publishedAt) return [];
+      const publishedTime = new Date(item.publishedAt).getTime();
+      if (!Number.isFinite(publishedTime) || dateKey(publishedTime) !== today) return [];
+      const ageHours = Math.max(0, (now - publishedTime) / 3_600_000);
+      const key = normalizedTitle(item.title);
+      if (!key || seen.has(key)) return [];
+      seen.add(key);
+      const baseImpact = impactRules.find((rule) => rule.test.test(item.title))?.score || 0;
+      const scopeHits = scopeTerms.reduce((count, test) => count + (test.test(item.title) ? 1 : 0), 0);
+      const hasNewInformation = newInformationTerms.test(item.title);
+      const companyHeavy = companyHeavyTerms.test(item.title);
+      const commentaryOnly = commentaryTerms.test(item.title) && !hasNewInformation;
+      const official = officialSources.test(item.source);
+      const trusted = trustedSources.test(item.source);
+      let importanceScore = Math.min(100, baseImpact + Math.min(12, Math.max(0, scopeHits - 1) * 4) + (hasNewInformation ? 6 : 0));
+      if (companyHeavy && importanceScore < 76) return [];
+      if (commentaryOnly) importanceScore = Math.max(0, importanceScore - 14);
+      if (importanceScore < 34 || scopeHits === 0) return [];
+      if (!official && !trusted) return [];
+      if (importanceScore < 54 && ageHours > 6) return [];
+      const authorityScore = official ? 100 : trusted ? 84 : 58;
+      const freshnessScore = Math.max(0, 100 - ageHours * 6);
+      const rankScore = importanceScore * 0.72 + authorityScore * 0.16 + freshnessScore * 0.12;
+      const importance = importanceScore >= 84 ? 'critical' as const : importanceScore >= 60 ? 'high' as const : 'medium' as const;
+      const topic = topicRules.find(([, test]) => test.test(item.title))?.[0] || `${item.category}-${key.slice(0, 18)}`;
+      return [{ ...item, ageHours, importanceScore, importance, rankScore, topic }];
+    })
+    .sort((left, right) => right.rankScore - left.rankScore || right.importanceScore - left.importanceScore || left.ageHours - right.ageHours);
+  const usedTopics = new Set<string>();
+  const distinctTopics = items.filter((item) => {
+    if (usedTopics.has(item.topic)) return false;
+    usedTopics.add(item.topic);
+    return true;
+  });
+  const selectedIds = new Set(distinctTopics.map((item) => item.id));
+  const selected = [...distinctTopics, ...items.filter((item) => !selectedIds.has(item.id))].slice(0, 8);
+  return selected.map(({ ageHours: _ageHours, rankScore: _rankScore, topic: _topic, ...item }) => item);
+}
+
+type GlobalCalendarEvent = { id: string; date: string; time: string; title: string; source: string; url: string; kind: 'macro' | 'central-bank' | 'earnings'; importance: 'high' | 'medium' };
+
+const officialMacroEvents: GlobalCalendarEvent[] = [
+  { id: 'nfp-2026-09', date: '2026-09-04', time: '20:30', title: '美国非农就业报告', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/empsit.htm', kind: 'macro', importance: 'high' },
+  { id: 'nfp-2026-10', date: '2026-10-02', time: '20:30', title: '美国非农就业报告', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/empsit.htm', kind: 'macro', importance: 'high' },
+  { id: 'nfp-2026-11', date: '2026-11-06', time: '21:30', title: '美国非农就业报告', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/empsit.htm', kind: 'macro', importance: 'high' },
+  { id: 'nfp-2026-12', date: '2026-12-04', time: '21:30', title: '美国非农就业报告', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/empsit.htm', kind: 'macro', importance: 'high' },
+  { id: 'fomc-2026-09', date: '2026-09-16', time: '待定', title: 'FOMC 利率决议与经济预测', source: 'Federal Reserve', url: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm', kind: 'central-bank', importance: 'high' },
+  { id: 'fomc-2026-10', date: '2026-10-28', time: '待定', title: 'FOMC 利率决议', source: 'Federal Reserve', url: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm', kind: 'central-bank', importance: 'high' },
+  { id: 'fomc-2026-12', date: '2026-12-09', time: '待定', title: 'FOMC 利率决议与经济预测', source: 'Federal Reserve', url: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm', kind: 'central-bank', importance: 'high' },
+  { id: 'fomc-2027-01', date: '2027-01-27', time: '待定', title: 'FOMC 利率决议', source: 'Federal Reserve', url: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm', kind: 'central-bank', importance: 'high' },
+];
+
+function parseMarketCap(value: unknown) {
+  const parsed = Number(String(value || '').replace(/[$,]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function getUpcomingEarnings() {
+  const dates: string[] = [];
+  const cursor = new Date();
+  cursor.setUTCDate(cursor.getUTCDate() + 1);
+  while (dates.length < 4) {
+    const weekday = cursor.getUTCDay();
+    if (weekday !== 0 && weekday !== 6) dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  const settled = await Promise.allSettled(dates.map(async (date) => {
+    const url = `https://api.nasdaq.com/api/calendar/earnings?date=${date}`;
+    const text = await fetchRoutedText(url, 'proxy', 18000, 'application/json,text/plain,*/*');
+    const payload = JSON.parse(text) as Record<string, any>;
+    const rows = Array.isArray(payload?.data?.rows) ? payload.data.rows as Array<Record<string, unknown>> : [];
+    return rows.sort((left, right) => parseMarketCap(right.marketCap) - parseMarketCap(left.marketCap)).slice(0, 2).map((row) => ({
+      id: `earnings-${date}-${String(row.symbol || '')}`,
+      date,
+      time: row.time === 'time-pre-market' ? '盘前' : row.time === 'time-after-hours' ? '盘后' : '待定',
+      title: `${String(row.symbol || '')} · ${String(row.name || '')} 财报`,
+      source: 'Nasdaq',
+      url: `https://www.nasdaq.com/market-activity/stocks/${String(row.symbol || '').toLowerCase()}/earnings`,
+      kind: 'earnings' as const,
+      importance: parseMarketCap(row.marketCap) >= 20_000_000_000 ? 'high' as const : 'medium' as const,
+    }));
+  }));
+  return settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+}
+
+async function getGlobalMacroDashboard(region: GlobalMacroRegion) {
+  const quoteTaskFactories = globalMacroQuotes.map((config) => async () => {
+    const quote = config.id === 'nigeria'
+      ? await getNgxAllShareQuote()
+      : config.id === 'russia'
+        ? await getYahooMacroQuote(config.symbol).catch(() => getYahooMacroSnapshot(config.symbol))
+        : await getYahooMacroQuote(config.symbol);
+    const stale = Date.now() - new Date(quote.updatedAt).getTime() > 14 * 24 * 60 * 60 * 1000;
+    return { id: config.id, name: config.name, symbol: config.symbol, market: config.market, region: config.region, latitude: config.latitude, longitude: config.longitude, session: stale ? { label: '历史快照', tone: 'unknown' as const } : globalSession(config), ...quote };
+  });
+  const quoteRequest = (async () => {
+    const results: PromiseSettledResult<Awaited<ReturnType<(typeof quoteTaskFactories)[number]>>>[] = [];
+    for (let index = 0; index < quoteTaskFactories.length; index += 5) {
+      results.push(...await Promise.allSettled(quoteTaskFactories.slice(index, index + 5).map((task) => task())));
+    }
+    return results;
+  })();
+  const commodityTasks = globalMacroCommodities.map(async ([id, label, symbol]) => {
+    const quote = await getYahooMacroQuote(symbol);
+    return { id, label, value: quote.price, display: new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(quote.price), change: quote.changePercent, updatedAt: quote.updatedAt, sourceUrl: quote.sourceUrl, status: 'live' as const, history: quote.history.slice(-24) };
+  });
+  const macroTaskFactories = [
+    () => getFredMacroMetric('vix', ['VIXCLS'], 'VIX 波动率', (value) => value.toFixed(2)),
+    async () => {
+      const quote = await getYahooMacroQuote('DX-Y.NYB');
+      return {
+        id: 'dxy',
+        label: '美元指数',
+        value: quote.price,
+        display: quote.price.toFixed(2),
+        change: quote.changePercent,
+        updatedAt: quote.updatedAt,
+        sourceUrl: quote.sourceUrl,
+        status: 'live' as const,
+        history: quote.history.slice(-48),
+      };
+    },
+    () => getFredMacroMetric('us10y', ['DGS10'], '美国10年期国债收益率', (value) => `${value.toFixed(2)}%`),
+    () => getFredMacroMetric('ust2y10y', ['T10Y2Y'], '美债 2Y-10Y 利差', (value) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`),
+    () => getFredMacroMetric('fedfunds', ['DFF', 'FEDFUNDS'], '联邦基金利率', (value) => `${value.toFixed(2)}%`),
+    () => getGscpiMetric(),
+    () => getFredMacroMetric('cpi', ['CPIAUCSL'], 'CPI 环比', (value) => `${value.toFixed(2)}%`, (values) => values.slice(1).flatMap((item, index) => values[index].value > 0 ? [{ time: item.time, value: (item.value / values[index].value - 1) * 100 }] : [])),
+    () => getFredMacroMetric('unemployment', ['UNRATE'], '美国失业率', (value) => `${value.toFixed(1)}%`),
+    () => getFredMacroMetric('nonfarm', ['PAYEMS'], '非农就业变动', (value) => `${Math.round(value)} 千人`, (values) => values.slice(1).map((item, index) => ({ time: item.time, value: item.value - values[index].value }))),
+  ];
+  const macroRequest = (async () => {
+    const results: PromiseSettledResult<Awaited<ReturnType<(typeof macroTaskFactories)[number]>>>[] = [];
+    for (let index = 0; index < macroTaskFactories.length; index += 2) {
+      results.push(...await Promise.allSettled(macroTaskFactories.slice(index, index + 2).map((task) => task())));
+    }
+    return results;
+  })();
+  const pmiRequest = Promise.allSettled(globalPmiConfigs.map((config) => getGlobalPmiMetric(config)));
+  const [quotes, commodities, macro, pmi, vtResult, news, earnings] = await Promise.all([
+    quoteRequest, Promise.allSettled(commodityTasks), macroRequest, pmiRequest, Promise.allSettled([getYahooMacroQuote('VT', '3mo')]), getGlobalMacroNews(region), getUpcomingEarnings(),
+  ]);
+  const items = quotes.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+  return {
+    generatedAt: new Date().toISOString(),
+    quoteSource: 'Yahoo Finance + Stock Market Nigeria',
+    global: vtResult[0]?.status === 'fulfilled'
+      ? { id: 'vt', name: '全球股票 VT', symbol: 'VT', region: 'global' as const, latitude: 0, longitude: 0, session: { label: '全球市场代理', tone: 'unknown' as const }, ...vtResult[0].value }
+      : null,
+    markets: items,
+    macro: macro.map((result, index) => result.status === 'fulfilled' ? result.value : { id: ['vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi', 'cpi', 'unemployment', 'nonfarm'][index], label: ['VIX 波动率', '美元指数', '美国10年期国债收益率', '美债 2Y-10Y 利差', '联邦基金利率', '供应链压力', 'CPI 环比', '美国失业率', '非农就业变动'][index], value: null, display: '待更新', change: null, sourceUrl: index === 1 ? 'https://finance.yahoo.com/quote/DX-Y.NYB' : index === 3 ? 'https://fred.stlouisfed.org/series/T10Y2Y' : 'https://fred.stlouisfed.org/', status: 'unavailable' as const, history: [] }),
+    pmi: pmi.map((result, index) => result.status === 'fulfilled' ? result.value : { id: globalPmiConfigs[index].id, label: globalPmiConfigs[index].label, value: null, display: '待更新', change: null, sourceUrl: `https://tradingeconomics.com/${globalPmiConfigs[index].slug}/manufacturing-pmi`, status: 'unavailable' as const, history: [] }),
+    commodities: commodities.flatMap((result) => result.status === 'fulfilled' ? [{ ...result.value, display: new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(result.value.value) }] : []),
+    news,
+    calendar: [...officialMacroEvents, ...earnings]
+      .filter((event) => new Date(`${event.date}T23:59:59Z`).getTime() >= Date.now())
+      .sort((left, right) => left.date.localeCompare(right.date) || (left.importance === 'high' ? -1 : 1))
+      .slice(0, 12),
+  };
+}
+
+const globalMacroDashboardCache = new Map<GlobalMacroRegion, { storedAt: number; data: Awaited<ReturnType<typeof getGlobalMacroDashboard>> }>();
+const globalMacroDashboardInFlight = new Map<GlobalMacroRegion, Promise<Awaited<ReturnType<typeof getGlobalMacroDashboard>>>>();
+const globalMarketHeatmapCache = new Map<string, { storedAt: number; data: Awaited<ReturnType<typeof getGlobalMarketHeatmap>> }>();
+const globalMarketHeatmapInFlight = new Map<string, Promise<Awaited<ReturnType<typeof getGlobalMarketHeatmap>>>>();
+
+async function getGlobalMarketHeatmap(market: string) {
+  const configs = globalHeatmapConfigs[market];
+  if (!configs) throw new Error('不支持的全球市场热力图');
+  const settled = await Promise.allSettled(configs.map(async (config) => {
+    const quote = await getYahooMacroQuote(config.symbol);
+    return {
+      id: `${market}-${config.symbol}`,
+      ...config,
+      price: quote.price,
+      changePercent: quote.changePercent,
+      updatedAt: quote.updatedAt,
+      sourceUrl: quote.sourceUrl,
+    };
+  }));
+  const stocks = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+  if (!stocks.length) throw new Error('市场成分股行情暂时不可用');
+  return { market, generatedAt: new Date().toISOString(), source: 'Yahoo Finance', weightMethod: '代表性成分股静态权重代理', stocks };
+}
+
+async function getCachedGlobalMarketHeatmap(market: string) {
+  const cached = globalMarketHeatmapCache.get(market);
+  if (cached && Date.now() - cached.storedAt < 45_000) return cached.data;
+  const running = globalMarketHeatmapInFlight.get(market);
+  if (running) return running;
+  const request = getGlobalMarketHeatmap(market).then((data) => {
+    globalMarketHeatmapCache.set(market, { storedAt: Date.now(), data });
+    return data;
+  }).finally(() => globalMarketHeatmapInFlight.delete(market));
+  globalMarketHeatmapInFlight.set(market, request);
+  return request;
+}
+
+async function getCachedGlobalMacroDashboard(region: GlobalMacroRegion) {
+  const now = Date.now();
+  const cached = globalMacroDashboardCache.get(region);
+  if (cached && now - cached.storedAt < 45_000) return cached.data;
+  const running = globalMacroDashboardInFlight.get(region);
+  if (!running) {
+    const request = getGlobalMacroDashboard(region).then((data) => {
+      globalMacroDashboardCache.set(region, { storedAt: Date.now(), data });
+      return data;
+    }).finally(() => { globalMacroDashboardInFlight.delete(region); });
+    globalMacroDashboardInFlight.set(region, request);
+    return request;
+  }
+  return running;
+}
+
 async function getCachedCryptoMarketSnapshots() {
   const now = Date.now();
   if (cryptoQuotesCache && now - cryptoQuotesCache.storedAt < 2_500) {
@@ -3921,6 +4512,26 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/news-feed') {
             sendJson(res, 200, await getNewsFeed());
+            return;
+          }
+
+          if (url.pathname === '/api/global-macro-dashboard') {
+            const region = String(url.searchParams.get('region') || 'global');
+            if (!['global', 'apac', 'middleEast', 'europe', 'americas'].includes(region)) {
+              sendJson(res, 400, { error: '不支持的全球市场区域' });
+              return;
+            }
+            sendJson(res, 200, await getCachedGlobalMacroDashboard(region as GlobalMacroRegion));
+            return;
+          }
+
+          if (url.pathname === '/api/global-market-heatmap') {
+            const market = String(url.searchParams.get('market') || '');
+            if (!globalHeatmapConfigs[market]) {
+              sendJson(res, 400, { error: '不支持的全球市场热力图' });
+              return;
+            }
+            sendJson(res, 200, await getCachedGlobalMarketHeatmap(market));
             return;
           }
 
