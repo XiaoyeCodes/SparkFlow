@@ -394,12 +394,14 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-holo canvas { display: block; width: 100%; height: 100%; }
 .macro-holo-label {
   position: absolute;
+  top: 0;
+  left: 0;
   z-index: 12;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  transform: translateX(-50%);
+  transform: translate3d(0, 0, 0) translateX(-50%);
   padding: 2px 3px;
   border: 0;
   background: transparent;
@@ -411,6 +413,8 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
   text-shadow: 0 1px 2px #02070c, 0 0 6px #02070c, 0 0 10px #02070c;
   white-space: nowrap;
   cursor: pointer;
+  transition: transform 90ms linear;
+  will-change: transform;
 }
 .macro-holo-label:hover, .macro-holo-label.active { color: #fff; filter: brightness(1.2); }
 .macro-holo-label .macro-holo-leader {
@@ -421,6 +425,7 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
   min-height: 9px;
   background: linear-gradient(to top, rgba(105, 226, 255, 0.72), rgba(105, 226, 255, 0.08));
   transform: translateX(-50%);
+  transition: height 90ms linear;
   pointer-events: none;
 }
 .macro-holo-label .macro-holo-leader { border-radius: 0; }
@@ -773,8 +778,7 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
   width: max-content;
   flex: 0 0 auto;
   align-items: center;
-  gap: 40px;
-  padding-left: 24px;
+  gap: 0;
   white-space: nowrap;
   animation: macro-scroll 88s linear infinite;
   backface-visibility: hidden;
@@ -782,9 +786,10 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
   will-change: transform;
 }
 .macro-news-track:hover { animation-play-state: paused; }
+.macro-news-group { display: flex; flex: 0 0 auto; align-items: center; gap: 40px; padding: 0 16px 0 24px; }
 .macro-news-empty { padding-left: 18px; color: var(--macro-muted); font-size: 11px; letter-spacing: .04em; }
 .macro-news-item { display: flex; align-items: center; gap: 8px; color: var(--macro-text); font-size: 12px; text-decoration: none; }
-.macro-news-item time, .macro-news-item small { color: var(--macro-muted); font: 9px "JetBrains Mono", monospace; }
+.macro-news-item time { color: var(--macro-muted); font: 9px "JetBrains Mono", monospace; }
 .macro-tag { padding: 2px 7px; border: 1px solid transparent; border-radius: 4px; font-size: 9px; font-weight: 600; }
 .macro-tag-finance { color: var(--macro-gold); border-color: rgba(255,184,77,.2); background: rgba(255,184,77,.13); }
 .macro-tag-geo { color: var(--macro-red); border-color: rgba(255,77,109,.22); background: rgba(255,77,109,.13); }
@@ -838,9 +843,9 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 @keyframes macro-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .macro-clock-separator, .macro-live-badge > i, .macro-pulse-loader, .macro-index-track { animation: none; }
-  .macro-signal, .macro-region-pulse > div > i > em, .macro-vix-tube > i, .macro-vix-tube > em { transition: none; }
-  .macro-index-tape { overflow-x: auto; }
+  .macro-clock-separator, .macro-live-badge > i, .macro-pulse-loader, .macro-index-track, .macro-news-track { animation: none; }
+  .macro-signal, .macro-region-pulse > div > i > em, .macro-vix-tube > i, .macro-vix-tube > em, .macro-holo-label, .macro-holo-leader { transition: none; }
+  .macro-index-tape, .macro-news-window { overflow-x: auto; }
 }
 
 @media (max-width: 1180px) {

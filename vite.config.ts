@@ -3141,6 +3141,8 @@ const globalNewsQueries: Record<GlobalMacroRegion, Array<[string, string]>> = {
     ['地缘', '(战争 OR 冲突 OR 制裁 OR OPEC OR 霍尔木兹 OR 航运) (市场 OR 经济 OR 能源) when:1d'],
     ['灾害', '(地震 OR 台风 OR 洪水 OR 火灾) (经济 OR 供应链 OR 能源) when:1d'],
     ['快讯', '(美联储 OR 央行 OR 全球经济 OR 关税 OR 美债 OR 原油 OR 地缘冲突) when:1d'],
+    ['国际', 'site:xinhuanet.com/world (美国 OR 欧洲 OR 中东 OR 国际) when:1d'],
+    ['国际', 'site:world.people.com.cn (美国 OR 欧洲 OR 中东 OR 国际) when:1d'],
   ],
   apac: [['亚太', '(中国 OR 日本 OR 韩国 OR 印度 OR 澳洲) (央行 OR 股市 OR 通胀 OR 利率) when:1d'], ['地缘', '(亚太 OR 台海 OR 朝鲜半岛) (冲突 OR 制裁 OR 风险) when:1d']],
   middleEast: [['中东', '(中东 OR 以色列 OR 伊朗) (冲突 OR 原油 OR 制裁) when:1d'], ['能源', '(OPEC OR 原油 OR 霍尔木兹) (减产 OR 供应 OR 风险) when:1d']],
@@ -3385,37 +3387,183 @@ async function getGlobalPmiMetric(config: (typeof globalPmiConfigs)[number]) {
   };
 }
 
+async function getEastmoneyMacroTickerCandidates(region: GlobalMacroRegion) {
+  const search = new URLSearchParams({
+    client: 'web',
+    biz: 'web_724',
+    fastColumn: '102',
+    sortEnd: '',
+    pageSize: '200',
+    req_trace: String(Date.now()),
+  });
+  const url = `https://np-weblist.eastmoney.com/comm/web/getFastNewsList?${search.toString()}`;
+  const payload = await fetchExternalJson(url, 16000) as { data?: { fastNewsList?: Array<Record<string, unknown>> } };
+  const rows = payload.data?.fastNewsList;
+  if (!Array.isArray(rows)) throw new Error('东方财富全球财经快讯数据为空');
+  return rows.flatMap((row, index) => {
+    const title = String(row.title || row.summary || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const shownAt = String(row.showTime || '').trim();
+    const publishedAt = shownAt ? new Date(`${shownAt.replace(' ', 'T')}+08:00`).toISOString() : undefined;
+    const code = String(row.code || '').trim();
+    if (!title || !publishedAt) return [];
+    return [{
+      id: `eastmoney-${code || index}-${title}`,
+      title,
+      source: '东方财富',
+      url: code ? `https://finance.eastmoney.com/a/${encodeURIComponent(code)}.html` : 'https://kuaixun.eastmoney.com/7_24.html',
+      publishedAt,
+      category: '快讯',
+      region,
+      sourceSignal: index < 25 ? 6 : index < 80 ? 3 : 0,
+    }];
+  });
+}
+
+async function getBaiduHotSearchMacroCandidates(region: GlobalMacroRegion) {
+  const boardUrl = 'https://top.baidu.com/board?platform=pc&tab=realtime';
+  const html = await fetchExternalText(boardUrl, 16000, 'text/html,application/xhtml+xml,*/*');
+  const serialized = html.match(/<!--s-data:([\s\S]*?)-->/)?.[1];
+  if (!serialized) throw new Error('百度热搜结构化榜单数据缺失');
+  const payload = JSON.parse(serialized) as { data?: { cards?: Array<{ component?: string; content?: Array<Record<string, unknown>> }> } };
+  const rows = payload.data?.cards?.find((card) => card.component === 'hotList')?.content;
+  if (!Array.isArray(rows)) throw new Error('百度热搜榜单为空');
+  const capturedAt = new Date().toISOString();
+  const rankedRows = rows.filter((row) => !Boolean(row.isTop)).slice(0, 2);
+  return rankedRows.flatMap((row, index) => {
+    const title = String(row.word || row.query || '').trim();
+    const description = String(row.desc || '').trim();
+    const link = String(row.url || row.appUrl || row.rawUrl || boardUrl);
+    const hotScore = Number(row.hotScore || 0);
+    if (!title) return [];
+    return [{
+      id: `baidu-hot-${index}-${title}`,
+      title,
+      classificationText: `${title} ${description}`.trim(),
+      source: '百度热搜',
+      url: link,
+      publishedAt: capturedAt,
+      category: `热搜${index + 1}`,
+      region,
+      sourceSignal: 12,
+      hotScore,
+      forcedDisplay: true,
+      baiduRank: index + 1,
+      forcedOrder: index + 1,
+    }];
+  });
+}
+
+async function getSinaFocusTickerCandidates(region: GlobalMacroRegion) {
+  const search = new URLSearchParams({
+    page: '1',
+    page_size: '20',
+    zhibo_id: '152',
+    tag_id: '9',
+    dire: 'f',
+    dpc: '1',
+    pagesize: '20',
+    type: '1',
+  });
+  const feedUrl = `https://zhibo.sina.com.cn/api/zhibo/feed?${search.toString()}`;
+  const payload = await fetchExternalJson(feedUrl, 16000) as { result?: { data?: { feed?: { list?: Array<Record<string, unknown>> } } } };
+  const rows = payload.result?.data?.feed?.list;
+  if (!Array.isArray(rows)) throw new Error('新浪财经焦点快讯数据为空');
+  const focusRows = rows.filter((row) => (
+    Array.isArray(row.tag) && row.tag.some((tag) => {
+      const value = tag as Record<string, unknown>;
+      return String(value.id || '') === '9' || String(value.name || '') === '焦点';
+    })
+  )).slice(0, 3);
+  return focusRows.flatMap((row, index) => {
+    const content = stripTags(String(row.rich_text || ''));
+    const title = content.match(/^【([^】]+)】/)?.[1]?.trim() || content.slice(0, 72).trim();
+    const shownAt = String(row.create_time || '').trim();
+    const publishedAt = shownAt ? new Date(`${shownAt.replace(' ', 'T')}+08:00`).toISOString() : undefined;
+    const id = String(row.id || index);
+    if (!title || !publishedAt) return [];
+    return [{
+      id: `sina-focus-${id}-${title}`,
+      title,
+      classificationText: content,
+      source: '新浪财经',
+      url: String(row.docurl || 'https://finance.sina.com.cn/7x24/'),
+      publishedAt,
+      category: `焦点${index + 1}`,
+      region,
+      sourceSignal: 12,
+      forcedDisplay: true,
+      sinaFocusRank: index + 1,
+      forcedOrder: index + 3,
+    }];
+  });
+}
+
 async function getGlobalMacroTickerNews(region: GlobalMacroRegion) {
   const queries = globalNewsQueries[region];
-  const [settled, curatedSettled] = await Promise.all([
+  const domesticWorldSources = newsSources.filter((source) => source.id === 'chinanews-world');
+  const [settled, domesticSettled, platformSettled] = await Promise.all([
     Promise.allSettled(queries.map(async ([category, query]) => {
-      const url = googleNewsRssUrl(query.replace(/\bwhen:1d\b/gi, 'when:6h'));
-      const xml = await fetchRoutedText(url, 'proxy', 14000);
-      return parseGoogleNewsItems(xml, `全球宏观·${category}`).slice(0, 8).map((item) => ({ id: item.id, title: item.title, source: item.source, url: item.url, publishedAt: item.publishedAt, category, region }));
+      const url = googleNewsRssUrl(query);
+      const xml = await fetchExternalText(url, 14000, 'application/rss+xml,application/xml,text/xml,*/*');
+      return parseGoogleNewsItems(xml, `全球宏观·${category}`).slice(0, 18).map((item) => ({
+        id: item.id,
+        title: item.title.replace(/\s+-\s+[^-]{2,30}$/u, '').replace(/--国际\s*$/u, '').trim(),
+        source: item.source,
+        url: item.url,
+        publishedAt: item.publishedAt,
+        category,
+        region,
+      }));
     })),
-    Promise.allSettled(globalMacroCuratedNewsSources.map(fetchNewsSource)),
+    Promise.allSettled(domesticWorldSources.map(fetchNewsSource)),
+    Promise.allSettled([
+      getEastmoneyMacroTickerCandidates(region),
+      getBaiduHotSearchMacroCandidates(region),
+      getSinaFocusTickerCandidates(region),
+    ]),
   ]);
-  const curatedItems = curatedSettled.flatMap((result) => result.status === 'fulfilled' ? result.value : []).map((item) => ({
-    id: `curated-${item.id}`,
-    title: item.title,
-    source: item.source,
-    url: item.url,
-    publishedAt: item.publishedAt,
-    category: item.category === 'world' ? '国际' : item.category === 'livelihood' ? '政策' : '财经',
-    region,
-  }));
+  const domesticItems = domesticSettled
+    .flatMap((result) => result.status === 'fulfilled' ? result.value : [])
+    .map((item) => ({
+      id: `domestic-world-${item.id}`,
+      title: item.title,
+      source: item.source,
+      url: item.url,
+      publishedAt: item.publishedAt,
+      category: '国际',
+      region,
+    }));
+  const platformItems = platformSettled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
   const impactRules = [
     { score: 92, test: /(紧急降息|紧急加息|意外降息|意外加息|利率决议|宣布制裁|战争爆发|发动袭击|停火协议|主权违约|银行挤兑|金融危机|熔断|资本管制|霍尔木兹.*关闭)/i },
-    { score: 76, test: /(非农|消费者价格指数|\bCPI\b|\bGDP\b|\bPMI\b|通胀率|失业率|就业报告|央行|美联储|欧洲央行|中国人民银行|日本央行|关税|财政刺激|债务上限|OPEC|原油供应|制裁|战争|冲突|地震|台风|洪水|供应链中断)/i },
-    { score: 54, test: /(通胀|就业|债券|美债|美元|汇率|全球股市|标普500|纳斯达克|道指|原油|能源|航运|贸易|财政|货币政策|监管|选举|灾害|系统性风险)/i },
+    { score: 76, test: /(非农|消费者价格指数|\bCPI\b|\bGDP\b|\bPMI\b|通胀率|失业率|就业报告|央行|美联储|欧洲央行|中国人民银行|日本央行|关税|财政刺激|债务上限|OPEC|原油供应|制裁|战争|冲突|地震|台风|洪水|暴雨|龙卷|火山|供应链中断|总统|总理|大选|政变|导弹|空袭|枪击|爆炸|相撞|坠机|死亡人数|致\d+人?死亡|致\d+死|紧急状态|政府.*停摆|重大事故)/i },
+    { score: 54, test: /(通胀|就业|债券|美债|美元|汇率|全球股市|标普500|纳斯达克|道指|原油|能源|航运|贸易|财政|货币政策|监管|选举|外交|峰会|联合国|北约|欧盟|疫情|灾害|系统性风险)/i },
     { score: 34, test: /(股市|指数|期货|黄金|铜|天然气|经济增长|经济衰退|市场波动)/i },
   ];
-  const scopeTerms = [/(全球|世界经济|国际市场)/i, /(美国|美联储|美债|美元)/i, /(中国|中国人民银行|人民币)/i, /(欧盟|欧元区|欧洲央行)/i, /(日本|日本央行|日元)/i, /(央行|利率|通胀|就业|GDP|PMI|CPI|非农)/i, /(战争|冲突|制裁|关税|贸易|财政)/i, /(原油|能源|航运|供应链)/i];
-  const newInformationTerms = /(宣布|决定|公布|发布|通过|签署|启动|暂停|上调|下调|超预期|低于预期|爆发|袭击|制裁|违约|熔断|中断)/i;
-  const companyHeavyTerms = /(个股|股价|盘前|盘后|财报|业绩|营收|净利润|目标价|评级|融资|新品|公司宣布|上市公司)/i;
-  const commentaryTerms = /(观点|评论|喊话|警告|预计|预测|预期|概率|押注|展望|前瞻|公布前|静待|或将|可能|分析|专家|好时机|建仓|称)/i;
+  const headlineRules = [
+    { score: 100, test: /(紧急降息|紧急加息|主权违约|银行挤兑|金融危机|资本管制|核武器|核设施遇袭|霍尔木兹.*关闭)/i },
+    { score: 96, test: /(美伊(?:冲突|战事)|俄乌(?:冲突|战争)|以伊(?:冲突|战争)|战争爆发|大规模空袭|发动袭击|停火协议|导弹袭击|宣布制裁)/i },
+    { score: 94, test: /(利率决议|意外降息|意外加息|非农|消费者价格指数|\bCPI\b|\bGDP\b|\bPMI\b|通胀率|失业率|就业报告).{0,28}(公布|发布|上升|下降|增长|收缩|超预期|低于预期|\d)/i },
+    { score: 92, test: /(重大关税|全面关税|债务上限|政府.*停摆|财政刺激|出口管制|重大制裁|OPEC.*(?:减产|增产)|原油供应中断|供应链中断|熔断|系统性风险)/i },
+    { score: 90, test: /((?:总统|总理|首相).{0,18}(?:辞职|遇袭|当选|去世)|政变|政府倒台|爱国者.*导弹.*库存|导弹库存.*不足|战略武器)/i },
+  ];
+  const categoryRules = [
+    ['央行', /(央行|美联储|欧洲央行|日本央行|中国人民银行|利率决议|加息|降息)/i],
+    ['数据', /(非农|消费者价格指数|\bCPI\b|\bPPI\b|\bGDP\b|\bPMI\b|通胀率|失业率|就业报告)/i],
+    ['地缘', /(战争|冲突|战事|袭击|遭袭|空袭|导弹|停火|制裁|霍尔木兹|海峡|谈判|外交|伊朗|核武|军队|军事)/i],
+    ['政策', /(关税|财政刺激|债务上限|政府.*停摆|出口管制|监管|贸易政策)/i],
+    ['市场', /(熔断|暴跌|暴涨|金融危机|银行挤兑|主权违约|原油|能源|全球股市|美债|美元)/i],
+    ['灾害', /(地震|台风|洪水|暴雨|龙卷|火山|野火|火灾|海啸|坠机|重大事故)/i],
+    ['政治', /(总统|总理|首相|大选|选举|政变|政府倒台|辞职|当选)/i],
+    ['宏观', /(经济|增长|衰退|贸易|财政|就业|通胀|供应链|航运)/i],
+  ] as const;
+  const scopeTerms = [/(全球|世界经济|国际市场|国际社会)/i, /(美国|美军|美方|美媒|美联储|美债|美元)/i, /(中国|中国人民银行|人民币)/i, /(欧盟|欧元区|欧洲央行|欧洲)/i, /(日本|日本央行|日元)/i, /(俄罗斯|乌克兰|以色列|伊朗|中东|亚洲|非洲|拉美|联合国|北约)/i, /(加拿大|英国|法国|德国|意大利|西班牙|泰国|尼日尔|印度|韩国|朝鲜|澳大利亚|巴西|土耳其|沙特|南非)/i, /(央行|利率|通胀|就业|GDP|PMI|CPI|非农)/i, /(战争|冲突|制裁|关税|贸易|财政|外交|选举)/i, /(原油|能源|航运|供应链)/i];
+  const newInformationTerms = /(宣布|决定|公布|发布|通过|签署|启动|暂停|上调|下调|超预期|低于预期|爆发|袭击|制裁|违约|熔断|中断|当选|辞职|达成|遇袭|坠毁)/i;
+  const companyHeavyTerms = /(个股|股价|盘前|盘后|财报|业绩|营收|净利润|目标价|评级|融资|新品|公司宣布|上市公司|子公司|医美产品|产品获批|获得认证|LOF|ETF|停复牌|溢价风险)/i;
+  const commentaryTerms = /(观点|评论|主播说|要闻汇总|盘点|复盘|解读|喊话|警告|预计|预测|预期|概率|押注|展望|前瞻|公布前|静待|或将|可能|分析|专家|好时机|建仓|称)/i;
+  const humanInterestTerms = /((男孩|女孩|男子|女子|老人|游客|网红).{0,18}(被|遇|失踪|身亡|卷走|受伤|牺牲)|记者.{0,18}(雨水|吹得|睁不开眼))/i;
   const officialSources = /(Federal Reserve|美联储|欧洲央行|中国人民银行|日本央行|美国劳工统计局|BLS|国家统计局|财政部|商务部|国务院|World Bank|世界银行|IMF|国际货币基金组织|OPEC)/i;
-  const trustedSources = /(新华社|人民日报|央视|中央广播电视总台|中国政府网|中国新闻网|澎湃新闻|界面新闻|21世纪经济报道|财联社|第一财经|华尔街见闻|经济日报|证券时报|上海证券报|路透|Reuters|Bloomberg|CNBC|Financial Times|Associated Press|AP News|BBC|日经|Nikkei|The Wall Street Journal|华尔街日报)/i;
+  const trustedSources = /(新华社|新华网|人民日报|人民网|央视新闻|央视网|中央广播电视总台|中国新闻网|中新网|中新国际|澎湃新闻|第一财经|界面新闻|经济日报|中国日报网|参考消息|东方财富|百度热搜|新浪财经)/i;
   const topicRules = [
     ['inflation', /(CPI|消费者价格|通胀)/i],
     ['employment', /(非农|就业|失业)/i],
@@ -3427,64 +3575,109 @@ async function getGlobalMacroTickerNews(region: GlobalMacroRegion) {
     ['disaster', /(地震|台风|洪水|火灾|供应链中断)/i],
   ] as const;
   const now = Date.now();
-  const dateKey = (value: number) => {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Shanghai',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(new Date(value));
-    const part = (type: string) => parts.find((item) => item.type === type)?.value || '';
-    return `${part('year')}-${part('month')}-${part('day')}`;
-  };
+  const dateKey = (value: number) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(value));
   const today = dateKey(now);
+  const preferredDomesticSources = /(新华社|新华网|人民日报|人民网|央视新闻|央视网|中央广播电视总台|中国新闻网|中新网|中新国际|澎湃新闻|第一财经|界面新闻|经济日报|中国日报网|参考消息|东方财富|百度热搜|新浪财经)/i;
+  const excludedTickerSources = /(华尔街见闻|wallstreetcn|财联社|cls\.cn)/i;
   const normalizedTitle = (title: string) => title
     .replace(/\s+-\s+[^-]{2,30}$/u, '')
     .replace(/[\s\p{P}\p{S}]+/gu, '')
     .toLowerCase();
+  const titleBigrams = (title: string) => {
+    const normalized = normalizedTitle(title);
+    const grams = new Set<string>();
+    for (let index = 0; index < normalized.length - 1; index += 1) grams.add(normalized.slice(index, index + 2));
+    return grams;
+  };
+  const sameStory = (left: string, right: string) => {
+    const leftGrams = titleBigrams(left);
+    const rightGrams = titleBigrams(right);
+    if (!leftGrams.size || !rightGrams.size) return false;
+    const overlap = [...leftGrams].filter((gram) => rightGrams.has(gram)).length;
+    const overlapRatio = overlap / Math.min(leftGrams.size, rightGrams.size);
+    const leftNumbers = new Set(left.match(/\d+(?:\.\d+)?/g) || []);
+    const rightNumbers = new Set(right.match(/\d+(?:\.\d+)?/g) || []);
+    const sharedNumbers = [...leftNumbers].filter((value) => rightNumbers.has(value)).length;
+    return overlapRatio >= 0.72 || (sharedNumbers >= 2 && overlapRatio >= 0.4);
+  };
   const seen = new Set<string>();
-  const items = settled
-    .flatMap((result) => result.status === 'fulfilled' ? result.value : [])
-    .concat(curatedItems)
+  const searchItems = settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  const forcedPlatformItems = platformItems.filter((item) => 'forcedDisplay' in item && item.forcedDisplay === true);
+  const regularPlatformItems = platformItems.filter((item) => !('forcedDisplay' in item) || item.forcedDisplay !== true);
+  const items = [...forcedPlatformItems, ...searchItems, ...domesticItems, ...regularPlatformItems]
     .flatMap((item) => {
+      if (excludedTickerSources.test(item.source)) return [];
+      if (!preferredDomesticSources.test(item.source)) return [];
       if (!item.publishedAt) return [];
+      const forcedDisplay = 'forcedDisplay' in item && item.forcedDisplay === true;
       const publishedTime = new Date(item.publishedAt).getTime();
-      if (!Number.isFinite(publishedTime) || dateKey(publishedTime) !== today) return [];
+      if (!Number.isFinite(publishedTime) || publishedTime > now + 5 * 60_000 || (!forcedDisplay && dateKey(publishedTime) !== today)) return [];
       const ageHours = Math.max(0, (now - publishedTime) / 3_600_000);
-      const isSearchResult = item.id.startsWith('regional-');
-      if (isSearchResult && ageHours > 6) return [];
       const key = normalizedTitle(item.title);
       if (!key || seen.has(key)) return [];
       seen.add(key);
-      const baseImpact = impactRules.find((rule) => rule.test.test(item.title))?.score || 0;
-      const scopeHits = scopeTerms.reduce((count, test) => count + (test.test(item.title) ? 1 : 0), 0);
-      const hasNewInformation = newInformationTerms.test(item.title);
-      const companyHeavy = companyHeavyTerms.test(item.title);
-      const commentaryOnly = commentaryTerms.test(item.title) && !hasNewInformation;
+      const semanticText = 'classificationText' in item ? String(item.classificationText || item.title) : item.title;
+      const baseImpact = impactRules.find((rule) => rule.test.test(semanticText))?.score || 0;
+      const scopeHits = scopeTerms.reduce((count, test) => count + (test.test(semanticText) ? 1 : 0), 0);
+      const domesticPublicImpact = /(台风|洪水|暴雨|龙卷|火山|地震|海啸|央行|利率|通胀|CPI|PPI|GDP|PMI|非农|关税|财政|监管|供应链|能源|原油)/i.test(semanticText);
+      const hasMacroScope = scopeHits > 0 || (/百度热搜/i.test(item.source) && domesticPublicImpact);
+      const hasNewInformation = newInformationTerms.test(semanticText);
+      const companyHeavy = companyHeavyTerms.test(semanticText);
+      const commentaryOnly = commentaryTerms.test(semanticText) && !hasNewInformation;
       const official = officialSources.test(item.source);
       const trusted = trustedSources.test(item.source);
-      let importanceScore = Math.min(100, baseImpact + Math.min(12, Math.max(0, scopeHits - 1) * 4) + (hasNewInformation ? 6 : 0));
-      if (companyHeavy && importanceScore < 76) return [];
-      if (commentaryOnly) importanceScore = Math.max(0, importanceScore - 14);
-      if (importanceScore < 34 || scopeHits === 0) return [];
+      const magnitude = Number(semanticText.match(/(\d(?:\.\d+)?)级地震/i)?.[1] || 0);
+      const fatalities = Math.max(0, ...[...semanticText.matchAll(/(?:死亡人数(?:升至)?|造成|致)(\d+)(?:人死亡|人遇难|死)/gi)].map((match) => Number(match[1]) || 0));
+      const severeDisasterScore = magnitude >= 7 || fatalities >= 50 ? 90 : 0;
+      const headlineScore = Math.max(headlineRules.find((rule) => rule.test.test(semanticText))?.score || 0, severeDisasterScore);
+      const sourceSignal = 'sourceSignal' in item ? Number(item.sourceSignal || 0) : 0;
+      const baiduRank = 'baiduRank' in item ? Number(item.baiduRank || 0) : 0;
+      const forcedOrder = 'forcedOrder' in item ? Number(item.forcedOrder || 0) : 0;
+      const trendingMacroFloor = /(东方财富|百度热搜)/i.test(item.source) && baseImpact >= 54 && hasMacroScope ? 70 : 0;
+      let importanceScore = forcedDisplay
+        ? 102 - forcedOrder
+        : Math.max(headlineScore, trendingMacroFloor, Math.min(100, baseImpact + Math.min(12, Math.max(0, scopeHits - 1) * 4) + (hasNewInformation ? 6 : 0) + sourceSignal));
+      if (!forcedDisplay && companyHeavy && headlineScore < 90) return [];
+      if (!forcedDisplay && /百度热搜/i.test(item.source) && humanInterestTerms.test(item.title) && headlineScore < 90) return [];
+      if (!forcedDisplay && commentaryOnly && headlineScore < 90) importanceScore = Math.max(0, importanceScore - 14);
+      if (!forcedDisplay && (importanceScore < 70 || !hasMacroScope)) return [];
       if (!official && !trusted) return [];
-      if (importanceScore < 54 && ageHours > 6) return [];
-      const authorityScore = official ? 100 : trusted ? 84 : 58;
-      const freshnessScore = Math.max(0, 100 - ageHours * 6);
-      const rankScore = importanceScore * 0.72 + authorityScore * 0.16 + freshnessScore * 0.12;
+      const authorityScore = official ? 100 : /百度热搜/i.test(item.source) ? 68 : /东方财富/i.test(item.source) ? 80 : /新浪财经/i.test(item.source) ? 82 : trusted ? 84 : 58;
+      const freshnessScore = Math.max(0, 100 - ageHours * (100 / 24));
+      const rankScore = importanceScore * 0.65 + authorityScore * 0.1 + freshnessScore * 0.25;
       const importance = importanceScore >= 84 ? 'critical' as const : importanceScore >= 60 ? 'high' as const : 'medium' as const;
-      const topic = topicRules.find(([, test]) => test.test(item.title))?.[0] || `${item.category}-${key.slice(0, 18)}`;
-      return [{ ...item, ageHours, importanceScore, importance, rankScore, topic }];
+      const topic = forcedDisplay ? `forced-${forcedOrder}` : topicRules.find(([, test]) => test.test(semanticText))?.[0] || `${item.category}-${key.slice(0, 18)}`;
+      const category = categoryRules.find(([, test]) => test.test(semanticText))?.[0] || '热点';
+      return [{ ...item, category, ageHours, importanceScore, importance, rankScore, topic, forcedDisplay, baiduRank, forcedOrder }];
     })
     .sort((left, right) => right.rankScore - left.rankScore || right.importanceScore - left.importanceScore || left.ageHours - right.ageHours);
+  const forcedStories = items
+    .filter((item) => item.forcedDisplay)
+    .sort((left, right) => left.forcedOrder - right.forcedOrder)
+    .filter((item, index, rankedItems) => !rankedItems.slice(0, index).some((earlier) => sameStory(earlier.title, item.title)));
+  const uniqueStories = items.filter((item, index, rankedItems) => {
+    if (item.forcedDisplay) return forcedStories.some((forced) => forced.id === item.id);
+    if (forcedStories.some((forced) => sameStory(forced.title, item.title))) return false;
+    return !rankedItems.slice(0, index).some((earlier) => !earlier.forcedDisplay && sameStory(earlier.title, item.title));
+  });
+  const regularStories = uniqueStories.filter((item) => !item.forcedDisplay);
   const usedTopics = new Set<string>();
-  const distinctTopics = items.filter((item) => {
+  const distinctTopics = regularStories.filter((item) => {
     if (usedTopics.has(item.topic)) return false;
     usedTopics.add(item.topic);
     return true;
   });
   const selectedIds = new Set(distinctTopics.map((item) => item.id));
-  const selected = [...distinctTopics, ...items.filter((item) => !selectedIds.has(item.id))].slice(0, 8);
+  const rankedPool = [...distinctTopics, ...regularStories.filter((item) => !selectedIds.has(item.id))];
+  const minimumTickerItems = 10;
+  const requiredRegularItems = Math.max(0, minimumTickerItems - forcedStories.length);
+  const activeThreshold = [90, 80, 70].find((threshold) => rankedPool.filter((item) => item.importanceScore >= threshold).length >= requiredRegularItems) || 70;
+  const selected = [...forcedStories, ...rankedPool.filter((item) => item.importanceScore >= activeThreshold)].slice(0, 12);
   return selected.map(({ ageHours: _ageHours, rankScore: _rankScore, topic: _topic, ...item }) => item);
 }
 
@@ -3932,8 +4125,12 @@ async function loadGlobalCommoditiesSection() {
 }
 
 async function loadGlobalNewsSection(region: GlobalMacroRegion) {
-  const news = await getWallstreetCnDailyNews(region);
-  const focusNews = news.slice(0, 12);
+  const [wallstreetCnNews, internationalNews] = await Promise.all([
+    getWallstreetCnDailyNews(region),
+    getGlobalMacroTickerNews(region).catch(() => []),
+  ]);
+  const news = internationalNews;
+  const focusNews = wallstreetCnNews.slice(0, 12);
   return { generatedAt: new Date().toISOString(), news, focusNews };
 }
 

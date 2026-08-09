@@ -237,7 +237,7 @@ function newsTagClass(category: string) {
   if (/(灾害|灾难|气候|地震|台风|disaster|climate|quake|storm)/.test(value)) return 'macro-tag-disaster';
   if (/(央行|美联储|利率|货币|central|fed|rate)/.test(value)) return 'macro-tag-central';
   if (/(市场|股市|商品|能源|market|equity|commodity)/.test(value)) return 'macro-tag-market';
-  if (/(财经|经济|宏观|财报|finance|econom|earnings)/.test(value)) return 'macro-tag-finance';
+  if (/(财经|经济|宏观|数据|财报|finance|econom|data|earnings)/.test(value)) return 'macro-tag-finance';
   if (/(政治|政策|选举|politic|policy|election)/.test(value)) return 'macro-tag-politics';
   return 'macro-tag-neutral';
 }
@@ -336,6 +336,76 @@ function formatNewsTime(value?: string) {
   if (minutes < 60) return `${minutes}分钟前`;
   if (minutes < 1_440) return `${Math.floor(minutes / 60)}小时前`;
   return `${Math.floor(minutes / 1_440)}天前`;
+}
+
+function normalizedNewsTitle(title: string) {
+  return title.replace(/[\s\p{P}\p{S}]+/gu, '').toLowerCase();
+}
+
+function sameTickerStory(left: string, right: string) {
+  const bigrams = (title: string) => {
+    const normalized = normalizedNewsTitle(title);
+    const grams = new Set<string>();
+    for (let index = 0; index < normalized.length - 1; index += 1) grams.add(normalized.slice(index, index + 2));
+    return grams;
+  };
+  const leftGrams = bigrams(left);
+  const rightGrams = bigrams(right);
+  if (!leftGrams.size || !rightGrams.size) return normalizedNewsTitle(left) === normalizedNewsTitle(right);
+  const overlap = [...leftGrams].filter((gram) => rightGrams.has(gram)).length;
+  return overlap / Math.min(leftGrams.size, rightGrams.size) >= 0.72;
+}
+
+function dedupeTickerNews(items: News[]) {
+  return items.filter((item, index) => !items.slice(0, index).some((earlier) => sameTickerStory(earlier.title, item.title)));
+}
+
+function tickerNewsSignature(items: News[]) {
+  return items.map((item) => `${item.id}:${normalizedNewsTitle(item.title)}`).join('|');
+}
+
+function GlobalNewsTicker({ news }: { news: News[] }) {
+  const nextNews = useMemo(() => dedupeTickerNews(news), [news]);
+  const pendingNewsRef = useRef(nextNews);
+  const [visibleNews, setVisibleNews] = useState(nextNews);
+
+  useEffect(() => {
+    pendingNewsRef.current = nextNews;
+    setVisibleNews((current) => current.length ? current : nextNews);
+  }, [nextNews]);
+
+  const commitPendingNews = useCallback(() => {
+    setVisibleNews((current) => {
+      const pending = pendingNewsRef.current;
+      return tickerNewsSignature(current) === tickerNewsSignature(pending) ? current : pending;
+    });
+  }, []);
+
+  const renderGroup = (groupIndex: number) => (
+    <div className="macro-news-group" aria-hidden={groupIndex === 1 ? true : undefined}>
+      {visibleNews.map((item) => (
+        <a
+          key={`${groupIndex}-${item.id}`}
+          className="macro-news-item"
+          href={item.url}
+          target="_blank"
+          rel="noreferrer"
+          tabIndex={groupIndex === 1 ? -1 : undefined}
+        >
+          <span className={`macro-tag ${newsTagClass(item.category)}`}>{item.category}</span>
+          <time>{formatNewsTime(item.publishedAt)}</time>
+          <span>{item.title}</span>
+        </a>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="macro-news-track" onAnimationIteration={commitPendingNews}>
+      {renderGroup(0)}
+      {renderGroup(1)}
+    </div>
+  );
 }
 
 function newsImportanceLabel(item: News) {
@@ -655,18 +725,25 @@ function HologramGlobe({
   onSelect: (quote: Quote) => void;
 }) {
   const markerClusters = useMemo(() => clusterMarketMarkers(markets), [markets]);
-  const markerClusterSignature = markerClusters
-    .map((cluster) => `${cluster.id}:${cluster.quotes.map((quote) => quote.id).join(',')}`)
-    .join('|');
   const mount = useRef<HTMLDivElement | null>(null);
   const callbackRef = useRef(onSelect);
   const selectedRef = useRef(selectedId);
   const marketsRef = useRef(markets);
+  const quoteMapRef = useRef(new Map(markets.map((quote) => [quote.id, quote])));
+  const markerClustersRef = useRef(markerClusters);
+  const syncMarkerClustersRef = useRef<((clusters: MarketMarkerCluster[]) => void) | null>(null);
   const [labels, setLabels] = useState<Array<{ quote: Quote; markerY: number; x: number; y: number; visible: boolean }>>([]);
 
   useEffect(() => { callbackRef.current = onSelect; }, [onSelect]);
   useEffect(() => { selectedRef.current = selectedId; }, [selectedId]);
-  useEffect(() => { marketsRef.current = markets; }, [markets]);
+  useEffect(() => {
+    marketsRef.current = markets;
+    quoteMapRef.current = new Map(markets.map((quote) => [quote.id, quote]));
+  }, [markets]);
+  useEffect(() => {
+    markerClustersRef.current = markerClusters;
+    syncMarkerClustersRef.current?.(markerClusters);
+  }, [markerClusters]);
 
   useEffect(() => {
     const host = mount.current;
@@ -676,7 +753,6 @@ function HologramGlobe({
     const camera = new THREE.PerspectiveCamera(31, 1, 0.1, 40);
     camera.position.set(0, 0, 6.7);
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.appendChild(renderer.domElement);
 
@@ -730,7 +806,20 @@ function HologramGlobe({
     keyLight.position.set(3, 2, 5);
     scene.add(keyLight);
 
-    const nodes = markerClusters.map((cluster) => {
+    type GlobeMarkerNode = {
+      id: string;
+      quoteIds: string[];
+      longitude: number;
+      group: THREE.Group;
+      markerGeometry: THREE.SphereGeometry;
+      markerMaterial: THREE.MeshBasicMaterial;
+      pulse: THREE.Mesh;
+      pulseGeometry: THREE.RingGeometry;
+      pulseMaterial: THREE.MeshBasicMaterial;
+    };
+    let nodes: GlobeMarkerNode[] = [];
+
+    const createMarkerNode = (cluster: MarketMarkerCluster): GlobeMarkerNode => {
       const quote = cluster.primary;
       const group = new THREE.Group();
       group.position.copy(latLngToVector(quote.latitude, quote.longitude, 1.79));
@@ -755,7 +844,30 @@ function HologramGlobe({
         pulseGeometry,
         pulseMaterial,
       };
-    });
+    };
+    const disposeMarkerNode = (node: GlobeMarkerNode) => {
+      root.remove(node.group);
+      node.markerGeometry.dispose();
+      node.markerMaterial.dispose();
+      node.pulseGeometry.dispose();
+      node.pulseMaterial.dispose();
+    };
+    const syncMarkerClusters = (clusters: MarketMarkerCluster[]) => {
+      const remaining = new Map(nodes.map((node) => [node.id, node]));
+      nodes = clusters.map((cluster) => {
+        const existing = remaining.get(cluster.id);
+        if (!existing) return createMarkerNode(cluster);
+        remaining.delete(cluster.id);
+        existing.quoteIds = cluster.quotes.map((quote) => quote.id);
+        existing.longitude = cluster.primary.longitude;
+        existing.group.position.copy(latLngToVector(cluster.primary.latitude, cluster.primary.longitude, 1.79));
+        existing.pulse.lookAt(existing.group.position.clone().multiplyScalar(2));
+        return existing;
+      });
+      remaining.forEach(disposeMarkerNode);
+    };
+    syncMarkerClustersRef.current = syncMarkerClusters;
+    syncMarkerClusters(markerClustersRef.current);
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -767,6 +879,9 @@ function HologramGlobe({
     const resize = () => {
       const rect = host.getBoundingClientRect();
       const aspect = rect.width / Math.max(rect.height, 1);
+      const cssPixels = Math.max(1, rect.width * rect.height);
+      const adaptivePixelRatio = Math.sqrt(4_000_000 / cssPixels);
+      renderer.setPixelRatio(Math.max(1, Math.min(window.devicePixelRatio || 1, 1.75, adaptivePixelRatio)));
       camera.aspect = aspect;
       baseCameraZ = 6.7 * Math.max(1, aspect < 1 ? 1.08 / aspect : 1);
       camera.position.z = baseCameraZ / zoom.current;
@@ -830,14 +945,16 @@ function HologramGlobe({
     const markerToCamera = new THREE.Vector3();
     const animate = () => {
       const delta = Math.min(clock.getDelta(), 0.05);
-      root.rotation.x += (target.x - root.rotation.x) * 0.07;
-      root.rotation.y += (target.y - root.rotation.y) * 0.07;
-      zoom.current += (zoom.target - zoom.current) * 0.11;
-      camera.position.z = baseCameraZ / zoom.current;
       if (!drag.active) target.y += delta * 0.018;
+      const rotationBlend = 1 - Math.exp(-delta * 4.35);
+      const zoomBlend = 1 - Math.exp(-delta * 7);
+      root.rotation.x += (target.x - root.rotation.x) * rotationBlend;
+      root.rotation.y += (target.y - root.rotation.y) * rotationBlend;
+      zoom.current += (zoom.target - zoom.current) * zoomBlend;
+      camera.position.z = baseCameraZ / zoom.current;
       camera.updateMatrixWorld();
       root.updateMatrixWorld(true);
-      const quoteMap = new Map(marketsRef.current.map((quote) => [quote.id, quote]));
+      const quoteMap = quoteMapRef.current;
       nodes.forEach(({ id, quoteIds, longitude, group, markerMaterial, pulse, pulseMaterial }) => {
         const quote = quoteMap.get(id);
         if (!quote) return;
@@ -877,17 +994,8 @@ function HologramGlobe({
               visible,
             }] : [];
           });
-        }).sort((left, right) => left.y - right.y || left.x - right.x);
-        const placed: typeof projectedLabels = [];
-        projectedLabels.forEach((label) => {
-          if (!label.visible) { placed.push(label); return; }
-          while (placed.some((item) => item.visible && Math.abs(item.x - label.x) < 92 && Math.abs(item.y - label.y) < 19)) {
-            label.y += 19;
-          }
-          label.visible = label.y < rect.height - 19;
-          placed.push(label);
         });
-        setLabels(placed);
+        setLabels(projectedLabels);
       }
       renderer.render(scene, camera);
       animationFrame = requestAnimationFrame(animate);
@@ -897,6 +1005,7 @@ function HologramGlobe({
 
     return () => {
       cancelAnimationFrame(animationFrame);
+      syncMarkerClustersRef.current = null;
       observer.disconnect();
       host.removeEventListener('pointerdown', handleDown);
       host.removeEventListener('pointermove', handleMove);
@@ -910,15 +1019,10 @@ function HologramGlobe({
       graticuleMaterial.dispose();
       haloGeometry.dispose();
       haloMaterial.dispose();
-      nodes.forEach(({ markerGeometry, markerMaterial, pulseGeometry, pulseMaterial }) => {
-        markerGeometry.dispose();
-        markerMaterial.dispose();
-        pulseGeometry.dispose();
-        pulseMaterial.dispose();
-      });
+      nodes.forEach(disposeMarkerNode);
       renderer.dispose();
     };
-  }, [markerClusterSignature]);
+  }, []);
 
   return (
     <div ref={mount} className="macro-holo" aria-label="可旋转全球市场地球">
@@ -927,7 +1031,7 @@ function HologramGlobe({
           key={quote.id}
           type="button"
           className={`macro-holo-label ${selectedId === quote.id ? 'active' : ''}`}
-          style={{ left: x, top: y }}
+          style={{ transform: `translate3d(${x}px, ${y}px, 0) translateX(-50%)` }}
           onClick={(event) => { event.stopPropagation(); onSelect(quote); }}
         >
           <i className="macro-holo-leader" style={{ height: Math.max(9, y - markerY - 3) }} />
@@ -1351,17 +1455,9 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
         </aside>
 
         <footer className="macro-news macro-panel">
-          <span className="macro-news-live"><i /> MARKET ALERT</span>
+          <span className="macro-news-live"><i /> GLOBAL ALERT</span>
           <div className="macro-news-window">
-            {data?.news?.length ? (
-              <div className="macro-news-track">
-                {[...data.news, ...data.news].map((item, index) => (
-                  <a key={`${item.id}-${index}`} className="macro-news-item" href={item.url} target="_blank" rel="noreferrer">
-                    <span className={`macro-tag ${newsTagClass(item.category)}`}>{item.category}</span><time>{formatNewsTime(item.publishedAt)}</time><span>{item.title}</span>
-                  </a>
-                ))}
-              </div>
-            ) : <span className="macro-news-empty">今日暂无达到重要性阈值的热点新闻</span>}
+            {data?.news?.length ? <GlobalNewsTicker news={data.news} /> : <span className="macro-news-empty">今日暂无达到头条级门槛的国际新闻</span>}
           </div>
         </footer>
       </div>
