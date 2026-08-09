@@ -65,6 +65,54 @@ button {
   will-change: opacity, transform, filter;
 }
 
+.market-auto-hide-shell {
+  --nav-height: 0px;
+}
+
+.market-nav-hover-zone {
+  position: fixed;
+  z-index: 60;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 10px;
+}
+
+.market-auto-hide-header {
+  height: 72px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(-100% - 1px));
+  transition: transform 180ms ease, opacity 150ms ease;
+  transition-delay: 140ms;
+}
+
+.market-nav-hover-zone:hover + .market-auto-hide-header,
+.market-auto-hide-header:hover,
+.market-auto-hide-header:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition-delay: 0ms;
+}
+
+@media (hover: none) {
+  .market-auto-hide-shell {
+    --nav-height: 72px;
+  }
+
+  .market-nav-hover-zone {
+    display: none;
+  }
+
+  .market-auto-hide-header {
+    height: var(--nav-height);
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
 .text-balance {
   text-wrap: balance;
 }

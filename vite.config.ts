@@ -303,6 +303,22 @@ async function fetchRoutedText(url: string, route: FetchRoute, timeoutMs = 12000
   }
 }
 
+async function fetchExternalText(url: string, timeoutMs = 18000, accept = 'text/plain,*/*') {
+  try {
+    return await fetchRoutedText(url, 'direct', Math.min(timeoutMs, 3500), accept);
+  } catch {
+    return fetchRoutedText(url, 'proxy', timeoutMs, accept);
+  }
+}
+
+async function fetchExternalCsv(url: string, timeoutMs = 18000) {
+  return fetchExternalText(url, timeoutMs, 'text/csv,text/plain,*/*');
+}
+
+async function fetchExternalJson(url: string, timeoutMs = 18000) {
+  return JSON.parse(await fetchExternalText(url, timeoutMs, 'application/json,text/plain,*/*'));
+}
+
 function decodeXml(value = '') {
   return value
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -455,8 +471,17 @@ function parseRssItems(xml: string, source: NewsSourceConfig): NewsItem[] {
 }
 
 async function fetchNewsSource(source: NewsSourceConfig) {
-  const xml = await fetchRoutedText(source.url, source.route);
-  return parseRssItems(xml, source);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const xml = await fetchExternalText(source.url, 18000, 'application/rss+xml,application/atom+xml,application/xml,text/xml,*/*');
+      return parseRssItems(xml, source);
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${source.label} RSS 暂时不可用`);
 }
 
 async function getNewsFeed() {
@@ -1711,8 +1736,10 @@ async function getEquityIndexSnapshots() {
     .map((item) => item.secid)
     .join(',')}&fields=f12,f14,f2,f3,f4,f6,f104,f105,f106,f124`;
   const tencentUrl = `https://qt.gtimg.cn/q=${marketIndexConfigs.map((item) => item.tencent).join(',')}`;
-  const [eastmoneyResult, tencentResult] = await Promise.allSettled([fetchJson(eastmoneyUrl), fetchText(tencentUrl)]);
-  if (eastmoneyResult.status === 'rejected') throw eastmoneyResult.reason;
+  const [eastmoneyResult, tencentResult] = await Promise.allSettled([
+    fetchExternalJson(eastmoneyUrl),
+    fetchExternalText(tencentUrl, 18000, 'text/plain,*/*'),
+  ]);
 
   const tencentQuotes = new Map<string, { price: number; change?: number; changePercent?: number }>();
   if (tencentResult.status === 'fulfilled') {
@@ -1729,23 +1756,25 @@ async function getEquityIndexSnapshots() {
     }
   }
 
-  const rows = eastmoneyResult.value?.data?.diff;
-  if (!Array.isArray(rows) || !rows.length) throw new Error('东方财富主要指数行情为空');
+  const rows = eastmoneyResult.status === 'fulfilled' && Array.isArray(eastmoneyResult.value?.data?.diff)
+    ? eastmoneyResult.value.data.diff as Array<Record<string, unknown>>
+    : [];
+  if (!rows.length && !tencentQuotes.size) throw new Error('东方财富与腾讯主要指数行情均不可用');
   const byCode = new Map(rows.map((row: Record<string, unknown>) => [String(row.f12 || '').toUpperCase(), row]));
   const indices: MarketIndexSnapshot[] = marketIndexConfigs.flatMap((config) => {
     const code = config.secid.split('.').at(-1)?.toUpperCase() || '';
     const row = byCode.get(code) as Record<string, unknown> | undefined;
-    const price = asFiniteNumber(row?.f2);
-    if (!row || price === undefined) return [];
+    const eastmoneyPrice = asFiniteNumber(row?.f2);
     const tencent = tencentQuotes.get(config.tencent.toLowerCase());
-    const preferTencent = config.region === 'US' && tencent !== undefined;
-    const livePrice = preferTencent ? tencent.price : price;
-    const liveChange = preferTencent ? tencent.change ?? asFiniteNumber(row.f4) ?? 0 : asFiniteNumber(row.f4) ?? 0;
+    const preferTencent = tencent !== undefined && (config.region === 'US' || eastmoneyPrice === undefined);
+    const livePrice = preferTencent ? tencent.price : eastmoneyPrice;
+    if (livePrice === undefined) return [];
+    const liveChange = preferTencent ? tencent.change ?? asFiniteNumber(row?.f4) ?? 0 : asFiniteNumber(row?.f4) ?? 0;
     const liveChangePercent = preferTencent
-      ? tencent.changePercent ?? asFiniteNumber(row.f3) ?? 0
-      : asFiniteNumber(row.f3) ?? 0;
-    const deviationPercent = tencent ? Math.abs(tencent.price - price) / Math.max(price, 0.0001) * 100 : undefined;
-    const timestamp = asFiniteNumber(row.f124);
+      ? tencent.changePercent ?? asFiniteNumber(row?.f3) ?? 0
+      : asFiniteNumber(row?.f3) ?? 0;
+    const deviationPercent = tencent && eastmoneyPrice !== undefined ? Math.abs(tencent.price - eastmoneyPrice) / Math.max(eastmoneyPrice, 0.0001) * 100 : undefined;
+    const timestamp = asFiniteNumber(row?.f124);
     return [{
       id: config.id,
       code,
@@ -1756,16 +1785,16 @@ async function getEquityIndexSnapshots() {
       price: livePrice,
       change: liveChange,
       changePercent: liveChangePercent,
-      turnover: asFiniteNumber(row.f6),
-      advancers: asFiniteNumber(row.f104),
-      decliners: asFiniteNumber(row.f105),
-      flat: asFiniteNumber(row.f106),
+      turnover: asFiniteNumber(row?.f6),
+      advancers: asFiniteNumber(row?.f104),
+      decliners: asFiniteNumber(row?.f105),
+      flat: asFiniteNumber(row?.f106),
       updatedAt: preferTencent ? new Date().toISOString() : timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
       sourceUrl: preferTencent ? tencentUrl : eastmoneyUrl,
       validation: {
         status: deviationPercent === undefined ? 'single-source' : deviationPercent <= 0.25 ? 'verified' : 'review',
-        source: preferTencent ? '东方财富' : tencent ? '腾讯证券' : '未取得第二来源',
-        price: preferTencent ? price : tencent?.price,
+        source: preferTencent ? eastmoneyPrice === undefined ? '未取得第二来源' : '东方财富' : tencent ? '腾讯证券' : '未取得第二来源',
+        price: preferTencent ? eastmoneyPrice : tencent?.price,
         deviationPercent: deviationPercent === undefined ? undefined : round(deviationPercent, 3),
       },
     }];
@@ -3021,6 +3050,27 @@ const globalMacroQuotes: GlobalMacroQuoteConfig[] = [
   { id: 'latin-america', name: 'MSCI拉美（ETF代理）', symbol: 'LTAM.AS', region: 'americas', latitude: -23.5456, longitude: -46.634, timezone: 'America/Sao_Paulo', sessions: [[10, 17]] },
 ];
 
+const globalMacroTickerConfigs = [
+  { id: 'australia', sourceId: 'australia', name: '澳洲ASX 200', symbol: 'AXJO' },
+  { id: 'japan', sourceId: 'japan', name: '日经225', symbol: 'N225' },
+  { id: 'korea', sourceId: 'korea', name: '韩国KOSPI', symbol: 'KS11' },
+  { id: 'china', sourceId: 'sse', name: '上证指数', symbol: '000001' },
+  { id: 'shenzhen', sourceId: 'szse', name: '深证成指', symbol: '399001' },
+  { id: 'chinext', sourceId: 'chinext', name: '创业板指', symbol: '399006' },
+  { id: 'star50', sourceId: 'star50', name: '科创50', symbol: '000688' },
+  { id: 'hongkong', sourceId: 'hsi', name: '恒生指数', symbol: 'HSI' },
+  { id: 'hktech', sourceId: 'hstech', name: '恒生科技', symbol: 'HSTECH' },
+  { id: 'india', sourceId: 'india', name: '印度NIFTY 50', symbol: 'NSEI' },
+  { id: 'saudi', sourceId: 'saudi', name: '沙特TASI', symbol: 'TASI' },
+  { id: 'germany', sourceId: 'germany', name: '德国DAX', symbol: 'DAX' },
+  { id: 'france', sourceId: 'france', name: '法国CAC 40', symbol: 'CAC 40' },
+  { id: 'uk', sourceId: 'uk', name: '英国富时100', symbol: 'FTSE 100' },
+  { id: 'nasdaq', sourceId: 'nasdaq', name: '纳斯达克100', symbol: 'NDX' },
+  { id: 'us', sourceId: 'sp500', name: '标普500', symbol: 'SPX' },
+  { id: 'dow', sourceId: 'dow', name: '道琼斯', symbol: 'DJIA' },
+  { id: 'vix', sourceId: 'vix', name: '芝加哥VIX', symbol: 'VIX' },
+] as const;
+
 const globalMacroCommodities = [
   ['wti', 'WTI原油', 'CL=F'], ['brent', '布伦特原油', 'BZ=F'], ['gas', '天然气', 'NG=F'],
   ['gold', '黄金', 'GC=F'], ['silver', '白银', 'SI=F'], ['copper', '铜', 'HG=F'],
@@ -3101,6 +3151,20 @@ const globalMacroCuratedNewsSources = newsSources.filter((source) => (
   ['wallstreetcn', 'chinanews-finance', 'chinanews-world', 'gov-cn'].includes(source.id)
 ));
 
+const globalMacroFocusNewsSources: NewsSourceConfig[] = [
+  ...newsSources.filter((source) => source.id === 'wallstreetcn'),
+  {
+    id: 'caixin-macro',
+    label: '财新网',
+    category: 'finance',
+    sourceWeight: 92,
+    origin: 'domestic',
+    route: 'direct',
+    url: 'https://news.google.com/rss/search?q=site%3Acaixin.com%20when%3A1d%20(%E7%BB%8F%E6%B5%8E%20OR%20%E9%87%91%E8%9E%8D%20OR%20%E5%B8%82%E5%9C%BA%20OR%20%E6%94%BF%E7%AD%96)&hl=zh-CN&gl=CN&ceid=CN%3Azh-Hans',
+    kind: 'rss',
+  },
+];
+
 function globalSession(config: GlobalMacroQuoteConfig) {
   const now = new Date();
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: config.timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now);
@@ -3122,7 +3186,7 @@ const yahooMacroQuoteCache = new Map<string, Awaited<ReturnType<typeof readYahoo
 
 async function readYahooMacroQuote(symbol: string, range = '1mo') {
   const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d&events=history`;
-  const text = await fetchRoutedText(requestUrl, 'proxy', 13000, 'application/json,text/plain,*/*');
+  const text = await fetchExternalText(requestUrl, 13000, 'application/json,text/plain,*/*');
   const payload = JSON.parse(text) as Record<string, any>;
   const result = payload?.chart?.result?.[0];
   const times = Array.isArray(result?.timestamp) ? result.timestamp as number[] : [];
@@ -3157,7 +3221,7 @@ async function getYahooMacroQuote(symbol: string, range = '1mo') {
 
 async function getYahooMacroSnapshot(symbol: string) {
   const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d&events=history`;
-  const text = await fetchRoutedText(requestUrl, 'proxy', 13000, 'application/json,text/plain,*/*');
+  const text = await fetchExternalText(requestUrl, 13000, 'application/json,text/plain,*/*');
   const payload = JSON.parse(text) as Record<string, any>;
   const meta = payload?.chart?.result?.[0]?.meta;
   const price = asFiniteNumber(meta?.regularMarketPrice);
@@ -3177,7 +3241,7 @@ async function getYahooMacroSnapshot(symbol: string) {
 
 async function getNgxAllShareQuote() {
   const sourceUrl = 'https://www.stockmarketnigeria.com/';
-  const html = await fetchText(sourceUrl, 18000);
+  const html = await fetchExternalText(sourceUrl, 18000, 'text/html,application/xhtml+xml,*/*');
   const indexMatch = html.match(/NGX All-Share Index[\s\S]{0,500}?market-card-value[^>]*>\s*([\d,]+(?:\.\d+)?)/i);
   const changeMatch = html.match(/ASI Daily Change[\s\S]{0,500}?market-card-value[^>]*>\s*([+-]?[\d,]+(?:\.\d+)?)[\s\S]{0,300}?market-card-change[^>]*>\s*([+-]?[\d.]+)%/i);
   const price = asFiniteNumber(indexMatch?.[1]?.replace(/,/g, ''));
@@ -3213,7 +3277,7 @@ async function getFredMacroMetric(id: string, seriesIds: string[], label: string
   for (const seriesId of seriesIds) {
     const sourceUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`;
     try {
-      const csv = await fetchText(sourceUrl, 18000);
+      const csv = await fetchExternalCsv(sourceUrl, 18000);
       const raw = parseFredSeries(csv);
       const history = transform ? transform(raw) : raw;
       const latest = history.at(-1);
@@ -3227,9 +3291,28 @@ async function getFredMacroMetric(id: string, seriesIds: string[], label: string
   throw lastError instanceof Error ? lastError : new Error(`${label} 暂时不可用`);
 }
 
+async function getVixMacroMetric() {
+  try {
+    return await getFredMacroMetric('vix', ['VIXCLS'], 'VIX 波动率', (value) => value.toFixed(2));
+  } catch {
+    const quote = await getYahooMacroQuote('^VIX', '3mo');
+    return {
+      id: 'vix',
+      label: 'VIX 波动率',
+      value: quote.price,
+      display: quote.price.toFixed(2),
+      change: quote.change,
+      updatedAt: quote.updatedAt,
+      sourceUrl: quote.sourceUrl,
+      status: 'live' as const,
+      history: quote.history.slice(-48),
+    };
+  }
+}
+
 async function getGscpiMetric() {
   const sourceUrl = 'https://www.newyorkfed.org/medialibrary/research/interactives/data/gscpi/gscpi_interactive_data.csv';
-  const csv = await fetchRoutedText(sourceUrl, 'direct', 20000, 'text/csv,text/plain,*/*');
+  const csv = await fetchExternalCsv(sourceUrl, 20000);
   const rows = csv.trim().split(/\r?\n/).map((line) => line.split(','));
   const latestVintageIndex = rows[0]?.length - 1;
   if (!latestVintageIndex || latestVintageIndex < 1) throw new Error('GSCPI 数据格式异常');
@@ -3275,7 +3358,7 @@ function pmiObservationTime(monthName: string) {
 
 async function getGlobalPmiMetric(config: (typeof globalPmiConfigs)[number]) {
   const sourceUrl = `https://tradingeconomics.com/${config.slug}/manufacturing-pmi`;
-  const html = await fetchRoutedText(sourceUrl, 'direct', 20000, 'text/html,application/xhtml+xml,*/*');
+  const html = await fetchExternalText(sourceUrl, 20000, 'text/html,application/xhtml+xml,*/*');
   const description = decodeXml(html.match(/<meta[^>]+id=["']metaDesc["'][^>]+content=["']([^"']+)["']/i)?.[1] || '');
   const changed = description.match(/(?:increased|decreased)\s+to\s+([\d.]+)\s+points\s+in\s+([A-Za-z]+).*?from\s+([\d.]+)\s+points/i);
   const unchanged = description.match(/remained\s+unchanged\s+at\s+([\d.]+)\s+points\s+in\s+([A-Za-z]+)/i);
@@ -3301,11 +3384,11 @@ async function getGlobalPmiMetric(config: (typeof globalPmiConfigs)[number]) {
   };
 }
 
-async function getGlobalMacroNews(region: GlobalMacroRegion) {
+async function getGlobalMacroTickerNews(region: GlobalMacroRegion) {
   const queries = globalNewsQueries[region];
   const [settled, curatedSettled] = await Promise.all([
     Promise.allSettled(queries.map(async ([category, query]) => {
-      const url = googleNewsRssUrl(query);
+      const url = googleNewsRssUrl(query.replace(/\bwhen:1d\b/gi, 'when:6h'));
       const xml = await fetchRoutedText(url, 'proxy', 14000);
       return parseGoogleNewsItems(xml, `全球宏观·${category}`).slice(0, 8).map((item) => ({ id: item.id, title: item.title, source: item.source, url: item.url, publishedAt: item.publishedAt, category, region }));
     })),
@@ -3367,6 +3450,8 @@ async function getGlobalMacroNews(region: GlobalMacroRegion) {
       const publishedTime = new Date(item.publishedAt).getTime();
       if (!Number.isFinite(publishedTime) || dateKey(publishedTime) !== today) return [];
       const ageHours = Math.max(0, (now - publishedTime) / 3_600_000);
+      const isSearchResult = item.id.startsWith('regional-');
+      if (isSearchResult && ageHours > 6) return [];
       const key = normalizedTitle(item.title);
       if (!key || seen.has(key)) return [];
       seen.add(key);
@@ -3402,6 +3487,181 @@ async function getGlobalMacroNews(region: GlobalMacroRegion) {
   return selected.map(({ ageHours: _ageHours, rankScore: _rankScore, topic: _topic, ...item }) => item);
 }
 
+async function getGlobalMacroNews(region: GlobalMacroRegion, sources = globalMacroCuratedNewsSources) {
+  const curatedSettled = await Promise.allSettled(sources.map(fetchNewsSource));
+  if (!curatedSettled.some((result) => result.status === 'fulfilled')) {
+    throw new Error('发布方 RSS 暂时全部不可用');
+  }
+  const sourcePriority = (source: string) => /(华尔街日报|Wall Street Journal)/i.test(source) ? 4
+    : /财新/i.test(source) ? 3
+      : /(经济时报|The Economic Times)/i.test(source) ? 2
+        : 1;
+  const curatedItems = curatedSettled.flatMap((result) => result.status === 'fulfilled' ? result.value : []).map((item) => ({
+    id: `curated-${item.id}`,
+    title: item.title.replace(/\s+-\s+(?:WSJ|The Wall Street Journal|The Economic Times|财新网|Caixin)\s*$/i, '').trim(),
+    source: item.source,
+    url: item.url,
+    publishedAt: item.publishedAt,
+    category: item.category === 'world' ? '国际' : item.category === 'livelihood' ? '政策' : '财经',
+    region,
+  })).sort((left, right) => sourcePriority(right.source) - sourcePriority(left.source)
+    || new Date(right.publishedAt || 0).getTime() - new Date(left.publishedAt || 0).getTime());
+  const impactRules = [
+    { score: 92, test: /(紧急降息|紧急加息|意外降息|意外加息|利率决议|宣布制裁|战争爆发|发动袭击|停火协议|主权违约|银行挤兑|金融危机|熔断|资本管制|霍尔木兹.*关闭|emergency rate (?:cut|hike)|surprise rate (?:cut|hike)|sovereign default|bank run|financial crisis|capital controls)/i },
+    { score: 76, test: /(非农|消费者价格指数|\bCPI\b|\bGDP\b|\bPMI\b|通胀率|失业率|就业报告|央行|美联储|欧洲央行|中国人民银行|日本央行|关税|财政刺激|债务上限|OPEC|原油供应|制裁|战争|冲突|地震|台风|洪水|供应链中断|nonfarm|inflation rate|unemployment|jobs report|central bank|Federal Reserve|\bFed\b|\bECB\b|\bPBOC\b|\bBOJ\b|tariff|fiscal stimulus|debt ceiling|oil supply|sanction|war|conflict|earthquake|flood|supply chain)/i },
+    { score: 54, test: /(通胀|就业|债券|美债|美元|汇率|全球股市|标普500|纳斯达克|道指|原油|能源|航运|贸易|财政|货币政策|监管|选举|灾害|系统性风险|inflation|employment|jobs|Treasur(?:y|ies)|bond|dollar|currency|global stocks|S&P 500|Nasdaq|Dow Jones|crude oil|energy|shipping|trade|fiscal|monetary policy|regulation|election|systemic risk)/i },
+    { score: 34, test: /(股市|指数|期货|黄金|铜|天然气|经济增长|经济衰退|市场波动|stocks?|equities|index|futures|gold|copper|natural gas|economic growth|recession|market volatility)/i },
+  ];
+  const scopeTerms = [/(全球|世界经济|国际市场|global|world economy|international markets?)/i, /(美国|美联储|美债|美元|United States|\bU\.S\.|Federal Reserve|\bFed\b|Treasur(?:y|ies)|dollar)/i, /(中国|中国人民银行|人民币|China|\bPBOC\b|yuan|renminbi)/i, /(欧盟|欧元区|欧洲央行|European Union|Eurozone|\bECB\b)/i, /(日本|日本央行|日元|Japan|\bBOJ\b|yen)/i, /(央行|利率|通胀|就业|GDP|PMI|CPI|非农|central bank|interest rates?|inflation|employment|jobs|nonfarm)/i, /(战争|冲突|制裁|关税|贸易|财政|war|conflict|sanction|tariff|trade|fiscal)/i, /(原油|能源|航运|供应链|crude oil|energy|shipping|supply chain)/i];
+  const newInformationTerms = /(宣布|决定|公布|发布|通过|签署|启动|暂停|上调|下调|超预期|低于预期|爆发|袭击|制裁|违约|熔断|中断|会议纪要|利率决议|就业报告|通胀报告|数据显示|announce|decide|release|approve|sign|launch|pause|raise|lower|beat expectations|miss expectations|surge|attack|sanction|default|halt|minutes|rate decision|jobs report|inflation report|data show)/i;
+  const dataReleaseTerms = /(CPI|PPI|GDP|PMI|非农|失业率|就业人数).{0,24}(同比|环比|上涨|下降|增长|收窄|扩大|录得|达到|降至|升至|为\s*[-+]?\d|[-+]?\d+(?:\.\d+)?%)/i;
+  const companyHeavyTerms = /(个股|股价|盘前|盘后|财报|业绩|营收|净利润|目标价|评级|融资|新品|公司宣布|上市公司|回购|股东回报|净买入|打新|伯克希尔)/i;
+  const commentaryTerms = /(观点|评论|喊话|警告|预计|预测|预期|概率|押注|展望|前瞻|公布前|静待|或将|可能|分析|专家|好时机|建仓|聚焦|解读|复盘|如何|摘要|认为|表示|日程|下周|本周|盘点|称|opinion|commentary|warns?|forecast|outlook|preview|may|might|analysis|expert|how to|week ahead)/i;
+  const officialSources = /(Federal Reserve|美联储|欧洲央行|中国人民银行|日本央行|美国劳工统计局|BLS|国家统计局|财政部|商务部|国务院|World Bank|世界银行|IMF|国际货币基金组织|OPEC)/i;
+  const trustedSources = /(新华社|人民日报|央视|中央广播电视总台|中国政府网|中国新闻网|澎湃新闻|界面新闻|21世纪经济报道|财联社|第一财经|华尔街见闻|财新|经济日报|经济时报|证券时报|上海证券报|路透|Reuters|Bloomberg|CNBC|Financial Times|Associated Press|AP News|BBC|日经|Nikkei|The Wall Street Journal|Wall Street Journal|华尔街日报|The Economic Times)/i;
+  const topicRules = [
+    ['inflation', /(CPI|消费者价格|通胀)/i],
+    ['employment', /(非农|就业|失业)/i],
+    ['central-bank', /(利率决议|加息|降息|央行|美联储)/i],
+    ['trade-policy', /(关税|贸易政策|出口管制|财政刺激|债务上限)/i],
+    ['geopolitics', /(战争|冲突|袭击|停火|制裁)/i],
+    ['energy', /(OPEC|原油|能源|霍尔木兹)/i],
+    ['market-risk', /(熔断|暴跌|暴涨|违约|银行挤兑|金融危机|系统性风险)/i],
+    ['disaster', /(地震|台风|洪水|火灾|供应链中断)/i],
+  ] as const;
+  const topicLabels: Record<(typeof topicRules)[number][0], string> = {
+    inflation: '数据',
+    employment: '就业',
+    'central-bank': '央行',
+    'trade-policy': '政策',
+    geopolitics: '地缘',
+    energy: '能源',
+    'market-risk': '市场',
+    disaster: '灾害',
+  };
+  const now = Date.now();
+  const dateKey = (value: number) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date(value));
+    const part = (type: string) => parts.find((item) => item.type === type)?.value || '';
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  };
+  const today = dateKey(now);
+  const normalizedTitle = (title: string) => title
+    .replace(/\s+-\s+[^-]{2,30}$/u, '')
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+    .toLowerCase();
+  const seen = new Set<string>();
+  const seenTokenSets: Set<string>[] = [];
+  const titleTokens = (title: string) => {
+    const cleaned = title.toLowerCase().replace(/\s+-\s+[^-]{2,30}$/u, ' ');
+    const words = cleaned.match(/[a-z0-9]{3,}|[\p{Script=Han}]/gu) || [];
+    const tokens = new Set(words);
+    const chinese = words.filter((word) => /\p{Script=Han}/u.test(word)).join('');
+    for (let index = 0; index < chinese.length - 1; index += 1) tokens.add(chinese.slice(index, index + 2));
+    return tokens;
+  };
+  const isNearDuplicate = (tokens: Set<string>) => seenTokenSets.some((previous) => {
+    if (!tokens.size || !previous.size) return false;
+    let intersection = 0;
+    tokens.forEach((token) => { if (previous.has(token)) intersection += 1; });
+    return intersection / Math.min(tokens.size, previous.size) >= 0.78;
+  });
+  const items = curatedItems
+    .flatMap((item) => {
+      if (!item.publishedAt) return [];
+      const publishedTime = new Date(item.publishedAt).getTime();
+      if (!Number.isFinite(publishedTime) || publishedTime > now + 5 * 60_000 || dateKey(publishedTime) !== today) return [];
+      const ageHours = Math.max(0, (now - publishedTime) / 3_600_000);
+      const key = normalizedTitle(item.title);
+      const tokens = titleTokens(item.title);
+      if (!key || seen.has(key) || isNearDuplicate(tokens)) return [];
+      seen.add(key);
+      seenTokenSets.push(tokens);
+      const baseImpact = impactRules.find((rule) => rule.test.test(item.title))?.score || 0;
+      const scopeHits = scopeTerms.reduce((count, test) => count + (test.test(item.title) ? 1 : 0), 0);
+      const hasNewInformation = newInformationTerms.test(item.title) || dataReleaseTerms.test(item.title);
+      const companyHeavy = companyHeavyTerms.test(item.title);
+      const commentaryOnly = commentaryTerms.test(item.title) && !hasNewInformation;
+      const official = officialSources.test(item.source);
+      const trusted = trustedSources.test(item.source);
+      let importanceScore = Math.min(100, baseImpact + Math.min(12, Math.max(0, scopeHits - 1) * 4) + (hasNewInformation ? 6 : 0));
+      if (commentaryOnly) importanceScore = Math.max(0, importanceScore - 24);
+      if (!official && !hasNewInformation) importanceScore = Math.min(importanceScore, 53);
+      if (companyHeavy && !official) return [];
+      if (importanceScore < 34 || scopeHits === 0) return [];
+      if (!official && !trusted) return [];
+      if (importanceScore < 54 && ageHours > 6) return [];
+      const premiumSource = /(华尔街日报|Wall Street Journal|经济时报|The Economic Times|财新)/i.test(item.source);
+      const authorityScore = official ? 100 : premiumSource ? 94 : trusted ? 84 : 58;
+      const freshnessScore = Math.max(0, 100 - ageHours * 6);
+      const rankScore = importanceScore * 0.72 + authorityScore * 0.16 + freshnessScore * 0.12;
+      const importance = importanceScore >= 88 ? 'critical' as const : importanceScore >= 68 ? 'high' as const : 'medium' as const;
+      const topic = topicRules.find(([, test]) => test.test(item.title))?.[0] || `${item.category}-${key.slice(0, 18)}`;
+      const category = topic in topicLabels ? topicLabels[topic as keyof typeof topicLabels] : item.category;
+      return [{ ...item, category, ageHours, importanceScore, importance, rankScore, topic }];
+    })
+    .sort((left, right) => right.rankScore - left.rankScore || right.importanceScore - left.importanceScore || left.ageHours - right.ageHours);
+  const usedTopics = new Set<string>();
+  const distinctTopics = items.filter((item) => {
+    if (usedTopics.has(item.topic)) return false;
+    usedTopics.add(item.topic);
+    return true;
+  });
+  const selectedIds = new Set(distinctTopics.map((item) => item.id));
+  const selected = [...distinctTopics, ...items.filter((item) => !selectedIds.has(item.id))].slice(0, 12);
+  return selected.map(({ ageHours: _ageHours, rankScore: _rankScore, topic: _topic, ...item }) => item);
+}
+
+async function getWallstreetCnDailyNews(region: GlobalMacroRegion) {
+  const source = newsSources.find((item) => item.id === 'wallstreetcn');
+  if (!source) throw new Error('华尔街见闻新闻源未配置');
+  const feedItems = await fetchNewsSource(source);
+  const now = Date.now();
+  const dateKey = (value: number) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(value));
+  const today = dateKey(now);
+  const seen = new Set<string>();
+  const categoryFor = (title: string) => {
+    if (/(央行|美联储|加息|降息|利率|货币政策)/i.test(title)) return '央行';
+    if (/(战争|冲突|制裁|袭击|停火|中东|俄乌)/i.test(title)) return '地缘';
+    if (/(CPI|PPI|GDP|PMI|非农|就业|失业|通胀)/i.test(title)) return '数据';
+    if (/(关税|财政|监管|政策|法案)/i.test(title)) return '政策';
+    if (/(股市|美股|港股|A股|债券|美债|美元|黄金|原油|市场)/i.test(title)) return '市场';
+    return '财经';
+  };
+  return feedItems
+    .filter((item) => {
+      const publishedTime = new Date(item.publishedAt || '').getTime();
+      if (!Number.isFinite(publishedTime) || publishedTime > now + 5 * 60_000 || dateKey(publishedTime) !== today) return false;
+      const key = item.title.replace(/[\s\p{P}\p{S}]+/gu, '').toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => new Date(right.publishedAt || 0).getTime() - new Date(left.publishedAt || 0).getTime())
+    .slice(0, 20)
+    .map((item) => ({
+      id: `wallstreetcn-daily-${item.id}`,
+      title: item.title,
+      source: '华尔街见闻',
+      url: item.url,
+      publishedAt: item.publishedAt,
+      category: categoryFor(item.title),
+      region,
+      importanceScore: 60,
+      importance: 'high' as const,
+    }));
+}
+
 type GlobalCalendarEvent = { id: string; date: string; time: string; title: string; source: string; url: string; kind: 'macro' | 'central-bank' | 'earnings'; importance: 'high' | 'medium' };
 
 const officialMacroEvents: GlobalCalendarEvent[] = [
@@ -3431,7 +3691,7 @@ async function getUpcomingEarnings() {
   }
   const settled = await Promise.allSettled(dates.map(async (date) => {
     const url = `https://api.nasdaq.com/api/calendar/earnings?date=${date}`;
-    const text = await fetchRoutedText(url, 'proxy', 18000, 'application/json,text/plain,*/*');
+    const text = await fetchExternalText(url, 18000, 'application/json,text/plain,*/*');
     const payload = JSON.parse(text) as Record<string, any>;
     const rows = Array.isArray(payload?.data?.rows) ? payload.data.rows as Array<Record<string, unknown>> : [];
     return rows.sort((left, right) => parseMarketCap(right.marketCap) - parseMarketCap(left.marketCap)).slice(0, 2).map((row) => ({
@@ -3448,7 +3708,50 @@ async function getUpcomingEarnings() {
   return settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
 }
 
-async function getGlobalMacroDashboard(region: GlobalMacroRegion) {
+function buildFedRateExpectation(
+  futuresQuote: Awaited<ReturnType<typeof getYahooMacroQuote>>,
+  currentRate: number,
+) {
+  const impliedRate = 100 - futuresQuote.price;
+  const expectedMoveSteps = (impliedRate - currentRate) / 0.25;
+  const expectedCutSteps = Math.max(0, Math.min(2, -expectedMoveSteps));
+  const hikeProbability = Math.max(0, Math.min(1, expectedMoveSteps));
+  const holdProbability = expectedMoveSteps >= 0
+    ? 1 - hikeProbability
+    : expectedCutSteps <= 1 ? 1 - expectedCutSteps : 0;
+  const cut25Probability = expectedCutSteps <= 1 ? expectedCutSteps : 2 - expectedCutSteps;
+  const cut50Probability = expectedCutSteps <= 1 ? 0 : expectedCutSteps - 1;
+  const percent = (value: number) => Math.round(Math.max(0, Math.min(1, value)) * 1000) / 10;
+  const nextMeeting = officialMacroEvents.find((event) => (
+    event.kind === 'central-bank' && new Date(`${event.date}T23:59:59Z`).getTime() >= Date.now()
+  ));
+
+  return {
+    meetingDate: nextMeeting?.date,
+    meetingLabel: nextMeeting?.title || '下次 FOMC 利率决议',
+    currentRate,
+    impliedRate,
+    expectedChangeBps: (impliedRate - currentRate) * 100,
+    hikeProbability: percent(hikeProbability),
+    cutProbability: percent(cut25Probability + cut50Probability),
+    distribution: [
+      { id: 'hike', label: '加息', probability: percent(hikeProbability) },
+      { id: 'hold', label: '维持', probability: percent(holdProbability) },
+      { id: 'cut25', label: '降息 25bp', probability: percent(cut25Probability) },
+      { id: 'cut50', label: '降息 ≥50bp', probability: percent(cut50Probability) },
+    ],
+    updatedAt: futuresQuote.updatedAt,
+    sourceUrl: 'https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html',
+    quoteSourceUrl: futuresQuote.sourceUrl,
+    method: 'ZQ 期货简化估算',
+    status: 'delayed' as const,
+  };
+}
+
+const globalMacroMetricLastGood = new Map<string, any>();
+const globalPmiMetricLastGood = new Map<string, Awaited<ReturnType<typeof getGlobalPmiMetric>>>();
+
+async function loadGlobalMarketsSection() {
   const quoteTaskFactories = globalMacroQuotes.map((config) => async () => {
     const quote = config.id === 'nigeria'
       ? await getNgxAllShareQuote()
@@ -3465,12 +3768,58 @@ async function getGlobalMacroDashboard(region: GlobalMacroRegion) {
     }
     return results;
   })();
-  const commodityTasks = globalMacroCommodities.map(async ([id, label, symbol]) => {
-    const quote = await getYahooMacroQuote(symbol);
-    return { id, label, value: quote.price, display: new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(quote.price), change: quote.changePercent, updatedAt: quote.updatedAt, sourceUrl: quote.sourceUrl, status: 'live' as const, history: quote.history.slice(-24) };
+  const tickerSnapshotRequest = Promise.allSettled([getEquityIndexSnapshots()]);
+  const [quotes, tickerSnapshotResults, vtResult, soxResult] = await Promise.all([
+    quoteRequest,
+    tickerSnapshotRequest,
+    Promise.allSettled([getYahooMacroQuote('VT', '3mo')]),
+    Promise.allSettled([getYahooMacroQuote('^SOX', '3mo')]),
+  ]);
+  const items = quotes.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+  const tickerSnapshots = tickerSnapshotResults[0]?.status === 'fulfilled'
+    ? tickerSnapshotResults[0].value
+    : { indices: [] as MarketIndexSnapshot[] };
+  const tickerPool = new Map<string, { price: number; changePercent: number; updatedAt?: string; sourceUrl: string }>();
+  items.forEach((item) => tickerPool.set(item.id, item));
+  tickerSnapshots.indices.forEach((item) => tickerPool.set(item.id, item));
+  const ticker = globalMacroTickerConfigs.flatMap((config) => {
+    const quote = tickerPool.get(config.sourceId);
+    return quote ? [{ id: config.id, name: config.name, symbol: config.symbol, price: quote.price, changePercent: quote.changePercent, updatedAt: quote.updatedAt, sourceUrl: quote.sourceUrl }] : [];
   });
+  const soxQuote = soxResult[0]?.status === 'fulfilled' ? soxResult[0].value : null;
+  const coreIndexConfigs = [
+    { id: 'nasdaq', name: '纳斯达克', symbol: '^IXIC', quote: items.find((item) => item.id === 'nasdaq'), sourceUrl: 'https://finance.yahoo.com/quote/%5EIXIC' },
+    { id: 'sp500', name: '标普500', symbol: '^GSPC', quote: items.find((item) => item.id === 'us'), sourceUrl: 'https://finance.yahoo.com/quote/%5EGSPC' },
+    { id: 'shanghai', name: '上证指数', symbol: '000001.SS', quote: items.find((item) => item.id === 'china'), sourceUrl: 'https://finance.yahoo.com/quote/000001.SS' },
+    { id: 'sox', name: '费城半导体指数', symbol: '^SOX', quote: soxQuote || undefined, sourceUrl: 'https://finance.yahoo.com/quote/%5ESOX' },
+  ] as const;
+  const coreIndices = coreIndexConfigs.map((config) => ({
+    id: config.id,
+    name: config.name,
+    symbol: config.symbol,
+    price: config.quote?.price ?? null,
+    changePercent: config.quote?.changePercent ?? null,
+    updatedAt: config.quote?.updatedAt,
+    sourceUrl: config.quote?.sourceUrl || config.sourceUrl,
+    history: config.quote?.history?.slice(-22) || [],
+    status: config.quote ? 'delayed' as const : 'unavailable' as const,
+  }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    quoteSource: 'Yahoo Finance + Stock Market Nigeria',
+    global: vtResult[0]?.status === 'fulfilled'
+      ? { id: 'vt', name: '全球股票 VT', symbol: 'VT', region: 'global' as const, latitude: 0, longitude: 0, session: { label: '全球市场代理', tone: 'unknown' as const }, ...vtResult[0].value }
+      : null,
+    ticker,
+    coreIndices,
+    markets: items,
+  };
+}
+
+async function loadGlobalMacroMetricsSection() {
   const macroTaskFactories = [
-    () => getFredMacroMetric('vix', ['VIXCLS'], 'VIX 波动率', (value) => value.toFixed(2)),
+    () => getVixMacroMetric(),
     async () => {
       const quote = await getYahooMacroQuote('DX-Y.NYB');
       return {
@@ -3500,22 +3849,76 @@ async function getGlobalMacroDashboard(region: GlobalMacroRegion) {
     }
     return results;
   })();
-  const pmiRequest = Promise.allSettled(globalPmiConfigs.map((config) => getGlobalPmiMetric(config)));
-  const [quotes, commodities, macro, pmi, vtResult, news, earnings] = await Promise.all([
-    quoteRequest, Promise.allSettled(commodityTasks), macroRequest, pmiRequest, Promise.allSettled([getYahooMacroQuote('VT', '3mo')]), getGlobalMacroNews(region), getUpcomingEarnings(),
-  ]);
-  const items = quotes.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+  const fedFundsFutureRequest = Promise.allSettled([getYahooMacroQuote('ZQ=F', '1mo')]);
+  const [macro, fedFundsFuture] = await Promise.all([macroRequest, fedFundsFutureRequest]);
+  const macroMetricIds = ['vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi', 'cpi', 'unemployment', 'nonfarm'];
+  const macroMetricLabels = ['VIX 波动率', '美元指数', '美国10年期国债收益率', '美债 2Y-10Y 利差', '联邦基金利率', '供应链压力', 'CPI 环比', '美国失业率', '非农就业变动'];
+  const macroMetrics = macro.map((result, index) => {
+    const metricId = macroMetricIds[index];
+    if (result.status === 'fulfilled') {
+      globalMacroMetricLastGood.set(metricId, result.value);
+      return result.value;
+    }
+    const lastGood = globalMacroMetricLastGood.get(metricId);
+    if (lastGood) return lastGood;
+    return { id: metricId, label: macroMetricLabels[index], value: null, display: '待更新', change: null, sourceUrl: index === 1 ? 'https://finance.yahoo.com/quote/DX-Y.NYB' : index === 3 ? 'https://fred.stlouisfed.org/series/T10Y2Y' : 'https://fred.stlouisfed.org/', status: 'unavailable' as const, history: [] };
+  });
+  const fedFundsMetric = macroMetrics.find((item) => item.id === 'fedfunds');
+  const fedRateExpectation = fedFundsFuture[0]?.status === 'fulfilled' && fedFundsMetric?.value !== null && fedFundsMetric?.value !== undefined
+    ? buildFedRateExpectation(fedFundsFuture[0].value, fedFundsMetric.value)
+    : null;
+
+  return { generatedAt: new Date().toISOString(), macro: macroMetrics, fedRateExpectation };
+}
+
+async function loadGlobalPmiSection() {
+  const pmiRequest = (async () => {
+    const results: PromiseSettledResult<Awaited<ReturnType<typeof getGlobalPmiMetric>>>[] = [];
+    for (const config of globalPmiConfigs) {
+      results.push(...await Promise.allSettled([getGlobalPmiMetric(config)]));
+    }
+    return results;
+  })();
+  const pmi = await pmiRequest;
   return {
     generatedAt: new Date().toISOString(),
-    quoteSource: 'Yahoo Finance + Stock Market Nigeria',
-    global: vtResult[0]?.status === 'fulfilled'
-      ? { id: 'vt', name: '全球股票 VT', symbol: 'VT', region: 'global' as const, latitude: 0, longitude: 0, session: { label: '全球市场代理', tone: 'unknown' as const }, ...vtResult[0].value }
-      : null,
-    markets: items,
-    macro: macro.map((result, index) => result.status === 'fulfilled' ? result.value : { id: ['vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi', 'cpi', 'unemployment', 'nonfarm'][index], label: ['VIX 波动率', '美元指数', '美国10年期国债收益率', '美债 2Y-10Y 利差', '联邦基金利率', '供应链压力', 'CPI 环比', '美国失业率', '非农就业变动'][index], value: null, display: '待更新', change: null, sourceUrl: index === 1 ? 'https://finance.yahoo.com/quote/DX-Y.NYB' : index === 3 ? 'https://fred.stlouisfed.org/series/T10Y2Y' : 'https://fred.stlouisfed.org/', status: 'unavailable' as const, history: [] }),
-    pmi: pmi.map((result, index) => result.status === 'fulfilled' ? result.value : { id: globalPmiConfigs[index].id, label: globalPmiConfigs[index].label, value: null, display: '待更新', change: null, sourceUrl: `https://tradingeconomics.com/${globalPmiConfigs[index].slug}/manufacturing-pmi`, status: 'unavailable' as const, history: [] }),
-    commodities: commodities.flatMap((result) => result.status === 'fulfilled' ? [{ ...result.value, display: new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(result.value.value) }] : []),
-    news,
+    pmi: pmi.map((result, index) => {
+      const config = globalPmiConfigs[index];
+      if (result.status === 'fulfilled') {
+        globalPmiMetricLastGood.set(config.id, result.value);
+        return result.value;
+      }
+      return globalPmiMetricLastGood.get(config.id) || { id: config.id, label: config.label, value: null, display: '待更新', change: null, sourceUrl: `https://tradingeconomics.com/${config.slug}/manufacturing-pmi`, status: 'unavailable' as const, history: [] };
+    }),
+  };
+}
+
+async function loadGlobalCommoditiesSection() {
+  const taskFactories = globalMacroCommodities.map(([id, label, symbol]) => async () => {
+    const quote = await getYahooMacroQuote(symbol);
+    return { id, label, value: quote.price, display: new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(quote.price), change: quote.changePercent, updatedAt: quote.updatedAt, sourceUrl: quote.sourceUrl, status: 'live' as const, history: quote.history.slice(-24) };
+  });
+  const commodities: PromiseSettledResult<Awaited<ReturnType<(typeof taskFactories)[number]>>>[] = [];
+  for (let index = 0; index < taskFactories.length; index += 4) {
+    commodities.push(...await Promise.allSettled(taskFactories.slice(index, index + 4).map((task) => task())));
+  }
+  return {
+    generatedAt: new Date().toISOString(),
+    commodities: commodities.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+  };
+}
+
+async function loadGlobalNewsSection(region: GlobalMacroRegion) {
+  const news = await getWallstreetCnDailyNews(region);
+  const focusNews = await getGlobalMacroNews(region, globalMacroFocusNewsSources)
+    .catch(() => news.filter((item) => item.source === '华尔街见闻'));
+  return { generatedAt: new Date().toISOString(), news, focusNews };
+}
+
+async function loadGlobalCalendarSection() {
+  const earnings = await getUpcomingEarnings().catch(() => []);
+  return {
+    generatedAt: new Date().toISOString(),
     calendar: [...officialMacroEvents, ...earnings]
       .filter((event) => new Date(`${event.date}T23:59:59Z`).getTime() >= Date.now())
       .sort((left, right) => left.date.localeCompare(right.date) || (left.importance === 'high' ? -1 : 1))
@@ -3523,10 +3926,73 @@ async function getGlobalMacroDashboard(region: GlobalMacroRegion) {
   };
 }
 
+const globalMacroSectionNames = ['markets', 'macro', 'pmi', 'commodities', 'news', 'calendar'] as const;
+type GlobalMacroSectionName = (typeof globalMacroSectionNames)[number];
+
+async function loadGlobalMacroSection(region: GlobalMacroRegion, section: GlobalMacroSectionName) {
+  if (section === 'markets') return loadGlobalMarketsSection();
+  if (section === 'macro') return loadGlobalMacroMetricsSection();
+  if (section === 'pmi') return loadGlobalPmiSection();
+  if (section === 'commodities') return loadGlobalCommoditiesSection();
+  if (section === 'news') return loadGlobalNewsSection(region);
+  return loadGlobalCalendarSection();
+}
+
+async function getGlobalMacroDashboard(region: GlobalMacroRegion) {
+  const settled = await Promise.allSettled(globalMacroSectionNames.map((section) => getCachedGlobalMacroSection(region, section)));
+  const merged = Object.assign({}, ...settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []));
+  return {
+    global: null,
+    ticker: [],
+    coreIndices: [],
+    markets: [],
+    macro: [],
+    fedRateExpectation: null,
+    pmi: [],
+    commodities: [],
+    news: [],
+    calendar: [],
+    ...merged,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 const globalMacroDashboardCache = new Map<GlobalMacroRegion, { storedAt: number; data: Awaited<ReturnType<typeof getGlobalMacroDashboard>> }>();
 const globalMacroDashboardInFlight = new Map<GlobalMacroRegion, Promise<Awaited<ReturnType<typeof getGlobalMacroDashboard>>>>();
+type GlobalMacroSectionPayload = Awaited<ReturnType<typeof loadGlobalMacroSection>>;
+const globalMacroSectionCache = new Map<string, { storedAt: number; data: GlobalMacroSectionPayload }>();
+const globalMacroSectionInFlight = new Map<string, Promise<GlobalMacroSectionPayload>>();
+const globalMacroSectionCacheTtl: Record<GlobalMacroSectionName, number> = {
+  markets: 30_000,
+  macro: 60_000,
+  pmi: 15 * 60_000,
+  commodities: 30_000,
+  news: 5 * 60_000,
+  calendar: 5 * 60_000,
+};
 const globalMarketHeatmapCache = new Map<string, { storedAt: number; data: Awaited<ReturnType<typeof getGlobalMarketHeatmap>> }>();
 const globalMarketHeatmapInFlight = new Map<string, Promise<Awaited<ReturnType<typeof getGlobalMarketHeatmap>>>>();
+
+async function getCachedGlobalMacroSection(region: GlobalMacroRegion, section: GlobalMacroSectionName) {
+  const key = `${region}:${section}`;
+  const cached = globalMacroSectionCache.get(key);
+  if (cached && Date.now() - cached.storedAt < globalMacroSectionCacheTtl[section]) return cached.data;
+  const running = globalMacroSectionInFlight.get(key);
+  if (running) return running;
+
+  const request = loadGlobalMacroSection(region, section)
+    .then((data) => {
+      globalMacroSectionCache.set(key, { storedAt: Date.now(), data });
+      return data;
+    })
+    .catch((error) => {
+      if (cached) return cached.data;
+      throw error;
+    })
+    .finally(() => globalMacroSectionInFlight.delete(key));
+  globalMacroSectionInFlight.set(key, request);
+  return request;
+}
 
 async function getGlobalMarketHeatmap(market: string) {
   const configs = globalHeatmapConfigs[market];
@@ -3962,7 +4428,7 @@ function getQuoteCrossValidationSource(sources: MarketSource[]): MarketSource {
 
 async function getFredRatesSource(): Promise<MarketSource> {
   const url = 'https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10,DGS2,DFII10';
-  const csv = await fetchText(url);
+  const csv = await fetchExternalCsv(url, 18000);
   const rows = csv.trim().split(/\r?\n/).slice(1);
   const latest = rows
     .map((line) => line.split(','))
@@ -4521,7 +4987,18 @@ function allWeatherApiPlugin() {
               sendJson(res, 400, { error: '不支持的全球市场区域' });
               return;
             }
-            sendJson(res, 200, await getCachedGlobalMacroDashboard(region as GlobalMacroRegion));
+            const section = String(url.searchParams.get('section') || '');
+            if (section && !globalMacroSectionNames.includes(section as GlobalMacroSectionName)) {
+              sendJson(res, 400, { error: '不支持的数据分区' });
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              section
+                ? await getCachedGlobalMacroSection(region as GlobalMacroRegion, section as GlobalMacroSectionName)
+                : await getCachedGlobalMacroDashboard(region as GlobalMacroRegion),
+            );
             return;
           }
 

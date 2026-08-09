@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { hierarchy, treemap } from 'd3-hierarchy';
 import { geoGraticule10, geoNaturalEarth1, geoPath } from 'd3-geo';
@@ -7,15 +7,20 @@ import { feature } from 'topojson-client';
 import * as THREE from 'three';
 import {
   ArrowRight,
-  CalendarDays,
+  Bitcoin,
+  CircleDollarSign,
+  Droplets,
   ExternalLink,
   Globe2,
+  Landmark,
   Map as MapIcon,
   Maximize2,
   Minus,
   Plus,
   RefreshCw,
   X,
+  type LucideIcon,
+  type LucideProps,
 } from 'lucide-react';
 import {
   ChinaMarketHeatmap,
@@ -44,6 +49,18 @@ type Quote = {
   session: { label: string; tone: 'live' | 'closed' | 'pre' | 'unknown' };
   history: HistoryPoint[];
 };
+type TickerIndex = Pick<Quote, 'id' | 'name' | 'symbol' | 'price' | 'changePercent' | 'sourceUrl' | 'updatedAt'>;
+type CoreIndex = {
+  id: 'nasdaq' | 'sp500' | 'shanghai' | 'sox';
+  name: string;
+  symbol: string;
+  price: number | null;
+  changePercent: number | null;
+  updatedAt?: string;
+  sourceUrl: string;
+  history: HistoryPoint[];
+  status: 'delayed' | 'unavailable';
+};
 type Metric = {
   id: string;
   label: string;
@@ -63,6 +80,22 @@ type KeySignal = {
   rawChange?: number | null;
   note: string;
   url?: string;
+};
+
+function GoldBarIcon({ size = 24, color = 'currentColor', strokeWidth = 2 }: LucideProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M3 18 5.5 10h13L21 18H3Z" fill={color} fillOpacity="0.14" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" />
+      <path d="m5.5 10 2.6-4h7.8l2.6 4M8.1 6l2 4m5.8-4-2 4M8 14h8" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const KEY_SIGNAL_ICONS: Partial<Record<string, LucideIcon>> = {
+  dxy: CircleDollarSign,
+  us10y: Landmark,
+  brent: Droplets,
+  gold: GoldBarIcon as LucideIcon,
 };
 const HIDDEN_MACRO_RISK_IDS = new Set(['dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi']);
 type News = {
@@ -86,15 +119,51 @@ type CalendarEvent = {
   kind: 'macro' | 'central-bank' | 'earnings';
   importance: 'high' | 'medium';
 };
+type FedRateExpectation = {
+  meetingDate?: string;
+  meetingLabel: string;
+  currentRate: number;
+  impliedRate: number;
+  expectedChangeBps: number;
+  hikeProbability: number;
+  cutProbability: number;
+  distribution: Array<{ id: string; label: string; probability: number }>;
+  updatedAt: string;
+  sourceUrl: string;
+  quoteSourceUrl: string;
+  method: string;
+  status: 'delayed' | 'unavailable';
+};
 type Dashboard = {
   generatedAt: string;
   global: Quote | null;
+  ticker: TickerIndex[];
+  coreIndices: CoreIndex[];
   markets: Quote[];
   macro: Metric[];
+  fedRateExpectation: FedRateExpectation | null;
   pmi: Metric[];
   commodities: Metric[];
   news: News[];
+  focusNews: News[];
   calendar: CalendarEvent[];
+};
+const GLOBAL_MACRO_SECTIONS = ['markets', 'macro', 'pmi', 'commodities', 'news', 'calendar'] as const;
+type GlobalMacroSection = (typeof GLOBAL_MACRO_SECTIONS)[number];
+type DashboardSectionPayload = Partial<Dashboard> & { generatedAt: string };
+const EMPTY_DASHBOARD: Dashboard = {
+  generatedAt: '',
+  global: null,
+  ticker: [],
+  coreIndices: [],
+  markets: [],
+  macro: [],
+  fedRateExpectation: null,
+  pmi: [],
+  commodities: [],
+  news: [],
+  focusNews: [],
+  calendar: [],
 };
 type WorldHeatmapStock = {
   id: string;
@@ -224,18 +293,46 @@ function WorldClockBar({ onRefresh }: { onRefresh: () => void }) {
   );
 }
 
-function formatEventDate(value: string) {
-  const date = new Date(`${value}T00:00:00`);
-  return {
-    day: String(date.getDate()).padStart(2, '0'),
-    month: `${date.getMonth() + 1}月`,
-    weekday: new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(date),
-  };
+function IndexTickerTape({ items }: { items: TickerIndex[] }) {
+  if (!items.length) return <div className="macro-index-tape macro-index-tape-empty">全球主要指数接入中</div>;
+
+  const renderGroup = (copy: number, hidden = false) => (
+    <div className="macro-index-group" aria-hidden={hidden || undefined}>
+      {items.map((item) => (
+        <a
+          className="macro-index-quote"
+          href={item.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+          key={`${copy}-${item.id}`}
+          title={`${item.name} ${formatNumber(item.price)} ${signed(item.changePercent)}`}
+        >
+          <span className={trendClass(item.changePercent)} aria-hidden="true" />
+          <div>
+            <small>{item.name}</small>
+            <strong>{formatNumber(item.price)}</strong>
+          </div>
+          <b className={trendClass(item.changePercent)}>{signed(item.changePercent)}</b>
+        </a>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="macro-index-tape" aria-label="全球主要指数滚动行情">
+      <div className="macro-index-track">
+        {renderGroup(0)}
+        {renderGroup(1, true)}
+      </div>
+    </div>
+  );
 }
 
 function formatNewsTime(value?: string) {
-  if (!value) return '刚刚';
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60_000));
+  if (!value) return '时间待核验';
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp) || timestamp > Date.now() + 5 * 60_000) return '时间待核验';
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
   if (minutes < 60) return `${minutes}分钟前`;
   if (minutes < 1_440) return `${Math.floor(minutes / 60)}小时前`;
   return `${Math.floor(minutes / 1_440)}天前`;
@@ -348,60 +445,22 @@ function buildMarketSignals(macro: Metric[], commodities: Metric[]): KeySignal[]
   ];
 }
 
-function eventTimestamp(event?: CalendarEvent) {
-  if (!event || !/^\d{1,2}:\d{2}$/.test(event.time)) return null;
-  const timestamp = new Date(`${event.date}T${event.time.padStart(5, '0')}:00+08:00`).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
-}
-
-function NextMacroEvent({ event }: { event?: CalendarEvent }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  if (!event) {
-    return (
-      <div className="macro-next-event macro-pulse-empty">
-        <CalendarDays size={15} />
-        <span>等待重要日历更新</span>
-      </div>
-    );
-  }
-
-  const date = formatEventDate(event.date);
-  const target = eventTimestamp(event);
-  const remaining = target === null ? null : Math.max(0, target - now);
-  const days = remaining === null ? 0 : Math.floor(remaining / 86_400_000);
-  const hours = remaining === null ? 0 : Math.floor((remaining % 86_400_000) / 3_600_000);
-  const minutes = remaining === null ? 0 : Math.floor((remaining % 3_600_000) / 60_000);
-  const seconds = remaining === null ? 0 : Math.floor((remaining % 60_000) / 1_000);
-  const countdown = remaining === null
-    ? `${date.month}${date.day}日 · ${event.time}`
-    : `${days ? `${days}D ` : ''}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
-  return (
-    <a className="macro-next-event" href={event.url} target="_blank" rel="noreferrer">
-      <div className="macro-next-event-head">
-        <span><CalendarDays size={13} /> NEXT EVENT</span>
-        <b className={event.importance}>{event.importance === 'high' ? '高影响' : '中影响'}</b>
-      </div>
-      <strong>{event.title}</strong>
-      <div className="macro-next-event-meta">
-        <span>{event.source} · {date.weekday}</span>
-        <time>{countdown}</time>
-      </div>
-    </a>
-  );
-}
-
-function MacroPulsePanel({ data, loading }: { data: Dashboard | null; loading: boolean }) {
+function MacroPulsePanel({
+  data,
+  loading,
+  marketSignals,
+  crypto,
+  onOpenCrypto,
+}: {
+  data: Dashboard | null;
+  loading: boolean;
+  marketSignals: KeySignal[];
+  crypto: Metric[];
+  onOpenCrypto: () => void;
+}) {
   const pulse = useMemo(() => {
     const markets = data?.markets || [];
     const macro = data?.macro || [];
-    const pmi = data?.pmi || [];
     const metric = (id: string) => macro.find((item) => item.id === id);
     const vix = metric('vix');
     const temperature = vixTemperature(vix?.value);
@@ -423,13 +482,6 @@ function MacroPulsePanel({ data, loading }: { data: Dashboard | null; loading: b
       return { ...region, tone, status: tone === 'live' ? '交易中' : tone === 'pre' ? '将开盘' : '已收盘' };
     });
 
-    const keySignals = buildPmiSignals(pmi);
-
-    const nextEvent = (data?.calendar || []).find((item) => {
-      const timestamp = eventTimestamp(item);
-      return timestamp === null || timestamp > Date.now();
-    }) || data?.calendar?.[0];
-
     return {
       vix: {
         value: vix?.value,
@@ -441,30 +493,12 @@ function MacroPulsePanel({ data, loading }: { data: Dashboard | null; loading: b
       },
       sessions,
       regions,
-      keySignals,
-      drivers: (data?.news || []).slice(0, 3),
-      nextEvent,
+      drivers: (data?.focusNews || []).slice(0, 10),
     };
   }, [data]);
 
-  const generatedAt = data?.generatedAt ? new Date(data.generatedAt) : null;
-  const asOf = generatedAt && !Number.isNaN(generatedAt.getTime())
-    ? new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(generatedAt)
-    : '等待数据';
-
   return (
     <aside className="macro-left macro-panel" aria-label="全球宏观脉搏">
-      <div className="macro-left-head">
-        <div><span>GLOBAL MACRO PULSE</span><h2>全球宏观脉搏</h2></div>
-        <span className="macro-live-badge"><i />{asOf}</span>
-      </div>
-
-      <div className="macro-session-strip" aria-label="主要区域交易状态">
-        {pulse.sessions.map((item) => (
-          <span key={item.id} className={item.tone}><i />{item.label}<b>{item.status}</b></span>
-        ))}
-      </div>
-
       <section
         className={`macro-vix-card ${pulse.vix.tone}`}
         role="meter"
@@ -474,65 +508,66 @@ function MacroPulsePanel({ data, loading }: { data: Dashboard | null; loading: b
         aria-valuenow={pulse.vix.value ?? undefined}
         aria-valuetext={`${pulse.vix.display}，${pulse.vix.label}`}
       >
-        <div className="macro-vix-head">
-          <div><p>VIX VOLATILITY INDEX</p><h3>市场波动温度计</h3></div>
-          <div className="macro-vix-reading"><strong>{pulse.vix.display}</strong><span className={trendClass(pulse.vix.change)}>较前值 {pointChange(pulse.vix.change)}</span></div>
-        </div>
-        <div className="macro-vix-status">
-          <span>当前温度</span><strong>{pulse.vix.label}</strong><small>{pulse.vix.summary}</small>
-          {pulse.vix.sourceUrl ? <a href={pulse.vix.sourceUrl} target="_blank" rel="noreferrer">FRED · {pulse.vix.sourceStatus}<ExternalLink size={9} /></a> : <i>{pulse.vix.sourceStatus}</i>}
-        </div>
         <div className="macro-vix-thermometer" aria-hidden="true">
           <div className="macro-vix-bulb"><i /></div>
-          <div className="macro-vix-tube"><i style={{ width: `${pulse.vix.percent}%` }} /><em style={{ left: `${pulse.vix.percent}%` }} /></div>
+          <div className="macro-vix-tube">
+            <i style={{ '--vix-percent': `${pulse.vix.percent}%` } as CSSProperties} />
+            <em style={{ left: `${pulse.vix.percent}%` }} />
+            <span className="macro-vix-identity"><small>VIX</small><b>市场温度</b></span>
+            <span className="macro-vix-reading"><small>{pulse.vix.label}</small><strong>{pulse.vix.display}</strong></span>
+          </div>
         </div>
         <div className="macro-vix-scale" aria-hidden="true">
-          <span>平静<br /><b>&lt;12</b></span><span>常态<br /><b>12–20</b></span><span>升温<br /><b>20–30</b></span><span>高压<br /><b>30+</b></span>
+          <span><i />平静 &lt;12</span><span><i />常态 12–20</span><span><i />升温 20–30</span><span><i />高压 30+</span>
+        </div>
+        <div className="macro-vix-status">
+          <small>{pulse.vix.summary}</small>
+          <span className={trendClass(pulse.vix.change)}>较前值 {pointChange(pulse.vix.change)}</span>
+          {pulse.vix.sourceUrl ? <a href={pulse.vix.sourceUrl} target="_blank" rel="noreferrer">FRED · {pulse.vix.sourceStatus}<ExternalLink size={9} /></a> : <i>{pulse.vix.sourceStatus}</i>}
         </div>
       </section>
 
-      <section className="macro-pulse-section">
-        <p className="macro-section-title">制造业 PMI · 最新</p>
-        <div className="macro-signal-grid">
-          {pulse.keySignals.map((item) => (
-            <a key={item.id} className="macro-signal" href={item.url || undefined} target="_blank" rel="noreferrer" aria-disabled={!item.url} title={`${item.label} ${item.value} · ${item.change} · ${item.note}`}>
-              <span><small>{item.label}</small><strong>{item.value}</strong></span>
-              <span className="macro-signal-move"><b className={trendClass(item.rawChange)}>{item.change}</b><small>{item.note}</small></span>
-            </a>
-          ))}
+      <section className="macro-terminal-section macro-key-change-section">
+        <p className="macro-section-title">关键变化 · 24H</p>
+        <div className="macro-key-change-grid">
+          {marketSignals.map((item) => <KeyChangeCard key={item.id} item={item} />)}
         </div>
       </section>
 
-      <section className="macro-pulse-section">
-        <p className="macro-section-title">区域脉搏</p>
-        <div className="macro-region-pulse">
-          {pulse.regions.map((item) => (
-            <div key={item.id} className={item.tone}>
-              <span><b>{item.label}</b><small>{item.shortLabel}</small></span>
-              <i><em style={{ width: `${item.strength}%` }} /></i>
-              <strong>{item.status}</strong>
-              <small>{signed(item.change)}</small>
-            </div>
-          ))}
+      <section className="macro-terminal-section macro-core-index-section">
+        <p className="macro-section-title">核心指数 · 24H</p>
+        <div className="macro-core-index-grid">
+          {(data?.coreIndices || []).map((item) => <CoreIndexCard key={item.id} item={item} />)}
         </div>
+      </section>
+
+      <section className="macro-terminal-section macro-crypto-section">
+        <p className="macro-section-title">加密市场</p>
+        <div className="macro-crypto-list">{crypto.map((item) => <CryptoRow key={item.id} item={item} onOpen={onOpenCrypto} />)}</div>
       </section>
 
       <section className="macro-pulse-section macro-driver-section">
         <p className="macro-section-title">今日宏观焦点 · 重要性优先</p>
-        <div className="macro-driver-list">
-          {pulse.drivers.length ? pulse.drivers.map((item, index) => (
-            <a key={item.id} href={item.url} target="_blank" rel="noreferrer">
-              <span>{String(index + 1).padStart(2, '0')}</span>
-              <span><small className={`macro-driver-impact ${item.importance || 'medium'}`}>{newsImportanceLabel(item)} · {item.category} · {formatNewsTime(item.publishedAt)}</small><strong>{item.title}</strong></span>
-              <ExternalLink size={11} />
-            </a>
-          )) : (
+        <div className={`macro-driver-list ${pulse.drivers.length > 4 ? 'is-scrolling' : ''}`}>
+          {pulse.drivers.length ? (
+            <div className="macro-driver-track" style={{ '--macro-driver-duration': `${Math.max(36, pulse.drivers.length * 6)}s` } as CSSProperties}>
+              {(pulse.drivers.length > 4 ? [false, true] : [false]).map((duplicate) => (
+                <div key={duplicate ? 'duplicate' : 'primary'} className="macro-driver-group" aria-hidden={duplicate || undefined}>
+                  {pulse.drivers.map((item, index) => (
+                    <a key={`${duplicate ? 'copy-' : ''}${item.id}`} href={item.url} target="_blank" rel="noreferrer" tabIndex={duplicate ? -1 : undefined}>
+                      <span>{String(index + 1).padStart(2, '0')}</span>
+                      <span><strong>{item.title}</strong><small className={`macro-driver-impact ${item.importance || 'medium'}`}>{newsImportanceLabel(item)} · {item.source} · {item.category} · {formatNewsTime(item.publishedAt)}</small></span>
+                      <ExternalLink size={11} />
+                    </a>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
             <div className="macro-pulse-empty"><span className={loading ? 'macro-pulse-loader' : ''} />{loading ? '正在筛选今日重要新闻' : '今日暂无符合高重要性标准的宏观新闻'}</div>
           )}
         </div>
       </section>
-
-      <NextMacroEvent event={pulse.nextEvent} />
     </aside>
   );
 }
@@ -1192,13 +1227,21 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
 
   const load = useCallback(async () => {
     setError('');
-    try {
-      setData(await request<Dashboard>('/api/global-macro-dashboard?region=global'));
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : '全球市场数据暂时不可用');
-    } finally {
-      setLoading(false);
-    }
+    const results = await Promise.allSettled(GLOBAL_MACRO_SECTIONS.map(async (section: GlobalMacroSection) => {
+      const payload = await request<DashboardSectionPayload>(
+        `/api/global-macro-dashboard?region=global&section=${encodeURIComponent(section)}`,
+      );
+      setData((current) => ({
+        ...(current || EMPTY_DASHBOARD),
+        ...payload,
+        generatedAt: payload.generatedAt || current?.generatedAt || new Date().toISOString(),
+      }));
+      if (section === 'markets') setLoading(false);
+      return section;
+    }));
+    const successful = results.filter((result) => result.status === 'fulfilled').length;
+    if (successful === 0) setError('全球市场各数据接口暂时均不可用');
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -1218,6 +1261,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const macro = data?.macro || [];
   const commodities = data?.commodities || [];
   const rightMarketSignals = useMemo(() => buildMarketSignals(data?.macro || [], data?.commodities || []), [data?.macro, data?.commodities]);
+  const pmiSignals = useMemo(() => buildPmiSignals(data?.pmi || []), [data?.pmi]);
   const macroRiskMetrics = macro.filter((item) => !HIDDEN_MACRO_RISK_IDS.has(item.id));
   const treasurySpread = macro.find((item) => item.id === 'ust2y10y');
   const crypto = commodities.filter((item) => ['bitcoin', 'ethereum'].includes(item.id));
@@ -1239,11 +1283,17 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
               <p className="macro-vt-name"><span>VT</span><strong>{formatNumber(data?.global?.price)}</strong><b className={trendClass(data?.global?.changePercent)}>{signed(data?.global?.changePercent)}</b></p>
             </div>
           </div>
-          <div className="macro-vt-chart"><MiniLine history={data?.global?.history || []} color="#52e0b5" /></div>
+          <IndexTickerTape items={data?.ticker || []} />
           <WorldClockBar onRefresh={() => void load()} />
         </header>
 
-        <MacroPulsePanel data={data} loading={loading} />
+        <MacroPulsePanel
+          data={data}
+          loading={loading}
+          marketSignals={rightMarketSignals}
+          crypto={crypto}
+          onOpenCrypto={() => { setSelected(null); setModalMode('crypto'); }}
+        />
 
         <main className="macro-main macro-panel">
           <div className="macro-stage">
@@ -1281,20 +1331,17 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             </div>
           </section>
 
-          <section className="macro-terminal-section macro-key-change-section">
-            <p className="macro-section-title">关键变化 · 24H</p>
+          <section className="macro-terminal-section macro-key-change-section macro-pmi-section">
+            <p className="macro-section-title">制造业 PMI · 最新</p>
             <div className="macro-key-change-grid">
-              {rightMarketSignals.map((item) => <KeyChangeCard key={item.id} item={item} />)}
+              {pmiSignals.map((item) => <KeyChangeCard key={item.id} item={item} />)}
             </div>
           </section>
           <section className="macro-terminal-section macro-treasury-section">
             <p className="macro-section-title">美债期限结构</p>
             <TreasurySpreadCard item={treasurySpread} />
           </section>
-          <section className="macro-terminal-section macro-crypto-section">
-            <div className="macro-section-row"><p className="macro-section-title">加密市场</p><button type="button" onClick={() => { setSelected(null); setModalMode('crypto'); }}>打开热力图 <ArrowRight size={12} /></button></div>
-            <div className="macro-crypto-list">{crypto.map((item) => <CryptoRow key={item.id} item={item} />)}</div>
-          </section>
+          <FedRateExpectationCard expectation={data?.fedRateExpectation || null} />
         </aside>
 
         <footer className="macro-news macro-panel">
@@ -1304,7 +1351,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
               <div className="macro-news-track">
                 {[...data.news, ...data.news].map((item, index) => (
                   <a key={`${item.id}-${index}`} className="macro-news-item" href={item.url} target="_blank" rel="noreferrer">
-                    <span className={`macro-tag ${newsTagClass(item.category)}`}>{item.category}</span><time>{formatNewsTime(item.publishedAt)}</time><span>{item.title}</span><small>{item.source}</small>
+                    <span className={`macro-tag ${newsTagClass(item.category)}`}>{item.category}</span><time>{formatNewsTime(item.publishedAt)}</time><span>{item.title}</span>
                   </a>
                 ))}
               </div>
@@ -1324,10 +1371,13 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
 }
 
 function KeyChangeCard({ item }: { item: KeySignal }) {
+  const Icon = KEY_SIGNAL_ICONS[item.id];
   return (
-    <a className="macro-key-change-card" href={item.url} target="_blank" rel="noreferrer" title={`${item.label} ${item.value} · ${item.change} · ${item.note}`}>
+    <a className={`macro-key-change-card ${Icon ? `has-asset-icon asset-${item.id}` : ''}`} href={item.url} target="_blank" rel="noreferrer" title={`${item.label} ${item.value} · ${item.change} · ${item.note}`}>
+      {Icon ? <span className="macro-key-change-icon" aria-hidden="true"><Icon size={14} strokeWidth={1.8} /></span> : null}
+      {Icon ? <span className="macro-key-change-label">{item.label}</span> : null}
       <span className="macro-key-change-copy">
-        <small>{item.label}</small>
+        {!Icon ? <small>{item.label}</small> : null}
         <strong>{item.value}</strong>
       </span>
       <span className="macro-key-change-move">
@@ -1338,15 +1388,49 @@ function KeyChangeCard({ item }: { item: KeySignal }) {
   );
 }
 
-function CryptoRow({ item }: { item: Metric }) {
+function CoreIndexCard({ item }: { item: CoreIndex }) {
+  const available = item.changePercent !== null && Number.isFinite(item.changePercent);
+  const color = !available || Math.abs(item.changePercent || 0) <= 0.03
+    ? '#71849a'
+    : (item.changePercent || 0) > 0 ? '#ff4d6d' : '#34e6b1';
+  return (
+    <a
+      className={`macro-core-index-card ${available ? '' : 'is-unavailable'}`}
+      href={item.sourceUrl}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`${item.name}，24小时变化 ${signed(item.changePercent)}`}
+      title={`${item.name} ${item.symbol} · ${signed(item.changePercent)}`}
+    >
+      <span className="macro-core-index-head"><strong>{item.name}</strong><small>{item.symbol}</small></span>
+      <b className={trendClass(item.changePercent)}>{signed(item.changePercent)}</b>
+      <span className="macro-core-index-period">1M</span>
+      <span className="macro-core-index-chart"><MiniLine history={item.history} color={color} /></span>
+    </a>
+  );
+}
+
+function CryptoRow({ item, onOpen }: { item: Metric; onOpen: () => void }) {
   const symbols: Record<string, string> = { bitcoin: 'BTC', ethereum: 'ETH' };
   const symbol = symbols[item.id] || item.id.slice(0, 4).toUpperCase();
+  const icon = item.id === 'bitcoin'
+    ? <Bitcoin size={18} strokeWidth={2.4} />
+    : item.id === 'ethereum'
+      ? (
+        <svg className="macro-ethereum-mark" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2 5.7 12.2 12 15.8l6.3-3.6L12 2Z" fill="#627eea" />
+          <path d="m12 2 6.3 10.2-6.3 3.6V2Z" fill="#454a75" />
+          <path d="m5.7 13.5 6.3 8.5v-4.9l-6.3-3.6Z" fill="#8a92b2" />
+          <path d="m12 17.1 6.3-3.6L12 22v-4.9Z" fill="#62688f" />
+        </svg>
+      )
+      : symbol.slice(0, 1);
   return (
-    <a className="macro-crypto-row" href={item.sourceUrl} target="_blank" rel="noreferrer">
-      <span className="macro-crypto-icon">{symbol.slice(0, 1)}</span>
+    <button type="button" className="macro-crypto-row" onClick={onOpen} aria-label={`打开${item.label}热力图`}>
+      <span className={`macro-crypto-icon is-${item.id}`}>{icon}</span>
       <span className="macro-crypto-copy"><strong>{item.label}</strong><small>{symbol}</small></span>
       <span className="macro-crypto-value"><strong>{item.display}</strong><b className={trendClass(item.change)}>{signed(item.change)}</b></span>
-    </a>
+    </button>
   );
 }
 
@@ -1373,5 +1457,42 @@ function TreasurySpreadCard({ item }: { item?: Metric }) {
       </span>
       <span className="macro-treasury-foot"><i />负值表示倒挂，正值表示长端收益率高于短端</span>
     </a>
+  );
+}
+
+function FedRateExpectationCard({ expectation }: { expectation: FedRateExpectation | null }) {
+  const distribution = expectation?.distribution || [
+    { id: 'hike', label: '加息', probability: 0 },
+    { id: 'hold', label: '维持', probability: 0 },
+    { id: 'cut25', label: '降息 25bp', probability: 0 },
+    { id: 'cut50', label: '降息 ≥50bp', probability: 0 },
+  ];
+  const meetingDate = expectation?.meetingDate
+    ? new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(new Date(`${expectation.meetingDate}T00:00:00Z`))
+    : '日期待更新';
+  const expectedMove = expectation
+    ? `${expectation.expectedChangeBps > 0 ? '+' : ''}${expectation.expectedChangeBps.toFixed(1)}bp`
+    : '待更新';
+  const sourceUrl = expectation?.sourceUrl || 'https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html';
+
+  return (
+    <section className="macro-terminal-section macro-fed-section">
+      <p className="macro-section-title">美联储利率预期</p>
+      <a className={`macro-fed-card ${expectation ? '' : 'unavailable'}`} href={sourceUrl} target="_blank" rel="noreferrer">
+        <div className="macro-fed-head">
+          <span><small>NEXT FOMC · {meetingDate}</small><strong>{expectation ? `${expectation.cutProbability.toFixed(1)}%` : '待更新'}</strong><b>降息概率</b></span>
+          <span><small>当前 → 隐含</small><strong>{expectation ? `${expectation.currentRate.toFixed(2)}% → ${expectation.impliedRate.toFixed(2)}%` : '等待期货数据'}</strong><b className={expectation && expectation.expectedChangeBps < 0 ? 'macro-down' : 'macro-flat'}>{expectedMove}</b></span>
+        </div>
+        <div className="macro-fed-distribution">
+          {distribution.map((item) => (
+            <div key={item.id} className={`macro-fed-row ${item.id}`}>
+              <span><small>{item.label}</small><b>{expectation ? `${item.probability.toFixed(1)}%` : '—'}</b></span>
+              <i role="meter" aria-label={`${item.label}概率`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={expectation ? item.probability : undefined}><em style={{ width: `${expectation ? item.probability : 0}%` }} /></i>
+            </div>
+          ))}
+        </div>
+        <footer><span>{expectation?.method || '等待 ZQ 期货与 FRED 数据'}</span><span>CME FedWatch <ExternalLink size={9} /></span></footer>
+      </a>
+    </section>
   );
 }
