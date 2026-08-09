@@ -493,7 +493,7 @@ function MacroPulsePanel({
       },
       sessions,
       regions,
-      drivers: (data?.focusNews || []).slice(0, 10),
+      drivers: (data?.focusNews || []).slice(0, 5),
     };
   }, [data]);
 
@@ -547,24 +547,22 @@ function MacroPulsePanel({
       </section>
 
       <section className="macro-pulse-section macro-driver-section">
-        <p className="macro-section-title">今日宏观焦点 · 重要性优先</p>
-        <div className={`macro-driver-list ${pulse.drivers.length > 4 ? 'is-scrolling' : ''}`}>
+        <p className="macro-section-title">华尔街见闻 · 今日要闻</p>
+        <div className="macro-driver-list">
           {pulse.drivers.length ? (
-            <div className="macro-driver-track" style={{ '--macro-driver-duration': `${Math.max(36, pulse.drivers.length * 6)}s` } as CSSProperties}>
-              {(pulse.drivers.length > 4 ? [false, true] : [false]).map((duplicate) => (
-                <div key={duplicate ? 'duplicate' : 'primary'} className="macro-driver-group" aria-hidden={duplicate || undefined}>
-                  {pulse.drivers.map((item, index) => (
-                    <a key={`${duplicate ? 'copy-' : ''}${item.id}`} href={item.url} target="_blank" rel="noreferrer" tabIndex={duplicate ? -1 : undefined}>
-                      <span>{String(index + 1).padStart(2, '0')}</span>
-                      <span><strong>{item.title}</strong><small className={`macro-driver-impact ${item.importance || 'medium'}`}>{newsImportanceLabel(item)} · {item.source} · {item.category} · {formatNewsTime(item.publishedAt)}</small></span>
-                      <ExternalLink size={11} />
-                    </a>
-                  ))}
-                </div>
-              ))}
+            <div className="macro-driver-track">
+              <div className="macro-driver-group">
+                {pulse.drivers.map((item, index) => (
+                  <a key={item.id} href={item.url} target="_blank" rel="noreferrer">
+                    <span>{String(index + 1).padStart(2, '0')}</span>
+                    <span><strong>{item.title}</strong><small className={`macro-driver-impact ${item.importance || 'medium'}`}>{newsImportanceLabel(item)} · {item.source} · {item.category} · {formatNewsTime(item.publishedAt)}</small></span>
+                    <ExternalLink size={11} />
+                  </a>
+                ))}
+              </div>
             </div>
           ) : (
-            <div className="macro-pulse-empty"><span className={loading ? 'macro-pulse-loader' : ''} />{loading ? '正在筛选今日重要新闻' : '今日暂无符合高重要性标准的宏观新闻'}</div>
+            <div className="macro-pulse-empty"><span className={loading ? 'macro-pulse-loader' : ''} />{loading ? '正在同步华尔街见闻今日要闻' : '华尔街见闻今日新闻暂未更新'}</div>
           )}
         </div>
       </section>
@@ -1225,9 +1223,12 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setError('');
-    const results = await Promise.allSettled(GLOBAL_MACRO_SECTIONS.map(async (section: GlobalMacroSection) => {
+  const load = useCallback(async (
+    sections: readonly GlobalMacroSection[] = GLOBAL_MACRO_SECTIONS,
+    reportError = true,
+  ) => {
+    if (reportError) setError('');
+    const results = await Promise.allSettled(sections.map(async (section: GlobalMacroSection) => {
       const payload = await request<DashboardSectionPayload>(
         `/api/global-macro-dashboard?region=global&section=${encodeURIComponent(section)}`,
       );
@@ -1240,14 +1241,19 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       return section;
     }));
     const successful = results.filter((result) => result.status === 'fulfilled').length;
-    if (successful === 0) setError('全球市场各数据接口暂时均不可用');
+    if (successful === 0 && reportError) setError('全球市场各数据接口暂时均不可用');
     setLoading(false);
   }, []);
 
   useEffect(() => {
     void load();
-    const refresh = window.setInterval(() => void load(), 60_000);
-    return () => window.clearInterval(refresh);
+    const nonNewsSections = GLOBAL_MACRO_SECTIONS.filter((section) => section !== 'news');
+    const dashboardRefresh = window.setInterval(() => void load(nonNewsSections, false), 60_000);
+    const newsRefresh = window.setInterval(() => void load(['news'], false), 30_000);
+    return () => {
+      window.clearInterval(dashboardRefresh);
+      window.clearInterval(newsRefresh);
+    };
   }, [load]);
 
   useEffect(() => {

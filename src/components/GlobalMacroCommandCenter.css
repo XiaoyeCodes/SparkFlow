@@ -305,8 +305,8 @@
 .macro-region-pulse > div > strong { color: #889aab; font-size: 8px; font-weight: 600; text-align: right; }
 .macro-region-pulse > div > small { color: var(--macro-muted); font: 8px "JetBrains Mono", monospace; text-align: right; }
 
-.macro-driver-section { display: flex; flex: 1; min-height: 220px; flex-direction: column; }
-.macro-driver-list { position: relative; display: flex; flex: 1; min-height: 220px; overflow: hidden; flex-direction: column; mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 20px), transparent 100%); }
+.macro-driver-section { display: flex; min-height: 0; flex: 0 0 auto; flex-direction: column; }
+.macro-driver-list { position: relative; display: flex; min-height: 0; overflow: visible; flex: 0 0 auto; flex-direction: column; }
 .macro-driver-track { display: flex; flex-direction: column; will-change: transform; }
 .macro-driver-list.is-scrolling .macro-driver-track { animation: macro-driver-scroll var(--macro-driver-duration, 48s) linear infinite; }
 .macro-driver-list.is-scrolling:hover .macro-driver-track,

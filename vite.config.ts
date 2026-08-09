@@ -446,7 +446,8 @@ function enrichNewsItem(
 
 function parseRssItems(xml: string, source: NewsSourceConfig): NewsItem[] {
   const blocks = xml.match(/<item[\s\S]*?<\/item>|<entry[\s\S]*?<\/entry>/gi) || [];
-  return blocks.slice(0, 12).map((block, index) => {
+  const itemLimit = source.id === 'wallstreetcn' ? 40 : 12;
+  return blocks.slice(0, itemLimit).map((block, index) => {
     const title = stripTags(pickXml(block, 'title')) || `${source.label} #${index + 1}`;
     const linkFromTag = pickXml(block, 'link');
     const hrefMatch = block.match(/<link[^>]+href=["']([^"']+)["']/i);
@@ -3630,6 +3631,15 @@ async function getWallstreetCnDailyNews(region: GlobalMacroRegion) {
   }).format(new Date(value));
   const today = dateKey(now);
   const seen = new Set<string>();
+  const importanceRules = [
+    { score: 96, test: /(突发|紧急|意外降息|意外加息|利率决议|战争爆发|发动袭击|停火协议|主权违约|银行挤兑|金融危机|熔断|资本管制|重大制裁)/i },
+    { score: 88, test: /(美联储|中国人民银行|欧洲央行|日本央行|央行).{0,18}(宣布|决定|降息|加息|维持|会议纪要)|(?:CPI|PPI|GDP|PMI|非农|失业率|就业).{0,24}(公布|同比|环比|增长|下降|升至|降至|高于|低于|超预期)/i },
+    { score: 80, test: /(关税|财政刺激|债务上限|出口管制|监管新规|国务院|证监会|OPEC|原油供应|制裁|战争|冲突|供应链中断|霍尔木兹)/i },
+    { score: 72, test: /(全球股市|美股|A股|港股|标普500|纳斯达克|道指|债券|美债|美元|人民币|黄金|原油|能源|航运|半导体|芯片|人工智能|AI)/i },
+    { score: 62, test: /(财报|业绩|营收|净利润|并购|IPO|回购|融资|新产品|发布会)/i },
+  ] as const;
+  const newInformationTerms = /(宣布|决定|公布|发布|通过|签署|启动|暂停|上调|下调|超预期|低于预期|升至|降至|上涨|下跌|增长|下降|爆发|袭击|制裁|违约|熔断|中断)/i;
+  const commentaryTerms = /(下周|本周|日程|前瞻|展望|热议|观点|评论|解读|复盘|认为|预计|预测|或将|可能|策略|战术)/i;
   const categoryFor = (title: string) => {
     if (/(央行|美联储|加息|降息|利率|货币政策)/i.test(title)) return '央行';
     if (/(战争|冲突|制裁|袭击|停火|中东|俄乌)/i.test(title)) return '地缘';
@@ -3639,17 +3649,30 @@ async function getWallstreetCnDailyNews(region: GlobalMacroRegion) {
     return '财经';
   };
   return feedItems
-    .filter((item) => {
+    .flatMap((item) => {
       const publishedTime = new Date(item.publishedAt || '').getTime();
-      if (!Number.isFinite(publishedTime) || publishedTime > now + 5 * 60_000 || dateKey(publishedTime) !== today) return false;
+      if (!Number.isFinite(publishedTime) || publishedTime > now + 5 * 60_000 || dateKey(publishedTime) !== today) return [];
       const key = item.title.replace(/[\s\p{P}\p{S}]+/gu, '').toLowerCase();
-      if (!key || seen.has(key)) return false;
+      if (!key || seen.has(key)) return [];
       seen.add(key);
-      return true;
+      const text = item.title;
+      const baseScore = importanceRules.find((rule) => rule.test.test(text))?.score || 52;
+      const hasNewInformation = newInformationTerms.test(text);
+      const informationBonus = hasNewInformation ? 5 : 0;
+      const numberBonus = /\d+(?:\.\d+)?%|\d+(?:\.\d+)?万亿|\d+(?:\.\d+)?亿美元/i.test(text) ? 3 : 0;
+      const commentaryPenalty = commentaryTerms.test(text) && !hasNewInformation ? 14 : 0;
+      const importanceScore = Math.max(30, Math.min(100, baseScore + informationBonus + numberBonus - commentaryPenalty));
+      const ageHours = Math.max(0, (now - publishedTime) / 3_600_000);
+      const freshnessScore = Math.max(0, 100 - ageHours * 4.2);
+      const rankScore = importanceScore * 0.76 + freshnessScore * 0.24;
+      const importance = importanceScore >= 88 ? 'critical' as const : importanceScore >= 68 ? 'high' as const : 'medium' as const;
+      return [{ item, publishedTime, importanceScore, importance, rankScore }];
     })
-    .sort((left, right) => new Date(right.publishedAt || 0).getTime() - new Date(left.publishedAt || 0).getTime())
+    .sort((left, right) => right.rankScore - left.rankScore
+      || right.importanceScore - left.importanceScore
+      || right.publishedTime - left.publishedTime)
     .slice(0, 20)
-    .map((item) => ({
+    .map(({ item, importanceScore, importance }) => ({
       id: `wallstreetcn-daily-${item.id}`,
       title: item.title,
       source: '华尔街见闻',
@@ -3657,8 +3680,8 @@ async function getWallstreetCnDailyNews(region: GlobalMacroRegion) {
       publishedAt: item.publishedAt,
       category: categoryFor(item.title),
       region,
-      importanceScore: 60,
-      importance: 'high' as const,
+      importanceScore,
+      importance,
     }));
 }
 
@@ -3910,8 +3933,7 @@ async function loadGlobalCommoditiesSection() {
 
 async function loadGlobalNewsSection(region: GlobalMacroRegion) {
   const news = await getWallstreetCnDailyNews(region);
-  const focusNews = await getGlobalMacroNews(region, globalMacroFocusNewsSources)
-    .catch(() => news.filter((item) => item.source === '华尔街见闻'));
+  const focusNews = news.slice(0, 12);
   return { generatedAt: new Date().toISOString(), news, focusNews };
 }
 
@@ -3967,7 +3989,7 @@ const globalMacroSectionCacheTtl: Record<GlobalMacroSectionName, number> = {
   macro: 60_000,
   pmi: 15 * 60_000,
   commodities: 30_000,
-  news: 5 * 60_000,
+  news: 20_000,
   calendar: 5 * 60_000,
 };
 const globalMarketHeatmapCache = new Map<string, { storedAt: number; data: Awaited<ReturnType<typeof getGlobalMarketHeatmap>> }>();
