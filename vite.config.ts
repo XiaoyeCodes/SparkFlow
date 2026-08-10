@@ -319,6 +319,47 @@ async function fetchExternalJson(url: string, timeoutMs = 18000) {
   return JSON.parse(await fetchExternalText(url, timeoutMs, 'application/json,text/plain,*/*'));
 }
 
+const fastMarketRoutePreference = new Map<string, FetchRoute>([
+  ['query1.finance.yahoo.com', 'proxy'],
+  ['api.coingecko.com', 'proxy'],
+  ['api.binance.com', 'proxy'],
+]);
+
+async function fetchFastMarketText(url: string, timeoutMs = 5_000) {
+  const host = new URL(url).host;
+  const preferredRoute = fastMarketRoutePreference.get(host) || 'direct';
+  const routes: FetchRoute[] = preferredRoute === 'direct' ? ['direct', 'proxy'] : ['proxy', 'direct'];
+  let lastError: unknown;
+  for (const route of routes) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const init: RequestInit & { dispatcher?: any } = {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0 Safari/537.36',
+          Accept: 'application/json,text/plain,*/*',
+          Referer: url.includes('yahoo.com')
+            ? 'https://finance.yahoo.com/'
+            : url.includes('sina.com.cn')
+              ? 'https://finance.sina.com.cn/'
+              : `https://${host}/`,
+        },
+      };
+      if (route === 'proxy') init.dispatcher = foreignProxyAgent;
+      const response = await fetch(url, init);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      fastMarketRoutePreference.set(host, route);
+      return await response.text();
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`${host} 快速行情暂时不可用`);
+}
+
 function decodeXml(value = '') {
   return value
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -613,7 +654,8 @@ const bookValueIndexConfigs = [
   },
 ] as const;
 
-type RegionalValuationMode = 'hongkong' | 'us';
+type RegionalValuationMode = 'hongkong' | 'us' | InternationalMarketMode;
+type RegionalContentMode = 'hongkong' | 'us';
 
 type RegionalIndexValuationConfig = {
   id: string;
@@ -683,6 +725,54 @@ const regionalValuationConfigs: Record<RegionalValuationMode, RegionalValuationC
         sampleCodes: ['NVDA', 'AVGO', 'AMD', 'MU', 'ASML', 'AMAT', 'LRCX', 'QCOM'],
         yahooSymbol: '^SOX',
       },
+    ],
+  },
+  japan: {
+    label: '日股', sampleSize: 6,
+    indices: [
+      { id: 'nikkei225', name: '日经225', code: 'N225', secid: '', yahooSymbol: '^N225', officialUrl: 'https://indexes.nikkei.co.jp/en/nkave/' , sampleCodes: ['7203.T', '8306.T', '6758.T', '6501.T', '9983.T', '6861.T'] },
+      { id: 'topix', name: '东证指数', code: 'TOPIX', secid: '', yahooSymbol: '1306.T', officialUrl: 'https://www.jpx.co.jp/english/markets/indices/topix/', sampleCodes: ['7203.T', '8306.T', '6758.T', '6501.T', '7974.T', '9984.T'] },
+      { id: 'jpx400', name: 'JPX日经400', code: 'JPX400', secid: '', yahooSymbol: '1591.T', officialUrl: 'https://www.jpx.co.jp/english/markets/indices/jpx-nikkei400/', sampleCodes: ['7203.T', '8306.T', '6758.T', '6501.T', '6861.T', '8035.T'] },
+    ],
+  },
+  korea: {
+    label: '韩股', sampleSize: 6,
+    indices: [
+      { id: 'kospi', name: '韩国KOSPI', code: 'KS11', secid: '', yahooSymbol: '^KS11', officialUrl: 'https://global.krx.co.kr/', sampleCodes: ['005930.KS', '000660.KS', '373220.KS', '005380.KS', '207940.KS', '000270.KS'] },
+      { id: 'kosdaq', name: '韩国KOSDAQ', code: 'KQ11', secid: '', yahooSymbol: '^KQ11', officialUrl: 'https://global.krx.co.kr/', sampleCodes: ['035420.KS', '035720.KS', '068270.KS', '207940.KS', '373220.KS', '000660.KS'] },
+      { id: 'kospi200', name: 'KOSPI 200', code: 'KS200', secid: '', yahooSymbol: '^KS200', officialUrl: 'https://global.krx.co.kr/', sampleCodes: ['005930.KS', '000660.KS', '373220.KS', '005380.KS', '000270.KS', '105560.KS'] },
+    ],
+  },
+  india: {
+    label: '印度股市', sampleSize: 6,
+    indices: [
+      { id: 'nifty50', name: '印度NIFTY 50', code: 'NSEI', secid: '', yahooSymbol: '^NSEI', officialUrl: 'https://www.niftyindices.com/indices/equity/broad-based-indices/NIFTY--50', sampleCodes: ['RELIANCE.NS', 'HDFCBANK.NS', 'BHARTIARTL.NS', 'TCS.NS', 'ICICIBANK.NS', 'INFY.NS'] },
+      { id: 'sensex', name: '孟买SENSEX', code: 'BSESN', secid: '', yahooSymbol: '^BSESN', officialUrl: 'https://www.bseindices.com/', sampleCodes: ['RELIANCE.NS', 'HDFCBANK.NS', 'BHARTIARTL.NS', 'TCS.NS', 'ICICIBANK.NS', 'INFY.NS'] },
+      { id: 'niftybank', name: 'NIFTY银行', code: 'NSEBANK', secid: '', yahooSymbol: '^NSEBANK', officialUrl: 'https://www.niftyindices.com/', sampleCodes: ['HDFCBANK.NS', 'ICICIBANK.NS', 'SBIN.NS', 'LICI.NS', 'RELIANCE.NS', 'TCS.NS'] },
+    ],
+  },
+  germany: {
+    label: '德国股市', sampleSize: 6,
+    indices: [
+      { id: 'dax', name: '德国DAX', code: 'DAX', secid: '', yahooSymbol: '^GDAXI', officialUrl: 'https://www.dax-indices.com/', sampleCodes: ['SAP.DE', 'SIE.DE', 'ALV.DE', 'DTE.DE', 'BAS.DE', 'BMW.DE'] },
+      { id: 'mdax', name: '德国MDAX', code: 'MDAX', secid: '', yahooSymbol: '^MDAXI', officialUrl: 'https://www.dax-indices.com/', sampleCodes: ['SAP.DE', 'SIE.DE', 'ALV.DE', 'DTE.DE', 'MUV2.DE', 'IFX.DE'] },
+      { id: 'tecdax', name: '德国TecDAX', code: 'TECDAX', secid: '', yahooSymbol: '^TECDAX', officialUrl: 'https://www.dax-indices.com/', sampleCodes: ['SAP.DE', 'IFX.DE', 'DTE.DE', 'SIE.DE', 'ALV.DE', 'MUV2.DE'] },
+    ],
+  },
+  france: {
+    label: '法国股市', sampleSize: 6,
+    indices: [
+      { id: 'cac40', name: '法国CAC 40', code: 'CAC40', secid: '', yahooSymbol: '^FCHI', officialUrl: 'https://live.euronext.com/en/product/indices/FR0003500008-XPAR', sampleCodes: ['MC.PA', 'OR.PA', 'TTE.PA', 'AIR.PA', 'RMS.PA', 'SU.PA'] },
+      { id: 'sbf120', name: '法国SBF 120', code: 'SBF120', secid: '', yahooSymbol: '^SBF120', officialUrl: 'https://live.euronext.com/', sampleCodes: ['MC.PA', 'OR.PA', 'TTE.PA', 'AIR.PA', 'SAN.PA', 'BNP.PA'] },
+      { id: 'cacnext20', name: 'CAC Next 20', code: 'CACNEXT20', secid: '', yahooSymbol: '^CN20', officialUrl: 'https://live.euronext.com/', sampleCodes: ['SAN.PA', 'BNP.PA', 'CS.PA', 'EL.PA', 'SU.PA', 'AIR.PA'] },
+    ],
+  },
+  uk: {
+    label: '英国股市', sampleSize: 6,
+    indices: [
+      { id: 'ftse100', name: '英国富时100', code: 'FTSE100', secid: '', yahooSymbol: '^FTSE', officialUrl: 'https://www.londonstockexchange.com/indices/ftse-100', sampleCodes: ['SHEL.L', 'AZN.L', 'HSBA.L', 'ULVR.L', 'BP.L', 'GSK.L'] },
+      { id: 'ftse250', name: '英国富时250', code: 'FTSE250', secid: '', yahooSymbol: '^FTMC', officialUrl: 'https://www.londonstockexchange.com/indices/ftse-250', sampleCodes: ['REL.L', 'LSEG.L', 'BATS.L', 'RIO.L', 'SHEL.L', 'AZN.L'] },
+      { id: 'ftseall', name: '富时全股指数', code: 'FTAS', secid: '', yahooSymbol: '^FTAS', officialUrl: 'https://www.londonstockexchange.com/indices/ftse-all-share', sampleCodes: ['SHEL.L', 'AZN.L', 'HSBA.L', 'ULVR.L', 'REL.L', 'LSEG.L'] },
     ],
   },
 };
@@ -1407,7 +1497,8 @@ type YahooPricePoint = {
 
 function yahooSymbolForStock(mode: RegionalValuationMode, stock: ChinaHeatmapStock) {
   if (mode === 'hongkong') return `${stock.code.replace(/^0+/, '').padStart(4, '0')}.HK`;
-  return stock.code.replace(/[._]/g, '-').toUpperCase();
+  if (mode === 'us') return stock.code.replace(/[._]/g, '-').toUpperCase();
+  return stock.code.toUpperCase();
 }
 
 const yahooFundamentalCache = new Map<string, { storedAt: number; data: Awaited<ReturnType<typeof getYahooFundamentalHistory>> }>();
@@ -1522,11 +1613,36 @@ function buildRegionalIndustryTemperatures(stocks: ChinaHeatmapStock[], updatedA
 
 function normalizeRegionalStockCode(mode: RegionalValuationMode, value: string) {
   if (mode === 'hongkong') return value.replace(/\D/g, '').padStart(5, '0');
+  if (mode !== 'us') return value.trim().toUpperCase();
   return value.replace(/[._-]/g, '').toUpperCase();
 }
 
+async function enrichInternationalValuationStocks(
+  mode: InternationalMarketMode,
+  stocks: ChinaHeatmapStock[],
+  sampleCodes: readonly string[],
+) {
+  const wanted = new Set(sampleCodes.map((code) => normalizeRegionalStockCode(mode, code)));
+  const settled = await Promise.allSettled(stocks.map(async (stock) => {
+    if (!wanted.has(normalizeRegionalStockCode(mode, stock.code))) return stock;
+    const history = await getCachedYahooFundamentalHistory(yahooSymbolForStock(mode, stock));
+    const latest = history.fundamentals.at(-1);
+    if (!latest || latest.shares <= 0 || latest.equity <= 0) return stock;
+    const bookValuePerShare = latest.equity / latest.shares;
+    const earningsPerShare = latest.netIncome && latest.netIncome > 0 ? latest.netIncome / latest.shares : undefined;
+    return {
+      ...stock,
+      pb: bookValuePerShare > 0 ? stock.price / bookValuePerShare : undefined,
+      pe: earningsPerShare && earningsPerShare > 0 ? stock.price / earningsPerShare : undefined,
+    };
+  }));
+  return settled.map((result, index) => result.status === 'fulfilled' ? result.value : stocks[index]);
+}
+
 async function getRegionalIndexPerformance(indexConfig: RegionalIndexValuationConfig) {
-  const eastMoneyResult = await getEastMoneyIndexPerformance(indexConfig.secid);
+  const eastMoneyResult = indexConfig.secid
+    ? await getEastMoneyIndexPerformance(indexConfig.secid).catch(() => ({ url: indexConfig.officialUrl, points: [] as YahooPricePoint[] }))
+    : { url: indexConfig.officialUrl, points: [] as YahooPricePoint[] };
   if (eastMoneyResult.points.length >= 250 || !indexConfig.yahooSymbol) return eastMoneyResult;
 
   const encoded = encodeURIComponent(indexConfig.yahooSymbol);
@@ -1553,7 +1669,7 @@ async function buildRegionalIndexValuation(
   stocks: ChinaHeatmapStock[],
 ) {
   const eligibleStocks = stocks
-    .filter((stock) => stock.marketCap > 0 && stock.pe && stock.pe > 0 && stock.pb && stock.pb > 0)
+    .filter((stock) => stock.marketCap > 0)
     .sort((left, right) => right.marketCap - left.marketCap);
   const stocksByCode = new Map(eligibleStocks.map((stock) => [normalizeRegionalStockCode(mode, stock.code), stock]));
   const preferredStocks = indexConfig.sampleCodes.flatMap((code) => {
@@ -1664,9 +1780,9 @@ async function buildRegionalIndexValuation(
       updatedAt: anchorCurrent.time,
     },
     points: anchorPoints,
-    methodology: `${indexConfig.name}价格除以代表性成份股公开年报净资产所构造的加权PB代理；财报按披露后90日生效以降低前视偏差，并用东方财富当前个股PB校准最新截面。样本为 ${sampleNames}。该序列用于观察方向与历史中枢，不等同于指数公司授权PB。`,
+    methodology: `${indexConfig.name}价格除以代表性成份股公开年报净资产所构造的加权PB代理；财报按披露后90日生效以降低前视偏差，并用${mode === 'hongkong' || mode === 'us' ? '东方财富' : 'Yahoo Finance'}当前个股PB校准最新截面。样本为 ${sampleNames}。该序列用于观察方向与历史中枢，不等同于指数公司授权PB。`,
     sources: [
-      { label: `${indexConfig.name}历史行情 · 东方财富`, url: indexResult.url },
+      { label: `${indexConfig.name}历史行情 · ${mode === 'hongkong' || mode === 'us' ? '东方财富' : 'Yahoo Finance'}`, url: indexResult.url },
       { label: '公司年报财务序列 · Yahoo Finance', url: 'https://finance.yahoo.com/' },
       { label: `${indexConfig.name}官方指数页`, url: indexConfig.officialUrl },
     ],
@@ -1691,9 +1807,15 @@ async function getRegionalValuationDashboard(mode: RegionalValuationMode) {
   const config = regionalValuationConfigs[mode];
   const heatmap = mode === 'hongkong'
     ? await getCachedHongKongMarketHeatmap()
-    : await getCachedUsMarketHeatmap();
+    : mode === 'us'
+      ? await getCachedUsMarketHeatmap()
+      : await getCachedGlobalMarketHeatmap(mode);
+  const rawValuationStocks = heatmap.stocks as ChinaHeatmapStock[];
+  const valuationStocks = mode === 'hongkong' || mode === 'us'
+    ? rawValuationStocks
+    : await enrichInternationalValuationStocks(mode, rawValuationStocks, config.indices[0]?.sampleCodes || []);
   const settled = await Promise.allSettled(config.indices.map((indexConfig) => (
-    buildRegionalIndexValuation(mode, config, indexConfig, heatmap.stocks)
+    buildRegionalIndexValuation(mode, config, indexConfig, valuationStocks)
   )));
   const indexResults = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
   if (!indexResults.length) throw new Error(`${config.label}主要指数公开财务样本不足，暂时无法生成估值代理`);
@@ -1712,14 +1834,14 @@ async function getRegionalValuationDashboard(mode: RegionalValuationMode) {
     ...indexResults.slice(1).map((result) => result.chart),
   ];
   const bookValueAnchors = indexResults.map((result) => result.anchor);
-  const industries = buildRegionalIndustryTemperatures(heatmap.stocks, primary.latestTime);
+  const industries = buildRegionalIndustryTemperatures(valuationStocks, primary.latestTime);
   const sources = [...new Map(bookValueAnchors.flatMap((anchor) => anchor.sources)
     .map((source) => [source.url, source])).values()];
   return {
     market: mode,
     marketLabel: config.label,
     generatedAt: new Date().toISOString(),
-    methodology: `近500个交易日估值热度按指数分别采用代表性成份股加权PE 60% + PB 40%的历史分位；历史形态来自公开年报与指数行情，最新截面以东方财富个股PE/PB校准；行业卡片为当前横截面相对温度。覆盖 ${indexResults.length} 个主要指数，属于公开样本代理，不是交易所授权指数估值。`,
+    methodology: `近500个交易日估值热度按指数分别采用代表性成份股加权PE 60% + PB 40%的历史分位；历史形态来自公开年报与指数行情，最新截面以${mode === 'hongkong' || mode === 'us' ? '东方财富' : 'Yahoo Finance'}个股PE/PB校准；行业卡片为当前横截面相对温度。覆盖 ${indexResults.length} 个主要指数，属于公开样本代理，不是交易所授权指数估值。`,
     periodLabel: '近 500 个交易日',
     sources,
     overall: { ...overallWithHistory, history: undefined },
@@ -2390,7 +2512,7 @@ async function getBitcoinCycleHistory() {
   };
 }
 
-const regionalContentQueries: Record<RegionalValuationMode, { news: string; research: string }> = {
+const regionalContentQueries: Record<RegionalContentMode, { news: string; research: string }> = {
   hongkong: {
     news: '港股 OR 恒生指数 OR 恒生科技 市场',
     research: '港股 券商 研报 OR 评级 OR 目标价',
@@ -2441,7 +2563,7 @@ function inferPublicRating(title: string) {
   return '公开研究';
 }
 
-function officialRegionalReports(mode: RegionalValuationMode): ResearchReport[] {
+function officialRegionalReports(mode: RegionalContentMode): ResearchReport[] {
   if (mode === 'hongkong') {
     return [
       {
@@ -2470,7 +2592,7 @@ function officialRegionalReports(mode: RegionalValuationMode): ResearchReport[] 
   ];
 }
 
-async function getRegionalMarketContent(mode: RegionalValuationMode) {
+async function getRegionalMarketContent(mode: RegionalContentMode) {
   const queries = regionalContentQueries[mode];
   const newsUrl = googleNewsRssUrl(queries.news);
   const researchUrl = googleNewsRssUrl(queries.research);
@@ -2508,7 +2630,7 @@ async function getRegionalMarketContent(mode: RegionalValuationMode) {
   };
 }
 
-async function resolveRegionalStock(mode: RegionalValuationMode, query: string) {
+async function resolveRegionalStock(mode: RegionalContentMode, query: string) {
   const heatmap = mode === 'hongkong'
     ? await getCachedHongKongMarketHeatmap()
     : await getCachedUsMarketHeatmap();
@@ -2520,7 +2642,7 @@ async function resolveRegionalStock(mode: RegionalValuationMode, query: string) 
   ));
 }
 
-async function getInstitutionRating(mode: RegionalValuationMode, rawQuery: string) {
+async function getInstitutionRating(mode: RegionalContentMode, rawQuery: string) {
   const query = rawQuery.trim();
   if (!query) throw new Error('请输入股票代码或公司名称');
   const stock = await resolveRegionalStock(mode, query);
@@ -2878,8 +3000,8 @@ let chinaValuationCache: { storedAt: number; data: Awaited<ReturnType<typeof get
 let chinaValuationInFlight: Promise<Awaited<ReturnType<typeof getChinaValuationDashboard>>> | undefined;
 const regionalValuationCache = new Map<RegionalValuationMode, { storedAt: number; data: Awaited<ReturnType<typeof getRegionalValuationDashboard>> }>();
 const regionalValuationInFlight = new Map<RegionalValuationMode, Promise<Awaited<ReturnType<typeof getRegionalValuationDashboard>>>>();
-const regionalContentCache = new Map<RegionalValuationMode, { storedAt: number; data: Awaited<ReturnType<typeof getRegionalMarketContent>> }>();
-const regionalContentInFlight = new Map<RegionalValuationMode, Promise<Awaited<ReturnType<typeof getRegionalMarketContent>>>>();
+const regionalContentCache = new Map<RegionalContentMode, { storedAt: number; data: Awaited<ReturnType<typeof getRegionalMarketContent>> }>();
+const regionalContentInFlight = new Map<RegionalContentMode, Promise<Awaited<ReturnType<typeof getRegionalMarketContent>>>>();
 let usMarketSystemCache: {
   storedAt: number;
   data: { state: 'normal' | 'halted' | 'unknown'; message: string; updatedAt: string; sourceUrl: string };
@@ -3000,7 +3122,7 @@ async function getCachedRegionalValuationDashboard(mode: RegionalValuationMode) 
   return request;
 }
 
-async function getCachedRegionalMarketContent(mode: RegionalValuationMode) {
+async function getCachedRegionalMarketContent(mode: RegionalContentMode) {
   const cached = regionalContentCache.get(mode);
   if (cached && Date.now() - cached.storedAt < 10 * 60_000) return cached.data;
   const running = regionalContentInFlight.get(mode);
@@ -3016,36 +3138,58 @@ async function getCachedRegionalMarketContent(mode: RegionalValuationMode) {
 }
 
 type GlobalMacroRegion = 'global' | 'apac' | 'middleEast' | 'europe' | 'americas';
+type InternationalMarketMode = 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk';
+type FullMarketMode = 'china' | 'hongkong' | 'us' | 'crypto' | InternationalMarketMode;
 
 type GlobalMacroQuoteConfig = {
   id: string;
   name: string;
   symbol: string;
-  market?: 'china' | 'hongkong' | 'us' | 'crypto';
+  market?: FullMarketMode;
   region: Exclude<GlobalMacroRegion, 'global'>;
   latitude: number;
   longitude: number;
   timezone: string;
   sessions: Array<[number, number]>;
+  /** JavaScript weekday numbers in the exchange's local calendar (0 = Sunday). */
+  tradingWeekdays?: number[];
+  /** Full-day exchange closures in YYYY-MM-DD exchange-local format. */
+  closedDates?: string[];
 };
 
 const globalMacroQuotes: GlobalMacroQuoteConfig[] = [
   { id: 'china', name: '上证综指', symbol: '000001.SS', market: 'china', region: 'apac', latitude: 31.23824, longitude: 121.50668, timezone: 'Asia/Shanghai', sessions: [[9.5, 11.5], [13, 15]] },
   { id: 'hongkong', name: '恒生指数', symbol: '^HSI', market: 'hongkong', region: 'apac', latitude: 22.28389, longitude: 114.15823, timezone: 'Asia/Hong_Kong', sessions: [[9.5, 12], [13, 16]] },
-  { id: 'japan', name: '日经225', symbol: '^N225', region: 'apac', latitude: 35.6826, longitude: 139.7788, timezone: 'Asia/Tokyo', sessions: [[9, 11.5], [12.5, 15.5]] },
-  { id: 'korea', name: '韩国KOSPI', symbol: '^KS11', region: 'apac', latitude: 37.5236, longitude: 126.92714, timezone: 'Asia/Seoul', sessions: [[9, 15.5]] },
-  { id: 'india', name: '印度NIFTY 50', symbol: '^NSEI', region: 'apac', latitude: 19.0602, longitude: 72.85978, timezone: 'Asia/Kolkata', sessions: [[9.25, 15.5]] },
+  { id: 'japan', name: '日经225', symbol: '^N225', market: 'japan', region: 'apac', latitude: 35.6826, longitude: 139.7788, timezone: 'Asia/Tokyo', sessions: [[9, 11.5], [12.5, 15.5]] },
+  { id: 'korea', name: '韩国KOSPI', symbol: '^KS11', market: 'korea', region: 'apac', latitude: 37.5236, longitude: 126.92714, timezone: 'Asia/Seoul', sessions: [[9, 15.5]] },
+  { id: 'india', name: '印度NIFTY 50', symbol: '^NSEI', market: 'india', region: 'apac', latitude: 19.0602, longitude: 72.85978, timezone: 'Asia/Kolkata', sessions: [[9.25, 15.5]] },
   { id: 'australia', name: '澳洲ASX 200', symbol: '^AXJO', region: 'apac', latitude: -33.8679, longitude: 151.21016, timezone: 'Australia/Sydney', sessions: [[10, 16]] },
   { id: 'us', name: '标普500', symbol: '^GSPC', market: 'us', region: 'americas', latitude: 40.70707, longitude: -74.01118, timezone: 'America/New_York', sessions: [[9.5, 16]] },
   { id: 'nasdaq', name: '纳斯达克综指', symbol: '^IXIC', market: 'us', region: 'americas', latitude: 40.75628, longitude: -73.98586, timezone: 'America/New_York', sessions: [[9.5, 16]] },
   { id: 'vix', name: 'CBOE VIX', symbol: '^VIX', market: 'us', region: 'americas', latitude: 41.87662, longitude: -87.63954, timezone: 'America/Chicago', sessions: [[8.5, 15]] },
   { id: 'euro', name: 'Euro Stoxx 50', symbol: '^STOXX50E', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]] },
-  { id: 'germany', name: '德国DAX', symbol: '^GDAXI', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]] },
-  { id: 'france', name: '法国CAC 40', symbol: '^FCHI', region: 'europe', latitude: 48.89063, longitude: 2.24669, timezone: 'Europe/Paris', sessions: [[9, 17.5]] },
-  { id: 'uk', name: '富时100', symbol: '^FTSE', region: 'europe', latitude: 51.51504, longitude: -0.09908, timezone: 'Europe/London', sessions: [[8, 16.5]] },
+  { id: 'germany', name: '德国DAX', symbol: '^GDAXI', market: 'germany', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]] },
+  { id: 'france', name: '法国CAC 40', symbol: '^FCHI', market: 'france', region: 'europe', latitude: 48.89063, longitude: 2.24669, timezone: 'Europe/Paris', sessions: [[9, 17.5]] },
+  { id: 'uk', name: '富时100', symbol: '^FTSE', market: 'uk', region: 'europe', latitude: 51.51504, longitude: -0.09908, timezone: 'Europe/London', sessions: [[8, 16.5]] },
   { id: 'russia', name: '俄罗斯RTS', symbol: 'RTSI.ME', region: 'europe', latitude: 55.75583, longitude: 37.6173, timezone: 'Europe/Moscow', sessions: [[10, 18.75]] },
-  { id: 'saudi', name: '沙特TASI', symbol: '^TASI.SR', region: 'middleEast', latitude: 24.68695, longitude: 46.68538, timezone: 'Asia/Riyadh', sessions: [[10, 15]] },
-  { id: 'israel', name: '以色列TA-35', symbol: 'TA35.TA', region: 'middleEast', latitude: 32.06519, longitude: 34.77099, timezone: 'Asia/Jerusalem', sessions: [[9.75, 17.25]] },
+  {
+    id: 'saudi',
+    name: '沙特TASI',
+    symbol: '^TASI.SR',
+    region: 'middleEast',
+    latitude: 24.68695,
+    longitude: 46.68538,
+    timezone: 'Asia/Riyadh',
+    sessions: [[10, 15]],
+    tradingWeekdays: [0, 1, 2, 3, 4],
+    closedDates: [
+      '2026-02-22',
+      '2026-03-17', '2026-03-18', '2026-03-19', '2026-03-20', '2026-03-21', '2026-03-22', '2026-03-23',
+      '2026-05-24', '2026-05-25', '2026-05-26', '2026-05-27', '2026-05-28', '2026-05-29', '2026-05-30',
+      '2026-09-23',
+    ],
+  },
+  { id: 'israel', name: '以色列TA-35', symbol: 'TA35.TA', region: 'middleEast', latitude: 32.06519, longitude: 34.77099, timezone: 'Asia/Jerusalem', sessions: [[9.75, 17.25]], tradingWeekdays: [1, 2, 3, 4, 5] },
   { id: 'south-africa', name: '南非JSE Top 40', symbol: '^J200.JO', region: 'middleEast', latitude: -26.1029, longitude: 28.05761, timezone: 'Africa/Johannesburg', sessions: [[9, 17]] },
   { id: 'nigeria', name: '尼日利亚NGX全股', symbol: 'NGX:ASI', region: 'middleEast', latitude: 6.44831, longitude: 3.3899, timezone: 'Africa/Lagos', sessions: [[9.5, 14.5]] },
   { id: 'latin-america', name: 'MSCI拉美（ETF代理）', symbol: 'LTAM.AS', region: 'americas', latitude: -23.5456, longitude: -46.634, timezone: 'America/Sao_Paulo', sessions: [[10, 17]] },
@@ -3072,6 +3216,429 @@ const globalMacroTickerConfigs = [
   { id: 'vix', sourceId: 'vix', name: '芝加哥VIX', symbol: 'VIX' },
 ] as const;
 
+type InternationalIndexConfig = {
+  id: string;
+  code: string;
+  name: string;
+  symbol: string;
+  region: string;
+  proxyFor?: string;
+};
+
+const internationalIndexConfigs: Record<InternationalMarketMode, InternationalIndexConfig[]> = {
+  japan: [
+    { id: 'nikkei225', code: 'N225', name: '日经225', symbol: '^N225', region: 'JP' },
+    { id: 'topix', code: 'TOPIX', name: '东证指数', symbol: '1306.T', region: 'JP' },
+    { id: 'jpx400', code: 'JPX400', name: 'JPX日经400', symbol: '1591.T', region: 'JP', proxyFor: 'JPX日经400 ETF' },
+    { id: 'nikkei-etf', code: '1321', name: '日经225 ETF', symbol: '1321.T', region: 'JP' },
+  ],
+  korea: [
+    { id: 'kospi', code: 'KS11', name: '韩国KOSPI', symbol: '^KS11', region: 'KR' },
+    { id: 'kosdaq', code: 'KQ11', name: '韩国KOSDAQ', symbol: '^KQ11', region: 'KR' },
+    { id: 'kospi200', code: 'KS200', name: 'KOSPI 200', symbol: '^KS200', region: 'KR' },
+    { id: 'kospi200-etf', code: '069500', name: 'KOSPI 200 ETF', symbol: '069500.KS', region: 'KR' },
+  ],
+  india: [
+    { id: 'nifty50', code: 'NSEI', name: '印度NIFTY 50', symbol: '^NSEI', region: 'IN' },
+    { id: 'sensex', code: 'BSESN', name: '孟买SENSEX', symbol: '^BSESN', region: 'IN' },
+    { id: 'niftybank', code: 'NSEBANK', name: 'NIFTY银行', symbol: '^NSEBANK', region: 'IN' },
+    { id: 'niftyit', code: 'CNXIT', name: 'NIFTY信息技术', symbol: '^CNXIT', region: 'IN' },
+  ],
+  germany: [
+    { id: 'dax', code: 'DAX', name: '德国DAX', symbol: '^GDAXI', region: 'DE' },
+    { id: 'mdax', code: 'MDAX', name: '德国MDAX', symbol: '^MDAXI', region: 'DE' },
+    { id: 'tecdax', code: 'TECDAX', name: '德国TecDAX', symbol: '^TECDAX', region: 'DE' },
+    { id: 'sdax', code: 'SDAX', name: '德国SDAX', symbol: '^SDAXI', region: 'DE' },
+  ],
+  france: [
+    { id: 'cac40', code: 'CAC40', name: '法国CAC 40', symbol: '^FCHI', region: 'FR' },
+    { id: 'sbf120', code: 'SBF120', name: '法国SBF 120', symbol: '^SBF120', region: 'FR' },
+    { id: 'cac-next20', code: 'CACNEXT20', name: 'CAC Next 20', symbol: '^CN20', region: 'FR' },
+    { id: 'france-etf', code: 'EWQ', name: '法国市场ETF', symbol: 'EWQ', region: 'FR', proxyFor: 'MSCI France ETF' },
+  ],
+  uk: [
+    { id: 'ftse100', code: 'FTSE100', name: '英国富时100', symbol: '^FTSE', region: 'GB' },
+    { id: 'ftse250', code: 'FTSE250', name: '英国富时250', symbol: '^FTMC', region: 'GB' },
+    { id: 'ftse-allshare', code: 'FTAS', name: '富时全股指数', symbol: '^FTAS', region: 'GB' },
+    { id: 'uk-etf', code: 'EWU', name: '英国市场ETF', symbol: 'EWU', region: 'GB', proxyFor: 'MSCI United Kingdom ETF' },
+  ],
+};
+
+const internationalOverviewCache = new Map<InternationalMarketMode, { storedAt: number; data: unknown }>();
+const internationalOverviewInFlight = new Map<InternationalMarketMode, Promise<unknown>>();
+
+type NormalizedInternationalQuote = {
+  symbol: string;
+  price: number;
+  previousClose: number;
+  change: number;
+  changePercent: number;
+  updatedAt: string;
+  marketState: string;
+  provider: string;
+  sourceUrl: string;
+  marketCap?: number;
+};
+
+function naverKoreaStockCode(symbol: string) {
+  return symbol.replace(/\.K[QS]$/i, '');
+}
+
+function naverPollingTimestamp(value: unknown) {
+  const timestamp = asFiniteNumber(value);
+  return timestamp && timestamp > 1_000_000_000_000
+    ? new Date(timestamp).toISOString()
+    : new Date().toISOString();
+}
+
+async function getNaverKoreaStockQuotes(symbols: readonly string[]) {
+  const codes = [...new Set(symbols.map(naverKoreaStockCode).filter(Boolean))];
+  if (!codes.length) return new Map<string, NormalizedInternationalQuote>();
+  const search = new URLSearchParams({ query: `SERVICE_ITEM:${codes.join(',')}` });
+  const requestUrl = `https://polling.finance.naver.com/api/realtime?${search.toString()}`;
+  const payload = JSON.parse(await fetchFastMarketText(requestUrl, 5_000)) as Record<string, any>;
+  const area = Array.isArray(payload?.result?.areas)
+    ? payload.result.areas.find((item: Record<string, unknown>) => item?.name === 'SERVICE_ITEM')
+    : undefined;
+  const rows = Array.isArray(area?.datas) ? area.datas as Array<Record<string, unknown>> : [];
+  const updatedAt = naverPollingTimestamp(payload?.result?.time);
+  return new Map(rows.flatMap((row): Array<[string, NormalizedInternationalQuote]> => {
+    const code = String(row.cd || '').trim();
+    const price = asFiniteNumber(row.nv);
+    const previousClose = asFiniteNumber(row.pcv ?? row.sv);
+    if (!code || price === undefined || previousClose === undefined || previousClose <= 0) return [];
+    const listedShares = asFiniteNumber(row.countOfListedStock);
+    const change = price - previousClose;
+    return [[`${code}.KS`, {
+      symbol: `${code}.KS`,
+      price,
+      previousClose,
+      change,
+      changePercent: change / previousClose * 100,
+      updatedAt,
+      marketState: String(row.ms || 'UNKNOWN'),
+      provider: 'Naver Finance · KRX 常规盘',
+      sourceUrl: `https://finance.naver.com/item/main.naver?code=${encodeURIComponent(code)}`,
+      marketCap: listedShares && listedShares > 0 ? price * listedShares : undefined,
+    }]];
+  }));
+}
+
+const naverKoreaIndexCodes: Record<string, string> = {
+  kospi: 'KOSPI',
+  kosdaq: 'KOSDAQ',
+  kospi200: 'KPI200',
+};
+
+async function getNaverKoreaIndexQuote(config: InternationalIndexConfig): Promise<NormalizedInternationalQuote> {
+  if (config.id === 'kospi200-etf') {
+    const quote = (await getNaverKoreaStockQuotes([config.symbol])).get(config.symbol);
+    if (!quote) throw new Error(`${config.name} 行情暂时不可用`);
+    return quote;
+  }
+  const naverCode = naverKoreaIndexCodes[config.id];
+  if (!naverCode) throw new Error(`${config.name} 暂无韩国常规盘适配器`);
+  const search = new URLSearchParams({ query: `SERVICE_INDEX:${naverCode}` });
+  const requestUrl = `https://polling.finance.naver.com/api/realtime?${search.toString()}`;
+  const payload = JSON.parse(await fetchFastMarketText(requestUrl, 5_000)) as Record<string, any>;
+  const area = Array.isArray(payload?.result?.areas)
+    ? payload.result.areas.find((item: Record<string, unknown>) => item?.name === 'SERVICE_INDEX')
+    : undefined;
+  const row = Array.isArray(area?.datas) ? area.datas[0] as Record<string, any> : undefined;
+  const priceRaw = asFiniteNumber(row?.nv);
+  const price = priceRaw === undefined ? undefined : priceRaw / 100;
+  const absoluteChange = Math.abs((asFiniteNumber(row?.cv) ?? 0) / 100);
+  const directionCode = String(row?.rf || '3');
+  const direction = directionCode === '5' ? 'FALLING' : directionCode === '2' ? 'RISING' : 'UNCHANGED';
+  const change = direction === 'FALLING' ? -absoluteChange : direction === 'RISING' ? absoluteChange : 0;
+  const previousClose = price === undefined ? undefined : price - change;
+  if (price === undefined || previousClose === undefined || previousClose <= 0) throw new Error(`${config.name} 行情暂时不可用`);
+  return {
+    symbol: config.symbol,
+    price,
+    previousClose,
+    change,
+    changePercent: change / previousClose * 100,
+    updatedAt: naverPollingTimestamp(payload?.result?.time),
+    marketState: String(row?.ms || 'UNKNOWN'),
+    provider: 'Naver Finance · KRX 常规盘',
+    sourceUrl: `https://finance.naver.com/sise/sise_index.naver?code=${encodeURIComponent(naverCode)}`,
+  };
+}
+
+type TradingViewRegionalMarket = Exclude<InternationalMarketMode, 'korea'>;
+
+type TradingViewRegionalQuote = NormalizedInternationalQuote & {
+  ticker: string;
+  currency: string;
+  exchange: string;
+  updateMode: string;
+  sourceDelaySeconds: number;
+};
+
+const tradingViewIndexTickers: Record<TradingViewRegionalMarket, Record<string, string>> = {
+  japan: {
+    nikkei225: 'TVC:NI225',
+    topix: 'TSE:TOPIX',
+    jpx400: 'TSE:1591',
+    'nikkei-etf': 'TSE:1321',
+  },
+  india: {
+    nifty50: 'NSE:NIFTY',
+    sensex: 'BSE:SENSEX',
+    niftybank: 'NSE:BANKNIFTY',
+    niftyit: 'NSE:CNXIT',
+  },
+  germany: {
+    dax: 'XETR:DAX',
+    mdax: 'XETR:MDAX',
+    tecdax: 'XETR:TDXP',
+    sdax: 'XETR:SDXP',
+  },
+  france: {
+    cac40: 'EURONEXT:PX1',
+    sbf120: 'EURONEXT:PX4',
+    'cac-next20': 'EURONEXT:CN20',
+    'france-etf': 'AMEX:EWQ',
+  },
+  uk: {
+    ftse100: 'TVC:UKX',
+    ftse250: 'FTSE:MCX',
+    'ftse-allshare': 'FTSE:ASX',
+    'uk-etf': 'AMEX:EWU',
+  },
+};
+
+function tradingViewStockTicker(market: TradingViewRegionalMarket, symbol: string) {
+  const rules: Record<TradingViewRegionalMarket, { exchange: string; suffix: string }> = {
+    japan: { exchange: 'TSE', suffix: '.T' },
+    india: { exchange: 'NSE', suffix: '.NS' },
+    germany: { exchange: 'XETR', suffix: '.DE' },
+    france: { exchange: 'EURONEXT', suffix: '.PA' },
+    uk: { exchange: 'LSE', suffix: '.L' },
+  };
+  const rule = rules[market];
+  let code = symbol.endsWith(rule.suffix) ? symbol.slice(0, -rule.suffix.length) : symbol;
+  if (market === 'uk' && ['BP', 'NG', 'RR'].includes(code)) code += '.';
+  return `${rule.exchange}:${code}`;
+}
+
+function tradingViewDelaySeconds(updateMode: string) {
+  if (updateMode === 'streaming') return 0;
+  const matched = updateMode.match(/_(\d+)$/);
+  return matched ? Number(matched[1]) : 0;
+}
+
+const tradingViewRegionalLastGood = new Map<string, TradingViewRegionalQuote>();
+
+async function getTradingViewRegionalQuotes(
+  market: TradingViewRegionalMarket,
+  tickers: readonly string[],
+  scanner: TradingViewRegionalMarket | 'global' = market,
+) {
+  const uniqueTickers = [...new Set(tickers)];
+  if (!uniqueTickers.length) return new Map<string, TradingViewRegionalQuote>();
+  const requestUrl = `https://scanner.tradingview.com/${scanner}/scan`;
+  const requestBody = JSON.stringify({
+    symbols: { tickers: uniqueTickers, query: { types: [] } },
+    columns: [
+      'name', 'description', 'close', 'change', 'change_abs', 'market_cap_basic',
+      'update_mode', 'current_session', 'timezone', 'currency', 'exchange',
+    ],
+  });
+  const host = new URL(requestUrl).host;
+  const preferredRoute = fastMarketRoutePreference.get(host) || 'direct';
+  const routes: FetchRoute[] = preferredRoute === 'direct' ? ['direct', 'proxy'] : ['proxy', 'direct'];
+  let payload: Record<string, any> | undefined;
+  let lastError: unknown;
+  for (const route of routes) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const init: RequestInit & { dispatcher?: any } = {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0 Safari/537.36',
+          Accept: 'application/json,text/plain,*/*',
+          'Content-Type': 'application/json',
+          Origin: 'https://www.tradingview.com',
+          Referer: 'https://www.tradingview.com/',
+        },
+        body: requestBody,
+      };
+      if (route === 'proxy') init.dispatcher = foreignProxyAgent;
+      const response = await fetch(requestUrl, init);
+      if (!response.ok) throw new Error(`TradingView HTTP ${response.status}`);
+      payload = await response.json() as Record<string, any>;
+      fastMarketRoutePreference.set(host, route);
+      break;
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  if (!payload) throw lastError instanceof Error ? lastError : new Error('区域行情暂时不可用');
+  const rows = Array.isArray(payload.data) ? payload.data as Array<Record<string, any>> : [];
+  const parsedQuotes = rows.flatMap((row): Array<[string, TradingViewRegionalQuote]> => {
+    const ticker = String(row.s || '');
+    const values = Array.isArray(row.d) ? row.d : [];
+    const price = asFiniteNumber(values[2]);
+    const change = asFiniteNumber(values[4]);
+    if (!ticker || price === undefined || change === undefined) return [];
+    const previousClose = price - change;
+    if (previousClose <= 0) return [];
+    const updateMode = String(values[6] || 'unknown');
+    const sourceDelaySeconds = tradingViewDelaySeconds(updateMode);
+    const exchange = String(values[10] || ticker.split(':')[0] || '');
+    return [[ticker, {
+      ticker,
+      symbol: ticker,
+      price,
+      previousClose,
+      change,
+      changePercent: change / previousClose * 100,
+      marketCap: asFiniteNumber(values[5]),
+      updatedAt: new Date(Date.now() - sourceDelaySeconds * 1000).toISOString(),
+      marketState: String(values[7] || 'UNKNOWN').toUpperCase(),
+      provider: `TradingView · ${exchange || '区域交易所'}`,
+      sourceUrl: `https://www.tradingview.com/symbols/${ticker.replace(':', '-')}/`,
+      currency: String(values[9] || ''),
+      exchange,
+      updateMode,
+      sourceDelaySeconds,
+    }]];
+  });
+  parsedQuotes.forEach(([ticker, quote]) => tradingViewRegionalLastGood.set(ticker, quote));
+  return new Map(uniqueTickers.flatMap((ticker) => {
+    const quote = tradingViewRegionalLastGood.get(ticker);
+    return quote ? [[ticker, quote] as const] : [];
+  }));
+}
+
+async function getTradingViewRegionalQuotesResilient(
+  market: TradingViewRegionalMarket,
+  tickers: readonly string[],
+  scanner: TradingViewRegionalMarket | 'global' = market,
+) {
+  const expectedCount = new Set(tickers).size;
+  let quotes = await getTradingViewRegionalQuotes(market, tickers, scanner)
+    .catch(() => new Map<string, TradingViewRegionalQuote>());
+  if (quotes.size >= expectedCount) return quotes;
+  await new Promise<void>((resolve) => setTimeout(resolve, 350));
+  const retried = await getTradingViewRegionalQuotes(market, tickers, scanner)
+    .catch(() => new Map<string, TradingViewRegionalQuote>());
+  if (retried.size > quotes.size) quotes = retried;
+  return quotes;
+}
+
+async function getInternationalMarketOverview(market: InternationalMarketMode) {
+  const configs = internationalIndexConfigs[market];
+  if (market === 'korea') {
+    const settled = await Promise.allSettled(configs.map(async (config) => {
+      const quote = await getNaverKoreaIndexQuote(config);
+      return {
+        id: config.id,
+        code: config.code,
+        name: config.name,
+        region: config.region,
+        market,
+        proxyFor: config.proxyFor,
+        price: quote.price,
+        previousClose: quote.previousClose,
+        change: quote.change,
+        changePercent: quote.changePercent,
+        updatedAt: quote.updatedAt,
+        marketState: quote.marketState,
+        sourceUrl: quote.sourceUrl,
+        validation: { status: 'single-source', source: quote.provider, price: quote.price },
+      };
+    }));
+    const indices = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+    if (!indices.length) throw new Error('韩国市场指数行情暂时不可用');
+    return {
+      market,
+      generatedAt: new Date().toISOString(),
+      refreshIntervalMs: 5_000,
+      source: 'Naver Finance · KRX 常规盘',
+      quotePolicy: '仅使用韩国交易所常规盘现价与同盘口径昨收，不混入 NXT/盘后行情',
+      indices,
+    };
+  }
+  const regionalMarket = market as TradingViewRegionalMarket;
+  const regionalTickers = configs.map((config) => tradingViewIndexTickers[regionalMarket][config.id]);
+  const [regionalQuotes, yahooQuotes] = await Promise.all([
+    getTradingViewRegionalQuotesResilient(regionalMarket, regionalTickers, 'global'),
+    getYahooFastQuotes(configs.map((item) => item.symbol)),
+  ]);
+  const regionalSettled = await Promise.allSettled(configs.map(async (config) => {
+    const ticker = tradingViewIndexTickers[regionalMarket][config.id];
+    const regionalQuote = regionalQuotes.get(ticker);
+    const yahooQuote = yahooQuotes.get(config.symbol);
+    const quote = regionalQuote || yahooQuote || await getYahooMacroSnapshot(config.symbol);
+    const secondaryComparable = !(market === 'japan' && config.id === 'topix');
+    const deviationPercent = secondaryComparable && regionalQuote && yahooQuote && yahooQuote.price > 0
+      ? Math.abs(regionalQuote.price / yahooQuote.price - 1) * 100
+      : undefined;
+    const delayAwareTolerance = regionalQuote && regionalQuote.sourceDelaySeconds > 0 ? 1 : 0.35;
+    return {
+      id: config.id,
+      code: config.code,
+      name: config.name,
+      region: config.region,
+      market,
+      proxyFor: config.proxyFor,
+      price: quote.price,
+      previousClose: 'previousClose' in quote ? quote.previousClose : quote.price - quote.change,
+      change: quote.change,
+      changePercent: quote.changePercent,
+      updatedAt: quote.updatedAt,
+      marketState: 'marketState' in quote ? quote.marketState : 'REGULAR',
+      sourceDelaySeconds: 'sourceDelaySeconds' in quote ? quote.sourceDelaySeconds : undefined,
+      sourceUrl: quote.sourceUrl,
+      validation: {
+        status: deviationPercent === undefined
+          ? 'single-source'
+          : deviationPercent <= delayAwareTolerance ? 'verified' : 'review',
+        source: regionalQuote?.provider || 'Yahoo Finance Spark（降级）',
+        price: quote.price,
+        deviationPercent,
+      },
+    };
+  }));
+  const regionalIndices = regionalSettled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+  if (regionalIndices.length !== configs.length) throw new Error('该市场核心指数行情不完整，保留最近一次完整快照');
+  return {
+    market,
+    generatedAt: new Date().toISOString(),
+    refreshIntervalMs: 5_000,
+    source: 'TradingView 区域交易所行情 · Yahoo Finance 交叉校验',
+    quotePolicy: '现价、昨收和涨跌均来自同一交易时段；按数据授权明确标注实时或延迟',
+    indices: regionalIndices,
+  };
+}
+
+async function getCachedInternationalMarketOverview(market: InternationalMarketMode) {
+  const cached = internationalOverviewCache.get(market);
+  if (cached && Date.now() - cached.storedAt < 3_000) return cached.data;
+  const running = internationalOverviewInFlight.get(market);
+  if (running) return running;
+  const request = getInternationalMarketOverview(market)
+    .catch(async (error) => {
+      if (cached) return cached.data;
+      await new Promise<void>((resolve) => setTimeout(resolve, 400));
+      return getInternationalMarketOverview(market).catch(() => { throw error; });
+    })
+    .then((data) => {
+      internationalOverviewCache.set(market, { storedAt: Date.now(), data });
+      return data;
+    })
+    .finally(() => internationalOverviewInFlight.delete(market));
+  internationalOverviewInFlight.set(market, request);
+  return request;
+}
+
 const globalMacroCommodities = [
   ['wti', 'WTI原油', 'CL=F'], ['brent', '布伦特原油', 'BZ=F'], ['gas', '天然气', 'NG=F'],
   ['gold', '黄金', 'GC=F'], ['silver', '白银', 'SI=F'], ['copper', '铜', 'HG=F'],
@@ -3082,54 +3649,201 @@ type GlobalHeatmapConfig = { symbol: string; name: string; sector: string; weigh
 
 const globalHeatmapConfigs: Record<string, GlobalHeatmapConfig[]> = {
   japan: [
-    { symbol: '7203.T', name: 'Toyota', sector: 'Automotive', weight: 15 }, { symbol: '8306.T', name: 'MUFG', sector: 'Financials', weight: 11 },
-    { symbol: '6758.T', name: 'Sony', sector: 'Technology', weight: 10 }, { symbol: '6501.T', name: 'Hitachi', sector: 'Industrials', weight: 9 },
-    { symbol: '9983.T', name: 'Fast Retailing', sector: 'Consumer', weight: 9 }, { symbol: '6861.T', name: 'Keyence', sector: 'Technology', weight: 8 },
-    { symbol: '7974.T', name: 'Nintendo', sector: 'Consumer', weight: 8 }, { symbol: '9984.T', name: 'SoftBank Group', sector: 'Technology', weight: 8 },
-    { symbol: '8035.T', name: 'Tokyo Electron', sector: 'Technology', weight: 7 }, { symbol: '6098.T', name: 'Recruit', sector: 'Services', weight: 6 },
+    { symbol: '7203.T', name: '丰田汽车', sector: '汽车', weight: 15 }, { symbol: '8306.T', name: '三菱日联金融集团', sector: '金融', weight: 11 },
+    { symbol: '6758.T', name: '索尼集团', sector: '科技', weight: 10 }, { symbol: '6501.T', name: '日立制作所', sector: '工业', weight: 9 },
+    { symbol: '9983.T', name: '迅销集团（优衣库）', sector: '消费', weight: 9 }, { symbol: '6861.T', name: '基恩士', sector: '科技', weight: 8 },
+    { symbol: '7974.T', name: '任天堂', sector: '消费', weight: 8 }, { symbol: '9984.T', name: '软银集团', sector: '科技', weight: 8 },
+    { symbol: '8035.T', name: '东京电子', sector: '科技', weight: 7 }, { symbol: '6098.T', name: '瑞可利控股', sector: '服务', weight: 6 },
+    { symbol: '4063.T', name: '信越化学工业', sector: '材料', weight: 6 }, { symbol: '4519.T', name: '中外制药', sector: '医疗健康', weight: 6 },
+    { symbol: '8058.T', name: '三菱商事', sector: '综合商社', weight: 6 }, { symbol: '8316.T', name: '三井住友金融集团', sector: '金融', weight: 6 },
+    { symbol: '8766.T', name: '东京海上控股', sector: '金融', weight: 5 }, { symbol: '9432.T', name: '日本电信电话', sector: '通信', weight: 5 },
+    { symbol: '9433.T', name: 'KDDI', sector: '通信', weight: 5 }, { symbol: '6954.T', name: '发那科', sector: '工业', weight: 5 },
+    { symbol: '7267.T', name: '本田汽车', sector: '汽车', weight: 5 }, { symbol: '7741.T', name: '豪雅', sector: '医疗健康', weight: 4 },
   ],
   korea: [
-    { symbol: '005930.KS', name: 'Samsung Electronics', sector: 'Technology', weight: 20 }, { symbol: '000660.KS', name: 'SK Hynix', sector: 'Technology', weight: 14 },
-    { symbol: '373220.KS', name: 'LG Energy Solution', sector: 'Battery', weight: 10 }, { symbol: '005380.KS', name: 'Hyundai Motor', sector: 'Automotive', weight: 9 },
-    { symbol: '207940.KS', name: 'Samsung Biologics', sector: 'Healthcare', weight: 8 }, { symbol: '000270.KS', name: 'Kia', sector: 'Automotive', weight: 8 },
-    { symbol: '068270.KS', name: 'Celltrion', sector: 'Healthcare', weight: 7 }, { symbol: '105560.KS', name: 'KB Financial', sector: 'Financials', weight: 6 },
-    { symbol: '035420.KS', name: 'NAVER', sector: 'Internet', weight: 6 }, { symbol: '035720.KS', name: 'Kakao', sector: 'Internet', weight: 5 },
+    { symbol: '005930.KS', name: '三星电子', sector: '科技', weight: 20 }, { symbol: '000660.KS', name: 'SK海力士', sector: '科技', weight: 14 },
+    { symbol: '373220.KS', name: 'LG新能源', sector: '动力电池', weight: 10 }, { symbol: '005380.KS', name: '现代汽车', sector: '汽车', weight: 9 },
+    { symbol: '207940.KS', name: '三星生物制剂', sector: '医疗健康', weight: 8 }, { symbol: '000270.KS', name: '起亚汽车', sector: '汽车', weight: 8 },
+    { symbol: '068270.KS', name: '赛尔群', sector: '医疗健康', weight: 7 }, { symbol: '105560.KS', name: 'KB金融集团', sector: '金融', weight: 6 },
+    { symbol: '035420.KS', name: '韩国纳维尔', sector: '互联网', weight: 6 }, { symbol: '035720.KS', name: '卡考', sector: '互联网', weight: 5 },
+    { symbol: '006400.KS', name: '三星SDI', sector: '动力电池', weight: 5 }, { symbol: '051910.KS', name: 'LG化学', sector: '材料', weight: 5 },
+    { symbol: '055550.KS', name: '新韩金融集团', sector: '金融', weight: 5 }, { symbol: '012330.KS', name: '现代摩比斯', sector: '汽车', weight: 5 },
+    { symbol: '028260.KS', name: '三星物产', sector: '工业', weight: 4 }, { symbol: '066570.KS', name: 'LG电子', sector: '电子', weight: 4 },
+    { symbol: '003550.KS', name: 'LG集团', sector: '工业', weight: 4 }, { symbol: '323410.KS', name: 'KakaoBank', sector: '金融科技', weight: 4 },
+    { symbol: '096770.KS', name: 'SK创新', sector: '能源', weight: 4 }, { symbol: '034730.KS', name: 'SK集团', sector: '工业', weight: 4 },
   ],
   india: [
-    { symbol: 'RELIANCE.NS', name: 'Reliance', sector: 'Energy', weight: 16 }, { symbol: 'HDFCBANK.NS', name: 'HDFC Bank', sector: 'Financials', weight: 14 },
-    { symbol: 'BHARTIARTL.NS', name: 'Bharti Airtel', sector: 'Communication', weight: 11 }, { symbol: 'TCS.NS', name: 'TCS', sector: 'Technology', weight: 11 },
-    { symbol: 'ICICIBANK.NS', name: 'ICICI Bank', sector: 'Financials', weight: 10 }, { symbol: 'SBIN.NS', name: 'State Bank of India', sector: 'Financials', weight: 8 },
-    { symbol: 'INFY.NS', name: 'Infosys', sector: 'Technology', weight: 8 }, { symbol: 'LICI.NS', name: 'LIC India', sector: 'Financials', weight: 7 },
-    { symbol: 'HINDUNILVR.NS', name: 'Hindustan Unilever', sector: 'Consumer', weight: 6 }, { symbol: 'ITC.NS', name: 'ITC', sector: 'Consumer', weight: 6 },
+    { symbol: 'RELIANCE.NS', name: '信实工业', sector: '能源', weight: 16 }, { symbol: 'HDFCBANK.NS', name: 'HDFC银行', sector: '金融', weight: 14 },
+    { symbol: 'BHARTIARTL.NS', name: '巴蒂电信', sector: '通信', weight: 11 }, { symbol: 'TCS.NS', name: '塔塔咨询服务', sector: '科技', weight: 11 },
+    { symbol: 'ICICIBANK.NS', name: 'ICICI银行', sector: '金融', weight: 10 }, { symbol: 'SBIN.NS', name: '印度国家银行', sector: '金融', weight: 8 },
+    { symbol: 'INFY.NS', name: '印孚瑟斯', sector: '科技', weight: 8 }, { symbol: 'LICI.NS', name: '印度人寿保险', sector: '金融', weight: 7 },
+    { symbol: 'HINDUNILVR.NS', name: '印度联合利华', sector: '消费', weight: 6 }, { symbol: 'ITC.NS', name: 'ITC集团', sector: '消费', weight: 6 },
+    { symbol: 'LT.NS', name: '拉森特博洛', sector: '工业', weight: 6 }, { symbol: 'BAJFINANCE.NS', name: '巴贾吉金融', sector: '金融', weight: 6 },
+    { symbol: 'AXISBANK.NS', name: 'Axis银行', sector: '金融', weight: 5 }, { symbol: 'MARUTI.NS', name: '马鲁蒂铃木', sector: '汽车', weight: 5 },
+    { symbol: 'SUNPHARMA.NS', name: '太阳制药', sector: '医疗健康', weight: 5 }, { symbol: 'M&M.NS', name: '马恒达集团', sector: '汽车', weight: 5 },
+    { symbol: 'KOTAKBANK.NS', name: '柯达克银行', sector: '金融', weight: 4 }, { symbol: 'NTPC.NS', name: '印度国家电力', sector: '公用事业', weight: 4 },
+    { symbol: 'TITAN.NS', name: '泰坦公司', sector: '消费', weight: 4 }, { symbol: 'ONGC.NS', name: '印度石油天然气公司', sector: '能源', weight: 4 },
   ],
   australia: [
-    { symbol: 'BHP.AX', name: 'BHP', sector: 'Materials', weight: 17 }, { symbol: 'CBA.AX', name: 'Commonwealth Bank', sector: 'Financials', weight: 16 },
-    { symbol: 'CSL.AX', name: 'CSL', sector: 'Healthcare', weight: 10 }, { symbol: 'NAB.AX', name: 'National Australia Bank', sector: 'Financials', weight: 9 },
-    { symbol: 'WBC.AX', name: 'Westpac', sector: 'Financials', weight: 8 }, { symbol: 'ANZ.AX', name: 'ANZ Group', sector: 'Financials', weight: 8 },
-    { symbol: 'WES.AX', name: 'Wesfarmers', sector: 'Consumer', weight: 7 }, { symbol: 'MQG.AX', name: 'Macquarie Group', sector: 'Financials', weight: 7 },
-    { symbol: 'GMG.AX', name: 'Goodman Group', sector: 'Real Estate', weight: 6 }, { symbol: 'RIO.AX', name: 'Rio Tinto', sector: 'Materials', weight: 6 },
+    { symbol: 'BHP.AX', name: '必和必拓', sector: '材料', weight: 17 }, { symbol: 'CBA.AX', name: '澳大利亚联邦银行', sector: '金融', weight: 16 },
+    { symbol: 'CSL.AX', name: 'CSL生物', sector: '医疗健康', weight: 10 }, { symbol: 'NAB.AX', name: '澳洲国民银行', sector: '金融', weight: 9 },
+    { symbol: 'WBC.AX', name: '西太平洋银行', sector: '金融', weight: 8 }, { symbol: 'ANZ.AX', name: '澳新银行集团', sector: '金融', weight: 8 },
+    { symbol: 'WES.AX', name: '西农集团', sector: '消费', weight: 7 }, { symbol: 'MQG.AX', name: '麦格理集团', sector: '金融', weight: 7 },
+    { symbol: 'GMG.AX', name: '嘉民集团', sector: '房地产', weight: 6 }, { symbol: 'RIO.AX', name: '力拓', sector: '材料', weight: 6 },
   ],
   euro: [
-    { symbol: 'ASML.AS', name: 'ASML', sector: 'Technology', weight: 17 }, { symbol: 'SAP.DE', name: 'SAP', sector: 'Technology', weight: 14 },
-    { symbol: 'MC.PA', name: 'LVMH', sector: 'Consumer', weight: 12 }, { symbol: 'NOVO-B.CO', name: 'Novo Nordisk', sector: 'Healthcare', weight: 11 },
-    { symbol: 'OR.PA', name: "L'Oreal", sector: 'Consumer', weight: 8 }, { symbol: 'SIE.DE', name: 'Siemens', sector: 'Industrials', weight: 8 },
-    { symbol: 'TTE.PA', name: 'TotalEnergies', sector: 'Energy', weight: 8 }, { symbol: 'AIR.PA', name: 'Airbus', sector: 'Industrials', weight: 7 },
-    { symbol: 'RMS.PA', name: 'Hermes', sector: 'Consumer', weight: 6 }, { symbol: 'SU.PA', name: 'Schneider Electric', sector: 'Industrials', weight: 6 },
+    { symbol: 'ASML.AS', name: '阿斯麦', sector: '科技', weight: 17 }, { symbol: 'SAP.DE', name: '思爱普', sector: '科技', weight: 14 },
+    { symbol: 'MC.PA', name: '路威酩轩', sector: '消费', weight: 12 }, { symbol: 'NOVO-B.CO', name: '诺和诺德', sector: '医疗健康', weight: 11 },
+    { symbol: 'OR.PA', name: '欧莱雅', sector: '消费', weight: 8 }, { symbol: 'SIE.DE', name: '西门子', sector: '工业', weight: 8 },
+    { symbol: 'TTE.PA', name: '道达尔能源', sector: '能源', weight: 8 }, { symbol: 'AIR.PA', name: '空中客车', sector: '工业', weight: 7 },
+    { symbol: 'RMS.PA', name: '爱马仕', sector: '消费', weight: 6 }, { symbol: 'SU.PA', name: '施耐德电气', sector: '工业', weight: 6 },
+  ],
+  germany: [
+    { symbol: 'SAP.DE', name: '思爱普', sector: '科技', weight: 16 }, { symbol: 'SIE.DE', name: '西门子', sector: '工业', weight: 13 },
+    { symbol: 'ALV.DE', name: '安联保险', sector: '金融', weight: 12 }, { symbol: 'DTE.DE', name: '德国电信', sector: '通信', weight: 10 },
+    { symbol: 'AIR.DE', name: '空中客车', sector: '工业', weight: 9 }, { symbol: 'BAS.DE', name: '巴斯夫', sector: '材料', weight: 8 },
+    { symbol: 'BMW.DE', name: '宝马集团', sector: '汽车', weight: 8 }, { symbol: 'MBG.DE', name: '梅赛德斯-奔驰', sector: '汽车', weight: 8 },
+    { symbol: 'MUV2.DE', name: '慕尼黑再保险', sector: '金融', weight: 8 }, { symbol: 'IFX.DE', name: '英飞凌', sector: '科技', weight: 8 },
+    { symbol: 'VOW3.DE', name: '大众汽车', sector: '汽车', weight: 6 }, { symbol: 'ADS.DE', name: '阿迪达斯', sector: '消费', weight: 6 },
+    { symbol: 'DBK.DE', name: '德意志银行', sector: '金融', weight: 5 }, { symbol: 'RHM.DE', name: '莱茵金属', sector: '工业', weight: 5 },
+    { symbol: 'HEN3.DE', name: '汉高', sector: '消费', weight: 5 }, { symbol: 'BEI.DE', name: '拜尔斯道夫', sector: '消费', weight: 4 },
+    { symbol: 'CON.DE', name: '大陆集团', sector: '汽车', weight: 4 }, { symbol: 'BAYN.DE', name: '拜耳', sector: '医疗健康', weight: 4 },
+    { symbol: 'EOAN.DE', name: '意昂集团', sector: '公用事业', weight: 4 }, { symbol: 'MRK.DE', name: '默克集团', sector: '医疗健康', weight: 4 },
+  ],
+  france: [
+    { symbol: 'MC.PA', name: '路威酩轩', sector: '消费', weight: 15 }, { symbol: 'OR.PA', name: '欧莱雅', sector: '消费', weight: 12 },
+    { symbol: 'TTE.PA', name: '道达尔能源', sector: '能源', weight: 11 }, { symbol: 'AIR.PA', name: '空中客车', sector: '工业', weight: 11 },
+    { symbol: 'RMS.PA', name: '爱马仕', sector: '消费', weight: 10 }, { symbol: 'SU.PA', name: '施耐德电气', sector: '工业', weight: 10 },
+    { symbol: 'SAN.PA', name: '赛诺菲', sector: '医疗健康', weight: 9 }, { symbol: 'BNP.PA', name: '法国巴黎银行', sector: '金融', weight: 8 },
+    { symbol: 'CS.PA', name: '安盛集团', sector: '金融', weight: 7 }, { symbol: 'EL.PA', name: '依视路陆逊梯卡', sector: '医疗健康', weight: 7 },
+    { symbol: 'AI.PA', name: '液化空气集团', sector: '材料', weight: 6 }, { symbol: 'SAF.PA', name: '赛峰集团', sector: '工业', weight: 6 },
+    { symbol: 'DG.PA', name: '万喜集团', sector: '工业', weight: 5 }, { symbol: 'ENGI.PA', name: '法国能源集团', sector: '公用事业', weight: 5 },
+    { symbol: 'ACA.PA', name: '法国农业信贷银行', sector: '金融', weight: 5 }, { symbol: 'CAP.PA', name: '凯捷集团', sector: '科技', weight: 4 },
+    { symbol: 'RI.PA', name: '保乐力加', sector: '消费', weight: 4 }, { symbol: 'DSY.PA', name: '达索系统', sector: '科技', weight: 4 },
+    { symbol: 'KER.PA', name: '开云集团', sector: '消费', weight: 4 }, { symbol: 'HO.PA', name: '泰雷兹集团', sector: '工业', weight: 4 },
   ],
   uk: [
-    { symbol: 'SHEL.L', name: 'Shell', sector: 'Energy', weight: 16 }, { symbol: 'AZN.L', name: 'AstraZeneca', sector: 'Healthcare', weight: 14 },
-    { symbol: 'HSBA.L', name: 'HSBC', sector: 'Financials', weight: 13 }, { symbol: 'ULVR.L', name: 'Unilever', sector: 'Consumer', weight: 10 },
-    { symbol: 'BP.L', name: 'BP', sector: 'Energy', weight: 9 }, { symbol: 'GSK.L', name: 'GSK', sector: 'Healthcare', weight: 8 },
-    { symbol: 'BATS.L', name: 'British American Tobacco', sector: 'Consumer', weight: 7 }, { symbol: 'REL.L', name: 'RELX', sector: 'Services', weight: 7 },
-    { symbol: 'RIO.L', name: 'Rio Tinto', sector: 'Materials', weight: 6 }, { symbol: 'LSEG.L', name: 'London Stock Exchange', sector: 'Financials', weight: 6 },
+    { symbol: 'SHEL.L', name: '壳牌', sector: '能源', weight: 16 }, { symbol: 'AZN.L', name: '阿斯利康', sector: '医疗健康', weight: 14 },
+    { symbol: 'HSBA.L', name: '汇丰控股', sector: '金融', weight: 13 }, { symbol: 'ULVR.L', name: '联合利华', sector: '消费', weight: 10 },
+    { symbol: 'BP.L', name: '英国石油', sector: '能源', weight: 9 }, { symbol: 'GSK.L', name: '葛兰素史克', sector: '医疗健康', weight: 8 },
+    { symbol: 'BATS.L', name: '英美烟草', sector: '消费', weight: 7 }, { symbol: 'REL.L', name: '励讯集团', sector: '服务', weight: 7 },
+    { symbol: 'RIO.L', name: '力拓', sector: '材料', weight: 6 }, { symbol: 'LSEG.L', name: '伦敦证券交易所集团', sector: '金融', weight: 6 },
+    { symbol: 'DGE.L', name: '帝亚吉欧', sector: '消费', weight: 5 }, { symbol: 'GLEN.L', name: '嘉能可', sector: '材料', weight: 5 },
+    { symbol: 'NG.L', name: '英国国家电网', sector: '公用事业', weight: 5 }, { symbol: 'RR.L', name: '劳斯莱斯控股', sector: '工业', weight: 5 },
+    { symbol: 'BARC.L', name: '巴克莱银行', sector: '金融', weight: 4 }, { symbol: 'NWG.L', name: '国民西敏集团', sector: '金融', weight: 4 },
+    { symbol: 'LLOY.L', name: '劳埃德银行集团', sector: '金融', weight: 4 }, { symbol: 'AAL.L', name: '英美资源集团', sector: '材料', weight: 4 },
+    { symbol: 'PRU.L', name: '保诚集团', sector: '金融', weight: 4 }, { symbol: 'VOD.L', name: '沃达丰', sector: '通信', weight: 4 },
   ],
   saudi: [
-    { symbol: '2222.SR', name: 'Saudi Aramco', sector: 'Energy', weight: 22 }, { symbol: '1120.SR', name: 'Al Rajhi Bank', sector: 'Financials', weight: 16 },
-    { symbol: '2010.SR', name: 'SABIC', sector: 'Materials', weight: 11 }, { symbol: '1180.SR', name: 'Saudi National Bank', sector: 'Financials', weight: 10 },
-    { symbol: '7010.SR', name: 'STC', sector: 'Communication', weight: 9 }, { symbol: '1211.SR', name: "Ma'aden", sector: 'Materials', weight: 8 },
-    { symbol: '1010.SR', name: 'Riyad Bank', sector: 'Financials', weight: 7 }, { symbol: '2280.SR', name: 'Almarai', sector: 'Consumer', weight: 6 },
-    { symbol: '7020.SR', name: 'Mobily', sector: 'Communication', weight: 5 }, { symbol: '7203.SR', name: 'Elm', sector: 'Technology', weight: 5 },
+    { symbol: '2222.SR', name: '沙特阿美', sector: '能源', weight: 22 }, { symbol: '1120.SR', name: '拉吉希银行', sector: '金融', weight: 16 },
+    { symbol: '2010.SR', name: '沙特基础工业', sector: '材料', weight: 11 }, { symbol: '1180.SR', name: '沙特国家银行', sector: '金融', weight: 10 },
+    { symbol: '7010.SR', name: '沙特电信', sector: '通信', weight: 9 }, { symbol: '1211.SR', name: '马阿登矿业', sector: '材料', weight: 8 },
+    { symbol: '1010.SR', name: '利雅得银行', sector: '金融', weight: 7 }, { symbol: '2280.SR', name: '阿尔玛瑞乳业', sector: '消费', weight: 6 },
+    { symbol: '7020.SR', name: '莫比利电信', sector: '通信', weight: 5 }, { symbol: '7203.SR', name: '埃尔姆', sector: '科技', weight: 5 },
   ],
+};
+
+const globalHeatmapLogoDomains: Record<string, string> = {
+  '7203.T': 'toyota-global.com',
+  '8306.T': 'mufg.jp',
+  '6758.T': 'sony.com',
+  '6501.T': 'hitachi.com',
+  '9983.T': 'fastretailing.com',
+  '6861.T': 'keyence.com',
+  '7974.T': 'nintendo.com',
+  '9984.T': 'group.softbank',
+  '8035.T': 'tel.com',
+  '6098.T': 'recruit-holdings.com',
+  '4063.T': 'shinetsu.co.jp', '4519.T': 'chugai-pharm.co.jp', '8058.T': 'mitsubishicorp.com', '8316.T': 'smfg.co.jp',
+  '8766.T': 'tokiomarinehd.com', '9432.T': 'group.ntt', '9433.T': 'kddi.com', '6954.T': 'fanuc.co.jp',
+  '7267.T': 'global.honda', '7741.T': 'hoya.com',
+  '005930.KS': 'samsung.com',
+  '000660.KS': 'skhynix.com',
+  '373220.KS': 'lgensol.com',
+  '005380.KS': 'hyundai.com',
+  '207940.KS': 'samsungbiologics.com',
+  '000270.KS': 'kia.com',
+  '068270.KS': 'celltrion.com',
+  '105560.KS': 'kbfng.com',
+  '035420.KS': 'navercorp.com',
+  '035720.KS': 'kakaocorp.com',
+  '006400.KS': 'samsungsdi.com', '051910.KS': 'lgchem.com', '055550.KS': 'shinhangroup.com', '012330.KS': 'mobis.com',
+  '028260.KS': 'samsungcnt.com', '066570.KS': 'lg.com', '003550.KS': 'lg.com', '323410.KS': 'kakaobank.com',
+  '096770.KS': 'skinnovation.com', '034730.KS': 'sk.com',
+  'RELIANCE.NS': 'ril.com',
+  'HDFCBANK.NS': 'hdfcbank.com',
+  'BHARTIARTL.NS': 'airtel.in',
+  'TCS.NS': 'tcs.com',
+  'ICICIBANK.NS': 'icicibank.com',
+  'SBIN.NS': 'bank.sbi',
+  'INFY.NS': 'infosys.com',
+  'LICI.NS': 'licindia.in',
+  'HINDUNILVR.NS': 'hul.co.in',
+  'ITC.NS': 'itcportal.com',
+  'LT.NS': 'larsentoubro.com', 'BAJFINANCE.NS': 'bajajfinserv.in', 'AXISBANK.NS': 'axisbank.com', 'MARUTI.NS': 'marutisuzuki.com',
+  'SUNPHARMA.NS': 'sunpharma.com', 'M&M.NS': 'mahindra.com', 'KOTAKBANK.NS': 'kotak.com', 'NTPC.NS': 'ntpc.co.in',
+  'TITAN.NS': 'titancompany.in', 'ONGC.NS': 'ongcindia.com',
+  'BHP.AX': 'bhp.com',
+  'CBA.AX': 'commbank.com.au',
+  'CSL.AX': 'csl.com',
+  'NAB.AX': 'nab.com.au',
+  'WBC.AX': 'westpac.com.au',
+  'ANZ.AX': 'anz.com.au',
+  'WES.AX': 'wesfarmers.com.au',
+  'MQG.AX': 'macquarie.com',
+  'GMG.AX': 'goodman.com',
+  'RIO.AX': 'riotinto.com',
+  'ASML.AS': 'asml.com',
+  'SAP.DE': 'sap.com',
+  'MC.PA': 'lvmh.com',
+  'NOVO-B.CO': 'novonordisk.com',
+  'OR.PA': 'loreal.com',
+  'SIE.DE': 'siemens.com',
+  'ALV.DE': 'allianz.com',
+  'DTE.DE': 'telekom.com',
+  'AIR.DE': 'airbus.com',
+  'BAS.DE': 'basf.com',
+  'BMW.DE': 'bmwgroup.com',
+  'MBG.DE': 'group.mercedes-benz.com',
+  'MUV2.DE': 'munichre.com',
+  'IFX.DE': 'infineon.com',
+  'VOW3.DE': 'volkswagen-group.com', 'ADS.DE': 'adidas-group.com', 'DBK.DE': 'db.com', 'RHM.DE': 'rheinmetall.com',
+  'HEN3.DE': 'henkel.com', 'BEI.DE': 'beiersdorf.com', 'CON.DE': 'continental.com', 'BAYN.DE': 'bayer.com',
+  'EOAN.DE': 'eon.com', 'MRK.DE': 'merckgroup.com',
+  'TTE.PA': 'totalenergies.com',
+  'AIR.PA': 'airbus.com',
+  'RMS.PA': 'hermes.com',
+  'SU.PA': 'se.com',
+  'SAN.PA': 'sanofi.com',
+  'BNP.PA': 'group.bnpparibas',
+  'CS.PA': 'axa.com',
+  'EL.PA': 'essilorluxottica.com',
+  'AI.PA': 'airliquide.com', 'SAF.PA': 'safran-group.com', 'DG.PA': 'vinci.com', 'ENGI.PA': 'engie.com',
+  'ACA.PA': 'credit-agricole.com', 'CAP.PA': 'capgemini.com', 'RI.PA': 'pernod-ricard.com', 'DSY.PA': '3ds.com',
+  'KER.PA': 'kering.com', 'HO.PA': 'thalesgroup.com',
+  'SHEL.L': 'shell.com',
+  'AZN.L': 'astrazeneca.com',
+  'HSBA.L': 'hsbc.com',
+  'ULVR.L': 'unilever.com',
+  'BP.L': 'bp.com',
+  'GSK.L': 'gsk.com',
+  'BATS.L': 'bat.com',
+  'REL.L': 'relx.com',
+  'RIO.L': 'riotinto.com',
+  'LSEG.L': 'lseg.com',
+  'DGE.L': 'diageo.com', 'GLEN.L': 'glencore.com', 'NG.L': 'nationalgrid.com', 'RR.L': 'rolls-royce.com',
+  'BARC.L': 'barclays.com', 'NWG.L': 'natwestgroup.com', 'LLOY.L': 'lloydsbankinggroup.com', 'AAL.L': 'angloamerican.com',
+  'PRU.L': 'prudentialplc.com', 'VOD.L': 'vodafone.com',
+  '2222.SR': 'aramco.com',
+  '1120.SR': 'alrajhibank.com.sa',
+  '2010.SR': 'sabic.com',
+  '1180.SR': 'alahli.com',
+  '7010.SR': 'stc.com.sa',
+  '1211.SR': 'maaden.com.sa',
+  '1010.SR': 'riyadbank.com',
+  '2280.SR': 'almarai.com',
+  '7020.SR': 'mobily.com.sa',
+  '7203.SR': 'elm.sa',
 };
 
 const globalNewsQueries: Record<GlobalMacroRegion, Array<[string, string]>> = {
@@ -3168,21 +3882,133 @@ const globalMacroFocusNewsSources: NewsSourceConfig[] = [
   },
 ];
 
-function globalSession(config: GlobalMacroQuoteConfig) {
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: config.timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now);
-  const value = (type: string) => parts.find((part) => part.type === type)?.value || '';
-  const weekday = value('weekday');
-  const hour = Number(value('hour')) % 24;
-  const minute = Number(value('minute'));
-  const minuteOfDay = hour + minute / 60;
-  const isWeekday = !['Sat', 'Sun'].includes(weekday);
-  const live = isWeekday && config.sessions.some(([start, end]) => minuteOfDay >= start && minuteOfDay < end);
-  const pre = isWeekday && config.sessions.some(([start]) => minuteOfDay >= start - 0.5 && minuteOfDay < start);
-  return live
-    ? { label: '交易中', tone: 'live' as const }
-    : pre ? { label: '即将开盘', tone: 'pre' as const }
-      : { label: isWeekday ? '已收盘 / 休市' : '周末休市', tone: 'closed' as const };
+type GlobalSessionParts = {
+  date: string;
+  weekday: number;
+  minutes: number;
+  time: string;
+};
+
+function getGlobalSessionParts(value: Date, timeZone: string): GlobalSessionParts {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(value).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  const date = `${parts.year}-${parts.month}-${parts.day}`;
+  const hour = Number(parts.hour);
+  const minute = Number(parts.minute);
+  return {
+    date,
+    weekday: new Date(`${date}T12:00:00Z`).getUTCDay(),
+    minutes: hour * 60 + minute,
+    time: `${parts.hour}:${parts.minute}:${parts.second}`,
+  };
+}
+
+function shiftGlobalSessionDate(date: string, days: number) {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days, 12)).toISOString().slice(0, 10);
+}
+
+function isGlobalTradingDate(config: GlobalMacroQuoteConfig, date: string) {
+  const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+  const tradingWeekdays = config.tradingWeekdays || [1, 2, 3, 4, 5];
+  return tradingWeekdays.includes(weekday) && !config.closedDates?.includes(date);
+}
+
+function zonedGlobalSessionTimeToUtc(date: string, decimalHour: number, timeZone: string) {
+  const [year, month, day] = date.split('-').map(Number);
+  const totalMinutes = Math.round(decimalHour * 60);
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  const desiredLocalEpoch = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let candidateEpoch = desiredLocalEpoch;
+  // Iteratively remove the zone offset. This also handles daylight-saving transitions.
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const actual = getGlobalSessionParts(new Date(candidateEpoch), timeZone);
+    const [actualYear, actualMonth, actualDay] = actual.date.split('-').map(Number);
+    const actualLocalEpoch = Date.UTC(
+      actualYear,
+      actualMonth - 1,
+      actualDay,
+      Math.floor(actual.minutes / 60),
+      actual.minutes % 60,
+      0,
+    );
+    const correction = desiredLocalEpoch - actualLocalEpoch;
+    candidateEpoch += correction;
+    if (correction === 0) break;
+  }
+  return new Date(candidateEpoch);
+}
+
+function findNextGlobalSessionOpen(config: GlobalMacroQuoteConfig, now: Date, localDate: string) {
+  for (let dayOffset = 0; dayOffset < 15; dayOffset += 1) {
+    const date = shiftGlobalSessionDate(localDate, dayOffset);
+    if (!isGlobalTradingDate(config, date)) continue;
+    for (const [start] of config.sessions) {
+      const openAt = zonedGlobalSessionTimeToUtc(date, start, config.timezone);
+      if (openAt.getTime() > now.getTime()) return openAt;
+    }
+  }
+  return null;
+}
+
+function formatNextGlobalOpen(openAt: Date, config: GlobalMacroQuoteConfig, currentDate: string) {
+  const next = getGlobalSessionParts(openAt, config.timezone);
+  const prefix = next.date === currentDate
+    ? '今日'
+    : next.date === shiftGlobalSessionDate(currentDate, 1)
+      ? '明日'
+      : `${next.date.slice(5, 7)}/${next.date.slice(8, 10)}`;
+  const weekday = new Intl.DateTimeFormat('zh-CN', { timeZone: config.timezone, weekday: 'short' }).format(openAt);
+  return `${prefix} ${weekday} ${next.time.slice(0, 5)}`;
+}
+
+function globalSession(config: GlobalMacroQuoteConfig, now = new Date()) {
+  const parts = getGlobalSessionParts(now, config.timezone);
+  const tradingDate = isGlobalTradingDate(config, parts.date);
+  const liveSessionIndex = tradingDate
+    ? config.sessions.findIndex(([start, end]) => parts.minutes >= start * 60 && parts.minutes < end * 60)
+    : -1;
+  const live = liveSessionIndex >= 0;
+  const nextOpen = live ? null : findNextGlobalSessionOpen(config, now, parts.date);
+  const nextOpenAt = nextOpen?.toISOString();
+  const nextOpenLabel = nextOpen ? formatNextGlobalOpen(nextOpen, config, parts.date) : undefined;
+  const firstStart = config.sessions[0]?.[0] ?? 0;
+  const lastEnd = config.sessions.at(-1)?.[1] ?? 24;
+  const betweenSessions = tradingDate && config.sessions.some(([end], index) => {
+    const following = config.sessions[index + 1];
+    return Boolean(following && parts.minutes >= end * 60 && parts.minutes < following[0] * 60);
+  });
+  const pre = tradingDate && config.sessions.some(([start]) => parts.minutes >= start * 60 - 30 && parts.minutes < start * 60);
+  const label = live
+    ? '交易中'
+    : pre
+      ? '即将开盘'
+      : !tradingDate
+        ? config.closedDates?.includes(parts.date) ? '节假日休市' : '非交易日'
+        : betweenSessions
+          ? '盘中休市'
+          : parts.minutes < firstStart * 60 ? '未开盘' : parts.minutes >= lastEnd * 60 ? '已收盘' : '休市';
+  const detail = live
+    ? config.sessions.length > 1 && liveSessionIndex === 0 ? '上午连续交易' : '常规交易时段'
+    : betweenSessions ? '等待下一交易时段' : '等待下一次开盘';
+  return {
+    label,
+    tone: live ? 'live' as const : pre ? 'pre' as const : 'closed' as const,
+    detail,
+    timezone: config.timezone,
+    localTime: parts.time,
+    nextOpenAt,
+    nextOpenLabel,
+  };
 }
 
 const yahooMacroQuoteCache = new Map<string, Awaited<ReturnType<typeof readYahooMacroQuote>>>();
@@ -3226,9 +4052,18 @@ async function getYahooMacroSnapshot(symbol: string) {
   const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1mo&interval=1d&events=history`;
   const text = await fetchExternalText(requestUrl, 13000, 'application/json,text/plain,*/*');
   const payload = JSON.parse(text) as Record<string, any>;
-  const meta = payload?.chart?.result?.[0]?.meta;
+  const result = payload?.chart?.result?.[0];
+  const meta = result?.meta;
   const price = asFiniteNumber(meta?.regularMarketPrice);
-  const previous = asFiniteNumber(meta?.chartPreviousClose ?? meta?.previousClose);
+  const dailyCloses = Array.isArray(result?.indicators?.quote?.[0]?.close)
+    ? (result.indicators.quote[0].close as unknown[]).flatMap((value) => {
+        const close = asFiniteNumber(value);
+        return close !== undefined && close > 0 ? [close] : [];
+      })
+    : [];
+  const previous = dailyCloses.length >= 2
+    ? dailyCloses[dailyCloses.length - 2]
+    : asFiniteNumber(meta?.previousClose ?? meta?.chartPreviousClose);
   const timestamp = asFiniteNumber(meta?.regularMarketTime);
   if (price === undefined) throw new Error(`${symbol} 快照行情暂时不可用`);
   const updatedAt = timestamp ? new Date(timestamp * 1000).toISOString() : new Date().toISOString();
@@ -3240,6 +4075,251 @@ async function getYahooMacroSnapshot(symbol: string) {
     sourceUrl: `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`,
     history: [{ time: updatedAt, value: price }],
   };
+}
+
+type YahooFastQuote = {
+  symbol: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  updatedAt: string;
+  sourceUrl: string;
+};
+
+const YAHOO_SPARK_BATCH_SIZE = 10;
+const yahooFastQuoteLastGood = new Map<string, YahooFastQuote>();
+let yahooFastQuoteRefreshInFlight: Promise<unknown> | undefined;
+let yahooFastQuoteLastAttemptAt = 0;
+
+async function getYahooFastQuotes(symbols: readonly string[]) {
+  const uniqueSymbols = [...new Set(symbols)];
+  const batches = Array.from(
+    { length: Math.ceil(uniqueSymbols.length / YAHOO_SPARK_BATCH_SIZE) },
+    (_, index) => uniqueSymbols.slice(index * YAHOO_SPARK_BATCH_SIZE, (index + 1) * YAHOO_SPARK_BATCH_SIZE),
+  );
+  const settled = await Promise.allSettled(batches.map(async (batch) => {
+    const search = new URLSearchParams({
+      symbols: batch.join(','),
+      range: '5d',
+      interval: '1d',
+    });
+    const requestUrl = `https://query1.finance.yahoo.com/v7/finance/spark?${search.toString()}`;
+    const payload = JSON.parse(await fetchFastMarketText(requestUrl, 4500)) as Record<string, any>;
+    const results = Array.isArray(payload?.spark?.result) ? payload.spark.result as Array<Record<string, any>> : [];
+    return results.flatMap((entry): YahooFastQuote[] => {
+      const symbol = String(entry?.symbol || '');
+      const response = Array.isArray(entry?.response) ? entry.response[0] : undefined;
+      const meta = response?.meta;
+      const price = asFiniteNumber(meta?.regularMarketPrice);
+      const dailyCloses = Array.isArray(response?.indicators?.quote?.[0]?.close)
+        ? (response.indicators.quote[0].close as unknown[]).flatMap((value) => {
+            const close = asFiniteNumber(value);
+            return close !== undefined && close > 0 ? [close] : [];
+          })
+        : [];
+      // 用最近两个日线收盘计算涨跌。Spark 的 chartPreviousClose 在少数国际股票上
+      // 会误指向更早的公司行动锚点，造成十几个百分点的虚假跳变。
+      const previous = dailyCloses.length >= 2
+        ? dailyCloses[dailyCloses.length - 2]
+        : asFiniteNumber(meta?.previousClose ?? meta?.chartPreviousClose);
+      const timestamp = asFiniteNumber(meta?.regularMarketTime);
+      if (!symbol || price === undefined) return [];
+      return [{
+        symbol,
+        price,
+        change: previous === undefined ? 0 : price - previous,
+        changePercent: previous ? (price / previous - 1) * 100 : 0,
+        updatedAt: timestamp ? new Date(timestamp * 1000).toISOString() : new Date().toISOString(),
+        sourceUrl: `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`,
+      }];
+    });
+  }));
+
+  settled.forEach((result) => {
+    if (result.status !== 'fulfilled') return;
+    result.value.forEach((quote) => yahooFastQuoteLastGood.set(quote.symbol, quote));
+  });
+
+  return new Map(uniqueSymbols.flatMap((symbol) => {
+    const quote = yahooFastQuoteLastGood.get(symbol);
+    return quote ? [[symbol, quote] as const] : [];
+  }));
+}
+
+function refreshYahooFastQuotesInBackground(symbols: readonly string[]) {
+  if (yahooFastQuoteRefreshInFlight || Date.now() - yahooFastQuoteLastAttemptAt < 30_000) return;
+  yahooFastQuoteLastAttemptAt = Date.now();
+  yahooFastQuoteRefreshInFlight = getYahooFastQuotes(symbols).finally(() => {
+    yahooFastQuoteRefreshInFlight = undefined;
+  });
+}
+
+const eastMoneyGlobalFastConfigs = [
+  { id: 'japan', symbol: '^N225', secid: '100.N225' },
+  { id: 'korea', symbol: '^KS11', secid: '100.KS11' },
+  { id: 'germany', symbol: '^GDAXI', secid: '100.GDAXI' },
+  { id: 'france', symbol: '^FCHI', secid: '100.FCHI' },
+  { id: 'uk', symbol: '^FTSE', secid: '100.FTSE' },
+  { id: 'us', symbol: '^GSPC', secid: '100.SPX' },
+  { id: 'dow', symbol: '^DJI', secid: '100.DJIA' },
+] as const;
+
+async function getEastMoneyGlobalFastQuotes() {
+  const search = new URLSearchParams({
+    fltt: '2',
+    secids: eastMoneyGlobalFastConfigs.map((item) => item.secid).join(','),
+    fields: 'f12,f14,f2,f3,f4,f124',
+  });
+  const sourceUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?${search.toString()}`;
+  const payload = await fetchExternalJson(sourceUrl, 4_000) as Record<string, any>;
+  const rows = Array.isArray(payload?.data?.diff) ? payload.data.diff as Array<Record<string, unknown>> : [];
+  const byCode = new Map(rows.map((row) => [String(row.f12 || '').toUpperCase(), row]));
+  return new Map(eastMoneyGlobalFastConfigs.flatMap((config) => {
+    const code = config.secid.split('.').at(-1)?.toUpperCase() || '';
+    const row = byCode.get(code);
+    const price = asFiniteNumber(row?.f2);
+    if (price === undefined) return [];
+    const timestamp = asFiniteNumber(row?.f124);
+    return [[config.id, {
+      symbol: config.symbol,
+      price,
+      change: asFiniteNumber(row?.f4) ?? 0,
+      changePercent: asFiniteNumber(row?.f3) ?? 0,
+      updatedAt: timestamp ? new Date(timestamp * 1000).toISOString() : new Date().toISOString(),
+      sourceUrl,
+    }] as const];
+  }));
+}
+
+async function getSinaFastAssetQuotes() {
+  const configs = [
+    { id: 'wti', code: 'hf_CL', symbol: 'CL=F' },
+    { id: 'brent', code: 'hf_OIL', symbol: 'BZ=F' },
+    { id: 'gold', code: 'hf_GC', symbol: 'GC=F' },
+    { id: 'silver', code: 'hf_SI', symbol: 'SI=F' },
+    { id: 'gas', code: 'hf_NG', symbol: 'NG=F' },
+  ] as const;
+  const sourceUrl = `https://hq.sinajs.cn/list=${configs.map((item) => item.code).join(',')},DINIW`;
+  const text = await fetchText(sourceUrl, 2_500);
+  const quotes = new Map<string, YahooFastQuote>();
+  configs.forEach((config) => {
+    const match = text.match(new RegExp(`var\\s+hq_str_${config.code}="([^"]*)"`));
+    const fields = match?.[1]?.split(',') || [];
+    const price = asFiniteNumber(fields[0]);
+    const previous = asFiniteNumber(fields[7]);
+    if (price === undefined) return;
+    const updatedAt = fields[12] && fields[6]
+      ? new Date(`${fields[12]}T${fields[6]}+08:00`).toISOString()
+      : new Date().toISOString();
+    quotes.set(config.id, {
+      symbol: config.symbol,
+      price,
+      change: previous === undefined ? 0 : price - previous,
+      changePercent: previous ? (price / previous - 1) * 100 : 0,
+      updatedAt,
+      sourceUrl: 'https://finance.sina.com.cn/futuremarket/',
+    });
+  });
+  const dxyMatch = text.match(/var\s+hq_str_DINIW="([^"]*)"/);
+  const dxyFields = dxyMatch?.[1]?.split(',') || [];
+  const dxyPrice = asFiniteNumber(dxyFields[1]);
+  const dxyPrevious = asFiniteNumber(dxyFields[3]);
+  if (dxyPrice !== undefined) {
+    quotes.set('dxy', {
+      symbol: 'DX-Y.NYB',
+      price: dxyPrice,
+      change: dxyPrevious === undefined ? 0 : dxyPrice - dxyPrevious,
+      changePercent: dxyPrevious ? (dxyPrice / dxyPrevious - 1) * 100 : 0,
+      updatedAt: dxyFields[10] && dxyFields[0]
+        ? new Date(`${dxyFields[10]}T${dxyFields[0]}+08:00`).toISOString()
+        : new Date().toISOString(),
+      sourceUrl: 'https://finance.sina.com.cn/money/forex/hq/DINIW.shtml',
+    });
+  }
+  if (!quotes.size) throw new Error('新浪全球资产快照暂时不可用');
+  return quotes;
+}
+
+async function getCoinGeckoFastCryptoQuotes() {
+  const sourceUrl = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true';
+  const payload = JSON.parse(await fetchFastMarketText(sourceUrl, 4_500)) as Record<string, Record<string, unknown>>;
+  const configs = [{ id: 'bitcoin', symbol: 'BTC-USD' }, { id: 'ethereum', symbol: 'ETH-USD' }] as const;
+  return new Map(configs.flatMap((config) => {
+    const row = payload[config.id];
+    const price = asFiniteNumber(row?.usd);
+    if (price === undefined) return [];
+    const timestamp = asFiniteNumber(row?.last_updated_at);
+    const changePercent = asFiniteNumber(row?.usd_24h_change) ?? 0;
+    return [[config.id, {
+      symbol: config.symbol,
+      price,
+      change: price * changePercent / 100,
+      changePercent,
+      updatedAt: timestamp ? new Date(timestamp * 1000).toISOString() : new Date().toISOString(),
+      sourceUrl: `https://www.coingecko.com/en/coins/${config.id}`,
+    }] as const];
+  }));
+}
+
+async function getBinanceFastCryptoQuotes() {
+  const symbols = encodeURIComponent(JSON.stringify(['BTCUSDT', 'ETHUSDT']));
+  const sourceUrl = `https://api.binance.com/api/v3/ticker/24hr?symbols=${symbols}`;
+  const payload = JSON.parse(await fetchFastMarketText(sourceUrl, 3_500)) as Array<Record<string, unknown>>;
+  if (!Array.isArray(payload)) throw new Error('Binance 加密行情格式无效');
+  const configs = new Map<string, { id: string; symbol: string; marketUrl: string }>([
+    ['BTCUSDT', { id: 'bitcoin', symbol: 'BTC-USD', marketUrl: 'https://www.binance.com/en/trade/BTC_USDT?type=spot' }],
+    ['ETHUSDT', { id: 'ethereum', symbol: 'ETH-USD', marketUrl: 'https://www.binance.com/en/trade/ETH_USDT?type=spot' }],
+  ]);
+  const quotes = new Map<string, YahooFastQuote>();
+  payload.forEach((row) => {
+    const config = typeof row.symbol === 'string' ? configs.get(row.symbol) : undefined;
+    const price = asFiniteNumber(row.lastPrice);
+    if (!config || price === undefined) return;
+    const change = asFiniteNumber(row.priceChange) ?? 0;
+    const changePercent = asFiniteNumber(row.priceChangePercent)
+      ?? ((asFiniteNumber(row.openPrice) || price) === 0 ? 0 : (price / (asFiniteNumber(row.openPrice) || price) - 1) * 100);
+    const closeTime = asFiniteNumber(row.closeTime);
+    quotes.set(config.id, {
+      symbol: config.symbol,
+      price,
+      change,
+      changePercent,
+      updatedAt: closeTime ? new Date(closeTime).toISOString() : new Date().toISOString(),
+      sourceUrl: config.marketUrl,
+    });
+  });
+  if (!quotes.size) throw new Error('Binance 加密行情暂时不可用');
+  return quotes;
+}
+
+async function getYahooFastCryptoQuotes() {
+  const configs = [
+    { id: 'bitcoin', symbol: 'BTC-USD' },
+    { id: 'ethereum', symbol: 'ETH-USD' },
+  ] as const;
+  const bySymbol = await getYahooFastQuotes(configs.map((config) => config.symbol));
+  const quotes = new Map(configs.flatMap((config) => {
+    const quote = bySymbol.get(config.symbol);
+    return quote ? [[config.id, quote] as const] : [];
+  }));
+  if (!quotes.size) throw new Error('Yahoo 加密行情暂时不可用');
+  return quotes;
+}
+
+let fastCryptoLastGood = new Map<string, YahooFastQuote>();
+
+function mergeFreshCryptoQuotes(incoming: Map<string, YahooFastQuote>) {
+  const merged = new Map(fastCryptoLastGood);
+  incoming.forEach((quote, id) => {
+    const current = merged.get(id);
+    const incomingTimestamp = new Date(quote.updatedAt).getTime();
+    const currentTimestamp = current ? new Date(current.updatedAt).getTime() : Number.NEGATIVE_INFINITY;
+    if (!current || !Number.isFinite(currentTimestamp) || incomingTimestamp >= currentTimestamp) {
+      merged.set(id, quote);
+    }
+  });
+  fastCryptoLastGood = merged;
+  return new Map(merged);
 }
 
 async function getNgxAllShareQuote() {
@@ -3924,42 +5004,73 @@ async function getUpcomingEarnings() {
   return settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
 }
 
+const fedFundsMonthCodes = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'] as const;
+
+function getFedFundsMeetingContract(meetingDate: string) {
+  const date = new Date(`${meetingDate}T00:00:00Z`);
+  return `ZQ${fedFundsMonthCodes[date.getUTCMonth()]}${String(date.getUTCFullYear()).slice(-2)}.CBT`;
+}
+
 function buildFedRateExpectation(
   futuresQuote: Awaited<ReturnType<typeof getYahooMacroQuote>>,
   currentRate: number,
+  nextMeeting: GlobalCalendarEvent,
+  contractSymbol: string,
 ) {
-  const impliedRate = 100 - futuresQuote.price;
+  const meetingDate = new Date(`${nextMeeting.date}T00:00:00Z`);
+  const daysInMonth = new Date(Date.UTC(
+    meetingDate.getUTCFullYear(),
+    meetingDate.getUTCMonth() + 1,
+    0,
+  )).getUTCDate();
+  const decisionDay = meetingDate.getUTCDate();
+  const daysAfterDecision = daysInMonth - decisionDay;
+  if (daysAfterDecision <= 0) throw new Error('FOMC 会议日期无法用于月度期货加权');
+
+  // ZQ settles to the calendar-month average EFFR. A meeting decision takes
+  // effect the following day, so the current EFFR applies through that date.
+  const monthlyAverageRate = 100 - futuresQuote.price;
+  const impliedRate = (
+    monthlyAverageRate * daysInMonth - currentRate * decisionDay
+  ) / daysAfterDecision;
   const expectedMoveSteps = (impliedRate - currentRate) / 0.25;
-  const expectedCutSteps = Math.max(0, Math.min(2, -expectedMoveSteps));
-  const hikeProbability = Math.max(0, Math.min(1, expectedMoveSteps));
-  const holdProbability = expectedMoveSteps >= 0
-    ? 1 - hikeProbability
-    : expectedCutSteps <= 1 ? 1 - expectedCutSteps : 0;
-  const cut25Probability = expectedCutSteps <= 1 ? expectedCutSteps : 2 - expectedCutSteps;
-  const cut50Probability = expectedCutSteps <= 1 ? 0 : expectedCutSteps - 1;
+  const lowerSteps = Math.floor(expectedMoveSteps);
+  const upperSteps = Math.ceil(expectedMoveSteps);
+  const upperProbability = upperSteps === lowerSteps ? 0 : expectedMoveSteps - lowerSteps;
+  const outcomes = upperSteps === lowerSteps
+    ? [{ steps: lowerSteps, probability: 1 }]
+    : [
+        { steps: lowerSteps, probability: 1 - upperProbability },
+        { steps: upperSteps, probability: upperProbability },
+      ];
   const percent = (value: number) => Math.round(Math.max(0, Math.min(1, value)) * 1000) / 10;
-  const nextMeeting = officialMacroEvents.find((event) => (
-    event.kind === 'central-bank' && new Date(`${event.date}T23:59:59Z`).getTime() >= Date.now()
-  ));
+  const outcomeLabel = (steps: number) => {
+    if (steps === 0) return '维持';
+    return `${steps > 0 ? '加息' : '降息'} ${Math.abs(steps) * 25}bp`;
+  };
+  const hikeProbability = outcomes.reduce((sum, item) => sum + (item.steps > 0 ? item.probability : 0), 0);
+  const cutProbability = outcomes.reduce((sum, item) => sum + (item.steps < 0 ? item.probability : 0), 0);
 
   return {
-    meetingDate: nextMeeting?.date,
-    meetingLabel: nextMeeting?.title || '下次 FOMC 利率决议',
+    meetingDate: nextMeeting.date,
+    meetingLabel: nextMeeting.title,
     currentRate,
     impliedRate,
+    monthlyAverageRate,
     expectedChangeBps: (impliedRate - currentRate) * 100,
     hikeProbability: percent(hikeProbability),
-    cutProbability: percent(cut25Probability + cut50Probability),
-    distribution: [
-      { id: 'hike', label: '加息', probability: percent(hikeProbability) },
-      { id: 'hold', label: '维持', probability: percent(holdProbability) },
-      { id: 'cut25', label: '降息 25bp', probability: percent(cut25Probability) },
-      { id: 'cut50', label: '降息 ≥50bp', probability: percent(cut50Probability) },
-    ],
+    cutProbability: percent(cutProbability),
+    distribution: outcomes.map((item) => ({
+      id: `outcome-${item.steps}`,
+      label: outcomeLabel(item.steps),
+      probability: percent(item.probability),
+      direction: item.steps > 0 ? 'hike' as const : item.steps < 0 ? 'cut' as const : 'hold' as const,
+    })),
     updatedAt: futuresQuote.updatedAt,
-    sourceUrl: 'https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html',
+    sourceUrl: 'https://www.cmegroup.com/articles/2023/understanding-the-cme-group-fedwatch-tool-methodology.html',
     quoteSourceUrl: futuresQuote.sourceUrl,
-    method: 'ZQ 期货简化估算',
+    contractSymbol,
+    method: '会议月 ZQ 日历加权估算',
     status: 'delayed' as const,
   };
 }
@@ -3975,7 +5086,19 @@ async function loadGlobalMarketsSection() {
         ? await getYahooMacroQuote(config.symbol).catch(() => getYahooMacroSnapshot(config.symbol))
         : await getYahooMacroQuote(config.symbol);
     const stale = Date.now() - new Date(quote.updatedAt).getTime() > 14 * 24 * 60 * 60 * 1000;
-    return { id: config.id, name: config.name, symbol: config.symbol, market: config.market, region: config.region, latitude: config.latitude, longitude: config.longitude, session: stale ? { label: '历史快照', tone: 'unknown' as const } : globalSession(config), ...quote };
+    const session = globalSession(config);
+    return {
+      id: config.id,
+      name: config.name,
+      symbol: config.symbol,
+      market: config.market,
+      region: config.region,
+      latitude: config.latitude,
+      longitude: config.longitude,
+      session,
+      quoteStale: stale,
+      ...quote,
+    };
   });
   const quoteRequest = (async () => {
     const results: PromiseSettledResult<Awaited<ReturnType<(typeof quoteTaskFactories)[number]>>>[] = [];
@@ -4065,7 +5188,13 @@ async function loadGlobalMacroMetricsSection() {
     }
     return results;
   })();
-  const fedFundsFutureRequest = Promise.allSettled([getYahooMacroQuote('ZQ=F', '1mo')]);
+  const nextMeeting = officialMacroEvents.find((event) => (
+    event.kind === 'central-bank' && new Date(`${event.date}T23:59:59Z`).getTime() >= Date.now()
+  ));
+  const fedFundsContract = nextMeeting ? getFedFundsMeetingContract(nextMeeting.date) : null;
+  const fedFundsFutureRequest = fedFundsContract
+    ? Promise.allSettled([getYahooMacroQuote(fedFundsContract, '1mo')])
+    : Promise.resolve([] as PromiseSettledResult<Awaited<ReturnType<typeof getYahooMacroQuote>>>[]);
   const [macro, fedFundsFuture] = await Promise.all([macroRequest, fedFundsFutureRequest]);
   const macroMetricIds = ['vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi', 'cpi', 'unemployment', 'nonfarm'];
   const macroMetricLabels = ['VIX 波动率', '美元指数', '美国10年期国债收益率', '美债 2Y-10Y 利差', '联邦基金利率', '供应链压力', 'CPI 环比', '美国失业率', '非农就业变动'];
@@ -4080,8 +5209,8 @@ async function loadGlobalMacroMetricsSection() {
     return { id: metricId, label: macroMetricLabels[index], value: null, display: '待更新', change: null, sourceUrl: index === 1 ? 'https://finance.yahoo.com/quote/DX-Y.NYB' : index === 3 ? 'https://fred.stlouisfed.org/series/T10Y2Y' : 'https://fred.stlouisfed.org/', status: 'unavailable' as const, history: [] };
   });
   const fedFundsMetric = macroMetrics.find((item) => item.id === 'fedfunds');
-  const fedRateExpectation = fedFundsFuture[0]?.status === 'fulfilled' && fedFundsMetric?.value !== null && fedFundsMetric?.value !== undefined
-    ? buildFedRateExpectation(fedFundsFuture[0].value, fedFundsMetric.value)
+  const fedRateExpectation = nextMeeting && fedFundsContract && fedFundsFuture[0]?.status === 'fulfilled' && fedFundsMetric?.value !== null && fedFundsMetric?.value !== undefined
+    ? buildFedRateExpectation(fedFundsFuture[0].value, fedFundsMetric.value, nextMeeting, fedFundsContract)
     : null;
 
   return { generatedAt: new Date().toISOString(), macro: macroMetrics, fedRateExpectation };
@@ -4122,6 +5251,279 @@ async function loadGlobalCommoditiesSection() {
     generatedAt: new Date().toISOString(),
     commodities: commodities.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
   };
+}
+
+const GLOBAL_MACRO_FAST_QUOTE_CADENCE_MS = 4_000;
+const GLOBAL_MACRO_FAST_QUOTE_CACHE_TTL_MS = 3_000;
+
+function fastQuoteStatus(updatedAt?: string) {
+  const timestamp = updatedAt ? new Date(updatedAt).getTime() : Number.NaN;
+  return Number.isFinite(timestamp) && Date.now() - timestamp <= 20 * 60_000
+    ? 'live' as const
+    : 'delayed' as const;
+}
+
+function fastQuoteDisplay(value: number) {
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
+}
+
+function createBudgetedFastQuoteSource<T>(loader: () => Promise<T>, initialBudgetMs = 2_500) {
+  let data: T | undefined;
+  let inFlight: Promise<T | undefined> | undefined;
+  let lastError: string | undefined;
+  const start = () => {
+    if (!inFlight) {
+      inFlight = loader()
+        .then((value) => {
+          data = value;
+          lastError = undefined;
+          return value;
+        })
+        .catch((error) => {
+          lastError = error instanceof Error ? error.message : String(error);
+          return data;
+        })
+        .finally(() => {
+          inFlight = undefined;
+        });
+    }
+    return inFlight;
+  };
+
+  return async () => {
+    const startedAt = Date.now();
+    const request = start();
+    if (data !== undefined) return { data, latencyMs: 0, error: lastError };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), initialBudgetMs);
+    });
+    const value = await Promise.race([request, timeout]);
+    if (timer) clearTimeout(timer);
+    return { data: value ?? data, latencyMs: Date.now() - startedAt, error: lastError };
+  };
+}
+
+const readFastEquitySource = createBudgetedFastQuoteSource(() => getEquityIndexSnapshots());
+const readFastGlobalIndexSource = createBudgetedFastQuoteSource(() => getEastMoneyGlobalFastQuotes());
+const readFastAssetSource = createBudgetedFastQuoteSource(() => getSinaFastAssetQuotes());
+const readFastCryptoYahooSource = createBudgetedFastQuoteSource(() => getYahooFastCryptoQuotes());
+const readFastCryptoBinanceSource = createBudgetedFastQuoteSource(() => getBinanceFastCryptoQuotes());
+const readFastCryptoCoinGeckoSource = createBudgetedFastQuoteSource(() => getCoinGeckoFastCryptoQuotes());
+
+async function readFastCryptoSource() {
+  const startedAt = Date.now();
+  const results = await Promise.all([
+    readFastCryptoYahooSource(),
+    readFastCryptoBinanceSource(),
+    readFastCryptoCoinGeckoSource(),
+  ]);
+  results.forEach((result) => {
+    if (result.data?.size) mergeFreshCryptoQuotes(result.data);
+  });
+  const errors = results.flatMap((result) => result.error ? [result.error] : []);
+  return {
+    data: fastCryptoLastGood.size ? new Map(fastCryptoLastGood) : undefined,
+    latencyMs: Date.now() - startedAt,
+    error: fastCryptoLastGood.size ? undefined : errors.join('；') || '加密行情暂时不可用',
+  };
+}
+
+async function loadGlobalMacroFastQuotes() {
+  const yahooSymbols = [
+    ...globalMacroQuotes.map((item) => item.symbol),
+    ...globalMacroCommodities.map(([, , symbol]) => symbol),
+    'VT',
+    '^SOX',
+    '^TNX',
+    'DX-Y.NYB',
+  ];
+  refreshYahooFastQuotesInBackground(yahooSymbols);
+  const [equityResult, globalIndexResult, assetResult, cryptoResult] = await Promise.all([
+    readFastEquitySource(),
+    readFastGlobalIndexSource(),
+    readFastAssetSource(),
+    readFastCryptoSource(),
+  ]);
+  const yahoo = new Map(yahooFastQuoteLastGood);
+  const equitySnapshots = equityResult.data?.indices || [];
+  const globalIndexQuotes: Map<string, YahooFastQuote> = globalIndexResult.data || new Map();
+  const assetQuotes: Map<string, YahooFastQuote> = assetResult.data || new Map();
+  const cryptoQuotes: Map<string, YahooFastQuote> = cryptoResult.data || new Map();
+  const equityById = new Map(equitySnapshots.map((item) => [item.id, item]));
+  const marketEquityIds = new Map([
+    ['china', 'sse'],
+    ['hongkong', 'hsi'],
+    ['us', 'sp500'],
+  ]);
+
+  const markets = globalMacroQuotes.flatMap((config) => {
+    const equityId = marketEquityIds.get(config.id);
+    const quote = (equityId ? equityById.get(equityId) : undefined)
+      || globalIndexQuotes.get(config.id)
+      || yahoo.get(config.symbol);
+    if (!quote) return [];
+    return [{
+      id: config.id,
+      name: config.name,
+      symbol: config.symbol,
+      market: config.market,
+      region: config.region,
+      latitude: config.latitude,
+      longitude: config.longitude,
+      session: globalSession(config),
+      price: quote.price,
+      changePercent: quote.changePercent,
+      updatedAt: quote.updatedAt,
+      sourceUrl: quote.sourceUrl,
+      history: [],
+    }];
+  });
+  const marketById = new Map(markets.map((item) => [item.id, item]));
+  const tickerPool = new Map<string, { price: number; changePercent: number; updatedAt?: string; sourceUrl: string }>();
+  markets.forEach((item) => tickerPool.set(item.id, item));
+  equitySnapshots.forEach((item) => tickerPool.set(item.id, item));
+  const ticker = globalMacroTickerConfigs.flatMap((config) => {
+    const quote = tickerPool.get(config.sourceId);
+    return quote ? [{
+      id: config.id,
+      name: config.name,
+      symbol: config.symbol,
+      price: quote.price,
+      changePercent: quote.changePercent,
+      updatedAt: quote.updatedAt,
+      sourceUrl: quote.sourceUrl,
+    }] : [];
+  });
+
+  const coreSources = [
+    { id: 'nasdaq', name: '纳斯达克', symbol: '^IXIC', quote: marketById.get('nasdaq'), sourceUrl: 'https://finance.yahoo.com/quote/%5EIXIC' },
+    { id: 'sp500', name: '标普500', symbol: '^GSPC', quote: equityById.get('sp500') || marketById.get('us'), sourceUrl: 'https://finance.yahoo.com/quote/%5EGSPC' },
+    { id: 'shanghai', name: '上证指数', symbol: '000001.SS', quote: equityById.get('sse') || marketById.get('china'), sourceUrl: 'https://finance.yahoo.com/quote/000001.SS' },
+    { id: 'sox', name: '费城半导体指数', symbol: '^SOX', quote: equityById.get('sox') || yahoo.get('^SOX'), sourceUrl: 'https://finance.yahoo.com/quote/%5ESOX' },
+  ] as const;
+  const coreIndices = coreSources.map((config) => ({
+    id: config.id,
+    name: config.name,
+    symbol: config.symbol,
+    price: config.quote?.price ?? null,
+    changePercent: config.quote?.changePercent ?? null,
+    updatedAt: config.quote?.updatedAt,
+    sourceUrl: config.quote?.sourceUrl || config.sourceUrl,
+    history: [],
+    status: config.quote ? fastQuoteStatus(config.quote.updatedAt) : 'unavailable' as const,
+  }));
+
+  const vixQuote = marketById.get('vix');
+  const dxyQuote = assetQuotes.get('dxy') || yahoo.get('DX-Y.NYB');
+  const us10yQuote = yahoo.get('^TNX');
+  const macro = [
+    vixQuote ? {
+      id: 'vix', label: 'VIX 波动率', value: vixQuote.price, display: vixQuote.price.toFixed(2),
+      change: yahoo.get('^VIX')?.change ?? null, updatedAt: vixQuote.updatedAt, sourceUrl: vixQuote.sourceUrl,
+      status: fastQuoteStatus(vixQuote.updatedAt), history: [],
+    } : null,
+    dxyQuote ? {
+      id: 'dxy', label: '美元指数', value: dxyQuote.price, display: dxyQuote.price.toFixed(2),
+      change: dxyQuote.changePercent, updatedAt: dxyQuote.updatedAt, sourceUrl: dxyQuote.sourceUrl,
+      status: fastQuoteStatus(dxyQuote.updatedAt), history: [],
+    } : null,
+    us10yQuote ? {
+      id: 'us10y', label: '美国10年期国债收益率', value: us10yQuote.price, display: `${us10yQuote.price.toFixed(2)}%`,
+      change: us10yQuote.change, updatedAt: us10yQuote.updatedAt, sourceUrl: us10yQuote.sourceUrl,
+      status: fastQuoteStatus(us10yQuote.updatedAt), history: [],
+    } : null,
+  ].filter((item) => item !== null);
+
+  const commodities = globalMacroCommodities.flatMap(([id, label, symbol]) => {
+    const quote = cryptoQuotes.get(id) || assetQuotes.get(id) || yahoo.get(symbol);
+    if (!quote) return [];
+    return [{
+      id,
+      label,
+      value: quote.price,
+      display: fastQuoteDisplay(quote.price),
+      change: quote.changePercent,
+      updatedAt: quote.updatedAt,
+      sourceUrl: quote.sourceUrl,
+      status: fastQuoteStatus(quote.updatedAt),
+      history: [],
+    }];
+  });
+
+  const vtQuote = yahoo.get('VT');
+  const global = vtQuote ? {
+    ...vtQuote,
+    id: 'vt',
+    name: '全球股票 VT',
+    symbol: 'VT',
+    region: 'global' as const,
+    latitude: 0,
+    longitude: 0,
+    session: { label: '全球市场代理', tone: 'unknown' as const },
+    history: [],
+  } : null;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    cadenceMs: GLOBAL_MACRO_FAST_QUOTE_CADENCE_MS,
+    coverage: {
+      yahoo: yahoo.size,
+      equities: equitySnapshots.length,
+      globalIndices: globalIndexQuotes.size,
+      assets: assetQuotes.size,
+      crypto: cryptoQuotes.size,
+      latencyMs: {
+        yahoo: null,
+        equities: equityResult.latencyMs,
+        globalIndices: globalIndexResult.latencyMs,
+        assets: assetResult.latencyMs,
+        crypto: cryptoResult.latencyMs,
+      },
+      errors: {
+        equities: equityResult.error,
+        globalIndices: globalIndexResult.error,
+        assets: assetResult.error,
+        crypto: cryptoResult.error,
+      },
+    },
+    global,
+    ticker,
+    markets,
+    coreIndices,
+    macro,
+    commodities,
+  };
+}
+
+type GlobalMacroFastQuotePayload = Awaited<ReturnType<typeof loadGlobalMacroFastQuotes>>;
+let globalMacroFastQuoteCache: { storedAt: number; data: GlobalMacroFastQuotePayload } | undefined;
+let globalMacroFastQuoteInFlight: Promise<GlobalMacroFastQuotePayload> | undefined;
+
+async function refreshGlobalMacroFastQuotes() {
+  if (!globalMacroFastQuoteInFlight) {
+    globalMacroFastQuoteInFlight = loadGlobalMacroFastQuotes()
+      .then((data) => {
+        globalMacroFastQuoteCache = { storedAt: Date.now(), data };
+        return data;
+      })
+      .catch((error) => {
+        if (globalMacroFastQuoteCache) return globalMacroFastQuoteCache.data;
+        throw error;
+      })
+      .finally(() => {
+        globalMacroFastQuoteInFlight = undefined;
+      });
+  }
+  return globalMacroFastQuoteInFlight;
+}
+
+async function getCachedGlobalMacroFastQuotes() {
+  const now = Date.now();
+  if (globalMacroFastQuoteCache && now - globalMacroFastQuoteCache.storedAt < GLOBAL_MACRO_FAST_QUOTE_CACHE_TTL_MS) {
+    return globalMacroFastQuoteCache.data;
+  }
+  return refreshGlobalMacroFastQuotes();
 }
 
 async function loadGlobalNewsSection(region: GlobalMacroRegion) {
@@ -4213,34 +5615,196 @@ async function getCachedGlobalMacroSection(region: GlobalMacroRegion, section: G
   return request;
 }
 
+type GlobalCompanyLogoCacheEntry = {
+  storedAt: number;
+  contentType: string;
+  data: Buffer;
+};
+
+const globalCompanyLogoCache = new Map<string, GlobalCompanyLogoCacheEntry>();
+const globalCompanyLogoInFlight = new Map<string, Promise<GlobalCompanyLogoCacheEntry>>();
+const GLOBAL_COMPANY_LOGO_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function fetchGlobalCompanyLogo(symbol: string) {
+  const domain = globalHeatmapLogoDomains[symbol];
+  if (!domain) throw new Error('未配置公司 Logo');
+  const cached = globalCompanyLogoCache.get(domain);
+  if (cached && Date.now() - cached.storedAt < GLOBAL_COMPANY_LOGO_CACHE_MS) return cached;
+  const running = globalCompanyLogoInFlight.get(domain);
+  if (running) return running;
+
+  const request = (async () => {
+    const sourceUrls = [
+      `https://unavatar.io/${encodeURIComponent(domain)}?fallback=false`,
+      `https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(`https://${domain}`)}&sz=128`,
+    ];
+    let lastError: unknown;
+    for (const sourceUrl of sourceUrls) {
+      for (const route of ['direct', 'proxy'] as FetchRoute[]) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8_000);
+        try {
+          const init: RequestInit & { dispatcher?: any } = {
+            signal: controller.signal,
+            headers: {
+              'User-Agent': 'SparkFlow/1.0 global market heatmap',
+              Accept: 'image/avif,image/webp,image/svg+xml,image/png,image/*,*/*;q=0.8',
+            },
+          };
+          if (route === 'proxy') init.dispatcher = foreignProxyAgent;
+          const response = await fetch(sourceUrl, init);
+          if (!response.ok) throw new Error(`Logo HTTP ${response.status}`);
+          const contentType = (response.headers.get('content-type') || 'image/png').split(';')[0].trim();
+          if (!contentType.startsWith('image/')) throw new Error('Logo 响应不是图片');
+          const data = Buffer.from(await response.arrayBuffer());
+          if (!data.length || data.length > 1_500_000) throw new Error('Logo 图片大小异常');
+          const entry = { storedAt: Date.now(), contentType, data };
+          globalCompanyLogoCache.set(domain, entry);
+          return entry;
+        } catch (error) {
+          lastError = error;
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('公司 Logo 暂时不可用');
+  })().finally(() => globalCompanyLogoInFlight.delete(domain));
+
+  globalCompanyLogoInFlight.set(domain, request);
+  return request;
+}
+
 async function getGlobalMarketHeatmap(market: string) {
   const configs = globalHeatmapConfigs[market];
   if (!configs) throw new Error('不支持的全球市场热力图');
+  const isKorea = market === 'korea';
+  const isTradingViewRegion = ['japan', 'india', 'germany', 'france', 'uk'].includes(market);
+  const regionalMarket = isTradingViewRegion ? market as TradingViewRegionalMarket : undefined;
+  const koreaQuotes = isKorea
+    ? await getNaverKoreaStockQuotes(configs.map((config) => config.symbol))
+    : new Map<string, NormalizedInternationalQuote>();
+  const regionalTickers = regionalMarket
+    ? configs.map((config) => tradingViewStockTicker(regionalMarket, config.symbol))
+    : [];
+  const regionalQuotes = regionalMarket
+    ? await getTradingViewRegionalQuotesResilient(regionalMarket, regionalTickers)
+    : new Map<string, TradingViewRegionalQuote>();
+  const fastQuotes = isKorea
+    ? new Map<string, YahooFastQuote>()
+    : await getYahooFastQuotes(configs.map((config) => config.symbol));
   const settled = await Promise.allSettled(configs.map(async (config) => {
-    const quote = await getYahooMacroQuote(config.symbol);
+    const koreaQuote = koreaQuotes.get(config.symbol);
+    const regionalTicker = regionalMarket ? tradingViewStockTicker(regionalMarket, config.symbol) : undefined;
+    const regionalQuote = regionalTicker ? regionalQuotes.get(regionalTicker) : undefined;
+    const fastQuote = fastQuotes.get(config.symbol);
+    const quote = isKorea
+      ? koreaQuote
+      : isTradingViewRegion
+        ? regionalQuote || fastQuote || await getYahooMacroSnapshot(config.symbol)
+      : !fastQuote || Math.abs(fastQuote.changePercent) > 20
+        ? await getYahooMacroSnapshot(config.symbol)
+        : fastQuote;
+    if (!quote) throw new Error(`${config.name} 常规盘行情暂时不可用`);
+    const normalizedQuote = quote as YahooFastQuote & Partial<NormalizedInternationalQuote>;
+    const actualMarketCap = asFiniteNumber(normalizedQuote.marketCap);
     return {
       id: `${market}-${config.symbol}`,
       ...config,
+      code: config.symbol,
+      industry: config.sector,
+      marketCap: actualMarketCap && actualMarketCap > 0 ? actualMarketCap : config.weight,
+      weight: config.weight,
+      marketCapType: actualMarketCap && actualMarketCap > 0 ? 'actual' : 'representative-weight',
+      logoUrl: `/stock-logos/global-${config.symbol.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}.svg`,
+      fallbackLogoUrl: globalHeatmapLogoDomains[config.symbol]
+        ? `/api/global-company-logo?symbol=${encodeURIComponent(config.symbol)}`
+        : undefined,
       price: quote.price,
+      previousClose: normalizedQuote.previousClose ?? quote.price - quote.change,
+      change: quote.change,
       changePercent: quote.changePercent,
       updatedAt: quote.updatedAt,
+      marketState: normalizedQuote.marketState ?? 'REGULAR',
+      quoteProvider: normalizedQuote.provider ?? 'Yahoo Finance Spark',
+      sourceDelaySeconds: 'sourceDelaySeconds' in normalizedQuote
+        ? asFiniteNumber(normalizedQuote.sourceDelaySeconds) ?? 0
+        : 0,
       sourceUrl: quote.sourceUrl,
     };
   }));
   const stocks = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
   if (!stocks.length) throw new Error('市场成分股行情暂时不可用');
-  return { market, generatedAt: new Date().toISOString(), source: 'Yahoo Finance', weightMethod: '代表性成分股静态权重代理', stocks };
+  if ((isKorea || isTradingViewRegion) && stocks.filter((stock) => stock.marketCapType === 'actual').length !== configs.length) {
+    throw new Error('区域市场行情不完整，保留最近一次完整快照');
+  }
+  const marketConfig = globalMacroQuotes.find((config) => config.id === market);
+  const session = marketConfig ? globalSession(marketConfig) : { label: '行情状态未知', tone: 'closed' as const };
+  const latestQuoteMs = Math.max(...stocks.map((stock) => new Date(stock.updatedAt).getTime()).filter(Number.isFinite));
+  const sourceDelaySeconds = Number.isFinite(latestQuoteMs) ? Math.max(0, Math.round((Date.now() - latestQuoteMs) / 1000)) : null;
+  const quoteStatus = session.tone !== 'live'
+    ? 'closed'
+    : sourceDelaySeconds !== null && sourceDelaySeconds > 90 ? 'delayed' : 'live';
+  return {
+    market,
+    generatedAt: new Date().toISOString(),
+    count: stocks.length,
+    coverage: isKorea
+      ? `${stocks.length} 家代表性龙头 · KRX 常规盘 · 真实总市值输入 · 可读性压缩面积`
+      : isTradingViewRegion
+        ? `${stocks.length} 家代表性龙头 · 区域交易所行情 · 实际总市值面积`
+      : `${stocks.length} 家代表性龙头 · 行业分组 · 代表权重面积`,
+    refreshIntervalMs: 5_000,
+    quoteStatus,
+    sourceDelaySeconds,
+    session,
+    source: isKorea
+      ? 'Naver Finance · KRX 常规盘'
+      : isTradingViewRegion ? 'TradingView · 区域交易所行情（Yahoo 降级）' : 'Yahoo Finance Spark',
+    sourceUrl: isKorea
+      ? 'https://finance.naver.com/sise/'
+      : isTradingViewRegion
+        ? `https://www.tradingview.com/markets/stocks-${market}/market-movers-large-cap/`
+      : marketConfig
+      ? `https://finance.yahoo.com/quote/${encodeURIComponent(marketConfig.symbol)}`
+      : 'https://finance.yahoo.com/markets/',
+    industryMarketCaps: stocks.reduce<Record<string, number>>((result, stock) => {
+      result[stock.industry] = (result[stock.industry] || 0) + stock.marketCap;
+      return result;
+    }, {}),
+    weightMethod: isKorea
+      ? '现价 × 上市股数（真实总市值）；热力图使用非线性压缩避免代表样本过度集中'
+      : isTradingViewRegion ? '区域交易所基础总市值' : '代表性成分股静态权重代理',
+    quotePolicy: isKorea
+      ? '排除 NXT/盘后价格，仅展示韩国交易所常规盘口径'
+      : isTradingViewRegion
+        ? '现价、昨收、涨跌和总市值来自同一区域行情快照；延迟按授权状态明确标注'
+        : '同一数据源现价与昨收口径',
+    stocks,
+  };
 }
+
+const GLOBAL_MARKET_HEATMAP_CACHE_TTL_MS = 3_000;
 
 async function getCachedGlobalMarketHeatmap(market: string) {
   const cached = globalMarketHeatmapCache.get(market);
-  if (cached && Date.now() - cached.storedAt < 45_000) return cached.data;
+  if (cached && Date.now() - cached.storedAt < GLOBAL_MARKET_HEATMAP_CACHE_TTL_MS) return cached.data;
   const running = globalMarketHeatmapInFlight.get(market);
-  if (running) return running;
-  const request = getGlobalMarketHeatmap(market).then((data) => {
-    globalMarketHeatmapCache.set(market, { storedAt: Date.now(), data });
-    return data;
-  }).finally(() => globalMarketHeatmapInFlight.delete(market));
+  if (running) return running.catch(() => {
+    if (cached) return cached.data;
+    throw new Error('市场成分股行情暂时不可用');
+  });
+  const request = getGlobalMarketHeatmap(market)
+    .catch(async (error) => {
+      if (cached) return cached.data;
+      await new Promise<void>((resolve) => setTimeout(resolve, 400));
+      return getGlobalMarketHeatmap(market).catch(() => { throw error; });
+    })
+    .then((data) => {
+      globalMarketHeatmapCache.set(market, { storedAt: Date.now(), data });
+      return data;
+    })
+    .finally(() => globalMarketHeatmapInFlight.delete(market));
   globalMarketHeatmapInFlight.set(market, request);
   return request;
 }
@@ -5183,6 +6747,71 @@ async function getCachedBitcoinCycleHistory() {
   return bitcoinCycleInFlight;
 }
 
+const globalMacroFastQuoteSubscribers = new Set<any>();
+let globalMacroFastQuoteBroadcastTimer: ReturnType<typeof setInterval> | undefined;
+let globalMacroFastQuoteBroadcastInFlight: Promise<void> | undefined;
+
+function stopGlobalMacroFastQuoteBroadcastIfIdle() {
+  if (globalMacroFastQuoteSubscribers.size || !globalMacroFastQuoteBroadcastTimer) return;
+  clearInterval(globalMacroFastQuoteBroadcastTimer);
+  globalMacroFastQuoteBroadcastTimer = undefined;
+}
+
+function broadcastGlobalMacroFastQuotes(forceRefresh = false) {
+  if (globalMacroFastQuoteBroadcastInFlight) return globalMacroFastQuoteBroadcastInFlight;
+  globalMacroFastQuoteBroadcastInFlight = (forceRefresh ? refreshGlobalMacroFastQuotes() : getCachedGlobalMacroFastQuotes())
+    .then((payload) => {
+      const message = `data: ${JSON.stringify(payload)}\n\n`;
+      globalMacroFastQuoteSubscribers.forEach((subscriber) => {
+        try {
+          subscriber.write(message);
+        } catch {
+          globalMacroFastQuoteSubscribers.delete(subscriber);
+        }
+      });
+    })
+    .catch((error) => {
+      const message = `event: quote-error\ndata: ${JSON.stringify({ message: error instanceof Error ? error.message : '行情暂时不可用' })}\n\n`;
+      globalMacroFastQuoteSubscribers.forEach((subscriber) => {
+        try {
+          subscriber.write(message);
+        } catch {
+          globalMacroFastQuoteSubscribers.delete(subscriber);
+        }
+      });
+    })
+    .finally(() => {
+      globalMacroFastQuoteBroadcastInFlight = undefined;
+      stopGlobalMacroFastQuoteBroadcastIfIdle();
+    });
+  return globalMacroFastQuoteBroadcastInFlight;
+}
+
+function subscribeToGlobalMacroFastQuotes(_req: any, res: any) {
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  res.write('retry: 3000\n: connected\n\n');
+  globalMacroFastQuoteSubscribers.add(res);
+
+  const unsubscribe = () => {
+    globalMacroFastQuoteSubscribers.delete(res);
+    stopGlobalMacroFastQuoteBroadcastIfIdle();
+  };
+  res.on('close', unsubscribe);
+
+  if (!globalMacroFastQuoteBroadcastTimer) {
+    globalMacroFastQuoteBroadcastTimer = setInterval(
+      () => void broadcastGlobalMacroFastQuotes(true),
+      GLOBAL_MACRO_FAST_QUOTE_CADENCE_MS,
+    );
+  }
+  void broadcastGlobalMacroFastQuotes();
+}
+
 function allWeatherApiPlugin() {
   return {
     name: 'sparkflow-allweather-api',
@@ -5197,6 +6826,17 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/news-feed') {
             sendJson(res, 200, await getNewsFeed());
+            return;
+          }
+
+          if (url.pathname === '/api/global-macro-quotes') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await getCachedGlobalMacroFastQuotes());
+            return;
+          }
+
+          if (url.pathname === '/api/global-macro-stream') {
+            subscribeToGlobalMacroFastQuotes(req, res);
             return;
           }
 
@@ -5228,6 +6868,39 @@ function allWeatherApiPlugin() {
               return;
             }
             sendJson(res, 200, await getCachedGlobalMarketHeatmap(market));
+            return;
+          }
+
+          if (url.pathname === '/api/international-market-overview') {
+            const market = String(url.searchParams.get('market') || '') as InternationalMarketMode;
+            if (!Object.prototype.hasOwnProperty.call(internationalIndexConfigs, market)) {
+              sendJson(res, 400, { error: '不支持的国际股票市场' });
+              return;
+            }
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await getCachedInternationalMarketOverview(market));
+            return;
+          }
+
+          if (url.pathname === '/api/global-company-logo') {
+            const symbol = String(url.searchParams.get('symbol') || '');
+            if (!globalHeatmapLogoDomains[symbol]) {
+              res.statusCode = 404;
+              res.setHeader('Cache-Control', 'no-store');
+              res.end();
+              return;
+            }
+            try {
+              const logo = await fetchGlobalCompanyLogo(symbol);
+              res.statusCode = 200;
+              res.setHeader('Content-Type', logo.contentType);
+              res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+              res.end(logo.data);
+            } catch {
+              res.statusCode = 404;
+              res.setHeader('Cache-Control', 'no-store');
+              res.end();
+            }
             return;
           }
 
@@ -5272,11 +6945,11 @@ function allWeatherApiPlugin() {
               sendJson(res, 200, await getCachedChinaValuationDashboard());
               return;
             }
-            if (market !== 'hongkong' && market !== 'us') {
-              sendJson(res, 400, { error: '仅支持 A 股、港股和美股估值市场' });
+            if (!['hongkong', 'us', 'japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(market)) {
+              sendJson(res, 400, { error: '不支持的股票估值市场' });
               return;
             }
-            sendJson(res, 200, await getCachedRegionalValuationDashboard(market));
+            sendJson(res, 200, await getCachedRegionalValuationDashboard(market as RegionalValuationMode));
             return;
           }
 

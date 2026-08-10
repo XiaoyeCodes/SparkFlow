@@ -26,12 +26,21 @@ import {
   ChinaMarketHeatmap,
   CryptoMarketHeatmap,
   HongKongMarketHeatmap,
+  InternationalMarketHeatmap,
+  prefetchInternationalMarketHeatmap,
+  prefetchInternationalMarketHeatmaps,
   UsMarketHeatmap,
+  type InternationalMarketMode,
 } from './ChinaMarketHeatmap';
 import './GlobalMacroCommandCenter.css';
 
-export type GlobalMarketMode = 'china' | 'hongkong' | 'us' | 'crypto';
+export type GlobalMarketMode = 'china' | 'hongkong' | 'us' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk' | 'crypto';
+const INTERNATIONAL_MARKET_IDS = new Set<GlobalMarketMode>(['japan', 'korea', 'india', 'germany', 'france', 'uk']);
 type RegionId = 'global' | 'apac' | 'middleEast' | 'europe' | 'americas';
+
+function isInternationalMarketMode(market?: GlobalMarketMode): market is InternationalMarketMode {
+  return Boolean(market && INTERNATIONAL_MARKET_IDS.has(market));
+}
 
 type HistoryPoint = { time: string; value: number };
 type Quote = {
@@ -46,7 +55,16 @@ type Quote = {
   region: RegionId;
   latitude: number;
   longitude: number;
-  session: { label: string; tone: 'live' | 'closed' | 'pre' | 'unknown' };
+  session: {
+    label: string;
+    tone: 'live' | 'closed' | 'pre' | 'unknown';
+    detail?: string;
+    timezone?: string;
+    localTime?: string;
+    nextOpenAt?: string;
+    nextOpenLabel?: string;
+  };
+  quoteStale?: boolean;
   history: HistoryPoint[];
 };
 type TickerIndex = Pick<Quote, 'id' | 'name' | 'symbol' | 'price' | 'changePercent' | 'sourceUrl' | 'updatedAt'>;
@@ -59,7 +77,7 @@ type CoreIndex = {
   updatedAt?: string;
   sourceUrl: string;
   history: HistoryPoint[];
-  status: 'delayed' | 'unavailable';
+  status: 'live' | 'delayed' | 'unavailable';
 };
 type Metric = {
   id: string;
@@ -124,13 +142,15 @@ type FedRateExpectation = {
   meetingLabel: string;
   currentRate: number;
   impliedRate: number;
+  monthlyAverageRate: number;
   expectedChangeBps: number;
   hikeProbability: number;
   cutProbability: number;
-  distribution: Array<{ id: string; label: string; probability: number }>;
+  distribution: Array<{ id: string; label: string; probability: number; direction: 'hike' | 'hold' | 'cut' }>;
   updatedAt: string;
   sourceUrl: string;
   quoteSourceUrl: string;
+  contractSymbol: string;
   method: string;
   status: 'delayed' | 'unavailable';
 };
@@ -151,6 +171,17 @@ type Dashboard = {
 const GLOBAL_MACRO_SECTIONS = ['markets', 'macro', 'pmi', 'commodities', 'news', 'calendar'] as const;
 type GlobalMacroSection = (typeof GLOBAL_MACRO_SECTIONS)[number];
 type DashboardSectionPayload = Partial<Dashboard> & { generatedAt: string };
+type FastQuotePayload = DashboardSectionPayload & {
+  cadenceMs: number;
+  coverage: {
+    yahoo: number;
+    equities: number;
+    globalIndices?: number;
+    assets?: number;
+    crypto: number;
+    latencyMs?: Record<string, number | null>;
+  };
+};
 const EMPTY_DASHBOARD: Dashboard = {
   generatedAt: '',
   global: null,
@@ -165,11 +196,70 @@ const EMPTY_DASHBOARD: Dashboard = {
   focusNews: [],
   calendar: [],
 };
+
+type LiveDashboardItem = { id: string; updatedAt?: string; history?: HistoryPoint[] };
+
+function quoteTimestamp(value?: string) {
+  const timestamp = value ? new Date(value).getTime() : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function mergeDashboardItems<T extends LiveDashboardItem>(
+  current: T[],
+  incoming: T[],
+  preferFreshest: boolean,
+) {
+  const byId = new Map(current.map((item) => [item.id, item]));
+  const order = current.map((item) => item.id);
+  incoming.forEach((nextItem) => {
+    const currentItem = byId.get(nextItem.id);
+    if (!currentItem) {
+      byId.set(nextItem.id, nextItem);
+      order.push(nextItem.id);
+      return;
+    }
+    const keepCurrentQuote = preferFreshest
+      && quoteTimestamp(currentItem.updatedAt) > quoteTimestamp(nextItem.updatedAt);
+    const merged = keepCurrentQuote
+      ? { ...nextItem, ...currentItem }
+      : { ...currentItem, ...nextItem };
+    const history = nextItem.history?.length ? nextItem.history : currentItem.history;
+    byId.set(nextItem.id, history ? { ...merged, history } : merged);
+  });
+  return order.flatMap((id) => {
+    const item = byId.get(id);
+    return item ? [item] : [];
+  });
+}
+
+function mergeDashboardPayload(
+  current: Dashboard | null,
+  payload: DashboardSectionPayload,
+  preferFreshest: boolean,
+): Dashboard {
+  const base = current || EMPTY_DASHBOARD;
+  const global = payload.global === undefined || payload.global === null
+    ? base.global
+    : mergeDashboardItems(base.global ? [base.global] : [], [payload.global], preferFreshest)[0] || null;
+  return {
+    ...base,
+    ...payload,
+    generatedAt: payload.generatedAt || base.generatedAt || new Date().toISOString(),
+    global,
+    ticker: payload.ticker ? mergeDashboardItems(base.ticker, payload.ticker, preferFreshest) : base.ticker,
+    coreIndices: payload.coreIndices ? mergeDashboardItems(base.coreIndices, payload.coreIndices, preferFreshest) : base.coreIndices,
+    markets: payload.markets ? mergeDashboardItems(base.markets, payload.markets, preferFreshest) : base.markets,
+    macro: payload.macro ? mergeDashboardItems(base.macro, payload.macro, preferFreshest) : base.macro,
+    commodities: payload.commodities ? mergeDashboardItems(base.commodities, payload.commodities, preferFreshest) : base.commodities,
+  };
+}
 type WorldHeatmapStock = {
   id: string;
   symbol: string;
   name: string;
   sector: string;
+  logoUrl?: string;
+  fallbackLogoUrl?: string;
   weight: number;
   price: number;
   changePercent: number;
@@ -179,10 +269,53 @@ type WorldHeatmapStock = {
 type WorldHeatmapResponse = {
   market: string;
   generatedAt: string;
+  refreshIntervalMs?: number;
+  quoteStatus?: 'live' | 'delayed' | 'closed';
+  sourceDelaySeconds?: number | null;
+  session?: { label: string; tone: 'live' | 'pre' | 'closed' };
   source: string;
   weightMethod: string;
   stocks: WorldHeatmapStock[];
 };
+
+const WORLD_HEATMAP_MARKET_IDS = new Set(['japan', 'korea', 'india', 'australia', 'euro', 'germany', 'france', 'uk', 'saudi']);
+const WORLD_HEATMAP_REFRESH_INTERVAL_MS = 5_000;
+const WORLD_HEATMAP_CLIENT_CACHE_MS = 2_500;
+const worldHeatmapClientCache = new Map<string, { storedAt: number; data: WorldHeatmapResponse }>();
+const worldHeatmapClientInFlight = new Map<string, Promise<WorldHeatmapResponse>>();
+const worldHeatmapPreloadedLogoUrls = new Set<string>();
+
+function preloadWorldHeatmapLogos(payload: WorldHeatmapResponse) {
+  if (typeof Image === 'undefined') return;
+  payload.stocks.forEach((stock) => {
+    if (!stock.logoUrl || worldHeatmapPreloadedLogoUrls.has(stock.logoUrl)) return;
+    worldHeatmapPreloadedLogoUrls.add(stock.logoUrl);
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = stock.logoUrl;
+  });
+}
+
+function loadWorldHeatmap(market: string) {
+  const cached = worldHeatmapClientCache.get(market);
+  if (cached && Date.now() - cached.storedAt < WORLD_HEATMAP_CLIENT_CACHE_MS) return Promise.resolve(cached.data);
+  const running = worldHeatmapClientInFlight.get(market);
+  if (running) return running;
+  const requestPromise = request<WorldHeatmapResponse>(`/api/global-market-heatmap?market=${encodeURIComponent(market)}`)
+    .then((payload) => {
+      worldHeatmapClientCache.set(market, { storedAt: Date.now(), data: payload });
+      preloadWorldHeatmapLogos(payload);
+      return payload;
+    })
+    .finally(() => worldHeatmapClientInFlight.delete(market));
+  worldHeatmapClientInFlight.set(market, requestPromise);
+  return requestPromise;
+}
+
+function prefetchWorldHeatmap(market: string) {
+  if (!WORLD_HEATMAP_MARKET_IDS.has(market)) return Promise.resolve();
+  return loadWorldHeatmap(market).then(() => undefined).catch(() => undefined);
+}
 
 const WORLD_SPHERE = { type: 'Sphere' } as const;
 const WORLD_GRATICULE = geoGraticule10();
@@ -229,6 +362,44 @@ function signed(value?: number | null) {
 function trendClass(value?: number | null) {
   if (value === undefined || value === null || !Number.isFinite(value) || Math.abs(value) <= 0.03) return 'macro-flat';
   return value > 0 ? 'macro-up' : 'macro-down';
+}
+
+function formatSessionCountdown(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const clock = [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
+  return days > 0 ? `${days}天 ${clock}` : clock;
+}
+
+function formatSessionLocalClock(now: number, timezone?: string, fallback?: string) {
+  if (!timezone) return fallback || '';
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).format(new Date(now));
+  } catch {
+    return fallback || '';
+  }
+}
+
+function heatmapCellColor(changePercent: number) {
+  if (changePercent > 0.03) {
+    const intensity = Math.min(Math.abs(changePercent) / 7, 1);
+    return `rgb(${Math.round(116 + intensity * 126)} ${Math.round(30 + intensity * 24)} ${Math.round(43 + intensity * 26)})`;
+  }
+  if (changePercent < -0.03) {
+    const intensity = Math.min(Math.abs(changePercent) / 10, 1);
+    const mix = (from: number, to: number) => Math.round(from + (to - from) * intensity);
+    return `rgb(${mix(4, 11)} ${mix(73, 166)} ${mix(42, 96)})`;
+  }
+  return 'rgb(62 64 68)';
 }
 
 function newsTagClass(category: string) {
@@ -593,7 +764,7 @@ function MacroPulsePanel({
         <div className="macro-vix-status">
           <small>{pulse.vix.summary}</small>
           <span className={trendClass(pulse.vix.change)}>较前值 {pointChange(pulse.vix.change)}</span>
-          {pulse.vix.sourceUrl ? <a href={pulse.vix.sourceUrl} target="_blank" rel="noreferrer">FRED · {pulse.vix.sourceStatus}<ExternalLink size={9} /></a> : <i>{pulse.vix.sourceStatus}</i>}
+          {pulse.vix.sourceUrl ? <a href={pulse.vix.sourceUrl} target="_blank" rel="noreferrer">行情 · {pulse.vix.sourceStatus}<ExternalLink size={9} /></a> : <i>{pulse.vix.sourceStatus}</i>}
         </div>
       </section>
 
@@ -662,6 +833,7 @@ type MarketMarkerCluster = {
   id: string;
   primary: Quote;
   quotes: Quote[];
+  isLive: boolean;
 };
 
 function marketDistanceKm(left: Quote, right: Quote) {
@@ -687,7 +859,12 @@ function clusterMarketMarkers(markets: Quote[]) {
       .filter((market) => !HIDDEN_MARKER_LABEL_IDS.has(market.id))
       .sort((left, right) => (MARKER_LABEL_PRIORITY.get(left.id) ?? 100) - (MARKER_LABEL_PRIORITY.get(right.id) ?? 100));
     const primary = quotes[0];
-    return primary ? [{ id: primary.id, primary, quotes }] : [];
+    return primary ? [{
+      id: primary.id,
+      primary,
+      quotes,
+      isLive: quotes.some((quote) => quote.session.tone === 'live'),
+    }] : [];
   });
 }
 
@@ -719,10 +896,12 @@ function HologramGlobe({
   markets,
   selectedId,
   onSelect,
+  onPrefetch,
 }: {
   markets: Quote[];
   selectedId?: string;
   onSelect: (quote: Quote) => void;
+  onPrefetch: (quote: Quote) => void;
 }) {
   const markerClusters = useMemo(() => clusterMarketMarkers(markets), [markets]);
   const mount = useRef<HTMLDivElement | null>(null);
@@ -816,6 +995,7 @@ function HologramGlobe({
       pulse: THREE.Mesh;
       pulseGeometry: THREE.RingGeometry;
       pulseMaterial: THREE.MeshBasicMaterial;
+      isLive: boolean;
     };
     let nodes: GlobeMarkerNode[] = [];
 
@@ -831,6 +1011,7 @@ function HologramGlobe({
       const pulseMaterial = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.48, side: THREE.DoubleSide });
       const pulse = new THREE.Mesh(pulseGeometry, pulseMaterial);
       pulse.lookAt(group.position.clone().multiplyScalar(2));
+      pulse.visible = cluster.isLive;
       group.add(marker, pulse);
       root.add(group);
       return {
@@ -843,6 +1024,7 @@ function HologramGlobe({
         pulse,
         pulseGeometry,
         pulseMaterial,
+        isLive: cluster.isLive,
       };
     };
     const disposeMarkerNode = (node: GlobeMarkerNode) => {
@@ -860,6 +1042,7 @@ function HologramGlobe({
         remaining.delete(cluster.id);
         existing.quoteIds = cluster.quotes.map((quote) => quote.id);
         existing.longitude = cluster.primary.longitude;
+        existing.isLive = cluster.isLive;
         existing.group.position.copy(latLngToVector(cluster.primary.latitude, cluster.primary.longitude, 1.79));
         existing.pulse.lookAt(existing.group.position.clone().multiplyScalar(2));
         return existing;
@@ -955,7 +1138,7 @@ function HologramGlobe({
       camera.updateMatrixWorld();
       root.updateMatrixWorld(true);
       const quoteMap = quoteMapRef.current;
-      nodes.forEach(({ id, quoteIds, longitude, group, markerMaterial, pulse, pulseMaterial }) => {
+      nodes.forEach(({ id, quoteIds, longitude, group, markerMaterial, pulse, pulseMaterial, isLive }) => {
         const quote = quoteMap.get(id);
         if (!quote) return;
         group.getWorldPosition(markerWorld);
@@ -965,6 +1148,7 @@ function HologramGlobe({
         const color = quote.changePercent >= 0 ? '#ff667d' : '#38e7b2';
         markerMaterial.color.set(color);
         pulseMaterial.color.set(color);
+        pulse.visible = isLive;
         const active = Boolean(selectedRef.current && quoteIds.includes(selectedRef.current));
         const scale = (active ? 1.35 : 1) + Math.sin(Date.now() * 0.003 + longitude) * 0.08;
         pulse.scale.setScalar(scale);
@@ -1032,6 +1216,8 @@ function HologramGlobe({
           type="button"
           className={`macro-holo-label ${selectedId === quote.id ? 'active' : ''}`}
           style={{ transform: `translate3d(${x}px, ${y}px, 0) translateX(-50%)` }}
+          onPointerEnter={() => onPrefetch(quote)}
+          onFocus={() => onPrefetch(quote)}
           onClick={(event) => { event.stopPropagation(); onSelect(quote); }}
         >
           <i className="macro-holo-leader" style={{ height: Math.max(9, y - markerY - 3) }} />
@@ -1047,7 +1233,8 @@ function MarketHeatmap({ mode }: { mode: GlobalMarketMode }) {
   if (mode === 'china') return <ChinaMarketHeatmap />;
   if (mode === 'hongkong') return <HongKongMarketHeatmap />;
   if (mode === 'us') return <UsMarketHeatmap />;
-  return <CryptoMarketHeatmap />;
+  if (mode === 'crypto') return <CryptoMarketHeatmap />;
+  return <InternationalMarketHeatmap market={mode as InternationalMarketMode} />;
 }
 
 type HeatmapTreeNode = {
@@ -1058,17 +1245,37 @@ type HeatmapTreeNode = {
 };
 
 function WorldMarketHeatmap({ market }: { market: string }) {
-  const [data, setData] = useState<WorldHeatmapResponse | null>(null);
+  const [data, setData] = useState<WorldHeatmapResponse | null>(() => worldHeatmapClientCache.get(market)?.data || null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let active = true;
-    setData(null);
+    let refreshTimer = 0;
+    const cached = worldHeatmapClientCache.get(market)?.data || null;
+    setData(cached);
     setError('');
-    void request<WorldHeatmapResponse>(`/api/global-market-heatmap?market=${encodeURIComponent(market)}`)
-      .then((payload) => { if (active) setData(payload); })
-      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '热力图数据暂时不可用'); });
-    return () => { active = false; };
+    const refresh = async () => {
+      if (!active) return;
+      if (!document.hidden) {
+        try {
+          const payload = await loadWorldHeatmap(market);
+          if (active) {
+            setData(payload);
+            setError('');
+          }
+        } catch (reason) {
+          if (active && !worldHeatmapClientCache.get(market)) {
+            setError(reason instanceof Error ? reason.message : '热力图数据暂时不可用');
+          }
+        }
+      }
+      if (active) refreshTimer = window.setTimeout(refresh, WORLD_HEATMAP_REFRESH_INTERVAL_MS);
+    };
+    void refresh();
+    return () => {
+      active = false;
+      window.clearTimeout(refreshTimer);
+    };
   }, [market]);
 
   const layout = useMemo(() => {
@@ -1087,6 +1294,15 @@ function WorldMarketHeatmap({ market }: { market: string }) {
 
   if (error) return <div className="macro-world-heatmap-state"><Globe2 size={28} /><strong>{error}</strong></div>;
   if (!layout || !data) return <div className="macro-world-heatmap-state"><span className="macro-world-loader" /><strong>正在读取成分股行情</strong></div>;
+  const latestQuoteAt = data.stocks.reduce((latest, stock) => stock.updatedAt > latest ? stock.updatedAt : latest, '');
+  const latestQuoteTime = latestQuoteAt
+    ? new Date(latestQuoteAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+    : '--:--:--';
+  const refreshLabel = data.quoteStatus === 'delayed' && data.sourceDelaySeconds
+    ? `源延迟约${Math.max(1, Math.round(data.sourceDelaySeconds / 60))}分钟 · 每5秒检查`
+    : data.quoteStatus === 'closed'
+      ? `${data.session?.label || '已收盘'} · 每5秒检查`
+      : '盘中 · 5秒刷新';
 
   return (
     <div className="macro-world-heatmap">
@@ -1108,14 +1324,97 @@ function WorldMarketHeatmap({ market }: { market: string }) {
             href={stock.sourceUrl}
             target="_blank"
             rel="noreferrer"
-            style={{ left: `${node.x0 / 10}%`, top: `${node.y0 / 6.2}%`, width: `${(node.x1 - node.x0) / 10}%`, height: `${(node.y1 - node.y0) / 6.2}%` }}
+            style={{
+              left: `${node.x0 / 10}%`,
+              top: `${node.y0 / 6.2}%`,
+              width: `${(node.x1 - node.x0) / 10}%`,
+              height: `${(node.y1 - node.y0) / 6.2}%`,
+              backgroundColor: heatmapCellColor(stock.changePercent),
+            }}
             title={`${stock.name} ${stock.symbol} ${signed(stock.changePercent)}`}
           >
-            <strong>{stock.name}</strong><span>{stock.symbol}</span><b>{signed(stock.changePercent)}</b><small>{formatNumber(stock.price)}</small>
+            <span className="macro-world-logo" aria-hidden="true">
+              <i>{stock.name.slice(0, 1)}</i>
+              {stock.logoUrl ? (
+                <img
+                  src={stock.logoUrl}
+                  alt=""
+                  loading="eager"
+                  decoding="async"
+                  draggable={false}
+                  onError={(event) => {
+                    const image = event.currentTarget;
+                    if (stock.fallbackLogoUrl && image.dataset.fallbackTried !== 'true') {
+                      image.dataset.fallbackTried = 'true';
+                      image.src = stock.fallbackLogoUrl;
+                      return;
+                    }
+                    image.style.display = 'none';
+                  }}
+                />
+              ) : null}
+            </span>
+            <strong>{stock.name}</strong><span className="macro-world-symbol">{stock.symbol}</span><b>{signed(stock.changePercent)}</b><small>{formatNumber(stock.price)}</small>
           </a>
         );
       })}
-      <p className="macro-world-source">{data.source} 行情 · {data.weightMethod}</p>
+      <p className={`macro-world-source ${data.quoteStatus || ''}`}>{data.source} · {refreshLabel} · 数据 {latestQuoteTime}</p>
+    </div>
+  );
+}
+
+function MarketSessionSummary({
+  quote,
+  mode,
+  onRefreshSession,
+}: {
+  quote: Quote | null;
+  mode: GlobalMarketMode | null;
+  onRefreshSession: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const refreshedOpeningRef = useRef('');
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const nextOpenAt = quote?.session.nextOpenAt;
+  const nextOpenMs = nextOpenAt ? new Date(nextOpenAt).getTime() : Number.NaN;
+  useEffect(() => {
+    if (!nextOpenAt || !Number.isFinite(nextOpenMs) || now < nextOpenMs || refreshedOpeningRef.current === nextOpenAt) return;
+    refreshedOpeningRef.current = nextOpenAt;
+    onRefreshSession();
+  }, [nextOpenAt, nextOpenMs, now, onRefreshSession]);
+
+  if (!quote && mode !== 'crypto') return null;
+  const crypto = !quote && mode === 'crypto';
+  const session = quote?.session;
+  const isLive = crypto || session?.tone === 'live';
+  const isPreOpen = session?.tone === 'pre';
+  const localClock = crypto
+    ? formatSessionLocalClock(now, 'UTC')
+    : formatSessionLocalClock(now, session?.timezone, session?.localTime);
+  const countdown = !isLive && Number.isFinite(nextOpenMs)
+    ? formatSessionCountdown(nextOpenMs - now)
+    : '';
+  const label = crypto ? '全天交易' : session?.label || '状态待确认';
+  const detail = crypto ? '数字资产市场 24/7' : session?.detail || '交易所状态';
+
+  return (
+    <div
+      className={`macro-modal-session ${isLive ? 'live' : isPreOpen ? 'pre' : 'closed'}`}
+      aria-label={`${label}${countdown ? `，距离下次开盘 ${countdown}` : ''}`}
+    >
+      <span className="macro-modal-session-state"><i />{label}</span>
+      <span className="macro-modal-session-detail">{detail}<b>{localClock ? `当地 ${localClock}` : ''}</b></span>
+      {!isLive && countdown ? (
+        <span className="macro-modal-session-next">
+          <small>下次开盘 · {session?.nextOpenLabel}</small>
+          <strong>{countdown}</strong>
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -1125,11 +1424,13 @@ function MarketModal({
   mode,
   onClose,
   onOpenMarket,
+  onRefreshSession,
 }: {
   quote: Quote | null;
   mode: GlobalMarketMode | null;
   onClose: () => void;
   onOpenMarket: (mode: GlobalMarketMode) => void;
+  onRefreshSession: () => void;
 }) {
   if (!quote && !mode) return null;
   const title = quote?.name || '全球加密资产市场';
@@ -1142,6 +1443,7 @@ function MarketModal({
             <span className="macro-modal-kicker">MARKET HEATMAP / 市场热力</span>
             <h2>{title}</h2>
           </div>
+          <MarketSessionSummary quote={quote} mode={mode} onRefreshSession={onRefreshSession} />
           <div className="macro-modal-quote">
             {quote ? <><strong>{formatNumber(quote.price)}</strong><span className={trendClass(quote.changePercent)}>{signed(quote.changePercent)}</span></> : null}
             {mode ? <button type="button" onClick={() => onOpenMarket(mode)}>进入交易页面 <ArrowRight size={14} /></button> : null}
@@ -1158,7 +1460,15 @@ function MarketModal({
   );
 }
 
-function InteractiveFlatMap({ markets, onSelect }: { markets: Quote[]; onSelect: (quote: Quote) => void }) {
+function InteractiveFlatMap({
+  markets,
+  onSelect,
+  onPrefetch,
+}: {
+  markets: Quote[];
+  onSelect: (quote: Quote) => void;
+  onPrefetch: (quote: Quote) => void;
+}) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number } | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -1298,10 +1608,16 @@ function InteractiveFlatMap({ markets, onSelect }: { markets: Quote[]; onSelect:
               top: size.height / 2 + (top - size.height / 2) * transform.scale + transform.y,
             }}
           >
-            <i className={`macro-map-shared-marker ${cluster.primary.changePercent >= 0 ? 'up' : 'down'}`} />
+            <i className={`macro-map-shared-marker ${cluster.primary.changePercent >= 0 ? 'up' : 'down'} ${cluster.isLive ? 'live' : ''}`} />
             <div className="macro-map-cluster-labels">
               {cluster.quotes.map((item) => (
-                <button key={item.id} type="button" onClick={() => onSelect(item)}>
+                <button
+                  key={item.id}
+                  type="button"
+                  onPointerEnter={() => onPrefetch(item)}
+                  onFocus={() => onPrefetch(item)}
+                  onClick={() => onSelect(item)}
+                >
                   <span>{item.name}</span>
                   <b className={trendClass(item.changePercent)}>{signed(item.changePercent)}</b>
                 </button>
@@ -1326,6 +1642,26 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [modalMode, setModalMode] = useState<GlobalMarketMode | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const lastFastQuoteFrameRef = useRef('');
+  const worldHeatmapWarmupStartedRef = useRef(false);
+
+  const applyFastQuotes = useCallback((payload: FastQuotePayload) => {
+    if (payload.generatedAt && payload.generatedAt === lastFastQuoteFrameRef.current) return;
+    lastFastQuoteFrameRef.current = payload.generatedAt;
+    setData((current) => mergeDashboardPayload(current, payload, false));
+    setSelected((current) => {
+      if (!current || !payload.markets) return current;
+      const incoming = payload.markets.find((item) => item.id === current.id);
+      return incoming ? mergeDashboardItems([current], [incoming], false)[0] : current;
+    });
+    if (payload.markets?.length) setLoading(false);
+  }, []);
+
+  const refreshFastQuotes = useCallback(async () => {
+    const payload = await request<FastQuotePayload>('/api/global-macro-quotes');
+    applyFastQuotes(payload);
+    return payload;
+  }, [applyFastQuotes]);
 
   const load = useCallback(async (
     sections: readonly GlobalMacroSection[] = GLOBAL_MACRO_SECTIONS,
@@ -1336,11 +1672,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       const payload = await request<DashboardSectionPayload>(
         `/api/global-macro-dashboard?region=global&section=${encodeURIComponent(section)}`,
       );
-      setData((current) => ({
-        ...(current || EMPTY_DASHBOARD),
-        ...payload,
-        generatedAt: payload.generatedAt || current?.generatedAt || new Date().toISOString(),
-      }));
+      setData((current) => mergeDashboardPayload(current, payload, true));
       if (section === 'markets') setLoading(false);
       return section;
     }));
@@ -1351,14 +1683,99 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
 
   useEffect(() => {
     void load();
-    const nonNewsSections = GLOBAL_MACRO_SECTIONS.filter((section) => section !== 'news');
-    const dashboardRefresh = window.setInterval(() => void load(nonNewsSections, false), 60_000);
+    const historyRefresh = window.setInterval(
+      () => void load(['markets', 'macro', 'commodities'], false),
+      5 * 60_000,
+    );
+    const slowDataRefresh = window.setInterval(
+      () => void load(['pmi', 'calendar'], false),
+      15 * 60_000,
+    );
     const newsRefresh = window.setInterval(() => void load(['news'], false), 30_000);
     return () => {
-      window.clearInterval(dashboardRefresh);
+      window.clearInterval(historyRefresh);
+      window.clearInterval(slowDataRefresh);
       window.clearInterval(newsRefresh);
     };
   }, [load]);
+
+  useEffect(() => {
+    let disposed = false;
+    let eventSource: EventSource | null = null;
+    let pollTimer: number | undefined;
+    let streamWatchdog: number | undefined;
+
+    const clearTransport = () => {
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+      if (streamWatchdog !== undefined) window.clearTimeout(streamWatchdog);
+      pollTimer = undefined;
+      streamWatchdog = undefined;
+      if (eventSource) {
+        eventSource.onerror = null;
+        eventSource.onmessage = null;
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+
+    const poll = async () => {
+      if (disposed || document.hidden) return;
+      try {
+        await refreshFastQuotes();
+      } catch {
+        // The next recursive poll retries without creating overlapping requests.
+      }
+      if (!disposed && !document.hidden) pollTimer = window.setTimeout(() => void poll(), 4_000);
+    };
+
+    const startPolling = (delay = 0) => {
+      if (disposed || document.hidden || pollTimer !== undefined) return;
+      pollTimer = window.setTimeout(() => {
+        pollTimer = undefined;
+        void poll();
+      }, delay);
+    };
+
+    const connectStream = () => {
+      if (disposed || document.hidden) return;
+      clearTransport();
+      if (!('EventSource' in window)) {
+        startPolling();
+        return;
+      }
+      eventSource = new EventSource('/api/global-macro-stream');
+      streamWatchdog = window.setTimeout(() => {
+        clearTransport();
+        startPolling();
+      }, 12_000);
+      eventSource.onmessage = (event) => {
+        if (streamWatchdog !== undefined) window.clearTimeout(streamWatchdog);
+        streamWatchdog = undefined;
+        try {
+          applyFastQuotes(JSON.parse(event.data) as FastQuotePayload);
+        } catch {
+          // Ignore one malformed frame; the stream remains connected for the next quote frame.
+        }
+      };
+      eventSource.onerror = () => {
+        clearTransport();
+        startPolling(1_000);
+      };
+    };
+
+    const handleVisibility = () => {
+      clearTransport();
+      if (!document.hidden) connectStream();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    connectStream();
+
+    return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearTransport();
+    };
+  }, [applyFastQuotes, refreshFastQuotes]);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -1366,6 +1783,10 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
+  useEffect(() => {
+    void prefetchInternationalMarketHeatmaps();
   }, []);
 
   const macro = data?.macro || [];
@@ -1377,10 +1798,43 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const crypto = commodities.filter((item) => ['bitcoin', 'ethereum'].includes(item.id));
   const markets = data?.markets || [];
 
+  const warmQuoteHeatmap = useCallback((quote: Quote) => {
+    if (isInternationalMarketMode(quote.market)) {
+      void prefetchInternationalMarketHeatmap(quote.market);
+      return;
+    }
+    void prefetchWorldHeatmap(quote.id);
+  }, []);
+
   const openQuote = useCallback((quote: Quote) => {
+    warmQuoteHeatmap(quote);
     setSelected(quote);
     setModalMode(quote.market || null);
-  }, []);
+  }, [warmQuoteHeatmap]);
+
+  useEffect(() => {
+    if (!markets.length || worldHeatmapWarmupStartedRef.current) return;
+    worldHeatmapWarmupStartedRef.current = true;
+    let cancelled = false;
+    const marketIds = markets
+      .filter((item) => !isInternationalMarketMode(item.market))
+      .map((item) => item.id)
+      .filter((id) => WORLD_HEATMAP_MARKET_IDS.has(id));
+    const timer = window.setTimeout(() => {
+      const queue = [...marketIds];
+      const worker = async () => {
+        while (!cancelled && queue.length) {
+          const market = queue.shift();
+          if (market) await prefetchWorldHeatmap(market);
+        }
+      };
+      void Promise.all([worker(), worker(), worker()]);
+    }, 150);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [markets.length]);
 
   return (
     <section className="global-macro-shell">
@@ -1394,7 +1848,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             </div>
           </div>
           <IndexTickerTape items={data?.ticker || []} />
-          <WorldClockBar onRefresh={() => void load()} />
+          <WorldClockBar onRefresh={() => { void load(); void refreshFastQuotes(); }} />
         </header>
 
         <MacroPulsePanel
@@ -1417,9 +1871,9 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             {error ? <button type="button" className="macro-error" onClick={() => void load()}>{error} · 点击重试</button> : null}
             <div className={`macro-globe-wrap ${view === 'map' ? 'flat' : ''}`}>
               {view === 'globe' ? (
-                markets.length ? <HologramGlobe markets={markets} selectedId={selected?.id} onSelect={openQuote} /> : null
+                markets.length ? <HologramGlobe markets={markets} selectedId={selected?.id} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} /> : null
               ) : (
-                <InteractiveFlatMap markets={markets} onSelect={openQuote} />
+                <InteractiveFlatMap markets={markets} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} />
               )}
               <p className="macro-caption">{view === 'map' ? '拖动平移 · 滚轮缩放 · 双击复位 · 点击交易所打开实时热力图' : '拖动旋转 · 滚轮缩放 · 点击交易所打开实时热力图 · 红涨绿跌'}</p>
             </div>
@@ -1467,6 +1921,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
         mode={modalMode}
         onClose={() => { setSelected(null); setModalMode(null); }}
         onOpenMarket={onOpenMarket}
+        onRefreshSession={() => { void refreshFastQuotes(); }}
       />
     </section>
   );
@@ -1564,10 +2019,8 @@ function TreasurySpreadCard({ item }: { item?: Metric }) {
 
 function FedRateExpectationCard({ expectation }: { expectation: FedRateExpectation | null }) {
   const distribution = expectation?.distribution || [
-    { id: 'hike', label: '加息', probability: 0 },
-    { id: 'hold', label: '维持', probability: 0 },
-    { id: 'cut25', label: '降息 25bp', probability: 0 },
-    { id: 'cut50', label: '降息 ≥50bp', probability: 0 },
+    { id: 'hold', label: '维持', probability: 0, direction: 'hold' as const },
+    { id: 'cut25', label: '降息 25bp', probability: 0, direction: 'cut' as const },
   ];
   const meetingDate = expectation?.meetingDate
     ? new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(new Date(`${expectation.meetingDate}T00:00:00Z`))
@@ -1583,17 +2036,17 @@ function FedRateExpectationCard({ expectation }: { expectation: FedRateExpectati
       <a className={`macro-fed-card ${expectation ? '' : 'unavailable'}`} href={sourceUrl} target="_blank" rel="noreferrer">
         <div className="macro-fed-head">
           <span><small>NEXT FOMC · {meetingDate}</small><strong>{expectation ? `${expectation.cutProbability.toFixed(1)}%` : '待更新'}</strong><b>降息概率</b></span>
-          <span><small>当前 → 隐含</small><strong>{expectation ? `${expectation.currentRate.toFixed(2)}% → ${expectation.impliedRate.toFixed(2)}%` : '等待期货数据'}</strong><b className={expectation && expectation.expectedChangeBps < 0 ? 'macro-down' : 'macro-flat'}>{expectedMove}</b></span>
+          <span><small>当前 EFFR → 会后隐含</small><strong>{expectation ? `${expectation.currentRate.toFixed(2)}% → ${expectation.impliedRate.toFixed(2)}%` : '等待期货数据'}</strong><b className={expectation && expectation.expectedChangeBps < 0 ? 'macro-down' : 'macro-flat'}>{expectedMove}</b></span>
         </div>
         <div className="macro-fed-distribution">
           {distribution.map((item) => (
-            <div key={item.id} className={`macro-fed-row ${item.id}`}>
+            <div key={item.id} className={`macro-fed-row ${item.direction}`}>
               <span><small>{item.label}</small><b>{expectation ? `${item.probability.toFixed(1)}%` : '—'}</b></span>
               <i role="meter" aria-label={`${item.label}概率`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={expectation ? item.probability : undefined}><em style={{ width: `${expectation ? item.probability : 0}%` }} /></i>
             </div>
           ))}
         </div>
-        <footer><span>{expectation?.method || '等待 ZQ 期货与 FRED 数据'}</span><span>CME FedWatch <ExternalLink size={9} /></span></footer>
+        <footer><span>{expectation ? `${expectation.method} · ${expectation.contractSymbol}` : '等待会议月 ZQ 期货与 FRED 数据'}</span><span>CME 方法说明 <ExternalLink size={9} /></span></footer>
       </a>
     </section>
   );

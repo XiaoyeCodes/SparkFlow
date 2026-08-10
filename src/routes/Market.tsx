@@ -22,7 +22,14 @@ import {
   TrendingUp,
   TriangleAlert,
 } from 'lucide-react';
-import { ChinaMarketHeatmap, CryptoMarketHeatmap, HongKongMarketHeatmap, UsMarketHeatmap } from '../components/ChinaMarketHeatmap';
+import {
+  ChinaMarketHeatmap,
+  CryptoMarketHeatmap,
+  HongKongMarketHeatmap,
+  InternationalMarketHeatmap,
+  UsMarketHeatmap,
+  type InternationalMarketMode,
+} from '../components/ChinaMarketHeatmap';
 import { BitcoinCycleChart } from '../components/BitcoinCycleChart';
 import { GlobalMacroCommandCenter } from '../components/GlobalMacroCommandCenter';
 import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
@@ -31,7 +38,7 @@ import { PageTransition } from '../components/PageTransition';
 import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 
-type MarketChartMode = 'china' | 'hongkong' | 'us' | 'crypto';
+type MarketChartMode = 'china' | 'hongkong' | 'us' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk' | 'crypto';
 type MarketDashboardView = 'global' | 'markets';
 
 type UsMarketSystemStatus = {
@@ -45,7 +52,7 @@ type MarketIndexSnapshot = {
   id: string;
   code: string;
   name: string;
-  region: 'CN' | 'HK' | 'US' | 'CRYPTO';
+  region: string;
   market: MarketChartMode;
   proxyFor?: string;
   price: number;
@@ -56,6 +63,9 @@ type MarketIndexSnapshot = {
   decliners?: number;
   flat?: number;
   updatedAt?: string;
+  previousClose?: number;
+  marketState?: string;
+  sourceDelaySeconds?: number;
   sourceUrl: string;
   validation: {
     status: 'verified' | 'review' | 'single-source';
@@ -89,7 +99,7 @@ type MarketRotation = {
   source: string;
   sourceUrl: string;
   metric: RotationMetric;
-  currency: 'CNY' | 'HKD' | 'USD' | 'USDT';
+  currency: 'CNY' | 'HKD' | 'USD' | 'USDT' | 'JPY' | 'KRW' | 'INR' | 'EUR' | 'GBP' | 'WEIGHT';
   coverage: string;
   leaders: MarketRotationItem[];
   laggards: MarketRotationItem[];
@@ -305,10 +315,49 @@ const US_INDEX_TARGETS = [
   { name: '费城半导体指数', code: 'SOX', description: '覆盖全球主要半导体设计、制造与设备公司。' },
 ] as const;
 
+const INTERNATIONAL_INDEX_TARGETS: Record<InternationalMarketMode, readonly { name: string; code: string; description: string }[]> = {
+  japan: [
+    { name: '日经225', code: 'N225', description: '日本大型蓝筹与出口龙头的核心基准。' },
+    { name: '东证指数', code: 'TOPIX', description: '覆盖东京证券交易所主要公司，用作日本宽基锚。' },
+    { name: 'JPX日经400', code: 'JPX400', description: '强调资本效率与公司治理的日本代表指数。' },
+  ],
+  korea: [
+    { name: '韩国KOSPI', code: 'KS11', description: '韩国主板大型上市公司的核心基准。' },
+    { name: '韩国KOSDAQ', code: 'KQ11', description: '韩国创新成长与中小型公司代表指数。' },
+    { name: 'KOSPI 200', code: 'KS200', description: '韩国大型、高流动性公司代表指数。' },
+  ],
+  india: [
+    { name: '印度NIFTY 50', code: 'NSEI', description: '印度国家证券交易所大型蓝筹核心指数。' },
+    { name: '孟买SENSEX', code: 'BSESN', description: '孟买证券交易所最具代表性的蓝筹指数。' },
+    { name: 'NIFTY银行', code: 'NSEBANK', description: '衡量印度银行板块景气与信用周期。' },
+  ],
+  germany: [
+    { name: '德国DAX', code: 'DAX', description: '法兰克福市场40家大型公司的核心指数。' },
+    { name: '德国MDAX', code: 'MDAX', description: '德国中型上市公司表现基准。' },
+    { name: '德国TecDAX', code: 'TECDAX', description: '德国科技上市公司的代表指数。' },
+  ],
+  france: [
+    { name: '法国CAC 40', code: 'CAC40', description: '巴黎泛欧交易所大型蓝筹核心指数。' },
+    { name: '法国SBF 120', code: 'SBF120', description: '覆盖法国大中型公司的宽基指数。' },
+    { name: 'CAC Next 20', code: 'CACNEXT20', description: 'CAC 40之后的法国大型公司梯队。' },
+  ],
+  uk: [
+    { name: '英国富时100', code: 'FTSE100', description: '伦敦市场大型跨国蓝筹核心指数。' },
+    { name: '英国富时250', code: 'FTSE250', description: '更聚焦英国本土经济的中型公司指数。' },
+    { name: '富时全股指数', code: 'FTAS', description: '覆盖伦敦主板主要公司的英国宽基锚。' },
+  ],
+};
+
 const INDEX_RESEARCH_TARGETS: Record<MarketChartMode, readonly { name: string; code: string; description: string }[]> = {
   china: A_SHARE_INDEX_TARGETS,
   hongkong: HONG_KONG_INDEX_TARGETS,
   us: US_INDEX_TARGETS,
+  japan: INTERNATIONAL_INDEX_TARGETS.japan,
+  korea: INTERNATIONAL_INDEX_TARGETS.korea,
+  india: INTERNATIONAL_INDEX_TARGETS.india,
+  germany: INTERNATIONAL_INDEX_TARGETS.germany,
+  france: INTERNATIONAL_INDEX_TARGETS.france,
+  uk: INTERNATIONAL_INDEX_TARGETS.uk,
   crypto: [],
 };
 
@@ -331,6 +380,12 @@ const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart
     chart: '美股大盘热力图',
     description: '纳斯达克与纽交所主要公司 · 行业分组 · 市值面积 · 当日涨跌',
   },
+  japan: { label: '日股', short: '日本市场', chart: '日本大盘热力图', description: '日经225与TOPIX代表性龙头 · 行业分组 · 5秒行情同步' },
+  korea: { label: '韩股', short: '韩国市场', chart: '韩国大盘热力图', description: 'KOSPI与KOSDAQ代表性龙头 · 行业分组 · 5秒行情同步' },
+  india: { label: '印股', short: '印度市场', chart: '印度大盘热力图', description: 'NIFTY 50与SENSEX代表性龙头 · 行业分组 · 5秒行情同步' },
+  germany: { label: '德股', short: '德国市场', chart: '德国大盘热力图', description: 'DAX与MDAX代表性龙头 · 行业分组 · 5秒行情同步' },
+  france: { label: '法股', short: '法国市场', chart: '法国大盘热力图', description: 'CAC 40与SBF 120代表性龙头 · 行业分组 · 5秒行情同步' },
+  uk: { label: '英股', short: '英国市场', chart: '英国大盘热力图', description: '富时100与富时250代表性龙头 · 行业分组 · 5秒行情同步' },
   crypto: {
     label: '加密',
     short: '加密市场',
@@ -340,6 +395,11 @@ const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart
 };
 
 const researchStorageKey = (mode: MarketChartMode) => `sparkflow.market.research.v2.${mode}`;
+
+function initialMarketSelection() {
+  const requested = new URLSearchParams(window.location.search).get('market') as MarketChartMode | null;
+  return requested && Object.prototype.hasOwnProperty.call(MARKET_META, requested) ? requested : null;
+}
 
 function readStoredResearch(mode: MarketChartMode): ResearchState {
   try {
@@ -374,14 +434,15 @@ function parseEvent(event: Event) {
 
 export function Market() {
   const navigate = useNavigate();
-  const [activeMarket, setActiveMarket] = useState<MarketChartMode>('china');
-  const [dashboardView, setDashboardView] = useState<MarketDashboardView>('global');
+  const [activeMarket, setActiveMarket] = useState<MarketChartMode>(() => initialMarketSelection() || 'china');
+  const [dashboardView, setDashboardView] = useState<MarketDashboardView>(() => initialMarketSelection() ? 'markets' : 'global');
   const [data, setData] = useState<MarketIntelligence | null>(null);
-  const [valuationSnapshots, setValuationSnapshots] = useState<Partial<Record<'china' | 'hongkong' | 'us', AShareValuationSnapshot>>>({});
+  const [valuationSnapshots, setValuationSnapshots] = useState<Partial<Record<Exclude<MarketChartMode, 'crypto'>, AShareValuationSnapshot>>>({});
   const [loadState, setLoadState] = useState<AsyncState>('loading');
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [regionalRotations, setRegionalRotations] = useState<Partial<Record<MarketChartMode, MarketRotation>>>({});
+  const [internationalIndices, setInternationalIndices] = useState<Partial<Record<InternationalMarketMode, MarketIndexSnapshot[]>>>({});
   const [regionalContent, setRegionalContent] = useState<Partial<Record<'hongkong' | 'us', RegionalMarketContent>>>({});
   const [regionalContentState, setRegionalContentState] = useState<AsyncState>('idle');
   const [regionalContentError, setRegionalContentError] = useState('');
@@ -398,6 +459,12 @@ export function Market() {
     china: readStoredResearch('china'),
     hongkong: readStoredResearch('hongkong'),
     us: readStoredResearch('us'),
+    japan: readStoredResearch('japan'),
+    korea: readStoredResearch('korea'),
+    india: readStoredResearch('india'),
+    germany: readStoredResearch('germany'),
+    france: readStoredResearch('france'),
+    uk: readStoredResearch('uk'),
     crypto: readStoredResearch('crypto'),
   }));
   const researchRef = useRef(research);
@@ -455,6 +522,33 @@ export function Market() {
       });
     return () => {
       cancelled = true;
+    };
+  }, [activeMarket]);
+
+  useEffect(() => {
+    if (!['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket)) return;
+    const market = activeMarket as InternationalMarketMode;
+    let cancelled = false;
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight || document.visibilityState !== 'visible') return;
+      inFlight = true;
+      try {
+        const payload = await requestJson<{ indices: MarketIndexSnapshot[] }>(`/api/international-market-overview?market=${market}`);
+        if (!cancelled && payload.indices.length) {
+          setInternationalIndices((current) => ({ ...current, [market]: payload.indices }));
+        }
+      } catch {
+        // 保留最近一次成功快照，避免短暂上游抖动造成指数条跳空。
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
     };
   }, [activeMarket]);
 
@@ -703,10 +797,12 @@ export function Market() {
     };
   }, [connectResearchStream, pollResearchResult]);
 
-  const activeIndices = useMemo(
-    () => (data?.indices || []).filter((item) => item.market === activeMarket),
-    [activeMarket, data?.indices],
-  );
+  const activeIndices = useMemo(() => {
+    if (['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket)) {
+      return internationalIndices[activeMarket as InternationalMarketMode] || [];
+    }
+    return (data?.indices || []).filter((item) => item.market === activeMarket);
+  }, [activeMarket, data?.indices, internationalIndices]);
   const activeRotation = useMemo(() => {
     if (!data) return undefined;
     if (activeMarket === 'china') return buildChinaRotation(data);
@@ -714,6 +810,7 @@ export function Market() {
     return regionalRotations[activeMarket];
   }, [activeIndices, activeMarket, data, regionalRotations]);
   const activeResearch = research[activeMarket];
+  const isInternationalMarket = ['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket);
   const activeValuation = activeMarket === 'crypto' ? null : valuationSnapshots[activeMarket] || null;
   const activeRegionalContent = activeMarket === 'hongkong' || activeMarket === 'us'
     ? regionalContent[activeMarket]
@@ -732,7 +829,26 @@ export function Market() {
           note: `${activeRegionalContent.news.length} 条新闻 · ${activeRegionalContent.reports.length} 份公开研究`,
         })),
       ]
-    : data?.sources || [];
+    : isInternationalMarket
+      ? [
+          {
+            id: `${activeMarket}-yahoo-spark`,
+            label: `${MARKET_META[activeMarket].short}实时指数与公司行情`,
+            url: activeIndices[0]?.sourceUrl || 'https://finance.yahoo.com/markets/',
+            provider: activeIndices[0]?.validation.source || '区域交易所行情适配器',
+            ok: activeIndices.length > 0,
+            note: `${activeIndices.length} 个核心指数 · 代表性龙头热力图 · 前端 5 秒刷新${Math.max(0, ...activeIndices.map((item) => item.sourceDelaySeconds || 0)) >= 60 ? ' · 行情延迟按授权标注' : ''}`,
+          },
+          {
+            id: `${activeMarket}-official-market`,
+            label: `${MARKET_META[activeMarket].short}交易时段与指数说明`,
+            url: getMarketSessionStatus(activeMarket).sourceUrl,
+            provider: '官方交易所 / 指数编制机构',
+            ok: true,
+            note: '官方交易所或指数编制机构',
+          },
+        ]
+      : data?.sources || [];
 
   useEffect(() => {
     if (activeMarket === 'china' || activeMarket === 'crypto') {
@@ -742,10 +858,23 @@ export function Market() {
     }
 
     const controller = new AbortController();
+    const international = ['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket);
     const endpoint = activeMarket === 'hongkong'
       ? '/api/hong-kong-market-heatmap'
-      : '/api/us-market-heatmap';
-    const currency = activeMarket === 'hongkong' ? 'HKD' : 'USD';
+      : activeMarket === 'us'
+        ? '/api/us-market-heatmap'
+        : `/api/global-market-heatmap?market=${activeMarket}`;
+    const internationalCurrencies: Partial<Record<MarketChartMode, MarketRotation['currency']>> = {
+      japan: 'JPY',
+      korea: 'KRW',
+      india: 'INR',
+      germany: 'EUR',
+      france: 'EUR',
+      uk: 'GBP',
+    };
+    const currency: MarketRotation['currency'] = international
+      ? internationalCurrencies[activeMarket] || 'WEIGHT'
+      : activeMarket === 'hongkong' ? 'HKD' : 'USD';
 
     setRotationLoadState('loading');
     setRotationError('');
@@ -912,6 +1041,12 @@ export function Market() {
         china: 'China-A',
         hongkong: 'Hong-Kong',
         us: 'US',
+        japan: 'Japan',
+        korea: 'Korea',
+        india: 'India',
+        germany: 'Germany',
+        france: 'France',
+        uk: 'United-Kingdom',
         crypto: 'Crypto',
       };
       pdf.save(`SparkFlow-${marketSlug[activeMarket]}-Market-${exportDate}.pdf`);
@@ -966,11 +1101,11 @@ export function Market() {
           </header>
 
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-stretch lg:justify-between">
-            <div className="flex w-full border border-white/10 bg-white/[0.035] p-1 lg:max-w-[620px]">
+            <div className="flex w-full overflow-x-auto border border-white/10 bg-white/[0.035] p-1 [scrollbar-width:thin] lg:max-w-[1120px]">
               <button
                 type="button"
                 onClick={() => setDashboardView('global')}
-                className="flex min-h-11 flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold text-white/52 transition hover:bg-[#69d5ff]/12 hover:text-[#9deaff]"
+                className="flex min-h-11 min-w-[88px] flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold text-white/52 transition hover:bg-[#69d5ff]/12 hover:text-[#9deaff]"
               >
                 <Radar size={15} /> 全球
               </button>
@@ -979,7 +1114,7 @@ export function Market() {
                   type="button"
                   key={mode}
                   onClick={() => { setActiveMarket(mode); setDashboardView('markets'); }}
-                  className={`flex min-h-11 flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold transition ${
+                  className={`flex min-h-11 min-w-[82px] flex-1 items-center justify-center gap-2 px-3 text-sm font-semibold transition ${
                     dashboardView === 'markets' && activeMarket === mode ? 'bg-white text-black' : 'text-white/52 hover:text-white'
                   }`}
                 >
@@ -1019,7 +1154,11 @@ export function Market() {
                     <div className="shrink-0">
                       <div className="flex items-center gap-2 text-sm font-semibold">
                         <Activity size={16} className="text-[#69d5ff]" />
-                        {MARKET_META[activeMarket].chart} · {activeMarket === 'crypto' ? 'CoinGecko + Binance' : '东方财富实时数据'}
+                        {MARKET_META[activeMarket].chart} · {activeMarket === 'crypto'
+                          ? 'CoinGecko + Binance'
+                          : ['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket)
+                            ? 'Yahoo Finance Spark'
+                            : '东方财富实时数据'}
                       </div>
                       <p className="mt-1 text-xs text-white/38">{MARKET_META[activeMarket].description}</p>
                     </div>
@@ -1031,7 +1170,9 @@ export function Market() {
                             ? 'hong-kong-market-search-slot'
                             : activeMarket === 'us'
                               ? 'us-market-search-slot'
-                              : 'crypto-market-search-slot'
+                              : activeMarket === 'crypto'
+                                ? 'crypto-market-search-slot'
+                                : `${activeMarket}-market-search-slot`
                       }
                       className="order-3 w-full sm:order-none sm:mx-3 sm:min-w-[220px] sm:max-w-xl sm:flex-1"
                     />
@@ -1043,16 +1184,18 @@ export function Market() {
                             ? 'https://quote.eastmoney.com/center/hkstock.html'
                           : activeMarket === 'crypto'
                             ? 'https://www.coingecko.com/zh'
-                            : 'https://quote.eastmoney.com/center/mgsc.html'
+                            : ['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket)
+                              ? activeIndices[0]?.sourceUrl || 'https://finance.yahoo.com/markets/'
+                              : 'https://quote.eastmoney.com/center/mgsc.html'
                       }
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex h-9 w-9 items-center justify-center text-white/50 transition hover:text-white"
                       aria-label={
-                        activeMarket !== 'crypto' ? '在东方财富打开' : '在 CoinGecko 打开'
+                        isInternationalMarket ? '在 Yahoo Finance 打开' : activeMarket !== 'crypto' ? '在东方财富打开' : '在 CoinGecko 打开'
                       }
                       title={
-                        activeMarket !== 'crypto' ? '在东方财富打开' : '在 CoinGecko 打开'
+                        isInternationalMarket ? '在 Yahoo Finance 打开' : activeMarket !== 'crypto' ? '在东方财富打开' : '在 CoinGecko 打开'
                       }
                     >
                       <ArrowUpRight size={17} />
@@ -1065,8 +1208,10 @@ export function Market() {
                       <HongKongMarketHeatmap />
                     ) : activeMarket === 'us' ? (
                       <UsMarketHeatmap />
-                    ) : (
+                    ) : activeMarket === 'crypto' ? (
                       <CryptoMarketHeatmap />
+                    ) : (
+                      <InternationalMarketHeatmap market={activeMarket as InternationalMarketMode} />
                     )}
                   </div>
                 </section>
@@ -1080,15 +1225,14 @@ export function Market() {
                 />
               </div>
 
-              {data.warning ? (
+              {data.warning && !isInternationalMarket ? (
                 <div className="mt-4 flex items-start gap-2 border border-[#d6b566]/20 bg-[#d6b566]/7 px-4 py-3 text-xs leading-5 text-[#ead9a6]/80">
                   <TriangleAlert className="mt-0.5 shrink-0" size={14} />
                   <span>{data.warning} {data.errors.join('；')}</span>
                 </div>
               ) : null}
 
-              {activeMarket === 'crypto' ? (
-                <>
+              <>
                   <div className="mt-8 border-t border-white/10 pt-7">
                     <SectionHeading
                       eyebrow="Capital Rotation"
@@ -1144,12 +1288,11 @@ export function Market() {
                     )}
                   </div>
 
-                  <BitcoinCycleChart />
-                </>
-              ) : null}
+                  {activeMarket === 'crypto' ? <BitcoinCycleChart /> : null}
+              </>
 
               {activeMarket !== 'crypto' ? (
-                <MarketTemperaturePanel mode={activeMarket as 'china' | 'hongkong' | 'us'} />
+                  <MarketTemperaturePanel mode={activeMarket as Exclude<MarketChartMode, 'crypto'>} />
               ) : null}
               <div aria-hidden="true" className="pointer-events-none fixed left-[-10000px] top-0 w-[820px]">
                 <MarketReport
@@ -1194,6 +1337,12 @@ function VibeResearchPanel({
       china: [],
       hongkong: ['互联网科技', '金融', '医药', '消费', '地产', '央企红利'],
       us: ['大型科技', '半导体', '金融', '医疗', '能源', '工业', '必需消费', '可选消费'],
+      japan: ['汽车', '电子', '工业', '金融', '消费', '机器人'],
+      korea: ['半导体', '动力电池', '汽车', '互联网', '医疗健康', '金融'],
+      india: ['金融', '科技服务', '能源', '通信', '消费', '基础设施'],
+      germany: ['工业', '软件', '汽车', '金融', '材料', '通信'],
+      france: ['奢侈品', '工业', '能源', '金融', '医疗健康', '消费'],
+      uk: ['金融', '能源', '医疗健康', '消费', '材料', '交易所服务'],
       crypto: ['Bitcoin', 'Ethereum', 'DeFi', 'Layer 2', 'AI 加密资产'],
     };
     const liveSectors = mode === 'china'
@@ -1530,7 +1679,9 @@ function indexChangeColor(changePercent: number) {
 
 function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
   return (
-    <div className={`grid grid-flow-col auto-cols-[172px] gap-px overflow-x-auto border border-white/10 bg-white/10 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:grid-flow-row ${indices.length >= 6 ? 'xl:grid-cols-6' : 'xl:grid-cols-5'}`}>
+    <div className={`grid grid-flow-col auto-cols-[172px] gap-px overflow-x-auto border border-white/10 bg-white/10 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:grid-flow-row ${
+      indices.length >= 6 ? 'xl:grid-cols-6' : indices.length === 5 ? 'xl:grid-cols-5' : indices.length === 4 ? 'xl:grid-cols-4' : 'xl:grid-cols-3'
+    }`}>
       {indices.map((item) => {
         const changeColor = indexChangeColor(item.changePercent);
         return (
@@ -1607,7 +1758,9 @@ function SectorBoard({
                   ? formatMoney(item.scaleValue)
                   : metric === 'turnover'
                     ? `24h ${formatMarketValue(item.scaleValue, currency)}`
-                    : `市值 ${formatMarketValue(item.scaleValue, currency)}`}
+                    : currency === 'WEIGHT'
+                      ? formatMarketValue(item.scaleValue, currency)
+                      : `市值 ${formatMarketValue(item.scaleValue, currency)}`}
               </p>
             </div>
           </div>
@@ -2567,11 +2720,17 @@ function formatMoney(value: number) {
 }
 
 function formatMarketValue(value: number, currency: MarketRotation['currency']) {
+  if (currency === 'WEIGHT') return `代表权重 ${value.toFixed(value >= 10 ? 0 : 1)}`;
   const suffix = {
     CNY: '元',
     HKD: '港元',
     USD: '美元',
     USDT: ' USDT',
+    JPY: '日元',
+    KRW: '韩元',
+    INR: '卢比',
+    EUR: '欧元',
+    GBP: '英镑',
   }[currency];
   if (value >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(2)} 万亿${suffix}`;
   if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(2)} 亿${suffix}`;
@@ -2583,6 +2742,7 @@ function getRotationTitle(mode: MarketChartMode) {
   if (mode === 'china') return 'A 股行业资金流向';
   if (mode === 'hongkong') return '港股行业强弱';
   if (mode === 'us') return '美股行业强弱';
+  if (mode !== 'crypto') return `${MARKET_META[mode].short}行业强弱`;
   return '加密资产赛道强弱';
 }
 
@@ -2590,6 +2750,7 @@ function getRotationLoadingText(mode: MarketChartMode) {
   if (mode === 'china') return '正在加载 A 股行业主力资金';
   if (mode === 'hongkong') return '正在按港股样本市值聚合行业表现';
   if (mode === 'us') return '正在按美股样本市值聚合行业表现';
+  if (mode !== 'crypto') return `正在按${MARKET_META[mode].short}样本总市值聚合行业表现`;
   return '正在聚合主流加密资产 24 小时赛道表现';
 }
 
@@ -2617,7 +2778,7 @@ function buildChinaRotation(data: MarketIntelligence): MarketRotation {
 
 function buildRegionalRotation(
   payload: RegionalHeatmapResponse,
-  currency: 'HKD' | 'USD',
+  currency: MarketRotation['currency'],
 ): MarketRotation {
   const industries = new Map<string, RegionalHeatmapResponse['stocks']>();
   for (const stock of payload.stocks) {
@@ -2644,6 +2805,8 @@ function buildRegionalRotation(
       memberCount: members.length,
     }];
   }).sort((left, right) => right.changePercent - left.changePercent);
+  const splitIndex = Math.max(1, Math.ceil(items.length / 2));
+  const compactMarket = items.length <= 8;
 
   return {
     generatedAt: payload.generatedAt,
@@ -2652,8 +2815,8 @@ function buildRegionalRotation(
     metric: 'market-cap',
     currency,
     coverage: `${payload.coverage} · 按行业样本市值加权，展示涨跌强弱而非虚构资金净流入`,
-    leaders: items.slice(0, 8),
-    laggards: items.slice(-8).reverse(),
+    leaders: compactMarket ? items.slice(0, splitIndex) : items.slice(0, 8),
+    laggards: compactMarket ? items.slice(splitIndex).reverse() : items.slice(-8).reverse(),
   };
 }
 

@@ -89,7 +89,7 @@ type BookValueHoverPoint = {
 };
 
 type ValuationDashboard = {
-  market?: 'china' | 'hongkong' | 'us';
+  market?: 'china' | 'hongkong' | 'us' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk';
   marketLabel?: string;
   coverage?: string;
   generatedAt: string;
@@ -747,8 +747,22 @@ function LoadingState({ marketLabel }: { marketLabel: string }) {
   );
 }
 
-export function MarketTemperaturePanel({ mode = 'china' }: { mode?: 'china' | 'hongkong' | 'us' }) {
-  const marketLabel = mode === 'china' ? 'A股' : mode === 'hongkong' ? '港股' : '美股';
+type ValuationMarketMode = NonNullable<ValuationDashboard['market']>;
+
+const valuationMarketLabels: Record<ValuationMarketMode, string> = {
+  china: 'A股',
+  hongkong: '港股',
+  us: '美股',
+  japan: '日股',
+  korea: '韩股',
+  india: '印度股市',
+  germany: '德国股市',
+  france: '法国股市',
+  uk: '英国股市',
+};
+
+export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMarketMode }) {
+  const marketLabel = valuationMarketLabels[mode];
   const [data, setData] = useState<ValuationDashboard | null>(null);
   const [selectedId, setSelectedId] = useState('all-market');
   const [reloadKey, setReloadKey] = useState(0);

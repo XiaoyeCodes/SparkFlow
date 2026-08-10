@@ -6,6 +6,8 @@
   "scripts": {
     "research:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-vibe-trading.ps1",
     "logos:sync": "node scripts/sync-stock-logos.mjs",
+    "logos:global": "node scripts/sync-global-heatmap-logos.mjs",
+    "logos:global:verify": "node scripts/verify-global-heatmap-logos.mjs",
     "predev": "npm run research:setup",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",

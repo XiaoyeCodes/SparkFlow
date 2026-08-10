@@ -1,4 +1,4 @@
-export type MarketSessionMarket = 'china' | 'hongkong' | 'us' | 'crypto';
+export type MarketSessionMarket = 'china' | 'hongkong' | 'us' | 'crypto' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk';
 
 export type MarketSessionTone = 'live' | 'auction' | 'extended' | 'paused' | 'closed' | 'halted';
 
@@ -18,6 +18,12 @@ const MARKET_TIME_ZONES: Record<MarketSessionMarket, string> = {
   hongkong: 'Asia/Hong_Kong',
   us: 'America/New_York',
   crypto: 'UTC',
+  japan: 'Asia/Tokyo',
+  korea: 'Asia/Seoul',
+  india: 'Asia/Kolkata',
+  germany: 'Europe/Berlin',
+  france: 'Europe/Paris',
+  uk: 'Europe/London',
 };
 
 const MARKET_LOCATIONS: Record<MarketSessionMarket, string> = {
@@ -25,6 +31,12 @@ const MARKET_LOCATIONS: Record<MarketSessionMarket, string> = {
   hongkong: '香港时间',
   us: '纽约时间',
   crypto: '协调世界时',
+  japan: '东京时间',
+  korea: '首尔时间',
+  india: '孟买时间',
+  germany: '法兰克福时间',
+  france: '巴黎时间',
+  uk: '伦敦时间',
 };
 
 const MARKET_SOURCES: Record<MarketSessionMarket, string> = {
@@ -32,6 +44,12 @@ const MARKET_SOURCES: Record<MarketSessionMarket, string> = {
   hongkong: 'https://www.hkex.com.hk/Services/Trading-hours-and-Severe-Weather-Arrangements/Trading-Hours/Securities-Market?sc_lang=zh-HK',
   us: 'https://www.nasdaq.com/market-activity/stock-market-holiday-schedule',
   crypto: 'https://help.coinbase.com/en/trading-and-funding/trading-hours-market-closures',
+  japan: 'https://www.jpx.co.jp/english/equities/trading/domestic/01.html',
+  korea: 'https://global.krx.co.kr/main/main.jsp',
+  india: 'https://www.nseindia.com/resources/exchange-communication-holidays',
+  germany: 'https://www.xetra.com/xetra-en/trading/trading-calendar-and-trading-hours',
+  france: 'https://www.euronext.com/en/trade/trading-hours-holidays',
+  uk: 'https://www.londonstockexchange.com/trade/trading-access/business-days',
 };
 
 const HOLIDAYS: Partial<Record<MarketSessionMarket, Record<string, string>>> = {
@@ -183,8 +201,18 @@ function closedStatus(
   holidayName?: string,
 ): MarketSessionStatus {
   const nextDate = nextTradingDate(market, parts.date);
-  const openTime = market === 'china' ? '09:15' : market === 'hongkong' ? '09:00' : '04:00';
-  const openLabel = market === 'china' ? '集合竞价' : market === 'hongkong' ? '开市前时段' : '盘前交易';
+  const openTime = market === 'china'
+    ? '09:15'
+    : market === 'hongkong'
+      ? '09:00'
+      : market === 'us'
+        ? '04:00'
+        : market === 'india'
+          ? '09:15'
+          : market === 'uk'
+            ? '08:00'
+            : '09:00';
+  const openLabel = market === 'china' ? '集合竞价' : market === 'hongkong' ? '开市前时段' : market === 'us' ? '盘前交易' : '常规开盘';
   return {
     state: holidayName ? 'holiday' : 'closed',
     label: holidayName ? '节假日休市' : '周末休市',
@@ -328,6 +356,59 @@ function usStatus(parts: ZonedParts, systemState: 'normal' | 'halted' | 'unknown
   return { ...base, state: 'closed', label: '已收市', detail: '周末或假日前无夜盘', nextLabel: `${datePrefix(nextDate, parts.date)} 04:00 盘前交易`, tone: 'closed' };
 }
 
+const INTERNATIONAL_SESSIONS: Record<Exclude<MarketSessionMarket, 'china' | 'hongkong' | 'us' | 'crypto'>, {
+  sessions: Array<[number, number]>;
+  breakLabel?: string;
+}> = {
+  japan: { sessions: [[9 * 60, 11 * 60 + 30], [12 * 60 + 30, 15 * 60 + 30]], breakLabel: '午间休市' },
+  korea: { sessions: [[9 * 60, 15 * 60 + 30]] },
+  india: { sessions: [[9 * 60 + 15, 15 * 60 + 30]] },
+  germany: { sessions: [[9 * 60, 17 * 60 + 30]] },
+  france: { sessions: [[9 * 60, 17 * 60 + 30]] },
+  uk: { sessions: [[8 * 60, 16 * 60 + 30]] },
+};
+
+function minuteLabel(minutes: number) {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
+function internationalStatus(
+  market: keyof typeof INTERNATIONAL_SESSIONS,
+  parts: ZonedParts,
+): MarketSessionStatus {
+  const config = INTERNATIONAL_SESSIONS[market];
+  const base = {
+    localTime: parts.time,
+    location: MARKET_LOCATIONS[market],
+    sourceUrl: MARKET_SOURCES[market],
+  };
+  if (!isTradingDay(market, parts.date)) return closedStatus(market, parts, HOLIDAYS[market]?.[parts.date]);
+  const first = config.sessions[0];
+  if (parts.minutes < first[0]) {
+    return { ...base, state: 'preopen', label: '未开盘', detail: '等待常规交易时段', nextLabel: `今日 ${minuteLabel(first[0])} 开盘`, tone: 'closed' };
+  }
+  for (let index = 0; index < config.sessions.length; index += 1) {
+    const [start, end] = config.sessions[index];
+    if (parts.minutes >= start && parts.minutes < end) {
+      const next = config.sessions[index + 1];
+      return {
+        ...base,
+        state: 'trading',
+        label: '交易中',
+        detail: index === 0 && config.sessions.length > 1 ? '上午连续交易' : '常规交易时段',
+        nextLabel: next ? `今日 ${minuteLabel(end)} ${config.breakLabel || '休市'}` : `今日 ${minuteLabel(end)} 收盘`,
+        tone: 'live',
+      };
+    }
+    const next = config.sessions[index + 1];
+    if (next && parts.minutes >= end && parts.minutes < next[0]) {
+      return { ...base, state: 'break', label: config.breakLabel || '盘中休市', detail: '交易暂停', nextLabel: `今日 ${minuteLabel(next[0])} 恢复交易`, tone: 'paused' };
+    }
+  }
+  const nextDate = nextTradingDate(market, parts.date);
+  return { ...base, state: 'after-hours', label: '盘后', detail: '当日常规交易已结束', nextLabel: `${datePrefix(nextDate, parts.date)} ${minuteLabel(first[0])} 开盘`, tone: 'extended' };
+}
+
 export function getMarketSessionStatus(
   market: MarketSessionMarket,
   now = new Date(),
@@ -337,6 +418,7 @@ export function getMarketSessionStatus(
   if (market === 'china') return chinaStatus(parts);
   if (market === 'hongkong') return hongKongStatus(parts);
   if (market === 'us') return usStatus(parts, usSystemState);
+  if (market !== 'crypto') return internationalStatus(market, parts);
   return {
     state: 'always-open',
     label: '全天交易',

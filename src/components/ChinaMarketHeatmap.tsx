@@ -19,11 +19,19 @@ type ChinaHeatmapStock = {
   name: string;
   exchange?: string;
   logoUrl?: string;
+  fallbackLogoUrl?: string;
   price: number;
+  previousClose?: number;
+  change?: number;
   changePercent: number;
   marketCap: number;
+  weight?: number;
+  marketCapType?: 'actual' | 'representative-weight';
   industry: string;
   updatedAt?: string;
+  marketState?: string;
+  quoteProvider?: string;
+  sourceDelaySeconds?: number;
   sourceUrl: string;
 };
 
@@ -35,6 +43,9 @@ type ChinaHeatmapResponse = {
   sourceUrl: string;
   industrySourceUrl?: string;
   industryMarketCaps?: Record<string, number>;
+  quoteStatus?: 'live' | 'delayed' | 'closed';
+  sourceDelaySeconds?: number | null;
+  quotePolicy?: string;
   stocks: ChinaHeatmapStock[];
 };
 
@@ -69,6 +80,7 @@ type RegionalHeatmapConfig = {
   logoPath?: (stock: ChinaHeatmapStock) => string;
   formatPrice?: (value: number) => string;
   formatMarketCap?: (value: number) => string;
+  marketCapLabel?: string;
   searchEntityLabel?: string;
   industryAreaExponent?: number;
   stockAreaExponent?: number;
@@ -77,6 +89,9 @@ type RegionalHeatmapConfig = {
 };
 
 const REFRESH_INTERVAL_MS = 3_000;
+const REGIONAL_HEATMAP_CLIENT_CACHE_MS = 2_500;
+const REGIONAL_HEATMAP_SESSION_MAX_AGE_MS = 15 * 60_000;
+const REGIONAL_HEATMAP_STORAGE_PREFIX = 'sparkflow:regional-heatmap:';
 const MIN_ZOOM = 1;
 const ABSOLUTE_MAX_ZOOM = 32;
 const MIN_CHANGE_WIDTH = 56;
@@ -143,6 +158,195 @@ const CRYPTO_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   industryAreaMultipliers: { 公链与基础层: 1.75 },
   stockAreaMultipliers: { BTC: 1.9 },
 };
+
+export type InternationalMarketMode = 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk';
+
+const INTERNATIONAL_HEATMAP_CONFIGS: Record<InternationalMarketMode, RegionalHeatmapConfig> = {
+  japan: {
+    endpoint: '/api/global-market-heatmap?market=japan',
+    marketName: '日股',
+    ariaLabel: '日本股票市场热力图',
+    searchSlotId: 'japan-market-search-slot',
+    searchResultsId: 'japan-market-search-results',
+    loadingText: '正在同步日本代表性公司行情…',
+    errorFallback: '日本市场热力图加载失败',
+    defaultCoverage: '日经225与TOPIX代表性龙头',
+    industryDisplayPriority: ['汽车', '电子', '金融', '工业'],
+    logoPath: (stock) => stock.logoUrl || stock.fallbackLogoUrl || '',
+    formatPrice: (value) => `¥${value.toLocaleString('ja-JP', { maximumFractionDigits: 2 })}`,
+    formatMarketCap: (value) => formatLocalMarketCap(value, '¥'),
+    marketCapLabel: '总市值',
+  },
+  korea: {
+    endpoint: '/api/global-market-heatmap?market=korea',
+    marketName: '韩股',
+    ariaLabel: '韩国股票市场热力图',
+    searchSlotId: 'korea-market-search-slot',
+    searchResultsId: 'korea-market-search-results',
+    loadingText: '正在同步韩国代表性公司行情…',
+    errorFallback: '韩国市场热力图加载失败',
+    defaultCoverage: 'KOSPI与KOSDAQ代表性龙头',
+    industryDisplayPriority: ['科技', '汽车', '医疗', '金融'],
+    logoPath: (stock) => stock.logoUrl || stock.fallbackLogoUrl || '',
+    formatPrice: (value) => `₩${value.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}`,
+    formatMarketCap: formatKrwMarketCap,
+    marketCapLabel: '总市值',
+    // 韩国 20 家代表样本高度集中于半导体龙头；压缩行业面积，避免样本集中度被 1.22 次幂再次放大。
+    industryAreaExponent: 0.65,
+    stockAreaExponent: 0.72,
+  },
+  india: {
+    endpoint: '/api/global-market-heatmap?market=india',
+    marketName: '印股',
+    ariaLabel: '印度股票市场热力图',
+    searchSlotId: 'india-market-search-slot',
+    searchResultsId: 'india-market-search-results',
+    loadingText: '正在同步印度代表性公司行情…',
+    errorFallback: '印度市场热力图加载失败',
+    defaultCoverage: 'NIFTY 50与SENSEX代表性龙头',
+    industryDisplayPriority: ['金融', '科技', '能源', '消费'],
+    logoPath: (stock) => stock.logoUrl || stock.fallbackLogoUrl || '',
+    formatPrice: (value) => `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+    formatMarketCap: (value) => formatLocalMarketCap(value, '₹'),
+    marketCapLabel: '总市值',
+  },
+  germany: {
+    endpoint: '/api/global-market-heatmap?market=germany',
+    marketName: '德股',
+    ariaLabel: '德国股票市场热力图',
+    searchSlotId: 'germany-market-search-slot',
+    searchResultsId: 'germany-market-search-results',
+    loadingText: '正在同步德国代表性公司行情…',
+    errorFallback: '德国市场热力图加载失败',
+    defaultCoverage: 'DAX与MDAX代表性龙头',
+    industryDisplayPriority: ['工业', '科技', '金融', '汽车'],
+    logoPath: (stock) => stock.logoUrl || stock.fallbackLogoUrl || '',
+    formatPrice: (value) => `€${value.toLocaleString('de-DE', { maximumFractionDigits: 2 })}`,
+    formatMarketCap: (value) => formatLocalMarketCap(value, '€'),
+    marketCapLabel: '总市值',
+  },
+  france: {
+    endpoint: '/api/global-market-heatmap?market=france',
+    marketName: '法股',
+    ariaLabel: '法国股票市场热力图',
+    searchSlotId: 'france-market-search-slot',
+    searchResultsId: 'france-market-search-results',
+    loadingText: '正在同步法国代表性公司行情…',
+    errorFallback: '法国市场热力图加载失败',
+    defaultCoverage: 'CAC 40与SBF 120代表性龙头',
+    industryDisplayPriority: ['消费', '工业', '金融', '医疗'],
+    logoPath: (stock) => stock.logoUrl || stock.fallbackLogoUrl || '',
+    formatPrice: (value) => `€${value.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}`,
+    formatMarketCap: (value) => formatLocalMarketCap(value, '€'),
+    marketCapLabel: '总市值',
+  },
+  uk: {
+    endpoint: '/api/global-market-heatmap?market=uk',
+    marketName: '英股',
+    ariaLabel: '英国股票市场热力图',
+    searchSlotId: 'uk-market-search-slot',
+    searchResultsId: 'uk-market-search-results',
+    loadingText: '正在同步英国代表性公司行情…',
+    errorFallback: '英国市场热力图加载失败',
+    defaultCoverage: '富时100与富时250代表性龙头',
+    industryDisplayPriority: ['金融', '能源', '消费', '医疗'],
+    logoPath: (stock) => stock.logoUrl || stock.fallbackLogoUrl || '',
+    formatPrice: (value) => `${value.toLocaleString('en-GB', { maximumFractionDigits: 2 })}p`,
+    formatMarketCap: (value) => formatLocalMarketCap(value, '£'),
+    marketCapLabel: '总市值',
+  },
+};
+
+type RegionalHeatmapCacheEntry = {
+  storedAt: number;
+  data: ChinaHeatmapResponse;
+};
+
+const regionalHeatmapClientCache = new Map<string, RegionalHeatmapCacheEntry>();
+const regionalHeatmapClientInFlight = new Map<string, Promise<ChinaHeatmapResponse>>();
+const regionalHeatmapPreloadedLogoUrls = new Set<string>();
+
+function regionalHeatmapStorageKey(endpoint: string) {
+  return `${REGIONAL_HEATMAP_STORAGE_PREFIX}${encodeURIComponent(endpoint)}`;
+}
+
+function readRegionalHeatmapCache(config: RegionalHeatmapConfig) {
+  const memoryCached = regionalHeatmapClientCache.get(config.endpoint);
+  if (memoryCached) return memoryCached;
+  if (typeof window === 'undefined') return undefined;
+
+  try {
+    const raw = window.sessionStorage.getItem(regionalHeatmapStorageKey(config.endpoint));
+    if (!raw) return undefined;
+    const cached = JSON.parse(raw) as RegionalHeatmapCacheEntry;
+    if (!cached?.storedAt || !cached.data?.stocks?.length || Date.now() - cached.storedAt > REGIONAL_HEATMAP_SESSION_MAX_AGE_MS) {
+      window.sessionStorage.removeItem(regionalHeatmapStorageKey(config.endpoint));
+      return undefined;
+    }
+    regionalHeatmapClientCache.set(config.endpoint, cached);
+    return cached;
+  } catch {
+    return undefined;
+  }
+}
+
+function preloadRegionalHeatmapLogos(config: RegionalHeatmapConfig, payload: ChinaHeatmapResponse) {
+  if (typeof Image === 'undefined' || !config.logoPath) return;
+  payload.stocks.forEach((stock) => {
+    const logoUrl = config.logoPath?.(stock);
+    if (!logoUrl || regionalHeatmapPreloadedLogoUrls.has(logoUrl)) return;
+    regionalHeatmapPreloadedLogoUrls.add(logoUrl);
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = logoUrl;
+  });
+}
+
+function storeRegionalHeatmapCache(config: RegionalHeatmapConfig, data: ChinaHeatmapResponse) {
+  const entry = { storedAt: Date.now(), data };
+  regionalHeatmapClientCache.set(config.endpoint, entry);
+  preloadRegionalHeatmapLogos(config, data);
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(regionalHeatmapStorageKey(config.endpoint), JSON.stringify(entry));
+  } catch {
+    // 内存缓存仍然可用；浏览器禁用存储时无需阻断行情展示。
+  }
+}
+
+function loadRegionalHeatmap(config: RegionalHeatmapConfig, maxAgeMs = REGIONAL_HEATMAP_CLIENT_CACHE_MS) {
+  const cached = readRegionalHeatmapCache(config);
+  if (cached && Date.now() - cached.storedAt < maxAgeMs) return Promise.resolve(cached.data);
+  const running = regionalHeatmapClientInFlight.get(config.endpoint);
+  if (running) return running;
+
+  const request = fetch(config.endpoint, { cache: 'no-store' })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`行情接口返回 ${response.status}`);
+      const payload = (await response.json()) as ChinaHeatmapResponse;
+      if (!payload.stocks?.length) throw new Error('暂未取得有效行情');
+      storeRegionalHeatmapCache(config, payload);
+      return payload;
+    })
+    .catch((error) => {
+      if (cached) return cached.data;
+      throw error;
+    })
+    .finally(() => regionalHeatmapClientInFlight.delete(config.endpoint));
+  regionalHeatmapClientInFlight.set(config.endpoint, request);
+  return request;
+}
+
+export function prefetchInternationalMarketHeatmap(market: InternationalMarketMode) {
+  return loadRegionalHeatmap(INTERNATIONAL_HEATMAP_CONFIGS[market]).then(() => undefined).catch(() => undefined);
+}
+
+export async function prefetchInternationalMarketHeatmaps() {
+  await Promise.allSettled(
+    (Object.keys(INTERNATIONAL_HEATMAP_CONFIGS) as InternationalMarketMode[])
+      .map((market) => prefetchInternationalMarketHeatmap(market)),
+  );
+}
 
 function formatMarketCap(value: number) {
   if (value >= 1e12) return `${(value / 1e12).toFixed(2)}万亿`;
@@ -385,6 +589,23 @@ export function CryptoMarketHeatmap() {
   return <RegionalMarketHeatmap config={CRYPTO_HEATMAP_CONFIG} />;
 }
 
+function formatKrwMarketCap(value: number) {
+  if (value >= 1e12) return `₩${(value / 1e12).toFixed(value >= 1e14 ? 0 : 1)}万亿`;
+  if (value >= 1e8) return `₩${(value / 1e8).toFixed(0)}亿`;
+  return `₩${value.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}`;
+}
+
+function formatLocalMarketCap(value: number, symbol: string) {
+  if (value >= 1e12) return `${symbol}${(value / 1e12).toFixed(value >= 1e14 ? 0 : 1)}万亿`;
+  if (value >= 1e8) return `${symbol}${(value / 1e8).toFixed(value >= 1e11 ? 0 : 1)}亿`;
+  if (value >= 1e4) return `${symbol}${(value / 1e4).toFixed(1)}万`;
+  return `${symbol}${value.toFixed(0)}`;
+}
+
+export function InternationalMarketHeatmap({ market }: { market: InternationalMarketMode }) {
+  return <RegionalMarketHeatmap key={market} config={INTERNATIONAL_HEATMAP_CONFIGS[market]} />;
+}
+
 function StockCell({
   node,
   selected,
@@ -392,6 +613,7 @@ function StockCell({
   logoPath,
   priceFormatter = (value) => value.toFixed(2),
   marketCapFormatter = formatMarketCap,
+  marketCapLabel = '总市值',
   onSelect,
   onHover,
 }: {
@@ -401,6 +623,7 @@ function StockCell({
   logoPath?: (stock: ChinaHeatmapStock) => string;
   priceFormatter?: (value: number) => string;
   marketCapFormatter?: (value: number) => string;
+  marketCapLabel?: string;
   onSelect: (stock: ChinaHeatmapStock) => void;
   onHover: (stock: ChinaHeatmapStock | null) => void;
 }) {
@@ -436,7 +659,7 @@ function StockCell({
     : visualWidth >= 112
       ? 14
       : 11;
-  const tooltip = `${stock.name}（${stock.code}）\n现价 ${priceFormatter(stock.price)}\n涨跌 ${formatChange(stock.changePercent)}\n总市值 ${marketCapFormatter(stock.marketCap)}`;
+  const tooltip = `${stock.name}（${stock.code}）\n现价 ${priceFormatter(stock.price)}\n涨跌 ${formatChange(stock.changePercent)}\n${marketCapLabel} ${marketCapFormatter(stock.marketCap)}${stock.updatedAt ? `\n更新 ${new Date(stock.updatedAt).toLocaleString('zh-CN', { hour12: false })}` : ''}`;
 
   return (
     <button
@@ -487,7 +710,15 @@ function StockCell({
                 loading="lazy"
                 decoding="async"
                 draggable={false}
-                onError={() => setLogoFailed(true)}
+                onError={(event) => {
+                  const fallback = stock.fallbackLogoUrl;
+                  if (fallback && event.currentTarget.dataset.fallbackTried !== 'true') {
+                    event.currentTarget.dataset.fallbackTried = 'true';
+                    event.currentTarget.src = fallback;
+                    return;
+                  }
+                  setLogoFailed(true);
+                }}
                 className="pointer-events-none h-full w-full select-none object-contain"
               />
             )}
@@ -544,8 +775,9 @@ function MapControl({
 function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
   const mapShellRef = useRef<HTMLDivElement | null>(null);
   const { ref, size } = useContainerSize();
-  const [data, setData] = useState<ChinaHeatmapResponse>();
-  const [loading, setLoading] = useState(true);
+  const initialCacheRef = useRef(readRegionalHeatmapCache(config));
+  const [data, setData] = useState<ChinaHeatmapResponse | undefined>(() => initialCacheRef.current?.data);
+  const [loading, setLoading] = useState(() => !initialCacheRef.current);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [activeIndustry, setActiveIndustry] = useState<string | null>(null);
@@ -572,39 +804,31 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
     };
   } | null>(null);
   const suppressClickRef = useRef(false);
-  const loadInFlightRef = useRef(false);
-  const loadSignalRef = useRef<AbortSignal | undefined>(undefined);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     setSearchPortal(document.getElementById(config.searchSlotId));
   }, [config.searchSlotId]);
 
   const load = useCallback(async (signal?: AbortSignal, manual = false) => {
-    if (loadInFlightRef.current && loadSignalRef.current?.aborted !== true) return;
-    loadInFlightRef.current = true;
-    loadSignalRef.current = signal;
     if (manual) setRefreshing(true);
     try {
-      const response = await fetch(config.endpoint, { signal, cache: 'no-store' });
-      if (!response.ok) throw new Error(`行情接口返回 ${response.status}`);
-      const payload = (await response.json()) as ChinaHeatmapResponse;
-      if (!payload.stocks?.length) throw new Error('暂未取得有效行情');
+      const payload = await loadRegionalHeatmap(config, manual ? 0 : REGIONAL_HEATMAP_CLIENT_CACHE_MS);
+      if (!mountedRef.current || signal?.aborted) return;
       setData(payload);
       setError('');
     } catch (caught) {
-      if (caught instanceof DOMException && caught.name === 'AbortError') return;
+      if (!mountedRef.current || signal?.aborted) return;
       setError(caught instanceof Error ? caught.message : config.errorFallback);
     } finally {
-      if (loadSignalRef.current === signal) {
-        loadInFlightRef.current = false;
-        loadSignalRef.current = undefined;
-      }
+      if (!mountedRef.current || signal?.aborted) return;
       setLoading(false);
       setRefreshing(false);
     }
-  }, [config.endpoint, config.errorFallback]);
+  }, [config]);
 
   useEffect(() => {
+    mountedRef.current = true;
     const controller = new AbortController();
     void load(controller.signal);
 
@@ -613,6 +837,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
     }, REFRESH_INTERVAL_MS);
 
     return () => {
+      mountedRef.current = false;
       controller.abort();
       window.clearInterval(timer);
     };
@@ -816,6 +1041,11 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
         second: '2-digit',
       }).format(new Date(data.generatedAt))
     : '--:--:--';
+  const quoteFreshnessLabel = data?.quoteStatus === 'closed'
+    ? '常规盘已收盘'
+    : data?.sourceDelaySeconds && data.sourceDelaySeconds >= 60
+      ? `授权延迟约 ${Math.ceil(data.sourceDelaySeconds / 60)} 分钟`
+      : data?.quoteStatus === 'live' ? '实时行情' : `抓取 ${updatedAt}`;
 
   const openIndustry = useCallback((industry: string) => {
     setActiveIndustry(industry);
@@ -1171,6 +1401,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
                 logoPath={config.logoPath}
                 priceFormatter={config.formatPrice}
                 marketCapFormatter={config.formatMarketCap}
+                marketCapLabel={config.marketCapLabel}
                 onSelect={selectStock}
                 onHover={(stock) => {
                   if (!dragging) {
@@ -1234,8 +1465,26 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
             </div>
             <div className="hidden shrink-0 sm:block">
               <p className="font-mono text-sm font-semibold">{config.formatMarketCap?.(focusedStock.marketCap) ?? formatMarketCap(focusedStock.marketCap)}</p>
-              <p className="mt-0.5 text-[9px] text-white/40">总市值</p>
+              <p className="mt-0.5 text-[9px] text-white/40">{config.marketCapLabel ?? '总市值'}</p>
             </div>
+            {focusedStock.previousClose !== undefined ? (
+              <div className="hidden shrink-0 lg:block">
+                <p className="font-mono text-sm font-semibold">{config.formatPrice?.(focusedStock.previousClose) ?? focusedStock.previousClose.toFixed(2)}</p>
+                <p className="mt-0.5 text-[9px] text-white/40">昨收</p>
+              </div>
+            ) : null}
+            {focusedStock.updatedAt ? (
+              <div className="hidden shrink-0 xl:block">
+                <p className="font-mono text-[11px] font-semibold">{new Date(focusedStock.updatedAt).toLocaleTimeString('zh-CN', { hour12: false })}</p>
+                <p className="mt-0.5 text-[9px] text-white/40">
+                  {['CLOSE', 'OUT_OF_SESSION'].includes(focusedStock.marketState || '')
+                    ? '常规盘收盘'
+                    : focusedStock.sourceDelaySeconds && focusedStock.sourceDelaySeconds >= 60
+                      ? `延迟 ${Math.ceil(focusedStock.sourceDelaySeconds / 60)} 分钟`
+                      : '实时行情'}
+                </p>
+              </div>
+            ) : null}
             <div className="shrink-0">
               <p className={`font-mono text-sm font-semibold ${focusedStock.changePercent >= 0 ? 'text-[#ff6673]' : 'text-[#35d6aa]'}`}>
                 {formatChange(focusedStock.changePercent)}
@@ -1287,7 +1536,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
         <div className="flex items-center gap-3">
           <span className="font-semibold text-white/64">{data?.source ?? '东方财富'}</span>
           <span>{activeIndustry ? `${activeIndustry} · 点击个股查看详情` : data?.coverage ?? config.defaultCoverage}</span>
-          <span>更新 {updatedAt}</span>
+          <span>{quoteFreshnessLabel}</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 bg-[#c33144]" />上涨</span>
