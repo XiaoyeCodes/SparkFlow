@@ -3165,7 +3165,7 @@ const globalMacroQuotes: GlobalMacroQuoteConfig[] = [
   { id: 'india', name: '印度NIFTY 50', symbol: '^NSEI', market: 'india', region: 'apac', latitude: 19.0602, longitude: 72.85978, timezone: 'Asia/Kolkata', sessions: [[9.25, 15.5]] },
   { id: 'australia', name: '澳洲ASX 200', symbol: '^AXJO', region: 'apac', latitude: -33.8679, longitude: 151.21016, timezone: 'Australia/Sydney', sessions: [[10, 16]] },
   { id: 'us', name: '标普500', symbol: '^GSPC', market: 'us', region: 'americas', latitude: 40.70707, longitude: -74.01118, timezone: 'America/New_York', sessions: [[9.5, 16]] },
-  { id: 'nasdaq', name: '纳斯达克综指', symbol: '^IXIC', market: 'us', region: 'americas', latitude: 40.75628, longitude: -73.98586, timezone: 'America/New_York', sessions: [[9.5, 16]] },
+  { id: 'nasdaq', name: '纳斯达克100', symbol: '^NDX', market: 'us', region: 'americas', latitude: 40.75628, longitude: -73.98586, timezone: 'America/New_York', sessions: [[9.5, 16]] },
   { id: 'vix', name: 'CBOE VIX', symbol: '^VIX', market: 'us', region: 'americas', latitude: 41.87662, longitude: -87.63954, timezone: 'America/Chicago', sessions: [[8.5, 15]] },
   { id: 'euro', name: 'Euro Stoxx 50', symbol: '^STOXX50E', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]] },
   { id: 'germany', name: '德国DAX', symbol: '^GDAXI', market: 'germany', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]] },
@@ -5127,7 +5127,7 @@ async function loadGlobalMarketsSection() {
   });
   const soxQuote = soxResult[0]?.status === 'fulfilled' ? soxResult[0].value : null;
   const coreIndexConfigs = [
-    { id: 'nasdaq', name: '纳斯达克', symbol: '^IXIC', quote: items.find((item) => item.id === 'nasdaq'), sourceUrl: 'https://finance.yahoo.com/quote/%5EIXIC' },
+    { id: 'nasdaq', name: '纳斯达克100', symbol: '^NDX', quote: items.find((item) => item.id === 'nasdaq'), sourceUrl: 'https://finance.yahoo.com/quote/%5ENDX' },
     { id: 'sp500', name: '标普500', symbol: '^GSPC', quote: items.find((item) => item.id === 'us'), sourceUrl: 'https://finance.yahoo.com/quote/%5EGSPC' },
     { id: 'shanghai', name: '上证指数', symbol: '000001.SS', quote: items.find((item) => item.id === 'china'), sourceUrl: 'https://finance.yahoo.com/quote/000001.SS' },
     { id: 'sox', name: '费城半导体指数', symbol: '^SOX', quote: soxQuote || undefined, sourceUrl: 'https://finance.yahoo.com/quote/%5ESOX' },
@@ -5397,7 +5397,7 @@ async function loadGlobalMacroFastQuotes() {
   });
 
   const coreSources = [
-    { id: 'nasdaq', name: '纳斯达克', symbol: '^IXIC', quote: marketById.get('nasdaq'), sourceUrl: 'https://finance.yahoo.com/quote/%5EIXIC' },
+    { id: 'nasdaq', name: '纳斯达克100', symbol: '^NDX', quote: equityById.get('nasdaq') || marketById.get('nasdaq'), sourceUrl: 'https://finance.yahoo.com/quote/%5ENDX' },
     { id: 'sp500', name: '标普500', symbol: '^GSPC', quote: equityById.get('sp500') || marketById.get('us'), sourceUrl: 'https://finance.yahoo.com/quote/%5EGSPC' },
     { id: 'shanghai', name: '上证指数', symbol: '000001.SS', quote: equityById.get('sse') || marketById.get('china'), sourceUrl: 'https://finance.yahoo.com/quote/000001.SS' },
     { id: 'sox', name: '费城半导体指数', symbol: '^SOX', quote: equityById.get('sox') || yahoo.get('^SOX'), sourceUrl: 'https://finance.yahoo.com/quote/%5ESOX' },

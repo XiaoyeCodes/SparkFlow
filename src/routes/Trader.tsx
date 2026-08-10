@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DcaRhythmFlow } from '../components/DcaRhythmFlow';
+import { EtfWhitepaperDialog } from '../components/EtfWhitepaperDialog';
 import { ModuleFrame } from '../components/ModuleFrame';
 
 const articleToc = [
@@ -88,13 +89,19 @@ function AllWeatherWorkbench() {
 }
 
 export function Trader() {
-  const [isWhitepaperOpen, setWhitepaperOpen] = useState(false);
+  const [whitepaperMode, setWhitepaperMode] = useState<'closed' | 'original' | 'evidence'>(
+    () => {
+      if (typeof window === 'undefined') return 'closed';
+      return new URLSearchParams(window.location.search).get('whitepaper') === 'evidence' ? 'evidence' :
+        new URLSearchParams(window.location.search).get('whitepaper') === '1' ? 'original' : 'closed';
+    }
+  );
 
   useEffect(() => {
-    if (!isWhitepaperOpen) return;
+    if (whitepaperMode === 'closed') return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setWhitepaperOpen(false);
+      if (event.key === 'Escape') setWhitepaperMode('closed');
     };
 
     document.body.style.overflow = 'hidden';
@@ -104,7 +111,7 @@ export function Trader() {
       document.body.style.overflow = '';
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [isWhitepaperOpen]);
+  }, [whitepaperMode]);
 
   const revealRhythm = () => {
     document.getElementById('dca-rhythm')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -150,7 +157,7 @@ export function Trader() {
               <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
                 <button
                   type="button"
-                  onClick={() => setWhitepaperOpen(true)}
+                  onClick={() => setWhitepaperMode('original')}
                   className="inline-flex items-center justify-between gap-4 rounded-lg border border-[#b9ffdc]/28 bg-[#b9ffdc]/10 px-5 py-4 text-left font-semibold text-white transition hover:border-[#b9ffdc]/50 hover:bg-[#b9ffdc]/14"
                 >
                   <span className="inline-flex items-center gap-3">
@@ -187,7 +194,7 @@ export function Trader() {
                 <button
                   key={item}
                   type="button"
-                  onClick={() => setWhitepaperOpen(true)}
+                  onClick={() => setWhitepaperMode('original')}
                   className="group flex items-center justify-between gap-4 rounded-lg border border-white/10 bg-black/22 px-4 py-3 text-left text-sm text-white/58 transition hover:border-[#b9ffdc]/28 hover:text-white"
                 >
                   <span>
@@ -205,7 +212,18 @@ export function Trader() {
       {typeof document !== 'undefined'
         ? createPortal(
             <AnimatePresence>
-              {isWhitepaperOpen ? <WhitepaperDialog onClose={() => setWhitepaperOpen(false)} /> : null}
+              {whitepaperMode === 'original' ? (
+                <WhitepaperDialog
+                  onClose={() => setWhitepaperMode('closed')}
+                  onOpenEvidence={() => setWhitepaperMode('evidence')}
+                />
+              ) : null}
+              {whitepaperMode === 'evidence' ? (
+                <EtfWhitepaperDialog
+                  onClose={() => setWhitepaperMode('closed')}
+                  onOpenOriginal={() => setWhitepaperMode('original')}
+                />
+              ) : null}
             </AnimatePresence>,
             document.body
           )
@@ -214,7 +232,7 @@ export function Trader() {
   );
 }
 
-function WhitepaperDialog({ onClose }: { onClose: () => void }) {
+function WhitepaperDialog({ onClose, onOpenEvidence }: { onClose: () => void; onOpenEvidence: () => void }) {
   return (
     <motion.div
       className="fixed inset-0 z-50 bg-black/78 px-3 py-4 backdrop-blur-xl md:px-6 md:py-7"
@@ -247,19 +265,28 @@ function WhitepaperDialog({ onClose }: { onClose: () => void }) {
         </aside>
 
         <div className="overflow-y-auto">
-          <header className="sticky top-0 z-20 flex items-center justify-between border-b border-black/10 bg-[#f4eee1]/88 px-5 py-4 backdrop-blur-xl md:px-8">
+          <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-black/10 bg-[#f4eee1]/88 px-5 py-4 backdrop-blur-xl md:px-8">
             <div className="flex items-center gap-3">
               <BookOpenText size={18} />
               <span className="text-sm font-semibold">股票 ETF 定投白皮书</span>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="grid h-10 w-10 place-items-center rounded-full border border-black/10 text-black/62 transition hover:bg-black/5 hover:text-black"
-              aria-label="关闭白皮书"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onOpenEvidence}
+                className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-black/58 transition hover:border-black/25 hover:bg-black/5 hover:text-black"
+              >
+                查看证据增补篇
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="grid h-10 w-10 place-items-center rounded-full border border-black/10 text-black/62 transition hover:bg-black/5 hover:text-black"
+                aria-label="关闭白皮书"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </header>
 
           <main className="px-5 py-8 md:px-10 md:py-12">
