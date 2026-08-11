@@ -832,13 +832,15 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-modal-content { min-height: 0; overflow: hidden; padding: 10px; }
 .macro-modal-content > * { height: 100%; }
 .macro-world-heatmap { position: relative; width: 100%; height: 100%; overflow: hidden; background: #030608; }
+.macro-world-plot { position: absolute; inset: 0 0 31px; overflow: hidden; }
 .macro-world-sector { position: absolute; z-index: 1; border: 1px solid rgba(255,255,255,.2); background: #11171d; pointer-events: none; }
 .macro-world-sector > span { position: absolute; top: 5px; left: 8px; color: #eef5f8; font-size: 11px; font-weight: 700; }
-.macro-world-tile { position: absolute; z-index: 2; display: grid; place-content: center; justify-items: center; gap: 3px; overflow: hidden; border: 1px solid #030608; border-radius: 3px; color: #fff !important; text-align: center; text-decoration: none; transition: filter .16s ease, box-shadow .16s ease; }
+.macro-world-tile { position: absolute; z-index: 2; display: grid; place-content: center; justify-items: center; gap: 3px; overflow: hidden; appearance: none; padding: 0; border: 1px solid #030608; border-radius: 3px; color: #fff !important; font: inherit; text-align: center; text-decoration: none; cursor: pointer; transition: filter .16s ease, box-shadow .16s ease; }
 .macro-world-tile.macro-up { background: #a5253a; }
 .macro-world-tile.macro-down { background: #0d6650; }
 .macro-world-tile.macro-flat { background: #444a50; }
 .macro-world-tile:hover { z-index: 5; filter: brightness(1.18); box-shadow: inset 0 0 0 2px #3b8cff; }
+.macro-world-tile.selected { z-index: 6; box-shadow: inset 0 0 0 3px #53c7ff, 0 0 18px rgba(49,170,255,.34); }
 .macro-world-logo {
   position: relative;
   display: grid;
@@ -885,11 +887,37 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-world-tile.small strong { width: calc(100% - 10px); font-size: 10px; line-height: 1.12; }
 .macro-world-tile.small .macro-world-logo { display: none; }
 .macro-world-tile.small span, .macro-world-tile.small small { display: none; }
-.macro-world-source { position: absolute; z-index: 8; right: 10px; bottom: 7px; margin: 0; padding: 4px 7px; background: rgba(2,6,9,.86); color: var(--macro-muted); font: 8px Consolas, monospace; }
-.macro-world-source.live { color: var(--macro-green); }
-.macro-world-source.delayed { color: var(--macro-gold); }
+.macro-world-detail { position: absolute; z-index: 12; left: 50%; bottom: 12px; display: grid; grid-template-columns: auto minmax(145px, 1fr) repeat(5, auto) 34px; align-items: center; gap: 14px; width: min(760px, calc(100% - 28px)); min-height: 60px; padding: 8px 10px; transform: translateX(-50%); border: 1px solid rgba(186,230,255,.68); border-radius: 6px; background: rgba(11,21,27,.76); box-shadow: 0 12px 34px rgba(0,0,0,.34); backdrop-filter: blur(7px); color: #f4fbff; }
+.macro-world-detail > span:not(.macro-world-detail-logo):not(.macro-world-detail-name) { display: grid; gap: 3px; min-width: 62px; }
+.macro-world-detail strong { color: #f4fbff; font: 700 12px/1.1 Consolas, "Microsoft YaHei UI", sans-serif; white-space: nowrap; }
+.macro-world-detail small { color: rgba(222,239,247,.48); font: 8px/1.1 "Microsoft YaHei UI", sans-serif; white-space: nowrap; }
+.macro-world-detail-logo { position: relative; display: grid; width: 39px; height: 39px; place-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.72); border-radius: 50%; background: rgba(255,255,255,.08); }
+.macro-world-detail-logo i { color: #fff; font: 700 13px/1 "Microsoft YaHei UI", sans-serif; font-style: normal; }
+.macro-world-detail-logo img { position: absolute; inset: 4px; width: calc(100% - 8px); height: calc(100% - 8px); object-fit: contain; border-radius: 50%; }
+.macro-world-detail-name { display: grid; gap: 5px; min-width: 0; }
+.macro-world-detail-name strong { overflow: hidden; font: 700 14px/1.1 "Microsoft YaHei UI", sans-serif; text-overflow: ellipsis; }
+.macro-world-detail > a { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid rgba(255,255,255,.62); border-radius: 4px; color: #fff; transition: border-color .16s ease, color .16s ease, background .16s ease; }
+.macro-world-detail > a:hover { border-color: #53c7ff; background: rgba(83,199,255,.1); color: #7bd6ff; }
+.macro-world-footer { position: absolute; z-index: 20; right: 0; bottom: 0; left: 0; display: flex; height: 31px; align-items: center; justify-content: space-between; gap: 16px; padding: 0 10px; border-top: 1px solid rgba(255,255,255,.12); background: #050809; color: rgba(232,241,245,.64); font: 9px/1 Consolas, "Microsoft YaHei UI", sans-serif; }
+.macro-world-footer-meta { display: flex; min-width: 0; align-items: center; gap: 12px; white-space: nowrap; }
+.macro-world-footer-meta a { flex: none; color: rgba(244,250,252,.88); font-weight: 700; }
+.macro-world-footer-meta span { overflow: hidden; text-overflow: ellipsis; }
+.macro-world-footer-meta strong { flex: none; color: var(--macro-green); font-weight: 600; }
+.macro-world-footer-meta strong.warning { color: #efc56d; }
+.macro-world-legend { display: flex; flex: none; align-items: center; gap: 12px; color: rgba(244,250,252,.82); }
+.macro-world-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.macro-world-legend i { width: 9px; height: 9px; }
+.macro-world-legend i.up { background: #c33144; }
+.macro-world-legend i.down { background: #0f8f73; }
+.macro-world-legend i.flat { background: #555b61; }
 .macro-world-heatmap-state { display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--macro-muted); }
 .macro-world-heatmap-state strong { font-size: 12px; }
+@media (max-width: 900px) {
+  .macro-world-detail { grid-template-columns: auto minmax(120px, 1fr) repeat(2, auto) 32px; gap: 9px; }
+  .macro-world-detail > span:nth-of-type(5), .macro-world-detail > span:nth-of-type(6), .macro-world-detail > span:nth-of-type(7) { display: none; }
+  .macro-world-footer-meta span { display: none; }
+  .macro-world-footer-meta { gap: 8px; }
+}
 .macro-world-loader { width: 18px; height: 18px; border: 2px solid var(--macro-border); border-top-color: var(--macro-cyan); border-radius: 50%; animation: macro-spin .8s linear infinite; }
 .macro-unavailable-market { display: grid; place-items: center; align-content: center; gap: 12px; color: var(--macro-muted); text-align: center; }
 .macro-unavailable-market strong { color: var(--macro-text); font-size: 17px; }

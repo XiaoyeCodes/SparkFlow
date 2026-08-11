@@ -7,6 +7,12 @@ import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { ProxyAgent } from 'undici';
 import { defineConfig, type ViteDevServer } from 'vite';
+import {
+  getMarketHalfDay,
+  getMarketHolidayDates,
+  getMarketHolidayName,
+  type MarketCalendarId,
+} from './src/data/marketCalendars';
 
 const rootDir = process.cwd();
 const allWeatherDataDir = path.join(rootDir, 'public', 'allweather', 'data');
@@ -3158,19 +3164,19 @@ type GlobalMacroQuoteConfig = {
 };
 
 const globalMacroQuotes: GlobalMacroQuoteConfig[] = [
-  { id: 'china', name: '上证综指', symbol: '000001.SS', market: 'china', region: 'apac', latitude: 31.23824, longitude: 121.50668, timezone: 'Asia/Shanghai', sessions: [[9.5, 11.5], [13, 15]] },
-  { id: 'hongkong', name: '恒生指数', symbol: '^HSI', market: 'hongkong', region: 'apac', latitude: 22.28389, longitude: 114.15823, timezone: 'Asia/Hong_Kong', sessions: [[9.5, 12], [13, 16]] },
-  { id: 'japan', name: '日经225', symbol: '^N225', market: 'japan', region: 'apac', latitude: 35.6826, longitude: 139.7788, timezone: 'Asia/Tokyo', sessions: [[9, 11.5], [12.5, 15.5]] },
-  { id: 'korea', name: '韩国KOSPI', symbol: '^KS11', market: 'korea', region: 'apac', latitude: 37.5236, longitude: 126.92714, timezone: 'Asia/Seoul', sessions: [[9, 15.5]] },
-  { id: 'india', name: '印度NIFTY 50', symbol: '^NSEI', market: 'india', region: 'apac', latitude: 19.0602, longitude: 72.85978, timezone: 'Asia/Kolkata', sessions: [[9.25, 15.5]] },
+  { id: 'china', name: '上证综指', symbol: '000001.SS', market: 'china', region: 'apac', latitude: 31.23824, longitude: 121.50668, timezone: 'Asia/Shanghai', sessions: [[9.5, 11.5], [13, 15]], closedDates: getMarketHolidayDates('china') },
+  { id: 'hongkong', name: '恒生指数', symbol: '^HSI', market: 'hongkong', region: 'apac', latitude: 22.28389, longitude: 114.15823, timezone: 'Asia/Hong_Kong', sessions: [[9.5, 12], [13, 16]], closedDates: getMarketHolidayDates('hongkong') },
+  { id: 'japan', name: '日经225', symbol: '^N225', market: 'japan', region: 'apac', latitude: 35.6826, longitude: 139.7788, timezone: 'Asia/Tokyo', sessions: [[9, 11.5], [12.5, 15.5]], closedDates: getMarketHolidayDates('japan') },
+  { id: 'korea', name: '韩国KOSPI', symbol: '^KS11', market: 'korea', region: 'apac', latitude: 37.5236, longitude: 126.92714, timezone: 'Asia/Seoul', sessions: [[9, 15.5]], closedDates: getMarketHolidayDates('korea') },
+  { id: 'india', name: '印度NIFTY 50', symbol: '^NSEI', market: 'india', region: 'apac', latitude: 19.0602, longitude: 72.85978, timezone: 'Asia/Kolkata', sessions: [[9.25, 15.5]], closedDates: getMarketHolidayDates('india') },
   { id: 'australia', name: '澳洲ASX 200', symbol: '^AXJO', region: 'apac', latitude: -33.8679, longitude: 151.21016, timezone: 'Australia/Sydney', sessions: [[10, 16]] },
-  { id: 'us', name: '标普500', symbol: '^GSPC', market: 'us', region: 'americas', latitude: 40.70707, longitude: -74.01118, timezone: 'America/New_York', sessions: [[9.5, 16]] },
-  { id: 'nasdaq', name: '纳斯达克100', symbol: '^NDX', market: 'us', region: 'americas', latitude: 40.75628, longitude: -73.98586, timezone: 'America/New_York', sessions: [[9.5, 16]] },
-  { id: 'vix', name: 'CBOE VIX', symbol: '^VIX', market: 'us', region: 'americas', latitude: 41.87662, longitude: -87.63954, timezone: 'America/Chicago', sessions: [[8.5, 15]] },
+  { id: 'us', name: '标普500', symbol: '^GSPC', market: 'us', region: 'americas', latitude: 40.70707, longitude: -74.01118, timezone: 'America/New_York', sessions: [[9.5, 16]], closedDates: getMarketHolidayDates('us') },
+  { id: 'nasdaq', name: '纳斯达克100', symbol: '^NDX', market: 'us', region: 'americas', latitude: 40.75628, longitude: -73.98586, timezone: 'America/New_York', sessions: [[9.5, 16]], closedDates: getMarketHolidayDates('us') },
+  { id: 'vix', name: 'CBOE VIX', symbol: '^VIX', market: 'us', region: 'americas', latitude: 41.87662, longitude: -87.63954, timezone: 'America/Chicago', sessions: [[8.5, 15]], closedDates: getMarketHolidayDates('us') },
   { id: 'euro', name: 'Euro Stoxx 50', symbol: '^STOXX50E', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]] },
-  { id: 'germany', name: '德国DAX', symbol: '^GDAXI', market: 'germany', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]] },
-  { id: 'france', name: '法国CAC 40', symbol: '^FCHI', market: 'france', region: 'europe', latitude: 48.89063, longitude: 2.24669, timezone: 'Europe/Paris', sessions: [[9, 17.5]] },
-  { id: 'uk', name: '富时100', symbol: '^FTSE', market: 'uk', region: 'europe', latitude: 51.51504, longitude: -0.09908, timezone: 'Europe/London', sessions: [[8, 16.5]] },
+  { id: 'germany', name: '德国DAX', symbol: '^GDAXI', market: 'germany', region: 'europe', latitude: 50.11512, longitude: 8.67794, timezone: 'Europe/Berlin', sessions: [[9, 17.5]], closedDates: getMarketHolidayDates('germany') },
+  { id: 'france', name: '法国CAC 40', symbol: '^FCHI', market: 'france', region: 'europe', latitude: 48.89063, longitude: 2.24669, timezone: 'Europe/Paris', sessions: [[9, 17.5]], closedDates: getMarketHolidayDates('france') },
+  { id: 'uk', name: '富时100', symbol: '^FTSE', market: 'uk', region: 'europe', latitude: 51.51504, longitude: -0.09908, timezone: 'Europe/London', sessions: [[8, 16.5]], closedDates: getMarketHolidayDates('uk') },
   { id: 'russia', name: '俄罗斯RTS', symbol: 'RTSI.ME', region: 'europe', latitude: 55.75583, longitude: 37.6173, timezone: 'Europe/Moscow', sessions: [[10, 18.75]] },
   {
     id: 'saudi',
@@ -3366,7 +3372,7 @@ async function getNaverKoreaIndexQuote(config: InternationalIndexConfig): Promis
   };
 }
 
-type TradingViewRegionalMarket = Exclude<InternationalMarketMode, 'korea'>;
+type TradingViewRegionalMarket = Exclude<InternationalMarketMode, 'korea'> | 'australia' | 'saudi';
 
 type TradingViewRegionalQuote = NormalizedInternationalQuote & {
   ticker: string;
@@ -3376,7 +3382,7 @@ type TradingViewRegionalQuote = NormalizedInternationalQuote & {
   sourceDelaySeconds: number;
 };
 
-const tradingViewIndexTickers: Record<TradingViewRegionalMarket, Record<string, string>> = {
+const tradingViewIndexTickers: Record<Exclude<InternationalMarketMode, 'korea'>, Record<string, string>> = {
   japan: {
     nikkei225: 'TVC:NI225',
     topix: 'TSE:TOPIX',
@@ -3416,6 +3422,8 @@ function tradingViewStockTicker(market: TradingViewRegionalMarket, symbol: strin
     germany: { exchange: 'XETR', suffix: '.DE' },
     france: { exchange: 'EURONEXT', suffix: '.PA' },
     uk: { exchange: 'LSE', suffix: '.L' },
+    australia: { exchange: 'ASX', suffix: '.AX' },
+    saudi: { exchange: 'TADAWUL', suffix: '.SR' },
   };
   const rule = rules[market];
   let code = symbol.endsWith(rule.suffix) ? symbol.slice(0, -rule.suffix.length) : symbol;
@@ -3566,7 +3574,7 @@ async function getInternationalMarketOverview(market: InternationalMarketMode) {
       indices,
     };
   }
-  const regionalMarket = market as TradingViewRegionalMarket;
+  const regionalMarket = market as Exclude<InternationalMarketMode, 'korea'>;
   const regionalTickers = configs.map((config) => tradingViewIndexTickers[regionalMarket][config.id]);
   const [regionalQuotes, yahooQuotes] = await Promise.all([
     getTradingViewRegionalQuotesResilient(regionalMarket, regionalTickers, 'global'),
@@ -3974,17 +3982,28 @@ function formatNextGlobalOpen(openAt: Date, config: GlobalMacroQuoteConfig, curr
 function globalSession(config: GlobalMacroQuoteConfig, now = new Date()) {
   const parts = getGlobalSessionParts(now, config.timezone);
   const tradingDate = isGlobalTradingDate(config, parts.date);
+  const calendarMarket = config.market && config.market !== 'crypto'
+    ? config.market as MarketCalendarId
+    : undefined;
+  const holidayName = calendarMarket ? getMarketHolidayName(calendarMarket, parts.date) : undefined;
+  const halfDay = calendarMarket ? getMarketHalfDay(calendarMarket, parts.date) : undefined;
+  const sessions = halfDay
+    ? config.sessions.map(([start, end], index) => [
+        start,
+        index === config.sessions.length - 1 ? Math.min(end, halfDay.closeMinute / 60) : end,
+      ] as [number, number])
+    : config.sessions;
   const liveSessionIndex = tradingDate
-    ? config.sessions.findIndex(([start, end]) => parts.minutes >= start * 60 && parts.minutes < end * 60)
+    ? sessions.findIndex(([start, end]) => parts.minutes >= start * 60 && parts.minutes < end * 60)
     : -1;
   const live = liveSessionIndex >= 0;
   const nextOpen = live ? null : findNextGlobalSessionOpen(config, now, parts.date);
   const nextOpenAt = nextOpen?.toISOString();
   const nextOpenLabel = nextOpen ? formatNextGlobalOpen(nextOpen, config, parts.date) : undefined;
-  const firstStart = config.sessions[0]?.[0] ?? 0;
-  const lastEnd = config.sessions.at(-1)?.[1] ?? 24;
-  const betweenSessions = tradingDate && config.sessions.some(([end], index) => {
-    const following = config.sessions[index + 1];
+  const firstStart = sessions[0]?.[0] ?? 0;
+  const lastEnd = sessions.at(-1)?.[1] ?? 24;
+  const betweenSessions = tradingDate && sessions.some(([end], index) => {
+    const following = sessions[index + 1];
     return Boolean(following && parts.minutes >= end * 60 && parts.minutes < following[0] * 60);
   });
   const pre = tradingDate && config.sessions.some(([start]) => parts.minutes >= start * 60 - 30 && parts.minutes < start * 60);
@@ -3993,13 +4012,13 @@ function globalSession(config: GlobalMacroQuoteConfig, now = new Date()) {
     : pre
       ? '即将开盘'
       : !tradingDate
-        ? config.closedDates?.includes(parts.date) ? '节假日休市' : '非交易日'
+        ? holidayName ? '节假日休市' : '非交易日'
         : betweenSessions
           ? '盘中休市'
           : parts.minutes < firstStart * 60 ? '未开盘' : parts.minutes >= lastEnd * 60 ? '已收盘' : '休市';
   const detail = live
-    ? config.sessions.length > 1 && liveSessionIndex === 0 ? '上午连续交易' : '常规交易时段'
-    : betweenSessions ? '等待下一交易时段' : '等待下一次开盘';
+    ? halfDay?.name || (sessions.length > 1 && liveSessionIndex === 0 ? '上午连续交易' : '常规交易时段')
+    : holidayName || (betweenSessions ? '等待下一交易时段' : halfDay && parts.minutes >= lastEnd * 60 ? `${halfDay.name}已收市` : '等待下一次开盘');
   return {
     label,
     tone: live ? 'live' as const : pre ? 'pre' as const : 'closed' as const,
@@ -5679,8 +5698,9 @@ async function getGlobalMarketHeatmap(market: string) {
   const configs = globalHeatmapConfigs[market];
   if (!configs) throw new Error('不支持的全球市场热力图');
   const isKorea = market === 'korea';
-  const isTradingViewRegion = ['japan', 'india', 'germany', 'france', 'uk'].includes(market);
+  const isTradingViewRegion = ['japan', 'india', 'germany', 'france', 'uk', 'australia', 'saudi'].includes(market);
   const regionalMarket = isTradingViewRegion ? market as TradingViewRegionalMarket : undefined;
+  const regionalScanner = regionalMarket === 'australia' || regionalMarket === 'saudi' ? 'global' : regionalMarket;
   const koreaQuotes = isKorea
     ? await getNaverKoreaStockQuotes(configs.map((config) => config.symbol))
     : new Map<string, NormalizedInternationalQuote>();
@@ -5688,11 +5708,18 @@ async function getGlobalMarketHeatmap(market: string) {
     ? configs.map((config) => tradingViewStockTicker(regionalMarket, config.symbol))
     : [];
   const regionalQuotes = regionalMarket
-    ? await getTradingViewRegionalQuotesResilient(regionalMarket, regionalTickers)
+    ? await getTradingViewRegionalQuotesResilient(regionalMarket, regionalTickers, regionalScanner)
     : new Map<string, TradingViewRegionalQuote>();
+  const missingRegionalSymbols = regionalMarket
+    ? configs
+        .filter((config) => !regionalQuotes.has(tradingViewStockTicker(regionalMarket, config.symbol)))
+        .map((config) => config.symbol)
+    : configs.map((config) => config.symbol);
   const fastQuotes = isKorea
     ? new Map<string, YahooFastQuote>()
-    : await getYahooFastQuotes(configs.map((config) => config.symbol));
+    : missingRegionalSymbols.length
+      ? await getYahooFastQuotes(missingRegionalSymbols)
+      : new Map<string, YahooFastQuote>();
   const settled = await Promise.allSettled(configs.map(async (config) => {
     const koreaQuote = koreaQuotes.get(config.symbol);
     const regionalTicker = regionalMarket ? tradingViewStockTicker(regionalMarket, config.symbol) : undefined;
@@ -5740,11 +5767,16 @@ async function getGlobalMarketHeatmap(market: string) {
   }
   const marketConfig = globalMacroQuotes.find((config) => config.id === market);
   const session = marketConfig ? globalSession(marketConfig) : { label: '行情状态未知', tone: 'closed' as const };
+  const explicitDelays = stocks
+    .map((stock) => asFiniteNumber(stock.sourceDelaySeconds))
+    .filter((value): value is number => value !== undefined && value > 0);
   const latestQuoteMs = Math.max(...stocks.map((stock) => new Date(stock.updatedAt).getTime()).filter(Number.isFinite));
-  const sourceDelaySeconds = Number.isFinite(latestQuoteMs) ? Math.max(0, Math.round((Date.now() - latestQuoteMs) / 1000)) : null;
+  const sourceDelaySeconds = explicitDelays.length
+    ? Math.max(...explicitDelays)
+    : Number.isFinite(latestQuoteMs) ? Math.max(0, Math.round((Date.now() - latestQuoteMs) / 1000)) : null;
   const quoteStatus = session.tone !== 'live'
     ? 'closed'
-    : sourceDelaySeconds !== null && sourceDelaySeconds > 90 ? 'delayed' : 'live';
+    : ['india', 'uk'].includes(market) || (sourceDelaySeconds !== null && sourceDelaySeconds > 90) ? 'delayed' : 'live';
   return {
     market,
     generatedAt: new Date().toISOString(),
@@ -5754,17 +5786,29 @@ async function getGlobalMarketHeatmap(market: string) {
       : isTradingViewRegion
         ? `${stocks.length} 家代表性龙头 · 区域交易所行情 · 实际总市值面积`
       : `${stocks.length} 家代表性龙头 · 行业分组 · 代表权重面积`,
-    refreshIntervalMs: 5_000,
+    refreshIntervalMs: 3_000,
     quoteStatus,
     sourceDelaySeconds,
     session,
     source: isKorea
       ? 'Naver Finance · KRX 常规盘'
-      : isTradingViewRegion ? 'TradingView · 区域交易所行情（Yahoo 降级）' : 'Yahoo Finance Spark',
+      : regionalMarket === 'india'
+        ? 'TradingView · NSE 公开快照（Yahoo 降级）'
+      : regionalMarket === 'uk'
+        ? 'TradingView · LSE 公开快照（Yahoo 降级）'
+      : regionalMarket === 'australia'
+        ? 'TradingView · ASX（Yahoo 降级）'
+        : regionalMarket === 'saudi'
+          ? 'TradingView · TADAWUL（Yahoo 降级）'
+          : isTradingViewRegion ? 'TradingView · 区域交易所行情（Yahoo 降级）' : 'Yahoo Finance Spark',
     sourceUrl: isKorea
       ? 'https://finance.naver.com/sise/'
-      : isTradingViewRegion
-        ? `https://www.tradingview.com/markets/stocks-${market}/market-movers-large-cap/`
+      : regionalMarket === 'australia'
+        ? 'https://www.tradingview.com/markets/stocks-australia/market-movers-large-cap/'
+        : regionalMarket === 'saudi'
+          ? 'https://www.tradingview.com/markets/stocks-saudi-arabia/market-movers-large-cap/'
+          : isTradingViewRegion
+            ? `https://www.tradingview.com/markets/stocks-${market}/market-movers-large-cap/`
       : marketConfig
       ? `https://finance.yahoo.com/quote/${encodeURIComponent(marketConfig.symbol)}`
       : 'https://finance.yahoo.com/markets/',
@@ -5777,6 +5821,10 @@ async function getGlobalMarketHeatmap(market: string) {
       : isTradingViewRegion ? '区域交易所基础总市值' : '代表性成分股静态权重代理',
     quotePolicy: isKorea
       ? '排除 NXT/盘后价格，仅展示韩国交易所常规盘口径'
+      : market === 'india'
+        ? '非 NSE 交易所直连逐笔行情；每 3 秒仅表示页面检查频率，实际更新可能受 TradingView 授权与缓存延迟影响'
+      : market === 'uk'
+        ? '非 LSE 交易所直连逐笔行情；每 3 秒仅表示页面检查频率，实际更新可能受 TradingView 授权与缓存延迟影响'
       : isTradingViewRegion
         ? '现价、昨收、涨跌和总市值来自同一区域行情快照；延迟按授权状态明确标注'
         : '同一数据源现价与昨收口径',
@@ -6867,6 +6915,7 @@ function allWeatherApiPlugin() {
               sendJson(res, 400, { error: '不支持的全球市场热力图' });
               return;
             }
+            res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 200, await getCachedGlobalMarketHeatmap(market));
             return;
           }

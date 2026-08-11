@@ -1,3 +1,9 @@
+import {
+  MARKET_CALENDAR_SOURCE_URLS,
+  MARKET_HOLIDAYS_2026,
+  getMarketHalfDay,
+} from '../data/marketCalendars';
+
 export type MarketSessionMarket = 'china' | 'hongkong' | 'us' | 'crypto' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk';
 
 export type MarketSessionTone = 'live' | 'auction' | 'extended' | 'paused' | 'closed' | 'halted';
@@ -40,16 +46,16 @@ const MARKET_LOCATIONS: Record<MarketSessionMarket, string> = {
 };
 
 const MARKET_SOURCES: Record<MarketSessionMarket, string> = {
-  china: 'https://www.sse.com.cn/lawandrules/sselawsrules2025/fund/trading/c/c_20260424_10817739.shtml',
-  hongkong: 'https://www.hkex.com.hk/Services/Trading-hours-and-Severe-Weather-Arrangements/Trading-Hours/Securities-Market?sc_lang=zh-HK',
-  us: 'https://www.nasdaq.com/market-activity/stock-market-holiday-schedule',
+  china: MARKET_CALENDAR_SOURCE_URLS.china,
+  hongkong: MARKET_CALENDAR_SOURCE_URLS.hongkong,
+  us: MARKET_CALENDAR_SOURCE_URLS.us,
   crypto: 'https://help.coinbase.com/en/trading-and-funding/trading-hours-market-closures',
-  japan: 'https://www.jpx.co.jp/english/equities/trading/domestic/01.html',
-  korea: 'https://global.krx.co.kr/main/main.jsp',
-  india: 'https://www.nseindia.com/resources/exchange-communication-holidays',
-  germany: 'https://www.xetra.com/xetra-en/trading/trading-calendar-and-trading-hours',
-  france: 'https://www.euronext.com/en/trade/trading-hours-holidays',
-  uk: 'https://www.londonstockexchange.com/trade/trading-access/business-days',
+  japan: MARKET_CALENDAR_SOURCE_URLS.japan,
+  korea: MARKET_CALENDAR_SOURCE_URLS.korea,
+  india: MARKET_CALENDAR_SOURCE_URLS.india,
+  germany: MARKET_CALENDAR_SOURCE_URLS.germany,
+  france: MARKET_CALENDAR_SOURCE_URLS.france,
+  uk: MARKET_CALENDAR_SOURCE_URLS.uk,
 };
 
 const HOLIDAYS: Partial<Record<MarketSessionMarket, Record<string, string>>> = {
@@ -116,11 +122,19 @@ const HOLIDAYS: Partial<Record<MarketSessionMarket, Record<string, string>>> = {
     '2026-11-26': '感恩节',
     '2026-12-25': '圣诞节',
   },
+  japan: MARKET_HOLIDAYS_2026.japan,
+  korea: MARKET_HOLIDAYS_2026.korea,
+  india: MARKET_HOLIDAYS_2026.india,
+  germany: MARKET_HOLIDAYS_2026.germany,
+  france: MARKET_HOLIDAYS_2026.france,
+  uk: MARKET_HOLIDAYS_2026.uk,
 };
 
 const HALF_DAYS: Partial<Record<MarketSessionMarket, Set<string>>> = {
   hongkong: new Set(['2026-02-16', '2026-12-24', '2026-12-31']),
   us: new Set(['2026-11-27', '2026-12-24']),
+  france: new Set(['2026-12-24', '2026-12-31']),
+  uk: new Set(['2026-12-24', '2026-12-31']),
 };
 
 type ZonedParts = {
@@ -383,24 +397,31 @@ function internationalStatus(
     sourceUrl: MARKET_SOURCES[market],
   };
   if (!isTradingDay(market, parts.date)) return closedStatus(market, parts, HOLIDAYS[market]?.[parts.date]);
-  const first = config.sessions[0];
+  const halfDay = getMarketHalfDay(market, parts.date);
+  const sessions = halfDay
+    ? config.sessions.map(([start, end], index) => [
+        start,
+        index === config.sessions.length - 1 ? Math.min(end, halfDay.closeMinute) : end,
+      ] as [number, number])
+    : config.sessions;
+  const first = sessions[0];
   if (parts.minutes < first[0]) {
-    return { ...base, state: 'preopen', label: '未开盘', detail: '等待常规交易时段', nextLabel: `今日 ${minuteLabel(first[0])} 开盘`, tone: 'closed' };
+    return { ...base, state: 'preopen', label: '未开盘', detail: halfDay?.name || '等待常规交易时段', nextLabel: `今日 ${minuteLabel(first[0])} 开盘`, tone: 'closed' };
   }
-  for (let index = 0; index < config.sessions.length; index += 1) {
-    const [start, end] = config.sessions[index];
+  for (let index = 0; index < sessions.length; index += 1) {
+    const [start, end] = sessions[index];
     if (parts.minutes >= start && parts.minutes < end) {
-      const next = config.sessions[index + 1];
+      const next = sessions[index + 1];
       return {
         ...base,
         state: 'trading',
         label: '交易中',
-        detail: index === 0 && config.sessions.length > 1 ? '上午连续交易' : '常规交易时段',
-        nextLabel: next ? `今日 ${minuteLabel(end)} ${config.breakLabel || '休市'}` : `今日 ${minuteLabel(end)} 收盘`,
+        detail: halfDay?.name || (index === 0 && sessions.length > 1 ? '上午连续交易' : '常规交易时段'),
+        nextLabel: next ? `今日 ${minuteLabel(end)} ${config.breakLabel || '休市'}` : `今日 ${minuteLabel(end)} ${halfDay ? '提前收盘' : '收盘'}`,
         tone: 'live',
       };
     }
-    const next = config.sessions[index + 1];
+    const next = sessions[index + 1];
     if (next && parts.minutes >= end && parts.minutes < next[0]) {
       return { ...base, state: 'break', label: config.breakLabel || '盘中休市', detail: '交易暂停', nextLabel: `今日 ${minuteLabel(next[0])} 恢复交易`, tone: 'paused' };
     }

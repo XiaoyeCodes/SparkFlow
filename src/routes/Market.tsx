@@ -380,18 +380,31 @@ const MARKET_META: Record<MarketChartMode, { label: string; short: string; chart
     chart: '美股大盘热力图',
     description: '纳斯达克与纽交所主要公司 · 行业分组 · 市值面积 · 当日涨跌',
   },
-  japan: { label: '日股', short: '日本市场', chart: '日本大盘热力图', description: '日经225与TOPIX代表性龙头 · 行业分组 · 5秒行情同步' },
-  korea: { label: '韩股', short: '韩国市场', chart: '韩国大盘热力图', description: 'KOSPI与KOSDAQ代表性龙头 · 行业分组 · 5秒行情同步' },
-  india: { label: '印股', short: '印度市场', chart: '印度大盘热力图', description: 'NIFTY 50与SENSEX代表性龙头 · 行业分组 · 5秒行情同步' },
-  germany: { label: '德股', short: '德国市场', chart: '德国大盘热力图', description: 'DAX与MDAX代表性龙头 · 行业分组 · 5秒行情同步' },
-  france: { label: '法股', short: '法国市场', chart: '法国大盘热力图', description: 'CAC 40与SBF 120代表性龙头 · 行业分组 · 5秒行情同步' },
-  uk: { label: '英股', short: '英国市场', chart: '英国大盘热力图', description: '富时100与富时250代表性龙头 · 行业分组 · 5秒行情同步' },
+  japan: { label: '日股', short: '日本市场', chart: '日本大盘热力图', description: '日经225与TOPIX代表性龙头 · 行业分组 · 每3秒检查' },
+  korea: { label: '韩股', short: '韩国市场', chart: '韩国大盘热力图', description: 'KOSPI与KOSDAQ代表性龙头 · 行业分组 · 每3秒检查' },
+  india: { label: '印股', short: '印度市场', chart: '印度大盘热力图', description: 'NIFTY 50与SENSEX代表性龙头 · 行业分组 · 每3秒检查' },
+  germany: { label: '德股', short: '德国市场', chart: '德国大盘热力图', description: 'DAX与MDAX代表性龙头 · 行业分组 · 每3秒检查' },
+  france: { label: '法股', short: '法国市场', chart: '法国大盘热力图', description: 'CAC 40与SBF 120代表性龙头 · 行业分组 · 每3秒检查' },
+  uk: { label: '英股', short: '英国市场', chart: '英国大盘热力图', description: '富时100与富时250代表性龙头 · 行业分组 · 每3秒检查' },
   crypto: {
     label: '加密',
     short: '加密市场',
     chart: '加密货币热力图',
     description: '主流加密资产 · 市值面积 · 24 小时涨跌 · 全天候市场',
   },
+};
+
+const MARKET_HEATMAP_PROVIDERS: Record<MarketChartMode, string> = {
+  china: '东方财富',
+  hongkong: '东方财富',
+  us: 'Yahoo Finance / Cboe',
+  crypto: 'CoinGecko + Binance',
+  japan: 'TradingView · TSE',
+  korea: 'Naver Finance · KRX',
+  india: 'TradingView · NSE',
+  germany: 'TradingView · Xetra',
+  france: 'TradingView · Euronext',
+  uk: 'TradingView · LSE',
 };
 
 const researchStorageKey = (mode: MarketChartMode) => `sparkflow.market.research.v2.${mode}`;
@@ -1154,11 +1167,7 @@ export function Market() {
                     <div className="shrink-0">
                       <div className="flex items-center gap-2 text-sm font-semibold">
                         <Activity size={16} className="text-[#69d5ff]" />
-                        {MARKET_META[activeMarket].chart} · {activeMarket === 'crypto'
-                          ? 'CoinGecko + Binance'
-                          : ['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket)
-                            ? 'Yahoo Finance Spark'
-                            : '东方财富实时数据'}
+                        {MARKET_META[activeMarket].chart} · {MARKET_HEATMAP_PROVIDERS[activeMarket]}
                       </div>
                       <p className="mt-1 text-xs text-white/38">{MARKET_META[activeMarket].description}</p>
                     </div>

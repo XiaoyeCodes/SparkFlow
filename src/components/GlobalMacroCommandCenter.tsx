@@ -261,7 +261,10 @@ type WorldHeatmapStock = {
   logoUrl?: string;
   fallbackLogoUrl?: string;
   weight: number;
+  marketCap?: number;
+  marketCapType?: 'actual' | 'representative-weight';
   price: number;
+  previousClose?: number;
   changePercent: number;
   updatedAt: string;
   sourceUrl: string;
@@ -269,18 +272,27 @@ type WorldHeatmapStock = {
 type WorldHeatmapResponse = {
   market: string;
   generatedAt: string;
+  coverage?: string;
   refreshIntervalMs?: number;
   quoteStatus?: 'live' | 'delayed' | 'closed';
   sourceDelaySeconds?: number | null;
-  session?: { label: string; tone: 'live' | 'pre' | 'closed' };
+  session?: {
+    label: string;
+    tone: 'live' | 'pre' | 'closed';
+    detail?: string;
+    timezone?: string;
+    localTime?: string;
+  };
   source: string;
+  sourceUrl?: string;
   weightMethod: string;
+  quotePolicy?: string;
   stocks: WorldHeatmapStock[];
 };
 
 const WORLD_HEATMAP_MARKET_IDS = new Set(['japan', 'korea', 'india', 'australia', 'euro', 'germany', 'france', 'uk', 'saudi']);
-const WORLD_HEATMAP_REFRESH_INTERVAL_MS = 5_000;
-const WORLD_HEATMAP_CLIENT_CACHE_MS = 2_500;
+const WORLD_HEATMAP_REFRESH_INTERVAL_MS = 3_000;
+const WORLD_HEATMAP_CLIENT_CACHE_MS = 1_500;
 const worldHeatmapClientCache = new Map<string, { storedAt: number; data: WorldHeatmapResponse }>();
 const worldHeatmapClientInFlight = new Map<string, Promise<WorldHeatmapResponse>>();
 const worldHeatmapPreloadedLogoUrls = new Set<string>();
@@ -352,6 +364,28 @@ function formatNumber(value?: number | null, digits = 2) {
     maximumFractionDigits: digits,
     minimumFractionDigits: digits,
   }).format(value);
+}
+
+function formatCompactNumber(value?: number | null) {
+  if (value === undefined || value === null || !Number.isFinite(value)) return '待更新';
+  return new Intl.NumberFormat('zh-CN', {
+    notation: 'compact',
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function zonedDateKey(value: Date, timezone?: string) {
+  if (!timezone) return value.toISOString().slice(0, 10);
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(value);
+  } catch {
+    return value.toISOString().slice(0, 10);
+  }
 }
 
 function signed(value?: number | null) {
@@ -1247,6 +1281,8 @@ type HeatmapTreeNode = {
 function WorldMarketHeatmap({ market }: { market: string }) {
   const [data, setData] = useState<WorldHeatmapResponse | null>(() => worldHeatmapClientCache.get(market)?.data || null);
   const [error, setError] = useState('');
+  const [selectedStockId, setSelectedStockId] = useState<string | null>(null);
+  const [hoveredStockId, setHoveredStockId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -1254,6 +1290,8 @@ function WorldMarketHeatmap({ market }: { market: string }) {
     const cached = worldHeatmapClientCache.get(market)?.data || null;
     setData(cached);
     setError('');
+    setSelectedStockId(null);
+    setHoveredStockId(null);
     const refresh = async () => {
       if (!active) return;
       if (!document.hidden) {
@@ -1295,70 +1333,135 @@ function WorldMarketHeatmap({ market }: { market: string }) {
   if (error) return <div className="macro-world-heatmap-state"><Globe2 size={28} /><strong>{error}</strong></div>;
   if (!layout || !data) return <div className="macro-world-heatmap-state"><span className="macro-world-loader" /><strong>正在读取成分股行情</strong></div>;
   const latestQuoteAt = data.stocks.reduce((latest, stock) => stock.updatedAt > latest ? stock.updatedAt : latest, '');
+  const latestQuoteDate = latestQuoteAt ? new Date(latestQuoteAt) : null;
+  const latestQuoteMs = latestQuoteDate?.getTime() || Number.NaN;
   const latestQuoteTime = latestQuoteAt
     ? new Date(latestQuoteAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
     : '--:--:--';
+  const refreshSeconds = Math.max(1, Math.round((data.refreshIntervalMs || WORLD_HEATMAP_REFRESH_INTERVAL_MS) / 1000));
   const refreshLabel = data.quoteStatus === 'delayed' && data.sourceDelaySeconds
-    ? `源延迟约${Math.max(1, Math.round(data.sourceDelaySeconds / 60))}分钟 · 每5秒检查`
+    ? `源延迟约${Math.max(1, Math.round(data.sourceDelaySeconds / 60))}分钟 · 每${refreshSeconds}秒检查`
     : data.quoteStatus === 'closed'
-      ? `${data.session?.label || '已收盘'} · 每5秒检查`
-      : '盘中 · 5秒刷新';
+      ? `${data.session?.label || '已收盘'} · 每${refreshSeconds}秒检查`
+      : `盘中 · 每${refreshSeconds}秒刷新`;
+  const selectedStock = data.stocks.find((stock) => stock.id === selectedStockId) || null;
+  const hoveredStock = data.stocks.find((stock) => stock.id === hoveredStockId) || null;
+  const focusedStock = hoveredStock || selectedStock;
+  const quoteAgeSeconds = Number.isFinite(latestQuoteMs) ? Math.max(0, Math.round((Date.now() - latestQuoteMs) / 1000)) : null;
+  const quoteFromCurrentMarketDate = latestQuoteDate
+    ? zonedDateKey(latestQuoteDate, data.session?.timezone) === zonedDateKey(new Date(), data.session?.timezone)
+    : false;
+  const freshnessSummary = data.quoteStatus === 'delayed'
+    ? `非实时：行情授权延迟约 ${Math.max(1, Math.round((data.sourceDelaySeconds || quoteAgeSeconds || 0) / 60))} 分钟`
+    : data.quoteStatus === 'closed'
+      ? quoteFromCurrentMarketDate
+        ? '市场已收盘，显示今日收盘快照'
+        : '当前休市，显示上一交易日收盘快照'
+      : quoteAgeSeconds !== null && quoteAgeSeconds > 90
+        ? `行情已 ${Math.max(2, Math.round(quoteAgeSeconds / 60))} 分钟未更新`
+        : '实时行情';
+  const freshnessNotice = `${freshnessSummary} · 每 ${refreshSeconds} 秒检查`;
+  const freshnessWarning = data.quoteStatus === 'delayed'
+    || (data.quoteStatus === 'closed' && !quoteFromCurrentMarketDate)
+    || (data.quoteStatus === 'live' && quoteAgeSeconds !== null && quoteAgeSeconds > 90);
 
   return (
     <div className="macro-world-heatmap">
-      {layout.descendants().filter((node) => node.depth === 1).map((node) => (
-        <div
-          key={node.data.name}
-          className="macro-world-sector"
-          style={{ left: `${node.x0 / 10}%`, top: `${node.y0 / 6.2}%`, width: `${(node.x1 - node.x0) / 10}%`, height: `${(node.y1 - node.y0) / 6.2}%` }}
-        ><span>{node.data.name}</span></div>
-      ))}
-      {layout.leaves().map((node) => {
-        const stock = node.data.stock;
-        if (!stock) return null;
-        const area = (node.x1 - node.x0) * (node.y1 - node.y0);
-        return (
-          <a
-            key={stock.id}
-            className={`macro-world-tile ${trendClass(stock.changePercent)} ${area > 55_000 ? 'large' : area > 24_000 ? 'medium' : 'small'}`}
-            href={stock.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              left: `${node.x0 / 10}%`,
-              top: `${node.y0 / 6.2}%`,
-              width: `${(node.x1 - node.x0) / 10}%`,
-              height: `${(node.y1 - node.y0) / 6.2}%`,
-              backgroundColor: heatmapCellColor(stock.changePercent),
-            }}
-            title={`${stock.name} ${stock.symbol} ${signed(stock.changePercent)}`}
-          >
-            <span className="macro-world-logo" aria-hidden="true">
-              <i>{stock.name.slice(0, 1)}</i>
-              {stock.logoUrl ? (
-                <img
-                  src={stock.logoUrl}
-                  alt=""
-                  loading="eager"
-                  decoding="async"
-                  draggable={false}
-                  onError={(event) => {
-                    const image = event.currentTarget;
-                    if (stock.fallbackLogoUrl && image.dataset.fallbackTried !== 'true') {
-                      image.dataset.fallbackTried = 'true';
-                      image.src = stock.fallbackLogoUrl;
-                      return;
-                    }
-                    image.style.display = 'none';
-                  }}
-                />
-              ) : null}
-            </span>
-            <strong>{stock.name}</strong><span className="macro-world-symbol">{stock.symbol}</span><b>{signed(stock.changePercent)}</b><small>{formatNumber(stock.price)}</small>
+      <div className="macro-world-plot">
+        {layout.descendants().filter((node) => node.depth === 1).map((node) => (
+          <div
+            key={node.data.name}
+            className="macro-world-sector"
+            style={{ left: `${node.x0 / 10}%`, top: `${node.y0 / 6.2}%`, width: `${(node.x1 - node.x0) / 10}%`, height: `${(node.y1 - node.y0) / 6.2}%` }}
+          ><span>{node.data.name}</span></div>
+        ))}
+        {layout.leaves().map((node) => {
+          const stock = node.data.stock;
+          if (!stock) return null;
+          const area = (node.x1 - node.x0) * (node.y1 - node.y0);
+          return (
+            <button
+              type="button"
+              key={stock.id}
+              className={`macro-world-tile ${trendClass(stock.changePercent)} ${area > 55_000 ? 'large' : area > 24_000 ? 'medium' : 'small'} ${selectedStockId === stock.id ? 'selected' : ''}`}
+              onClick={() => setSelectedStockId((current) => current === stock.id ? null : stock.id)}
+              onPointerEnter={() => setHoveredStockId(stock.id)}
+              onPointerLeave={() => setHoveredStockId(null)}
+              onFocus={() => setHoveredStockId(stock.id)}
+              onBlur={() => setHoveredStockId(null)}
+              aria-pressed={selectedStockId === stock.id}
+              style={{
+                left: `${node.x0 / 10}%`,
+                top: `${node.y0 / 6.2}%`,
+                width: `${(node.x1 - node.x0) / 10}%`,
+                height: `${(node.y1 - node.y0) / 6.2}%`,
+                backgroundColor: heatmapCellColor(stock.changePercent),
+              }}
+              title={`${stock.name} ${stock.symbol} ${signed(stock.changePercent)}`}
+            >
+              <span className="macro-world-logo" aria-hidden="true">
+                <i>{stock.name.slice(0, 1)}</i>
+                {stock.logoUrl ? (
+                  <img
+                    src={stock.logoUrl}
+                    alt=""
+                    loading="eager"
+                    decoding="async"
+                    draggable={false}
+                    onError={(event) => {
+                      const image = event.currentTarget;
+                      if (stock.fallbackLogoUrl && image.dataset.fallbackTried !== 'true') {
+                        image.dataset.fallbackTried = 'true';
+                        image.src = stock.fallbackLogoUrl;
+                        return;
+                      }
+                      image.style.display = 'none';
+                    }}
+                  />
+                ) : null}
+              </span>
+              <strong>{stock.name}</strong><span className="macro-world-symbol">{stock.symbol}</span><b>{signed(stock.changePercent)}</b><small>{formatNumber(stock.price)}</small>
+            </button>
+          );
+        })}
+      {focusedStock ? (
+        <div className="macro-world-detail" role="status" aria-live="polite">
+          <span className="macro-world-detail-logo" aria-hidden="true">
+            <i>{focusedStock.name.slice(0, 1)}</i>
+            {focusedStock.logoUrl ? <img src={focusedStock.logoUrl} alt="" draggable={false} /> : null}
+          </span>
+          <span className="macro-world-detail-name">
+            <strong>{focusedStock.name}</strong>
+            <small>{focusedStock.symbol} · {focusedStock.sector}</small>
+          </span>
+          <span><strong>{formatNumber(focusedStock.price)}</strong><small>价格</small></span>
+          <span>
+            <strong>{focusedStock.marketCapType === 'actual' ? formatCompactNumber(focusedStock.marketCap) : `${formatNumber(focusedStock.weight, 0)}%`}</strong>
+            <small>{focusedStock.marketCapType === 'actual' ? '总市值' : '代表权重'}</small>
+          </span>
+          <span><strong>{formatNumber(focusedStock.previousClose)}</strong><small>昨收</small></span>
+          <span><strong className={trendClass(focusedStock.changePercent)}>{signed(focusedStock.changePercent)}</strong><small>涨跌</small></span>
+          <span><strong>{new Date(focusedStock.updatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</strong><small>更新时间</small></span>
+          <a href={focusedStock.sourceUrl} target="_blank" rel="noreferrer" aria-label={`查看${focusedStock.name}行情`} title="查看行情">
+            <ExternalLink size={15} />
           </a>
-        );
-      })}
-      <p className={`macro-world-source ${data.quoteStatus || ''}`}>{data.source} · {refreshLabel} · 数据 {latestQuoteTime}</p>
+        </div>
+      ) : null}
+      </div>
+      <footer className="macro-world-footer">
+        <div className="macro-world-footer-meta">
+          <a href={data.sourceUrl} target="_blank" rel="noreferrer">{data.source}</a>
+          <span>{data.coverage || data.weightMethod}</span>
+          <strong className={freshnessWarning ? 'warning' : ''}>{freshnessNotice}</strong>
+          <span>数据 {latestQuoteTime}</span>
+        </div>
+        <div className="macro-world-legend" aria-label="涨跌颜色图例">
+          <span><i className="up" />上涨</span>
+          <span><i className="down" />下跌</span>
+          <span><i className="flat" />平盘</span>
+          <RefreshCw size={12} />
+        </div>
+      </footer>
     </div>
   );
 }

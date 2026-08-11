@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { getMarketSessionStatus, type MarketSessionMarket } from '../lib/marketSessions';
 
 type ChinaHeatmapStock = {
   code: string;
@@ -46,6 +47,7 @@ type ChinaHeatmapResponse = {
   quoteStatus?: 'live' | 'delayed' | 'closed';
   sourceDelaySeconds?: number | null;
   quotePolicy?: string;
+  refreshIntervalMs?: number;
   stocks: ChinaHeatmapStock[];
 };
 
@@ -69,6 +71,7 @@ type MapView = {
 
 type RegionalHeatmapConfig = {
   endpoint: string;
+  sessionMarket: MarketSessionMarket;
   marketName: string;
   ariaLabel: string;
   searchSlotId: string;
@@ -102,6 +105,7 @@ const DEFAULT_MAP_VIEW: MapView = { scale: MIN_ZOOM, x: 0, y: 0 };
 
 const CHINA_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   endpoint: '/api/china-market-heatmap',
+  sessionMarket: 'china',
   marketName: 'A 股',
   ariaLabel: 'A 股大盘热力图',
   searchSlotId: 'china-market-search-slot',
@@ -115,6 +119,7 @@ const CHINA_HEATMAP_CONFIG: RegionalHeatmapConfig = {
 
 const HONG_KONG_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   endpoint: '/api/hong-kong-market-heatmap',
+  sessionMarket: 'hongkong',
   marketName: '港股',
   ariaLabel: '港股大盘热力图',
   searchSlotId: 'hong-kong-market-search-slot',
@@ -128,6 +133,7 @@ const HONG_KONG_HEATMAP_CONFIG: RegionalHeatmapConfig = {
 
 const US_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   endpoint: '/api/us-market-heatmap',
+  sessionMarket: 'us',
   marketName: '美股',
   ariaLabel: '美股大盘热力图',
   searchSlotId: 'us-market-search-slot',
@@ -141,6 +147,7 @@ const US_HEATMAP_CONFIG: RegionalHeatmapConfig = {
 
 const CRYPTO_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   endpoint: '/api/crypto-market-heatmap',
+  sessionMarket: 'crypto',
   marketName: '加密市场',
   ariaLabel: '加密资产市场热力图',
   searchSlotId: 'crypto-market-search-slot',
@@ -164,6 +171,7 @@ export type InternationalMarketMode = 'japan' | 'korea' | 'india' | 'germany' | 
 const INTERNATIONAL_HEATMAP_CONFIGS: Record<InternationalMarketMode, RegionalHeatmapConfig> = {
   japan: {
     endpoint: '/api/global-market-heatmap?market=japan',
+    sessionMarket: 'japan',
     marketName: '日股',
     ariaLabel: '日本股票市场热力图',
     searchSlotId: 'japan-market-search-slot',
@@ -179,6 +187,7 @@ const INTERNATIONAL_HEATMAP_CONFIGS: Record<InternationalMarketMode, RegionalHea
   },
   korea: {
     endpoint: '/api/global-market-heatmap?market=korea',
+    sessionMarket: 'korea',
     marketName: '韩股',
     ariaLabel: '韩国股票市场热力图',
     searchSlotId: 'korea-market-search-slot',
@@ -197,6 +206,7 @@ const INTERNATIONAL_HEATMAP_CONFIGS: Record<InternationalMarketMode, RegionalHea
   },
   india: {
     endpoint: '/api/global-market-heatmap?market=india',
+    sessionMarket: 'india',
     marketName: '印股',
     ariaLabel: '印度股票市场热力图',
     searchSlotId: 'india-market-search-slot',
@@ -212,6 +222,7 @@ const INTERNATIONAL_HEATMAP_CONFIGS: Record<InternationalMarketMode, RegionalHea
   },
   germany: {
     endpoint: '/api/global-market-heatmap?market=germany',
+    sessionMarket: 'germany',
     marketName: '德股',
     ariaLabel: '德国股票市场热力图',
     searchSlotId: 'germany-market-search-slot',
@@ -227,6 +238,7 @@ const INTERNATIONAL_HEATMAP_CONFIGS: Record<InternationalMarketMode, RegionalHea
   },
   france: {
     endpoint: '/api/global-market-heatmap?market=france',
+    sessionMarket: 'france',
     marketName: '法股',
     ariaLabel: '法国股票市场热力图',
     searchSlotId: 'france-market-search-slot',
@@ -242,6 +254,7 @@ const INTERNATIONAL_HEATMAP_CONFIGS: Record<InternationalMarketMode, RegionalHea
   },
   uk: {
     endpoint: '/api/global-market-heatmap?market=uk',
+    sessionMarket: 'uk',
     marketName: '英股',
     ariaLabel: '英国股票市场热力图',
     searchSlotId: 'uk-market-search-slot',
@@ -805,10 +818,16 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
   } | null>(null);
   const suppressClickRef = useRef(false);
   const mountedRef = useRef(true);
+  const [sessionNow, setSessionNow] = useState(() => new Date());
 
   useEffect(() => {
     setSearchPortal(document.getElementById(config.searchSlotId));
   }, [config.searchSlotId]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setSessionNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const load = useCallback(async (signal?: AbortSignal, manual = false) => {
     if (manual) setRefreshing(true);
@@ -1041,11 +1060,27 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
         second: '2-digit',
       }).format(new Date(data.generatedAt))
     : '--:--:--';
+  const sourceDelayLabel = data?.sourceDelaySeconds && data.sourceDelaySeconds >= 60
+    ? `授权延迟约 ${Math.ceil(data.sourceDelaySeconds / 60)} 分钟`
+    : '';
+  const publicSnapshotExchange = config.sessionMarket === 'india'
+    ? 'NSE'
+    : config.sessionMarket === 'uk' ? 'LSE' : '';
+  const isPublicSnapshotMarket = Boolean(publicSnapshotExchange);
   const quoteFreshnessLabel = data?.quoteStatus === 'closed'
-    ? '常规盘已收盘'
-    : data?.sourceDelaySeconds && data.sourceDelaySeconds >= 60
-      ? `授权延迟约 ${Math.ceil(data.sourceDelaySeconds / 60)} 分钟`
-      : data?.quoteStatus === 'live' ? '实时行情' : `抓取 ${updatedAt}`;
+    ? sourceDelayLabel ? `收盘快照 · ${sourceDelayLabel}` : '常规盘已收盘'
+    : isPublicSnapshotMarket
+      ? `公开行情快照 ${updatedAt}`
+      : sourceDelayLabel || (data?.quoteStatus === 'live' ? '实时行情' : `抓取 ${updatedAt}`);
+  const refreshSeconds = Math.max(1, Math.round((data?.refreshIntervalMs ?? REFRESH_INTERVAL_MS) / 1000));
+  const sessionStatus = getMarketSessionStatus(config.sessionMarket, sessionNow);
+  const sessionToneClass = sessionStatus.tone === 'live'
+    ? 'bg-[#4ed9aa] shadow-[0_0_10px_rgba(78,217,170,0.48)]'
+    : sessionStatus.tone === 'auction' || sessionStatus.tone === 'extended'
+      ? 'bg-[#d6b566] shadow-[0_0_10px_rgba(214,181,102,0.4)]'
+      : sessionStatus.tone === 'halted'
+        ? 'bg-[#ff5c69] shadow-[0_0_10px_rgba(255,92,105,0.46)]'
+        : 'bg-white/30';
 
   const openIndustry = useCallback((industry: string) => {
     setActiveIndustry(industry);
@@ -1289,6 +1324,30 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
         className="flex h-full min-h-0 flex-col bg-[#060708] text-white"
         aria-label={config.ariaLabel}
       >
+      <div className="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-white/10 bg-[#080a0c] px-3 py-2 text-[10px] text-white/48">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <i className={`h-2 w-2 shrink-0 rounded-full ${sessionToneClass}`} />
+          <strong className="shrink-0 text-[11px] text-white/78">{sessionStatus.label}</strong>
+          <span className="truncate">{sessionStatus.detail}</span>
+          <span className="hidden text-white/28 md:inline">·</span>
+          <span className="hidden md:inline">{sessionStatus.location} {sessionStatus.localTime.slice(0, 5)}</span>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <span className="hidden lg:inline">下次：{sessionStatus.nextLabel}</span>
+          <span className="text-white/28">·</span>
+          <span>{quoteFreshnessLabel} · 每 {refreshSeconds} 秒检查</span>
+          <a
+            href={sessionStatus.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="grid h-6 w-6 place-items-center text-white/42 transition hover:text-white"
+            aria-label={`查看${config.marketName}交易日历`}
+            title="交易所交易日历"
+          >
+            <ExternalLink size={12} />
+          </a>
+        </div>
+      </div>
       {activeIndustry ? (
         <div className="flex h-10 shrink-0 items-center border-b border-white/14 bg-[#090a0c] px-2">
           <button
@@ -1479,7 +1538,9 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
                 <p className="mt-0.5 text-[9px] text-white/40">
                   {['CLOSE', 'OUT_OF_SESSION'].includes(focusedStock.marketState || '')
                     ? '常规盘收盘'
-                    : focusedStock.sourceDelaySeconds && focusedStock.sourceDelaySeconds >= 60
+                    : isPublicSnapshotMarket
+                      ? '非交易所直连快照'
+                      : focusedStock.sourceDelaySeconds && focusedStock.sourceDelaySeconds >= 60
                       ? `延迟 ${Math.ceil(focusedStock.sourceDelaySeconds / 60)} 分钟`
                       : '实时行情'}
                 </p>
@@ -1536,7 +1597,10 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
         <div className="flex items-center gap-3">
           <span className="font-semibold text-white/64">{data?.source ?? '东方财富'}</span>
           <span>{activeIndustry ? `${activeIndustry} · 点击个股查看详情` : data?.coverage ?? config.defaultCoverage}</span>
-          <span>{quoteFreshnessLabel}</span>
+          <span>{quoteFreshnessLabel} · 每 {refreshSeconds} 秒检查</span>
+          {isPublicSnapshotMarket && data?.quotePolicy ? (
+            <span className="text-[#d6b566]" title={data.quotePolicy}>非 {publicSnapshotExchange} 直连；3 秒为检查频率，行情可能延迟</span>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1.5"><i className="h-2.5 w-2.5 bg-[#c33144]" />上涨</span>
