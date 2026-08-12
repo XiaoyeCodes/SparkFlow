@@ -970,8 +970,8 @@ function HologramGlobe({
     host.appendChild(renderer.domElement);
 
     const root = new THREE.Group();
-    // Center East Asia initially; the marker transform below follows SphereGeometry's UV axes.
-    root.rotation.set(-0.08, 2.92, 0);
+    // Center East Asia slightly north of the equator on first load.
+    root.rotation.set(0.21, 2.92, 0);
     scene.add(root);
 
     const texture = new THREE.TextureLoader().load('/textures/earth-day.jpg');
@@ -1978,7 +1978,6 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
               ) : (
                 <InteractiveFlatMap markets={markets} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} />
               )}
-              <p className="macro-caption">{view === 'map' ? '拖动平移 · 滚轮缩放 · 双击复位 · 点击交易所打开实时热力图' : '拖动旋转 · 滚轮缩放 · 点击交易所打开实时热力图 · 红涨绿跌'}</p>
             </div>
             {loading ? <div className="macro-loading"><span />正在连接全球市场数据</div> : null}
           </div>
