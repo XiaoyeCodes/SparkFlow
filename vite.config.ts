@@ -4453,6 +4453,134 @@ const globalPmiConfigs = [
   { id: 'pmi-korea', label: '韩国 PMI', slug: 'south-korea' },
 ] as const;
 
+type GlobalCpiMetric = {
+  id: 'china-cpi' | 'us-cpi';
+  label: string;
+  value: number | null;
+  display: string;
+  change: number | null;
+  period: string;
+  releasedAt?: string;
+  updatedAt: string;
+  source: string;
+  sourceUrl: string;
+  status: 'delayed' | 'unavailable';
+  history: Array<{ time: string; value: number }>;
+};
+
+function signedDirectionValue(direction: string, value?: string) {
+  if (direction === '持平') return 0;
+  const parsed = asFiniteNumber(value);
+  if (parsed === undefined) throw new Error('CPI 涨跌幅缺失');
+  return direction === '下降' ? -Math.abs(parsed) : Math.abs(parsed);
+}
+
+function cpiPeriodTime(year: number, month: number) {
+  return new Date(Date.UTC(year, month - 1, 1)).toISOString();
+}
+
+async function getChinaCpiMetric(): Promise<GlobalCpiMetric> {
+  const listingUrl = 'https://www.stats.gov.cn/sj/zxfb/';
+  const listingHtml = await fetchExternalText(listingUrl, 16000, 'text/html,application/xhtml+xml,*/*');
+  const release = [...listingHtml.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+    .map((match) => ({ href: match[1], title: stripTags(match[2]) }))
+    .find((item) => /20\d{2}年\d{1,2}月份居民消费价格同比/.test(item.title));
+  if (!release) throw new Error('国家统计局最新 CPI 发布页未找到');
+
+  const sourceUrl = new URL(release.href, listingUrl).toString();
+  const html = await fetchExternalText(sourceUrl, 16000, 'text/html,application/xhtml+xml,*/*');
+  const text = stripTags(html).replace(/\s+/g, ' ');
+  const yearMonth = text.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月份/);
+  const yoyMatch = text.match(/全国居民消费价格同比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
+  const momMatch = text.match(/(?:\d{1,2}\s*月份，?)?全国居民消费价格环比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
+  if (!yearMonth || !yoyMatch || !momMatch) throw new Error('国家统计局 CPI 页面数据格式异常');
+
+  const year = Number(yearMonth[1]);
+  const month = Number(yearMonth[2]);
+  const yoy = signedDirectionValue(yoyMatch[1], yoyMatch[2]);
+  const mom = signedDirectionValue(momMatch[1], momMatch[2]);
+  const updatedAt = cpiPeriodTime(year, month);
+  const releasePathDate = sourceUrl.match(/t(20\d{6})_/i)?.[1];
+  const releasedAt = releasePathDate
+    ? `${releasePathDate.slice(0, 4)}-${releasePathDate.slice(4, 6)}-${releasePathDate.slice(6, 8)}`
+    : undefined;
+  return {
+    id: 'china-cpi',
+    label: '中国 CPI',
+    value: yoy,
+    display: `${yoy > 0 ? '+' : ''}${yoy.toFixed(1)}%`,
+    change: mom,
+    period: `${year}年${month}月`,
+    releasedAt,
+    updatedAt,
+    source: '国家统计局',
+    sourceUrl,
+    status: 'delayed',
+    history: [{ time: updatedAt, value: yoy }],
+  };
+}
+
+type BlsCpiObservation = { year?: string; period?: string; value?: string };
+
+function getBlsCpiObservations(payload: unknown) {
+  const rows = (payload as { Results?: { series?: Array<{ data?: BlsCpiObservation[] }> } })?.Results?.series?.[0]?.data;
+  if (!Array.isArray(rows)) throw new Error('BLS CPI 数据为空');
+  return rows.flatMap((row) => {
+    const month = row.period?.match(/^M(0[1-9]|1[0-2])$/)?.[1];
+    const year = Number(row.year);
+    const value = asFiniteNumber(row.value);
+    if (!month || !Number.isFinite(year) || value === undefined) return [];
+    return [{ year, month: Number(month), value, time: cpiPeriodTime(year, Number(month)) }];
+  }).sort((left, right) => right.time.localeCompare(left.time));
+}
+
+async function fetchBlsCpiSeries(seriesId: string) {
+  const url = `https://api.bls.gov/publicAPI/v1/timeseries/data/${seriesId}`;
+  try {
+    return JSON.parse(await fetchRoutedText(url, 'direct', 12000, 'application/json,text/plain,*/*'));
+  } catch {
+    return JSON.parse(await fetchRoutedText(url, 'proxy', 18000, 'application/json,text/plain,*/*'));
+  }
+}
+
+async function getUsCpiMetric(): Promise<GlobalCpiMetric> {
+  const [unadjustedPayload, adjustedPayload] = await Promise.all([
+    fetchBlsCpiSeries('CUUR0000SA0'),
+    fetchBlsCpiSeries('CUSR0000SA0'),
+  ]);
+  const unadjusted = getBlsCpiObservations(unadjustedPayload);
+  const adjusted = getBlsCpiObservations(adjustedPayload);
+  const latest = unadjusted[0];
+  if (!latest) throw new Error('BLS 最新 CPI 数据缺失');
+  const yearAgo = unadjusted.find((item) => item.year === latest.year - 1 && item.month === latest.month);
+  const adjustedLatest = adjusted.find((item) => item.year === latest.year && item.month === latest.month);
+  const adjustedPrevious = adjusted.find((item) => item.time < (adjustedLatest?.time || ''));
+  if (!yearAgo || !adjustedLatest || !adjustedPrevious || yearAgo.value <= 0 || adjustedPrevious.value <= 0) {
+    throw new Error('BLS CPI 同比或环比基期数据缺失');
+  }
+  const yoy = (latest.value / yearAgo.value - 1) * 100;
+  const mom = (adjustedLatest.value / adjustedPrevious.value - 1) * 100;
+  const history = unadjusted.flatMap((item) => {
+    const previousYear = unadjusted.find((candidate) => candidate.year === item.year - 1 && candidate.month === item.month);
+    return previousYear && previousYear.value > 0
+      ? [{ time: item.time, value: (item.value / previousYear.value - 1) * 100 }]
+      : [];
+  }).sort((left, right) => left.time.localeCompare(right.time));
+  return {
+    id: 'us-cpi',
+    label: '美国 CPI',
+    value: yoy,
+    display: `${yoy > 0 ? '+' : ''}${yoy.toFixed(1)}%`,
+    change: mom,
+    period: `${latest.year}年${latest.month}月`,
+    updatedAt: latest.time,
+    source: '美国劳工统计局',
+    sourceUrl: 'https://www.bls.gov/cpi/',
+    status: 'delayed',
+    history,
+  };
+}
+
 function pmiObservationTime(monthName: string) {
   const month = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
     .indexOf(monthName.toLowerCase());
@@ -5100,6 +5228,7 @@ function buildFedRateExpectation(
 
 const globalMacroMetricLastGood = new Map<string, any>();
 const globalPmiMetricLastGood = new Map<string, Awaited<ReturnType<typeof getGlobalPmiMetric>>>();
+const globalCpiMetricLastGood = new Map<GlobalCpiMetric['id'], GlobalCpiMetric>();
 
 async function loadGlobalMarketsSection() {
   const quoteTaskFactories = globalMacroQuotes.map((config) => async () => {
@@ -5218,7 +5347,8 @@ async function loadGlobalMacroMetricsSection() {
   const fedFundsFutureRequest = fedFundsContract
     ? Promise.allSettled([getYahooMacroQuote(fedFundsContract, '1mo')])
     : Promise.resolve([] as PromiseSettledResult<Awaited<ReturnType<typeof getYahooMacroQuote>>>[]);
-  const [macro, fedFundsFuture] = await Promise.all([macroRequest, fedFundsFutureRequest]);
+  const cpiRequest = Promise.allSettled([getChinaCpiMetric(), getUsCpiMetric()]);
+  const [macro, fedFundsFuture, cpiResults] = await Promise.all([macroRequest, fedFundsFutureRequest, cpiRequest]);
   const macroMetricIds = ['vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi', 'cpi', 'unemployment', 'nonfarm'];
   const macroMetricLabels = ['VIX 波动率', '美元指数', '美国10年期国债收益率', '美债 2Y-10Y 利差', '联邦基金利率', '供应链压力', 'CPI 环比', '美国失业率', '非农就业变动'];
   const macroMetrics = macro.map((result, index) => {
@@ -5236,7 +5366,20 @@ async function loadGlobalMacroMetricsSection() {
     ? buildFedRateExpectation(fedFundsFuture[0].value, fedFundsMetric.value, nextMeeting, fedFundsContract)
     : null;
 
-  return { generatedAt: new Date().toISOString(), macro: macroMetrics, fedRateExpectation };
+  const cpiFallbacks: GlobalCpiMetric[] = [
+    { id: 'china-cpi', label: '中国 CPI', value: null, display: '待更新', change: null, period: '等待数据', updatedAt: '', source: '国家统计局', sourceUrl: 'https://www.stats.gov.cn/sj/zxfb/', status: 'unavailable', history: [] },
+    { id: 'us-cpi', label: '美国 CPI', value: null, display: '待更新', change: null, period: '等待数据', updatedAt: '', source: '美国劳工统计局', sourceUrl: 'https://www.bls.gov/cpi/', status: 'unavailable', history: [] },
+  ];
+  const cpi = cpiResults.map((result, index) => {
+    const fallback = cpiFallbacks[index];
+    if (result.status === 'fulfilled') {
+      globalCpiMetricLastGood.set(result.value.id, result.value);
+      return result.value;
+    }
+    return globalCpiMetricLastGood.get(fallback.id) || fallback;
+  });
+
+  return { generatedAt: new Date().toISOString(), macro: macroMetrics, cpi, fedRateExpectation };
 }
 
 async function loadGlobalPmiSection() {
@@ -5601,6 +5744,7 @@ async function getGlobalMacroDashboard(region: GlobalMacroRegion) {
     macro: [],
     fedRateExpectation: null,
     pmi: [],
+    cpi: [],
     commodities: [],
     news: [],
     calendar: [],

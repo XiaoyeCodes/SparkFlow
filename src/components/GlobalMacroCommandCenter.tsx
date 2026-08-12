@@ -90,6 +90,20 @@ type Metric = {
   status: 'live' | 'delayed' | 'unavailable';
   history: HistoryPoint[];
 };
+type CpiMetric = {
+  id: 'china-cpi' | 'us-cpi';
+  label: string;
+  value: number | null;
+  display: string;
+  change: number | null;
+  period: string;
+  releasedAt?: string;
+  updatedAt?: string;
+  source: string;
+  sourceUrl: string;
+  status: 'delayed' | 'unavailable';
+  history: HistoryPoint[];
+};
 type KeySignal = {
   id: string;
   label: string;
@@ -163,6 +177,7 @@ type Dashboard = {
   macro: Metric[];
   fedRateExpectation: FedRateExpectation | null;
   pmi: Metric[];
+  cpi: CpiMetric[];
   commodities: Metric[];
   news: News[];
   focusNews: News[];
@@ -191,6 +206,7 @@ const EMPTY_DASHBOARD: Dashboard = {
   macro: [],
   fedRateExpectation: null,
   pmi: [],
+  cpi: [],
   commodities: [],
   news: [],
   focusNews: [],
@@ -250,6 +266,7 @@ function mergeDashboardPayload(
     coreIndices: payload.coreIndices ? mergeDashboardItems(base.coreIndices, payload.coreIndices, preferFreshest) : base.coreIndices,
     markets: payload.markets ? mergeDashboardItems(base.markets, payload.markets, preferFreshest) : base.markets,
     macro: payload.macro ? mergeDashboardItems(base.macro, payload.macro, preferFreshest) : base.macro,
+    cpi: payload.cpi ? mergeDashboardItems(base.cpi, payload.cpi, preferFreshest) : base.cpi,
     commodities: payload.commodities ? mergeDashboardItems(base.commodities, payload.commodities, preferFreshest) : base.commodities,
   };
 }
@@ -1896,6 +1913,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const commodities = data?.commodities || [];
   const rightMarketSignals = useMemo(() => buildMarketSignals(data?.macro || [], data?.commodities || []), [data?.macro, data?.commodities]);
   const pmiSignals = useMemo(() => buildPmiSignals(data?.pmi || []), [data?.pmi]);
+  const cpiMetrics = data?.cpi || [];
   const macroRiskMetrics = macro.filter((item) => !HIDDEN_MACRO_RISK_IDS.has(item.id));
   const treasurySpread = macro.find((item) => item.id === 'ust2y10y');
   const crypto = commodities.filter((item) => ['bitcoin', 'ethereum'].includes(item.id));
@@ -2003,6 +2021,14 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
               {pmiSignals.map((item) => <KeyChangeCard key={item.id} item={item} />)}
             </div>
           </section>
+          <section className="macro-terminal-section macro-cpi-section">
+            <p className="macro-section-title">消费者价格 CPI · 最新</p>
+            <div className="macro-cpi-grid">
+              {(['china-cpi', 'us-cpi'] as const).map((id) => (
+                <CpiCard key={id} id={id} item={cpiMetrics.find((metric) => metric.id === id)} />
+              ))}
+            </div>
+          </section>
           <section className="macro-terminal-section macro-treasury-section">
             <p className="macro-section-title">美债期限结构</p>
             <TreasurySpreadCard item={treasurySpread} />
@@ -2042,6 +2068,43 @@ function KeyChangeCard({ item }: { item: KeySignal }) {
       <span className="macro-key-change-move">
         <b className={trendClass(item.rawChange)}>{item.change}</b>
         <small>{item.note}</small>
+      </span>
+    </a>
+  );
+}
+
+function CpiCard({ id, item }: { id: CpiMetric['id']; item?: CpiMetric }) {
+  const isChina = id === 'china-cpi';
+  const label = item?.label || (isChina ? '中国 CPI' : '美国 CPI');
+  const source = item?.source || (isChina ? '国家统计局' : '美国劳工统计局');
+  const sourceUrl = item?.sourceUrl || (isChina
+    ? 'https://www.stats.gov.cn/sj/zxfb/'
+    : 'https://www.bls.gov/cpi/');
+  const available = item?.value !== null && item?.value !== undefined && Number.isFinite(item.value);
+  const monthChange = item?.change;
+  const monthChangeDisplay = monthChange === null || monthChange === undefined || !Number.isFinite(monthChange)
+    ? '待更新'
+    : `${monthChange > 0 ? '+' : ''}${monthChange.toFixed(1)}%`;
+
+  return (
+    <a
+      className={`macro-cpi-card ${isChina ? 'china' : 'us'} ${available ? '' : 'unavailable'}`}
+      href={sourceUrl}
+      target="_blank"
+      rel="noreferrer"
+      title={`${label} ${item?.display || '待更新'} · 环比 ${monthChangeDisplay} · ${item?.period || '等待最新一期'}`}
+    >
+      <span className="macro-cpi-head">
+        <span><i />{label}</span>
+        <small>{item?.period || '等待数据'}</small>
+      </span>
+      <span className="macro-cpi-value">
+        <strong>{item?.display || '待更新'}</strong>
+        <em>同比</em>
+      </span>
+      <span className="macro-cpi-foot">
+        <span>环比 <b className={trendClass(monthChange)}>{monthChangeDisplay}</b></span>
+        <small>{source}</small>
       </span>
     </a>
   );
