@@ -3272,6 +3272,7 @@ const internationalIndexConfigs: Record<InternationalMarketMode, InternationalIn
 
 const internationalOverviewCache = new Map<InternationalMarketMode, { storedAt: number; data: unknown }>();
 const internationalOverviewInFlight = new Map<InternationalMarketMode, Promise<unknown>>();
+const yahooIndexMarkets = new Set<InternationalMarketMode>(['japan', 'india', 'germany', 'france', 'uk']);
 
 type NormalizedInternationalQuote = {
   symbol: string;
@@ -3575,16 +3576,21 @@ async function getInternationalMarketOverview(market: InternationalMarketMode) {
     };
   }
   const regionalMarket = market as Exclude<InternationalMarketMode, 'korea'>;
+  const preferYahooMarket = yahooIndexMarkets.has(market);
   const regionalTickers = configs.map((config) => tradingViewIndexTickers[regionalMarket][config.id]);
   const [regionalQuotes, yahooQuotes] = await Promise.all([
-    getTradingViewRegionalQuotesResilient(regionalMarket, regionalTickers, 'global'),
+    preferYahooMarket
+      ? Promise.resolve(new Map<string, TradingViewRegionalQuote>())
+      : getTradingViewRegionalQuotesResilient(regionalMarket, regionalTickers, 'global'),
     getYahooFastQuotes(configs.map((item) => item.symbol)),
   ]);
   const regionalSettled = await Promise.allSettled(configs.map(async (config) => {
     const ticker = tradingViewIndexTickers[regionalMarket][config.id];
     const regionalQuote = regionalQuotes.get(ticker);
     const yahooQuote = yahooQuotes.get(config.symbol);
-    const quote = regionalQuote || yahooQuote || await getYahooMacroSnapshot(config.symbol);
+    const quote = preferYahooMarket
+      ? yahooQuote || await getYahooMacroSnapshot(config.symbol)
+      : regionalQuote || yahooQuote || await getYahooMacroSnapshot(config.symbol);
     const secondaryComparable = !(market === 'japan' && config.id === 'topix');
     const deviationPercent = secondaryComparable && regionalQuote && yahooQuote && yahooQuote.price > 0
       ? Math.abs(regionalQuote.price / yahooQuote.price - 1) * 100
@@ -3609,7 +3615,7 @@ async function getInternationalMarketOverview(market: InternationalMarketMode) {
         status: deviationPercent === undefined
           ? 'single-source'
           : deviationPercent <= delayAwareTolerance ? 'verified' : 'review',
-        source: regionalQuote?.provider || 'Yahoo Finance Spark（降级）',
+        source: preferYahooMarket ? 'Yahoo Finance' : regionalQuote?.provider || 'Yahoo Finance Spark（降级）',
         price: quote.price,
         deviationPercent,
       },
@@ -3621,8 +3627,10 @@ async function getInternationalMarketOverview(market: InternationalMarketMode) {
     market,
     generatedAt: new Date().toISOString(),
     refreshIntervalMs: 5_000,
-    source: 'TradingView 区域交易所行情 · Yahoo Finance 交叉校验',
-    quotePolicy: '现价、昨收和涨跌均来自同一交易时段；按数据授权明确标注实时或延迟',
+    source: preferYahooMarket ? 'Yahoo Finance' : 'TradingView 区域交易所行情 · Yahoo Finance 交叉校验',
+    quotePolicy: preferYahooMarket
+      ? '指数现价、昨收、涨跌与跳转链接均来自 Yahoo Finance；个股热力图数据源不受影响'
+      : '现价、昨收和涨跌均来自同一交易时段；按数据授权明确标注实时或延迟',
     indices: regionalIndices,
   };
 }
@@ -4174,11 +4182,7 @@ function refreshYahooFastQuotesInBackground(symbols: readonly string[]) {
 }
 
 const eastMoneyGlobalFastConfigs = [
-  { id: 'japan', symbol: '^N225', secid: '100.N225' },
   { id: 'korea', symbol: '^KS11', secid: '100.KS11' },
-  { id: 'germany', symbol: '^GDAXI', secid: '100.GDAXI' },
-  { id: 'france', symbol: '^FCHI', secid: '100.FCHI' },
-  { id: 'uk', symbol: '^FTSE', secid: '100.FTSE' },
   { id: 'us', symbol: '^GSPC', secid: '100.SPX' },
   { id: 'dow', symbol: '^DJI', secid: '100.DJIA' },
 ] as const;
@@ -5349,6 +5353,10 @@ async function readFastCryptoSource() {
 }
 
 async function loadGlobalMacroFastQuotes() {
+  const yahooMarketIds = new Set(['japan', 'india', 'germany', 'france', 'uk']);
+  const yahooMarketSymbols = globalMacroQuotes
+    .filter((item) => yahooMarketIds.has(item.id))
+    .map((item) => item.symbol);
   const yahooSymbols = [
     ...globalMacroQuotes.map((item) => item.symbol),
     ...globalMacroCommodities.map(([, , symbol]) => symbol),
@@ -5358,13 +5366,15 @@ async function loadGlobalMacroFastQuotes() {
     'DX-Y.NYB',
   ];
   refreshYahooFastQuotesInBackground(yahooSymbols);
-  const [equityResult, globalIndexResult, assetResult, cryptoResult] = await Promise.all([
+  const [equityResult, globalIndexResult, assetResult, cryptoResult, yahooMarketQuotes] = await Promise.all([
     readFastEquitySource(),
     readFastGlobalIndexSource(),
     readFastAssetSource(),
     readFastCryptoSource(),
+    getYahooFastQuotes(yahooMarketSymbols),
   ]);
   const yahoo = new Map(yahooFastQuoteLastGood);
+  yahooMarketQuotes.forEach((quote, symbol) => yahoo.set(symbol, quote));
   const equitySnapshots = equityResult.data?.indices || [];
   const globalIndexQuotes: Map<string, YahooFastQuote> = globalIndexResult.data || new Map();
   const assetQuotes: Map<string, YahooFastQuote> = assetResult.data || new Map();
@@ -5378,9 +5388,11 @@ async function loadGlobalMacroFastQuotes() {
 
   const markets = globalMacroQuotes.flatMap((config) => {
     const equityId = marketEquityIds.get(config.id);
-    const quote = (equityId ? equityById.get(equityId) : undefined)
-      || globalIndexQuotes.get(config.id)
-      || yahoo.get(config.symbol);
+    const quote = yahooMarketIds.has(config.id)
+      ? yahoo.get(config.symbol)
+      : (equityId ? equityById.get(equityId) : undefined)
+        || globalIndexQuotes.get(config.id)
+        || yahoo.get(config.symbol);
     if (!quote) return [];
     return [{
       id: config.id,
