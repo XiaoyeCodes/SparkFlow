@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, readFileSync } from 'node:fs';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { get as httpsGet } from 'node:https';
 import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { ProxyAgent } from 'undici';
@@ -4487,14 +4488,17 @@ async function getVixMacroMetric() {
   }
 }
 
-async function getUsPpiMacroMetric(forceOfficial = false) {
+async function getUsPpiMacroMetric(forceOfficial = false, waitForExpectation = false) {
   if (forceOfficial) return getBlsOfficialMacroMetric('ppi', true);
-  const [yearly, ppiMarketContext] = await Promise.all([
-    getFredMacroMetric('ppi', ['PPIFIS'], '美国 PPI 同比', (value) => `${value.toFixed(1)}%`, yearlyPercentChanges),
-    Promise.race([
+  const ppiMarketContextRequest: Promise<PpiMarketContext | undefined> = waitForExpectation
+    ? getPpiMarketContext(false)
+    : Promise.race([
       getPpiMarketContext(false),
       new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
-    ]).catch(() => undefined),
+    ]).catch(() => undefined);
+  const [yearly, ppiMarketContext] = await Promise.all([
+    getFredMacroMetric('ppi', ['PPIFIS'], '美国 PPI 同比', (value) => `${value.toFixed(1)}%`, yearlyPercentChanges),
+    ppiMarketContextRequest,
   ]);
   const previous = yearly.history.at(-2)?.value;
   const validMarketContext = ppiMarketContext
@@ -4766,9 +4770,38 @@ function parsePercentCell(value: string) {
   return normalized ? asFiniteNumber(normalized) : undefined;
 }
 
+function fetchDirectHtml(url: string, timeoutMs = 8_000, redirects = 0): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const request = httpsGet(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,*/*',
+      },
+    }, (response) => {
+      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location && redirects < 3) {
+        response.resume();
+        const redirectedUrl = new URL(response.headers.location, url).toString();
+        void fetchDirectHtml(redirectedUrl, timeoutMs, redirects + 1).then(resolve, reject);
+        return;
+      }
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(`HTTP ${response.statusCode || 0}`));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      response.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      response.on('error', reject);
+    });
+    request.setTimeout(timeoutMs, () => request.destroy(new Error('PPI 市场预期请求超时')));
+    request.on('error', reject);
+  });
+}
+
 async function fetchPpiMarketContext(): Promise<PpiMarketContext> {
   const sourceUrl = 'https://tradingeconomics.com/united-states/producer-prices-change';
-  const html = await fetchRoutedText(sourceUrl, 'direct', 12_000, 'text/html,application/xhtml+xml,*/*');
+  const html = await fetchDirectHtml(sourceUrl).catch(() => fetchFastMarketText(sourceUrl, 12_000));
   const rows = [...html.matchAll(/<tr[^>]*data-category=["']Producer Prices Change["'][^>]*>([\s\S]*?)<\/tr>/gi)];
   const released = rows.flatMap((rowMatch) => {
     const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => match[1]);
@@ -7932,6 +7965,8 @@ function allWeatherApiPlugin() {
   return {
     name: 'sparkflow-allweather-api',
     configureServer(server: ViteDevServer) {
+      // Warm the slow consensus page without delaying the first dashboard response.
+      void getPpiMarketContext(false).catch(() => undefined);
       server.middlewares.use(async (req, res, next) => {
         try {
           const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -7959,6 +7994,15 @@ function allWeatherApiPlugin() {
           if (url.pathname === '/api/global-macro-release-sync') {
             res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 200, await loadOfficialMacroReleasePatch());
+            return;
+          }
+
+          if (url.pathname === '/api/global-macro-ppi-expectation') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, {
+              generatedAt: new Date().toISOString(),
+              macro: [await getUsPpiMacroMetric(false, true)],
+            });
             return;
           }
 

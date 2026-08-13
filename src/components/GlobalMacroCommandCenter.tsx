@@ -241,7 +241,12 @@ const EMPTY_DASHBOARD: Dashboard = {
   releaseSync: undefined,
 };
 
-type LiveDashboardItem = { id: string; updatedAt?: string; history?: HistoryPoint[] };
+type LiveDashboardItem = {
+  id: string;
+  updatedAt?: string;
+  history?: HistoryPoint[];
+  stats?: Metric['stats'];
+};
 
 function quoteTimestamp(value?: string) {
   const timestamp = value ? new Date(value).getTime() : Number.NaN;
@@ -268,7 +273,18 @@ function mergeDashboardItems<T extends LiveDashboardItem>(
       ? { ...nextItem, ...currentItem }
       : { ...currentItem, ...nextItem };
     const history = nextItem.history?.length ? nextItem.history : currentItem.history;
-    byId.set(nextItem.id, history ? { ...merged, history } : merged);
+    const keepResolvedExpectation = currentItem.stats?.[1]?.display === nextItem.stats?.[1]?.display
+      && Boolean(currentItem.stats?.[2]?.display)
+      && !currentItem.stats?.[2]?.display.includes('待更新')
+      && Boolean(nextItem.stats?.[2]?.display.includes('待更新'));
+    const stats = keepResolvedExpectation && nextItem.stats
+      ? nextItem.stats.map((stat, index) => index === 2 ? currentItem.stats![2]! : stat)
+      : merged.stats;
+    byId.set(nextItem.id, {
+      ...merged,
+      ...(history ? { history } : {}),
+      ...(stats ? { stats } : {}),
+    });
   });
   return order.flatMap((id) => {
     const item = byId.get(id);
@@ -1832,6 +1848,12 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     return payload;
   }, []);
 
+  const refreshPpiExpectation = useCallback(async () => {
+    const payload = await request<DashboardSectionPayload>('/api/global-macro-ppi-expectation');
+    setData((current) => mergeDashboardPayload(current, payload, false));
+    return payload;
+  }, []);
+
   const load = useCallback(async (
     sections: readonly GlobalMacroSection[] = GLOBAL_MACRO_SECTIONS,
     reportError = true,
@@ -1868,6 +1890,25 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       window.clearInterval(newsRefresh);
     };
   }, [load]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: number | undefined;
+    const refresh = async () => {
+      if (disposed) return;
+      try {
+        await refreshPpiExpectation();
+        if (!disposed) timer = window.setTimeout(refresh, 30 * 60_000);
+      } catch {
+        if (!disposed) timer = window.setTimeout(refresh, 60_000);
+      }
+    };
+    void refresh();
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [refreshPpiExpectation]);
 
   const criticalMacroUnavailable = Boolean(data?.macro?.some((item) => (
     ['ppi', 'cpi-pce'].includes(item.id) && (item.value === null || item.status === 'unavailable')
@@ -2112,7 +2153,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                         <em>同比</em>
                       </span>
                       <span className="macro-metric-stat-change">
-                        <em>市场预期</em>
+                        <em>预期</em>
                         <strong>{item.stats[2]?.display}</strong>
                       </span>
                       <span className="macro-metric-stat-rule" aria-hidden="true" />
