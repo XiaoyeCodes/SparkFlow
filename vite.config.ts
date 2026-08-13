@@ -4381,6 +4381,14 @@ function parseFredSeries(csv: string) {
 const fredSeriesCache = new Map<string, { storedAt: number; values: Array<{ time: string; value: number }> }>();
 const fredSeriesInFlight = new Map<string, Promise<Array<{ time: string; value: number }>>>();
 
+function fredSeriesPageUrl(seriesId: string) {
+  return `https://fred.stlouisfed.org/series/${encodeURIComponent(seriesId)}`;
+}
+
+function signedMetricChange(value: number, suffix: string, digits = 2) {
+  return `${value > 0 ? '+' : ''}${value.toFixed(digits)}${suffix}`;
+}
+
 async function getFredSeries(seriesId: string) {
   const cached = fredSeriesCache.get(seriesId);
   if (cached && Date.now() - cached.storedAt < 5 * 60_000) return cached.values;
@@ -4403,17 +4411,36 @@ async function getFredSeries(seriesId: string) {
   return request;
 }
 
-async function getFredMacroMetric(id: string, seriesIds: string[], label: string, display: (value: number) => string, transform?: (history: Array<{ time: string; value: number }>) => Array<{ time: string; value: number }>) {
+async function getFredMacroMetric(
+  id: string,
+  seriesIds: string[],
+  label: string,
+  display: (value: number) => string,
+  transform?: (history: Array<{ time: string; value: number }>) => Array<{ time: string; value: number }>,
+  formatChange?: (value: number) => string,
+) {
   let lastError: unknown;
   for (const seriesId of seriesIds) {
-    const sourceUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`;
+    const sourceUrl = fredSeriesPageUrl(seriesId);
     try {
       const raw = await getFredSeries(seriesId);
       const history = transform ? transform(raw) : raw;
       const latest = history.at(-1);
       const previous = history.at(-2);
       if (!latest) throw new Error(`${label} 无可用 FRED 数据`);
-      return { id, label, value: latest.value, display: display(latest.value), change: previous ? latest.value - previous.value : null, updatedAt: latest.time, sourceUrl, status: 'delayed' as const, history: history.slice(-48) };
+      const change = previous ? latest.value - previous.value : null;
+      return {
+        id,
+        label,
+        value: latest.value,
+        display: display(latest.value),
+        change,
+        changeDisplay: change !== null && formatChange ? formatChange(change) : undefined,
+        updatedAt: latest.time,
+        sourceUrl,
+        status: 'delayed' as const,
+        history: history.slice(-48),
+      };
     } catch (error) {
       lastError = error;
     }
@@ -4460,21 +4487,40 @@ async function getVixMacroMetric() {
   }
 }
 
-async function getUsPpiMacroMetric() {
-  return getFredMacroMetric(
-    'ppi',
-    ['PPIFIS'],
-    '美国 PPI 月率',
-    (value) => `${value.toFixed(2)}%`,
-    monthlyPercentChanges,
-  );
+async function getUsPpiMacroMetric(forceOfficial = false) {
+  if (forceOfficial) return getBlsOfficialMacroMetric('ppi', true);
+  const [yearly, ppiMarketContext] = await Promise.all([
+    getFredMacroMetric('ppi', ['PPIFIS'], '美国 PPI 同比', (value) => `${value.toFixed(1)}%`, yearlyPercentChanges),
+    Promise.race([
+      getPpiMarketContext(false),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
+    ]).catch(() => undefined),
+  ]);
+  const previous = yearly.history.at(-2)?.value;
+  const validMarketContext = ppiMarketContext
+    && Math.abs(ppiMarketContext.actual - yearly.value) < 0.051
+      ? ppiMarketContext
+      : undefined;
+  const change = previous === undefined ? null : yearly.value - previous;
+  return {
+    ...yearly,
+    change,
+    changeDisplay: change === null ? undefined : signedMetricChange(change, 'pct'),
+    stats: [
+      { label: '前值', display: previous === undefined ? '待更新' : `${previous > 0 ? '+' : ''}${previous.toFixed(1)}%` },
+      { label: '同比值', display: `${yearly.value > 0 ? '+' : ''}${yearly.value.toFixed(1)}%` },
+      { label: '市场预期', display: validMarketContext ? `${validMarketContext.consensus > 0 ? '+' : ''}${validMarketContext.consensus.toFixed(1)}%` : '待更新' },
+    ],
+  };
 }
 
-async function getUsCpiPceMacroMetric() {
-  const [cpi, pce] = await Promise.all([
-    getFredMacroMetric('us-cpi-mom', ['CPIAUCSL'], '美国 CPI 月率', (value) => `${value.toFixed(2)}%`, monthlyPercentChanges),
-    getFredMacroMetric('us-pce-mom', ['PCEPI'], '美国 PCE 月率', (value) => `${value.toFixed(2)}%`, monthlyPercentChanges),
-  ]);
+async function getUsCpiPceMacroMetric(forceOfficial = false) {
+  const [cpi, pce] = forceOfficial
+    ? await Promise.all([getBlsOfficialMacroMetric('cpi', true), getBeaPceMacroMetric(true)])
+    : await Promise.all([
+      getFredMacroMetric('us-cpi-mom', ['CPIAUCSL'], '美国 CPI 月率', (value) => `${value.toFixed(2)}%`, monthlyPercentChanges),
+      getFredMacroMetric('us-pce-mom', ['PCEPI'], '美国 PCE 月率', (value) => `${value.toFixed(2)}%`, monthlyPercentChanges),
+    ]);
   const updatedAt = [cpi.updatedAt, pce.updatedAt].filter(Boolean).sort().at(-1);
   return {
     id: 'cpi-pce',
@@ -4482,8 +4528,9 @@ async function getUsCpiPceMacroMetric() {
     value: cpi.value,
     display: `CPI ${cpi.display} / PCE ${pce.display}`,
     change: cpi.change,
+    changeDisplay: cpi.change === null ? undefined : `CPI ${signedMetricChange(cpi.change, 'pct')}`,
     updatedAt,
-    sourceUrl: 'https://fred.stlouisfed.org/series/CPIAUCSL',
+    sourceUrl: cpi.sourceUrl,
     status: 'delayed' as const,
     history: cpi.history,
     parts: [
@@ -4597,41 +4644,485 @@ async function getChinaCpiMetric(): Promise<GlobalCpiMetric> {
   };
 }
 
-type BlsCpiObservation = { year?: string; period?: string; value?: string };
+type BlsObservation = { year: number; month: number; value: number; time: string };
+type BlsSeriesPayload = { seriesID?: string; data?: Array<{ year?: string; period?: string; value?: string }> };
+type BlsMacroSnapshot = {
+  storedAt: number;
+  series: Record<string, BlsObservation[]>;
+};
 
-function getBlsCpiObservations(payload: unknown) {
-  const rows = (payload as { Results?: { series?: Array<{ data?: BlsCpiObservation[] }> } })?.Results?.series?.[0]?.data;
-  if (!Array.isArray(rows)) throw new Error('BLS CPI 数据为空');
-  return rows.flatMap((row) => {
+const BLS_MACRO_SERIES_IDS = ['WPSFD4', 'CUSR0000SA0', 'CUUR0000SA0', 'LNS14000000', 'CES0000000001'] as const;
+const BLS_MACRO_CACHE_TTL_MS = 30 * 60_000;
+let blsMacroSnapshotCache: BlsMacroSnapshot | undefined;
+let blsMacroSnapshotInFlight: Promise<BlsMacroSnapshot> | undefined;
+
+function parseBlsObservations(series: BlsSeriesPayload) {
+  return (series.data || []).flatMap((row) => {
     const month = row.period?.match(/^M(0[1-9]|1[0-2])$/)?.[1];
     const year = Number(row.year);
     const value = asFiniteNumber(row.value);
     if (!month || !Number.isFinite(year) || value === undefined) return [];
     return [{ year, month: Number(month), value, time: cpiPeriodTime(year, Number(month)) }];
-  }).sort((left, right) => right.time.localeCompare(left.time));
+  }).sort((left, right) => left.time.localeCompare(right.time));
 }
 
-async function fetchBlsCpiSeries(seriesId: string) {
-  const url = `https://api.bls.gov/publicAPI/v1/timeseries/data/${seriesId}`;
-  try {
-    return JSON.parse(await fetchRoutedText(url, 'direct', 12000, 'application/json,text/plain,*/*'));
-  } catch {
-    return JSON.parse(await fetchRoutedText(url, 'proxy', 18000, 'application/json,text/plain,*/*'));
+async function fetchBlsMacroSeriesBatch() {
+  const currentYear = new Date().getUTCFullYear();
+  const registrationKey = String(process.env.BLS_API_KEY || '').trim();
+  const url = 'https://api.bls.gov/publicAPI/v2/timeseries/data/';
+  const body = JSON.stringify({
+    seriesid: BLS_MACRO_SERIES_IDS,
+    startyear: String(currentYear - 2),
+    endyear: String(currentYear),
+    ...(registrationKey ? { registrationkey: registrationKey } : {}),
+  });
+  let lastError: unknown;
+  for (const route of ['direct', 'proxy'] as FetchRoute[]) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), route === 'direct' ? 12_000 : 18_000);
+    try {
+      const init: RequestInit & { dispatcher?: any } = {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'SparkFlow/1.0 official macro release monitor',
+          Accept: 'application/json,text/plain,*/*',
+          'Content-Type': 'application/json',
+        },
+        body,
+      };
+      if (route === 'proxy') init.dispatcher = foreignProxyAgent;
+      const response = await fetch(url, init);
+      if (!response.ok) throw new Error(`BLS API HTTP ${response.status}`);
+      const payload = await response.json() as {
+        status?: string;
+        message?: string[];
+        Results?: { series?: BlsSeriesPayload[] };
+      };
+      if (payload.status !== 'REQUEST_SUCCEEDED' || !Array.isArray(payload.Results?.series)) {
+        throw new Error(payload.message?.join('；') || 'BLS API 返回格式异常');
+      }
+      const series = Object.fromEntries(payload.Results.series.map((item) => [item.seriesID || '', parseBlsObservations(item)]));
+      if (BLS_MACRO_SERIES_IDS.some((seriesId) => !series[seriesId]?.length)) throw new Error('BLS 官方宏观序列不完整');
+      return { storedAt: Date.now(), series } satisfies BlsMacroSnapshot;
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw lastError instanceof Error ? lastError : new Error('BLS 官方宏观数据暂时不可用');
 }
 
-async function getUsCpiMetricFromBls(): Promise<GlobalCpiMetric> {
-  const [unadjustedPayload, adjustedPayload] = await Promise.all([
-    fetchBlsCpiSeries('CUUR0000SA0'),
-    fetchBlsCpiSeries('CUSR0000SA0'),
-  ]);
-  const unadjusted = getBlsCpiObservations(unadjustedPayload);
-  const adjusted = getBlsCpiObservations(adjustedPayload);
-  const latest = unadjusted[0];
+async function getBlsMacroSnapshot(forceRefresh = false) {
+  if (!forceRefresh && blsMacroSnapshotCache && Date.now() - blsMacroSnapshotCache.storedAt < BLS_MACRO_CACHE_TTL_MS) {
+    return blsMacroSnapshotCache;
+  }
+  if (blsMacroSnapshotInFlight) return blsMacroSnapshotInFlight;
+  blsMacroSnapshotInFlight = fetchBlsMacroSeriesBatch()
+    .then((snapshot) => {
+      blsMacroSnapshotCache = snapshot;
+      return snapshot;
+    })
+    .catch((error) => {
+      if (blsMacroSnapshotCache) return blsMacroSnapshotCache;
+      throw error;
+    })
+    .finally(() => {
+      blsMacroSnapshotInFlight = undefined;
+    });
+  return blsMacroSnapshotInFlight;
+}
+
+type BlsReleaseReportSnapshot = {
+  family: 'ppi' | 'cpi' | 'employment';
+  period: string;
+  sourceUrl: string;
+  ppi?: number;
+  ppiPrevious?: number;
+  ppiYoy?: number;
+  cpi?: number;
+  cpiYoy?: number;
+  unemployment?: number;
+  nonfarm?: number;
+  storedAt: number;
+};
+const blsReleaseReportCache = new Map<BlsReleaseReportSnapshot['family'], BlsReleaseReportSnapshot>();
+const blsReleaseReportInFlight = new Map<BlsReleaseReportSnapshot['family'], Promise<BlsReleaseReportSnapshot>>();
+
+type PpiMarketContext = {
+  period: string;
+  actual: number;
+  previous: number;
+  consensus: number;
+  sourceUrl: string;
+  storedAt: number;
+};
+let ppiMarketContextCache: PpiMarketContext | undefined;
+let ppiMarketContextInFlight: Promise<PpiMarketContext> | undefined;
+
+function parsePercentCell(value: string) {
+  const normalized = stripTags(value).replace(/&nbsp;|&#160;|%/gi, '').trim();
+  return normalized ? asFiniteNumber(normalized) : undefined;
+}
+
+async function fetchPpiMarketContext(): Promise<PpiMarketContext> {
+  const sourceUrl = 'https://tradingeconomics.com/united-states/producer-prices-change';
+  const html = await fetchRoutedText(sourceUrl, 'direct', 12_000, 'text/html,application/xhtml+xml,*/*');
+  const rows = [...html.matchAll(/<tr[^>]*data-category=["']Producer Prices Change["'][^>]*>([\s\S]*?)<\/tr>/gi)];
+  const released = rows.flatMap((rowMatch) => {
+    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => match[1]);
+    const actual = parsePercentCell(cells[4] || '');
+    const previous = parsePercentCell(cells[5] || '');
+    const consensus = parsePercentCell(cells[6] || '');
+    const date = stripTags(cells[0] || '').trim();
+    if (!date || actual === undefined || previous === undefined || consensus === undefined) return [];
+    return [{ date, actual, previous, consensus }];
+  }).sort((left, right) => right.date.localeCompare(left.date));
+  const latest = released[0];
+  if (!latest) throw new Error('PPI 市场一致预期暂不可用');
+  const releaseDate = new Date(`${latest.date}T00:00:00Z`);
+  releaseDate.setUTCMonth(releaseDate.getUTCMonth() - 1);
+  return {
+    period: releaseDate.toISOString().slice(0, 7),
+    actual: latest.actual,
+    previous: latest.previous,
+    consensus: latest.consensus,
+    sourceUrl,
+    storedAt: Date.now(),
+  };
+}
+
+async function getPpiMarketContext(forceRefresh = false) {
+  if (!forceRefresh && ppiMarketContextCache && Date.now() - ppiMarketContextCache.storedAt < BLS_MACRO_CACHE_TTL_MS) {
+    return ppiMarketContextCache;
+  }
+  if (ppiMarketContextInFlight) return ppiMarketContextInFlight;
+  ppiMarketContextInFlight = fetchPpiMarketContext()
+    .then((context) => {
+      ppiMarketContextCache = context;
+      return context;
+    })
+    .catch((error) => {
+      if (ppiMarketContextCache) return ppiMarketContextCache;
+      throw error;
+    })
+    .finally(() => {
+      ppiMarketContextInFlight = undefined;
+    });
+  return ppiMarketContextInFlight;
+}
+
+function signedReleaseValue(direction: string, magnitude?: string) {
+  const value = asFiniteNumber(magnitude) || 0;
+  return /(decreased|declined|fell|falling|edged down)/i.test(direction) ? -value : value;
+}
+
+async function fetchBlsReleaseReport(family: BlsReleaseReportSnapshot['family']): Promise<BlsReleaseReportSnapshot> {
+  const sourceUrl = family === 'ppi'
+    ? 'https://www.bls.gov/news.release/ppi.htm'
+    : family === 'cpi'
+      ? 'https://www.bls.gov/news.release/cpi.htm'
+      : 'https://www.bls.gov/news.release/empsit.htm';
+  let html: string;
+  try {
+    html = await fetchRoutedText(sourceUrl, 'direct', 1500, 'text/html,application/xhtml+xml,*/*');
+  } catch {
+    html = await fetchRoutedText(
+      `https://r.jina.ai/http://www.bls.gov${new URL(sourceUrl).pathname}`,
+      'proxy',
+      8_000,
+      'text/plain,text/markdown,*/*',
+    );
+  }
+  const titlePeriod = html.match(/<title>[\s\S]*?-\s*(20\d{2})\s+M(0[1-9]|1[0-2])\s+Results/i);
+  const text = stripTags(html).replace(/&nbsp;|&#160;/gi, ' ').replace(/\s+/g, ' ');
+  const headingPeriod = text.match(/(?:PRODUCER PRICE INDEXES|CONSUMER PRICE INDEX|EMPLOYMENT SITUATION)\s*[-—]\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i);
+  if (!titlePeriod && !headingPeriod) throw new Error('BLS 新闻稿统计期无法识别');
+  const period = titlePeriod
+    ? `${titlePeriod[1]}-${titlePeriod[2]}`
+    : `${headingPeriod![2]}-${String(monthNameToNumber(headingPeriod![1])).padStart(2, '0')}`;
+  const base = { family, period, sourceUrl, storedAt: Date.now() };
+  if (family === 'ppi') {
+    const unchanged = /Producer Price Index for final demand was unchanged in [A-Za-z]+/i.test(text);
+    const match = text.match(/Producer Price Index for final demand (increased|rose|advanced|decreased|declined|fell)(?:\s+(?:by\s+)?)?([\d.]+)\s*percent?\s+in\s+[A-Za-z]+/i);
+    if (!unchanged && !match) throw new Error('BLS PPI 新闻稿数值无法识别');
+    const previousMatch = text.match(/Final demand prices (edged down|decreased|declined|fell|rose|advanced|increased)\s+([\d.]+)\s*percent\s+in\s+[A-Za-z]+/i);
+    const yoyMatch = text.match(/index for final demand (increased|rose|advanced|decreased|declined|fell)\s+([\d.]+)\s*percent\s+for the 12 months ended/i);
+    if (!previousMatch || !yoyMatch) throw new Error('BLS PPI 前值或同比值无法识别');
+    return {
+      ...base,
+      ppi: unchanged ? 0 : signedReleaseValue(match![1], match![2]),
+      ppiPrevious: signedReleaseValue(previousMatch[1], previousMatch[2]),
+      ppiYoy: signedReleaseValue(yoyMatch[1], yoyMatch[2]),
+    } satisfies BlsReleaseReportSnapshot;
+  }
+  if (family === 'cpi') {
+    const unchanged = /Consumer Price Index for All Urban Consumers[^.]{0,100}?was unchanged/i.test(text);
+    const match = text.match(/Consumer Price Index for All Urban Consumers[^.]{0,100}?(increased|rose|advanced|decreased|declined|fell)(?:\s+(?:by\s+)?)?([\d.]+)\s*percent?/i);
+    if (!unchanged && !match) throw new Error('BLS CPI 新闻稿数值无法识别');
+    const yoyMatch = text.match(/Over the last 12 months, the all items index (increased|rose|decreased|declined|fell)\s+([\d.]+)\s*percent/i);
+    if (!yoyMatch) throw new Error('BLS CPI 新闻稿同比数值无法识别');
+    return {
+      ...base,
+      cpi: unchanged ? 0 : signedReleaseValue(match![1], match![2]),
+      cpiYoy: signedReleaseValue(yoyMatch[1], yoyMatch[2]),
+    } satisfies BlsReleaseReportSnapshot;
+  }
+  const unemploymentMatch = text.match(/unemployment rate(?:,?\s+at|\s*\()\s*([\d.]+)\s*percent/i);
+  const nonfarmMatch = text.match(/Total nonfarm payroll employment[\s\S]{0,120}?\(([-+]?\d[\d,]*)\)/i);
+  const unemployment = asFiniteNumber(unemploymentMatch?.[1]);
+  const nonfarmRaw = asFiniteNumber(nonfarmMatch?.[1]?.replace(/,/g, ''));
+  if (unemployment === undefined || nonfarmRaw === undefined) throw new Error('BLS 就业新闻稿数值无法识别');
+  return { ...base, unemployment, nonfarm: nonfarmRaw / 1000 } satisfies BlsReleaseReportSnapshot;
+}
+
+async function getBlsReleaseReport(family: BlsReleaseReportSnapshot['family'], forceRefresh = false): Promise<BlsReleaseReportSnapshot> {
+  const cached = blsReleaseReportCache.get(family);
+  if (!forceRefresh && cached && Date.now() - cached.storedAt < BLS_MACRO_CACHE_TTL_MS) return cached;
+  const running = blsReleaseReportInFlight.get(family);
+  if (running) return running;
+  const request = fetchBlsReleaseReport(family)
+    .then((snapshot) => {
+      blsReleaseReportCache.set(family, snapshot);
+      return snapshot;
+    })
+    .catch((error) => {
+      if (cached) return cached;
+      throw error;
+    })
+    .finally(() => blsReleaseReportInFlight.delete(family));
+  blsReleaseReportInFlight.set(family, request);
+  return request;
+}
+
+async function getBlsReleaseMacroMetric(id: 'ppi' | 'cpi' | 'unemployment' | 'nonfarm', forceRefresh = false) {
+  const family = id === 'ppi' ? 'ppi' : id === 'cpi' ? 'cpi' : 'employment';
+  const report = await getBlsReleaseReport(family, forceRefresh);
+  const ppiMarketContext = id === 'ppi'
+    ? await Promise.race([
+      getPpiMarketContext(forceRefresh),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
+    ]).catch(() => undefined)
+    : undefined;
+  const validPpiMarketContext = id === 'ppi'
+    && ppiMarketContext?.period === report.period
+    && report.ppiYoy !== undefined
+    && Math.abs(ppiMarketContext.actual - report.ppiYoy) < 0.051
+      ? ppiMarketContext
+      : undefined;
+  const metricId = id === 'cpi' ? 'us-cpi-mom' : id;
+  const labels = { ppi: '美国 PPI 月率', cpi: '美国 CPI 月率', unemployment: '美国失业率', nonfarm: '非农就业变动' };
+  const existing = globalMacroMetricLastGood.get(id === 'cpi' ? 'cpi-pce' : id);
+  const baseHistory: Array<{ time: string; value: number }> = Array.isArray(existing?.history) ? existing.history : [];
+  const base = {
+    id: metricId,
+    label: labels[id],
+    history: baseHistory,
+  };
+  const value = id === 'ppi'
+    ? report.ppi
+    : id === 'cpi'
+      ? report.cpi
+      : id === 'unemployment'
+        ? report.unemployment
+        : report.nonfarm;
+  if (value === undefined) throw new Error('BLS 新闻稿缺少目标指标');
+  const updatedAt = `${report.period}-01T00:00:00.000Z`;
+  const history = [...base.history.filter((item) => item.time.slice(0, 7) !== report.period), { time: updatedAt, value }]
+    .sort((left, right) => left.time.localeCompare(right.time))
+    .slice(-48);
+  const previous = history.at(-2);
+  const change = previous ? value - previous.value : null;
+  return {
+    ...base,
+    value,
+    display: id === 'unemployment'
+      ? `${value.toFixed(1)}%`
+      : id === 'nonfarm'
+        ? `${Math.round(value)} 千人`
+        : `${value.toFixed(2)}%`,
+    change,
+    changeDisplay: change === null
+      ? undefined
+      : id === 'nonfarm'
+        ? `${change > 0 ? '+' : ''}${Math.round(change)} 千人`
+        : signedMetricChange(change, 'pct'),
+    updatedAt,
+    sourceUrl: report.sourceUrl,
+    source: '美国劳工统计局',
+    status: 'delayed' as const,
+    history,
+    ...(id === 'ppi' ? {
+      stats: [
+        { label: '前值', display: validPpiMarketContext?.previous === undefined ? '待更新' : `${validPpiMarketContext.previous > 0 ? '+' : ''}${validPpiMarketContext.previous.toFixed(1)}%` },
+        { label: '同比值', display: `${report.ppiYoy! > 0 ? '+' : ''}${report.ppiYoy!.toFixed(1)}%` },
+        { label: '市场预期', display: validPpiMarketContext?.consensus === undefined ? '待更新' : `${validPpiMarketContext.consensus > 0 ? '+' : ''}${validPpiMarketContext.consensus.toFixed(1)}%` },
+      ],
+    } : {}),
+  };
+}
+
+function buildBlsOfficialMetric(
+  id: 'ppi' | 'cpi' | 'unemployment' | 'nonfarm',
+  observations: BlsObservation[],
+) {
+  const sourceUrls = {
+    ppi: 'https://www.bls.gov/ppi/',
+    cpi: 'https://www.bls.gov/cpi/',
+    unemployment: 'https://www.bls.gov/news.release/empsit.toc.htm',
+    nonfarm: 'https://www.bls.gov/news.release/empsit.toc.htm',
+  };
+  const labels = {
+    ppi: '美国 PPI 月率',
+    cpi: '美国 CPI 月率',
+    unemployment: '美国失业率',
+    nonfarm: '非农就业变动',
+  };
+  const transformed = id === 'ppi' || id === 'cpi'
+    ? monthlyPercentChanges(observations)
+    : id === 'nonfarm'
+      ? observations.slice(1).map((item, index) => ({ time: item.time, value: item.value - observations[index].value }))
+      : observations.map(({ time, value }) => ({ time, value }));
+  const latest = transformed.at(-1);
+  const previous = transformed.at(-2);
+  if (!latest) throw new Error(`${labels[id]} 官方序列缺少有效观测值`);
+  const display = id === 'unemployment'
+    ? `${latest.value.toFixed(1)}%`
+    : id === 'nonfarm'
+      ? `${Math.round(latest.value)} 千人`
+      : `${latest.value.toFixed(2)}%`;
+  const change = previous ? latest.value - previous.value : null;
+  return {
+    id: id === 'cpi' ? 'us-cpi-mom' : id,
+    label: labels[id],
+    value: latest.value,
+    display,
+    change,
+    changeDisplay: change === null
+      ? undefined
+      : id === 'nonfarm'
+        ? `${change > 0 ? '+' : ''}${Math.round(change)} 千人`
+        : signedMetricChange(change, 'pct'),
+    updatedAt: latest.time,
+    sourceUrl: sourceUrls[id],
+    source: '美国劳工统计局',
+    status: 'delayed' as const,
+    history: transformed.slice(-48),
+  };
+}
+
+async function getBlsOfficialMacroMetricFromApi(id: 'ppi' | 'cpi' | 'unemployment' | 'nonfarm', forceRefresh = false) {
+  const snapshot = await getBlsMacroSnapshot(forceRefresh);
+  const seriesId = id === 'ppi'
+    ? 'WPSFD4'
+    : id === 'cpi'
+      ? 'CUSR0000SA0'
+      : id === 'unemployment'
+        ? 'LNS14000000'
+        : 'CES0000000001';
+  return buildBlsOfficialMetric(id, snapshot.series[seriesId]);
+}
+
+async function getBlsOfficialMacroMetric(id: 'ppi' | 'cpi' | 'unemployment' | 'nonfarm', forceRefresh = false) {
+  return getBlsReleaseMacroMetric(id, forceRefresh);
+}
+
+type BeaPceSnapshot = Awaited<ReturnType<typeof fetchBeaPceMacroMetric>> & { storedAt: number };
+let beaPceSnapshotCache: BeaPceSnapshot | undefined;
+let beaPceSnapshotInFlight: Promise<BeaPceSnapshot> | undefined;
+
+function monthNameToNumber(monthName: string) {
+  return ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+    .indexOf(monthName.toLowerCase()) + 1;
+}
+
+async function fetchBeaPceMacroMetric() {
+  const landingUrl = 'https://www.bea.gov/data/personal-consumption-expenditures-price-index';
+  const landingHtml = await fetchExternalText(landingUrl, 16000, 'text/html,application/xhtml+xml,*/*');
+  const releaseHref = [...landingHtml.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+    .map((match) => ({ href: match[1], label: stripTags(match[2]) }))
+    .find((item) => /Current Release/i.test(item.label))?.href;
+  if (!releaseHref) throw new Error('BEA 当前 PCE 发布页未找到');
+  const sourceUrl = new URL(releaseHref, landingUrl).toString();
+  const releaseHtml = await fetchExternalText(sourceUrl, 16000, 'text/html,application/xhtml+xml,*/*');
+  const text = stripTags(releaseHtml).replace(/\s+/g, ' ');
+  const match = text.match(/From the preceding month, the PCE price index for ([A-Za-z]+) (increased|decreased|was unchanged)(?:\s+([\d.]+) percent)?/i);
+  if (!match) throw new Error('BEA PCE 月率格式异常');
+  const month = monthNameToNumber(match[1]);
+  const year = asFiniteNumber(sourceUrl.match(/\/news\/(20\d{2})\//)?.[1]) || new Date().getUTCFullYear();
+  const magnitude = asFiniteNumber(match[3]) || 0;
+  const value = /decreased/i.test(match[2]) ? -magnitude : /unchanged/i.test(match[2]) ? 0 : magnitude;
+  const updatedAt = cpiPeriodTime(year, month);
+  return {
+    id: 'us-pce-mom',
+    label: '美国 PCE 月率',
+    value,
+    display: `${value.toFixed(2)}%`,
+    change: null,
+    updatedAt,
+    sourceUrl,
+    source: '美国经济分析局',
+    status: 'delayed' as const,
+    history: [{ time: updatedAt, value }],
+  };
+}
+
+async function getBeaPceMacroMetric(forceRefresh = false) {
+  if (!forceRefresh && beaPceSnapshotCache && Date.now() - beaPceSnapshotCache.storedAt < BLS_MACRO_CACHE_TTL_MS) {
+    return beaPceSnapshotCache;
+  }
+  if (beaPceSnapshotInFlight) return beaPceSnapshotInFlight;
+  beaPceSnapshotInFlight = fetchBeaPceMacroMetric()
+    .then((metric) => {
+      const snapshot = { ...metric, storedAt: Date.now() };
+      beaPceSnapshotCache = snapshot;
+      return snapshot;
+    })
+    .catch((error) => {
+      if (beaPceSnapshotCache) return beaPceSnapshotCache;
+      throw error;
+    })
+    .finally(() => {
+      beaPceSnapshotInFlight = undefined;
+    });
+  return beaPceSnapshotInFlight;
+}
+
+async function getUsCpiMetricFromBlsReport(forceRefresh = false): Promise<GlobalCpiMetric> {
+  const report = await getBlsReleaseReport('cpi', forceRefresh);
+  if (report.cpi === undefined || report.cpiYoy === undefined) throw new Error('BLS CPI 新闻稿数据不完整');
+  const [year, month] = report.period.split('-').map(Number);
+  const updatedAt = cpiPeriodTime(year, month);
+  const existing = globalCpiMetricLastGood.get('us-cpi');
+  const history = [...(existing?.history || []).filter((item) => item.time.slice(0, 7) !== report.period), { time: updatedAt, value: report.cpiYoy }]
+    .sort((left, right) => left.time.localeCompare(right.time))
+    .slice(-48);
+  return {
+    id: 'us-cpi',
+    label: '美国 CPI',
+    value: report.cpiYoy,
+    display: `${report.cpiYoy > 0 ? '+' : ''}${report.cpiYoy.toFixed(1)}%`,
+    change: report.cpi,
+    period: `${year}年${month}月`,
+    updatedAt,
+    source: '美国劳工统计局',
+    sourceUrl: report.sourceUrl,
+    status: 'delayed',
+    history,
+  };
+}
+
+async function getUsCpiMetricFromBls(forceRefresh = false): Promise<GlobalCpiMetric> {
+  const snapshot = await getBlsMacroSnapshot(forceRefresh);
+  const unadjusted = snapshot.series.CUUR0000SA0;
+  const adjusted = snapshot.series.CUSR0000SA0;
+  const latest = unadjusted.at(-1);
   if (!latest) throw new Error('BLS 最新 CPI 数据缺失');
   const yearAgo = unadjusted.find((item) => item.year === latest.year - 1 && item.month === latest.month);
   const adjustedLatest = adjusted.find((item) => item.year === latest.year && item.month === latest.month);
-  const adjustedPrevious = adjusted.find((item) => item.time < (adjustedLatest?.time || ''));
+  const adjustedLatestIndex = adjusted.findIndex((item) => item.time === adjustedLatest?.time);
+  const adjustedPrevious = adjustedLatestIndex > 0 ? adjusted[adjustedLatestIndex - 1] : undefined;
   if (!yearAgo || !adjustedLatest || !adjustedPrevious || yearAgo.value <= 0 || adjustedPrevious.value <= 0) {
     throw new Error('BLS CPI 同比或环比基期数据缺失');
   }
@@ -4679,8 +5170,8 @@ async function getUsCpiMetricFromFred(): Promise<GlobalCpiMetric> {
   };
 }
 
-async function getUsCpiMetric(): Promise<GlobalCpiMetric> {
-  return Promise.any([getUsCpiMetricFromBls(), getUsCpiMetricFromFred()]);
+async function getUsCpiMetric(forceOfficial = false): Promise<GlobalCpiMetric> {
+  return forceOfficial ? getUsCpiMetricFromBlsReport(true) : getUsCpiMetricFromFred();
 }
 
 function pmiObservationTime(monthName: string) {
@@ -5213,6 +5704,224 @@ async function getWallstreetCnDailyNews(region: GlobalMacroRegion) {
 
 type GlobalCalendarEvent = { id: string; date: string; time: string; title: string; source: string; url: string; kind: 'macro' | 'central-bank' | 'earnings'; importance: 'high' | 'medium' };
 
+type OfficialMacroReleaseFamily = 'ppi' | 'cpi' | 'employment' | 'pce';
+type OfficialMacroRelease = {
+  id: string;
+  family: OfficialMacroReleaseFamily;
+  label: string;
+  releaseAt: string;
+  expectedPeriod: string;
+  sourceUrl: string;
+};
+type MacroReleaseSyncPlan = {
+  active: boolean;
+  synced: boolean;
+  pollAfterMs: number;
+  release?: OfficialMacroRelease;
+  nextRelease?: OfficialMacroRelease;
+};
+
+const OFFICIAL_MACRO_RELEASE_WINDOW_LEAD_MS = 2 * 60_000;
+const OFFICIAL_MACRO_RELEASE_WINDOW_TAIL_MS = 30 * 60_000;
+const OFFICIAL_MACRO_RELEASE_POLL_MS = 15_000;
+const OFFICIAL_MACRO_NORMAL_POLL_MS = 5 * 60_000;
+const officialMacroReleaseFallbacks: OfficialMacroRelease[] = [
+  ['ppi-2026-08', 'ppi', '美国 PPI', '2026-08-13T12:30:00.000Z', '2026-07', 'https://www.bls.gov/ppi/'],
+  ['pce-2026-08', 'pce', '美国 PCE', '2026-08-26T12:30:00.000Z', '2026-07', 'https://www.bea.gov/data/personal-consumption-expenditures-price-index'],
+  ['employment-2026-09', 'employment', '美国就业报告', '2026-09-04T12:30:00.000Z', '2026-08', 'https://www.bls.gov/news.release/empsit.toc.htm'],
+  ['ppi-2026-09', 'ppi', '美国 PPI', '2026-09-10T12:30:00.000Z', '2026-08', 'https://www.bls.gov/ppi/'],
+  ['cpi-2026-09', 'cpi', '美国 CPI', '2026-09-11T12:30:00.000Z', '2026-08', 'https://www.bls.gov/cpi/'],
+  ['pce-2026-09', 'pce', '美国 PCE', '2026-09-30T12:30:00.000Z', '2026-08', 'https://www.bea.gov/data/personal-consumption-expenditures-price-index'],
+  ['employment-2026-10', 'employment', '美国就业报告', '2026-10-02T12:30:00.000Z', '2026-09', 'https://www.bls.gov/news.release/empsit.toc.htm'],
+  ['cpi-2026-10', 'cpi', '美国 CPI', '2026-10-14T12:30:00.000Z', '2026-09', 'https://www.bls.gov/cpi/'],
+  ['ppi-2026-10', 'ppi', '美国 PPI', '2026-10-15T12:30:00.000Z', '2026-09', 'https://www.bls.gov/ppi/'],
+  ['pce-2026-10', 'pce', '美国 PCE', '2026-10-29T12:30:00.000Z', '2026-09', 'https://www.bea.gov/data/personal-consumption-expenditures-price-index'],
+  ['employment-2026-11', 'employment', '美国就业报告', '2026-11-06T13:30:00.000Z', '2026-10', 'https://www.bls.gov/news.release/empsit.toc.htm'],
+  ['cpi-2026-11', 'cpi', '美国 CPI', '2026-11-10T13:30:00.000Z', '2026-10', 'https://www.bls.gov/cpi/'],
+  ['ppi-2026-11', 'ppi', '美国 PPI', '2026-11-13T13:30:00.000Z', '2026-10', 'https://www.bls.gov/ppi/'],
+  ['pce-2026-11', 'pce', '美国 PCE', '2026-11-25T13:30:00.000Z', '2026-10', 'https://www.bea.gov/data/personal-consumption-expenditures-price-index'],
+  ['employment-2026-12', 'employment', '美国就业报告', '2026-12-04T13:30:00.000Z', '2026-11', 'https://www.bls.gov/news.release/empsit.toc.htm'],
+  ['cpi-2026-12', 'cpi', '美国 CPI', '2026-12-10T13:30:00.000Z', '2026-11', 'https://www.bls.gov/cpi/'],
+  ['ppi-2026-12', 'ppi', '美国 PPI', '2026-12-15T13:30:00.000Z', '2026-11', 'https://www.bls.gov/ppi/'],
+  ['pce-2026-12', 'pce', '美国 PCE', '2026-12-23T13:30:00.000Z', '2026-11', 'https://www.bea.gov/data/personal-consumption-expenditures-price-index'],
+].map(([id, family, label, releaseAt, expectedPeriod, sourceUrl]) => ({
+  id,
+  family: family as OfficialMacroReleaseFamily,
+  label,
+  releaseAt,
+  expectedPeriod,
+  sourceUrl,
+}));
+
+let officialMacroDynamicScheduleCache: { storedAt: number; releases: OfficialMacroRelease[] } | undefined;
+let officialMacroDynamicScheduleInFlight: Promise<OfficialMacroRelease[]> | undefined;
+
+function zonedDateTimeToIso(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  let utcGuess = Date.UTC(year, month - 1, day, hour, minute);
+  for (let index = 0; index < 2; index += 1) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(utcGuess));
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const representedUtc = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day), Number(values.hour), Number(values.minute));
+    utcGuess += Date.UTC(year, month - 1, day, hour, minute) - representedUtc;
+  }
+  return new Date(utcGuess).toISOString();
+}
+
+function expectedPeriodFromReleaseTitle(title: string) {
+  const match = title.match(/(?:for\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i);
+  if (!match) return '';
+  return `${match[2]}-${String(monthNameToNumber(match[1])).padStart(2, '0')}`;
+}
+
+async function fetchBlsOfficialReleaseSchedule(): Promise<OfficialMacroRelease[]> {
+  const sourceUrl = 'https://www.bls.gov/schedule/news_release/bls.ics';
+  let ics: string;
+  try {
+    ics = await fetchRoutedText(sourceUrl, 'direct', 4000, 'text/calendar,text/plain,*/*');
+  } catch {
+    ics = await fetchRoutedText(sourceUrl, 'proxy', 6000, 'text/calendar,text/plain,*/*');
+  }
+  const unfolded = ics.replace(/\r?\n[ \t]/g, '');
+  return [...unfolded.matchAll(/BEGIN:VEVENT([\s\S]*?)END:VEVENT/g)].flatMap((eventMatch) => {
+    const event = eventMatch[1];
+    const summary = event.match(/\r?\nSUMMARY(?:;[^:]*)?:(.+)/i)?.[1]?.trim() || '';
+    const family: OfficialMacroReleaseFamily | undefined = /Producer Price Index/i.test(summary)
+      ? 'ppi'
+      : /Consumer Price Index/i.test(summary)
+        ? 'cpi'
+        : /Employment Situation/i.test(summary)
+          ? 'employment'
+          : undefined;
+    const start = event.match(/\r?\nDTSTART(?:;TZID=([^:]+))?:(\d{8})T(\d{4,6})/i);
+    const expectedPeriod = expectedPeriodFromReleaseTitle(summary);
+    if (!family || !start || !expectedPeriod) return [];
+    const date = `${start[2].slice(0, 4)}-${start[2].slice(4, 6)}-${start[2].slice(6, 8)}`;
+    const time = `${start[3].slice(0, 2)}:${start[3].slice(2, 4)}`;
+    const sourceUrls: Record<Exclude<OfficialMacroReleaseFamily, 'pce'>, string> = {
+      ppi: 'https://www.bls.gov/ppi/',
+      cpi: 'https://www.bls.gov/cpi/',
+      employment: 'https://www.bls.gov/news.release/empsit.toc.htm',
+    };
+    return [{
+      id: `${family}-${date}`,
+      family,
+      label: family === 'ppi' ? '美国 PPI' : family === 'cpi' ? '美国 CPI' : '美国就业报告',
+      releaseAt: zonedDateTimeToIso(date, time, start[1] || 'America/New_York'),
+      expectedPeriod,
+      sourceUrl: sourceUrls[family],
+    }];
+  });
+}
+
+async function fetchBeaOfficialReleaseSchedule(): Promise<OfficialMacroRelease[]> {
+  const scheduleUrl = 'https://www.bea.gov/news/schedule/full';
+  const html = await fetchExternalText(scheduleUrl, 16000, 'text/html,application/xhtml+xml,*/*');
+  const currentYear = new Date().getUTCFullYear();
+  return [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].flatMap((rowMatch) => {
+    const row = rowMatch[1];
+    const title = stripTags(row.match(/<td\b[^>]*class=["'][^"']*release-title[^"']*["'][^>]*>([\s\S]*?)<\/td>/i)?.[1] || '');
+    if (!/Personal Income and Outlays/i.test(title)) return [];
+    const dateLabel = stripTags(row.match(/class=["']release-date["'][^>]*>([\s\S]*?)<\//i)?.[1] || '');
+    const timeLabel = stripTags(row.match(/<small\b[^>]*>([\s\S]*?)<\/small>/i)?.[1] || '');
+    const dateParts = dateLabel.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})/i);
+    const timeParts = timeLabel.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    const expectedPeriod = expectedPeriodFromReleaseTitle(title);
+    if (!dateParts || !timeParts || !expectedPeriod) return [];
+    const month = monthNameToNumber(dateParts[1]);
+    const hour = (Number(timeParts[1]) % 12) + (/PM/i.test(timeParts[3]) ? 12 : 0);
+    const date = `${currentYear}-${String(month).padStart(2, '0')}-${String(Number(dateParts[2])).padStart(2, '0')}`;
+    return [{
+      id: `pce-${date}`,
+      family: 'pce' as const,
+      label: '美国 PCE',
+      releaseAt: zonedDateTimeToIso(date, `${String(hour).padStart(2, '0')}:${timeParts[2]}`, 'America/New_York'),
+      expectedPeriod,
+      sourceUrl: 'https://www.bea.gov/data/personal-consumption-expenditures-price-index',
+    }];
+  });
+}
+
+function refreshOfficialMacroReleaseSchedule() {
+  if (officialMacroDynamicScheduleInFlight) return officialMacroDynamicScheduleInFlight;
+  officialMacroDynamicScheduleInFlight = Promise.allSettled([
+    fetchBlsOfficialReleaseSchedule(),
+    fetchBeaOfficialReleaseSchedule(),
+  ]).then((results) => {
+    const releases: OfficialMacroRelease[] = [];
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') releases.push(...result.value);
+    });
+    officialMacroDynamicScheduleCache = { storedAt: Date.now(), releases };
+    return releases;
+  }).finally(() => {
+    officialMacroDynamicScheduleInFlight = undefined;
+  });
+  return officialMacroDynamicScheduleInFlight;
+}
+
+function getOfficialMacroReleaseSchedule() {
+  if (!officialMacroDynamicScheduleCache || Date.now() - officialMacroDynamicScheduleCache.storedAt > 6 * 60 * 60_000) {
+    void refreshOfficialMacroReleaseSchedule();
+  }
+  const merged = [...officialMacroReleaseFallbacks, ...(officialMacroDynamicScheduleCache?.releases || [])];
+  return [...new Map(merged.map((release) => [`${release.family}:${release.releaseAt}`, release])).values()]
+    .sort((left, right) => left.releaseAt.localeCompare(right.releaseAt));
+}
+
+function latestOfficialMacroPeriod(family: OfficialMacroReleaseFamily) {
+  if (family === 'pce') return beaPceSnapshotCache?.updatedAt?.slice(0, 7) || '';
+  const reportFamily = family === 'employment' ? 'employment' : family;
+  const reportPeriod = blsReleaseReportCache.get(reportFamily)?.period;
+  if (reportPeriod) return reportPeriod;
+  if (!blsMacroSnapshotCache) return '';
+  const seriesIds = family === 'ppi'
+    ? ['WPSFD4']
+    : family === 'cpi'
+      ? ['CUSR0000SA0']
+      : ['LNS14000000', 'CES0000000001'];
+  const periods = seriesIds.map((seriesId) => blsMacroSnapshotCache?.series[seriesId]?.at(-1)?.time.slice(0, 7) || '');
+  return periods.every(Boolean) ? periods.sort().at(0) || '' : '';
+}
+
+function getMacroReleaseSyncPlan(now = Date.now()): MacroReleaseSyncPlan {
+  const releases = getOfficialMacroReleaseSchedule();
+  const activeRelease = releases.find((release) => {
+    const releaseTime = new Date(release.releaseAt).getTime();
+    return now >= releaseTime - OFFICIAL_MACRO_RELEASE_WINDOW_LEAD_MS
+      && now <= releaseTime + OFFICIAL_MACRO_RELEASE_WINDOW_TAIL_MS;
+  });
+  const nextRelease = releases.find((release) => new Date(release.releaseAt).getTime() > now);
+  if (activeRelease) {
+    const synced = latestOfficialMacroPeriod(activeRelease.family) >= activeRelease.expectedPeriod;
+    return {
+      active: true,
+      synced,
+      pollAfterMs: synced ? OFFICIAL_MACRO_NORMAL_POLL_MS : OFFICIAL_MACRO_RELEASE_POLL_MS,
+      release: activeRelease,
+      nextRelease,
+    };
+  }
+  const nextWindowAt = nextRelease
+    ? new Date(nextRelease.releaseAt).getTime() - OFFICIAL_MACRO_RELEASE_WINDOW_LEAD_MS
+    : Number.POSITIVE_INFINITY;
+  return {
+    active: false,
+    synced: false,
+    pollAfterMs: Math.max(OFFICIAL_MACRO_RELEASE_POLL_MS, Math.min(OFFICIAL_MACRO_NORMAL_POLL_MS, nextWindowAt - now)),
+    nextRelease,
+  };
+}
+
 const officialMacroEvents: GlobalCalendarEvent[] = [
   { id: 'nfp-2026-09', date: '2026-09-04', time: '20:30', title: '美国非农就业报告', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/empsit.htm', kind: 'macro', importance: 'high' },
   { id: 'nfp-2026-10', date: '2026-10-02', time: '20:30', title: '美国非农就业报告', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/empsit.htm', kind: 'macro', importance: 'high' },
@@ -5410,9 +6119,13 @@ async function loadGlobalMarketsSection() {
   };
 }
 
-async function loadGlobalMacroMetricsSection() {
-  const macroTaskFactories = [
-    () => getUsPpiMacroMetric(),
+async function loadGlobalMacroMetricsSection(forceOfficial = false) {
+  const withMacroTimeout = <T>(promise: Promise<T>, timeoutMs: number, label: string) => Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label}请求超时`)), timeoutMs)),
+  ]);
+  const macroTaskFactories: Array<() => Promise<any>> = [
+    () => getUsPpiMacroMetric(forceOfficial),
     () => getVixMacroMetric(),
     async () => {
       const quote = await getYahooMacroQuote('DX-Y.NYB');
@@ -5432,25 +6145,40 @@ async function loadGlobalMacroMetricsSection() {
     () => getFredMacroMetric('ust2y10y', ['T10Y2Y'], '美债 2Y-10Y 利差', (value) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`),
     () => getFredMacroMetric('fedfunds', ['DFF', 'FEDFUNDS'], '联邦基金利率', (value) => `${value.toFixed(2)}%`),
     () => getGscpiMetric(),
-    () => getUsCpiPceMacroMetric(),
-    () => getFredMacroMetric('unemployment', ['UNRATE'], '美国失业率', (value) => `${value.toFixed(1)}%`),
-    () => getFredMacroMetric('nonfarm', ['PAYEMS'], '非农就业变动', (value) => `${Math.round(value)} 千人`, (values) => values.slice(1).map((item, index) => ({ time: item.time, value: item.value - values[index].value }))),
+    () => getUsCpiPceMacroMetric(forceOfficial),
+    () => getBlsOfficialMacroMetric('unemployment', forceOfficial).catch(() => (
+      getFredMacroMetric(
+        'unemployment',
+        ['UNRATE'],
+        '美国失业率',
+        (value) => `${value.toFixed(1)}%`,
+        undefined,
+        (value) => signedMetricChange(value, 'pct'),
+      )
+    )),
+    () => getBlsOfficialMacroMetric('nonfarm', forceOfficial).catch(() => (
+      getFredMacroMetric(
+        'nonfarm',
+        ['PAYEMS'],
+        '非农就业变动',
+        (value) => `${Math.round(value)} 千人`,
+        (values) => values.slice(1).map((item, index) => ({ time: item.time, value: item.value - values[index].value })),
+        (value) => `${value > 0 ? '+' : ''}${Math.round(value)} 千人`,
+      )
+    )),
   ];
-  const macroRequest = (async () => {
-    const results: PromiseSettledResult<Awaited<ReturnType<(typeof macroTaskFactories)[number]>>>[] = [];
-    for (let index = 0; index < macroTaskFactories.length; index += 2) {
-      results.push(...await Promise.allSettled(macroTaskFactories.slice(index, index + 2).map((task) => task())));
-    }
-    return results;
-  })();
+  const macroRequest = Promise.allSettled(macroTaskFactories.map((task) => withMacroTimeout(task(), 18_000, '宏观指标')));
   const nextMeeting = officialMacroEvents.find((event) => (
     event.kind === 'central-bank' && new Date(`${event.date}T23:59:59Z`).getTime() >= Date.now()
   ));
   const fedFundsContract = nextMeeting ? getFedFundsMeetingContract(nextMeeting.date) : null;
   const fedFundsFutureRequest = fedFundsContract
-    ? Promise.allSettled([getYahooMacroQuote(fedFundsContract, '1mo')])
+    ? Promise.allSettled([withMacroTimeout(getYahooMacroQuote(fedFundsContract, '1mo'), 10_000, '联邦基金期货')])
     : Promise.resolve([] as PromiseSettledResult<Awaited<ReturnType<typeof getYahooMacroQuote>>>[]);
-  const cpiRequest = Promise.allSettled([getChinaCpiMetric(), getUsCpiMetric()]);
+  const cpiRequest = Promise.allSettled([
+    withMacroTimeout(getChinaCpiMetric(), 15_000, '中国 CPI'),
+    withMacroTimeout(getUsCpiMetric(forceOfficial), 15_000, '美国 CPI'),
+  ]);
   const [macro, fedFundsFuture, cpiResults] = await Promise.all([macroRequest, fedFundsFutureRequest, cpiRequest]);
   const macroMetricIds = ['ppi', 'vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi', 'cpi-pce', 'unemployment', 'nonfarm'];
   const macroMetricLabels = ['美国 PPI 月率', 'VIX 波动率', '美元指数', '美国10年期国债收益率', '美债 2Y-10Y 利差', '联邦基金利率', '供应链压力', '美国 CPI / PCE 月率', '美国失业率', '非农就业变动'];
@@ -5462,7 +6190,19 @@ async function loadGlobalMacroMetricsSection() {
     }
     const lastGood = globalMacroMetricLastGood.get(metricId);
     if (lastGood) return lastGood;
-    return { id: metricId, label: macroMetricLabels[index], value: null, display: '待更新', change: null, sourceUrl: index === 1 ? 'https://finance.yahoo.com/quote/DX-Y.NYB' : index === 3 ? 'https://fred.stlouisfed.org/series/T10Y2Y' : 'https://fred.stlouisfed.org/', status: 'unavailable' as const, history: [] };
+    const fallbackSourceUrls: Record<string, string> = {
+      ppi: fredSeriesPageUrl('PPIFIS'),
+      vix: fredSeriesPageUrl('VIXCLS'),
+      dxy: 'https://finance.yahoo.com/quote/DX-Y.NYB',
+      us10y: fredSeriesPageUrl('DGS10'),
+      ust2y10y: fredSeriesPageUrl('T10Y2Y'),
+      fedfunds: fredSeriesPageUrl('DFF'),
+      gscpi: 'https://www.newyorkfed.org/research/policy/gscpi',
+      'cpi-pce': fredSeriesPageUrl('CPIAUCSL'),
+      unemployment: fredSeriesPageUrl('UNRATE'),
+      nonfarm: fredSeriesPageUrl('PAYEMS'),
+    };
+    return { id: metricId, label: macroMetricLabels[index], value: null, display: '待更新', change: null, sourceUrl: fallbackSourceUrls[metricId] || 'https://fred.stlouisfed.org/', status: 'unavailable' as const, history: [] };
   });
   const fedFundsMetric = macroMetrics.find((item) => item.id === 'fedfunds');
   const fedRateExpectation = nextMeeting && fedFundsContract && fedFundsFuture[0]?.status === 'fulfilled' && fedFundsMetric?.value !== null && fedFundsMetric?.value !== undefined
@@ -5482,7 +6222,76 @@ async function loadGlobalMacroMetricsSection() {
     return globalCpiMetricLastGood.get(fallback.id) || fallback;
   });
 
-  return { generatedAt: new Date().toISOString(), macro: macroMetrics, cpi, fedRateExpectation };
+  const releasePlan = getMacroReleaseSyncPlan();
+  return {
+    generatedAt: new Date().toISOString(),
+    macro: macroMetrics,
+    cpi,
+    fedRateExpectation,
+    releaseSync: {
+      active: releasePlan.active,
+      synced: releasePlan.synced,
+      pollAfterMs: releasePlan.pollAfterMs,
+      checkedAt: new Date().toISOString(),
+      release: releasePlan.release,
+      nextRelease: releasePlan.nextRelease,
+    },
+  };
+}
+
+async function loadOfficialMacroReleasePatch() {
+  const before = getMacroReleaseSyncPlan();
+  const macro: Array<Record<string, unknown>> = [];
+  const cpi: GlobalCpiMetric[] = [];
+  if (before.active && !before.synced && before.release) {
+    if (before.release.family === 'ppi') {
+      macro.push(await getBlsOfficialMacroMetric('ppi', true));
+    } else if (before.release.family === 'cpi') {
+      const [metric, card] = await Promise.all([
+        getBlsOfficialMacroMetric('cpi', true),
+        getUsCpiMetric(true),
+      ]);
+      const currentComposite = globalMacroMetricLastGood.get('cpi-pce');
+      macro.push(currentComposite
+        ? {
+          ...currentComposite,
+          value: metric.value,
+          display: String(currentComposite.display).replace(/CPI\s+[^/]+\//, `CPI ${metric.display} /`),
+          change: metric.change,
+          changeDisplay: metric.changeDisplay ? `CPI ${metric.changeDisplay}` : undefined,
+          updatedAt: metric.updatedAt,
+          sourceUrl: metric.sourceUrl,
+          history: metric.history,
+        }
+        : metric);
+      cpi.push(card);
+    } else if (before.release.family === 'employment') {
+      macro.push(...await Promise.all([
+        getBlsOfficialMacroMetric('unemployment', true),
+        getBlsOfficialMacroMetric('nonfarm', true),
+      ]));
+    } else {
+      macro.push(await getUsCpiPceMacroMetric(true));
+    }
+  }
+  macro.forEach((metric) => {
+    if (typeof metric.id === 'string') globalMacroMetricLastGood.set(metric.id, metric);
+  });
+  cpi.forEach((metric) => globalCpiMetricLastGood.set(metric.id, metric));
+  const after = getMacroReleaseSyncPlan();
+  return {
+    generatedAt: new Date().toISOString(),
+    macro,
+    cpi,
+    releaseSync: {
+      active: after.active,
+      synced: after.synced,
+      pollAfterMs: after.pollAfterMs,
+      checkedAt: new Date().toISOString(),
+      release: after.release,
+      nextRelease: after.nextRelease,
+    },
+  };
 }
 
 async function loadGlobalPmiSection() {
@@ -5827,9 +6636,9 @@ async function loadGlobalCalendarSection() {
 const globalMacroSectionNames = ['markets', 'macro', 'pmi', 'commodities', 'news', 'calendar'] as const;
 type GlobalMacroSectionName = (typeof globalMacroSectionNames)[number];
 
-async function loadGlobalMacroSection(region: GlobalMacroRegion, section: GlobalMacroSectionName) {
+async function loadGlobalMacroSection(region: GlobalMacroRegion, section: GlobalMacroSectionName, forceOfficial = false) {
   if (section === 'markets') return loadGlobalMarketsSection();
-  if (section === 'macro') return loadGlobalMacroMetricsSection();
+  if (section === 'macro') return loadGlobalMacroMetricsSection(forceOfficial);
   if (section === 'pmi') return loadGlobalPmiSection();
   if (section === 'commodities') return loadGlobalCommoditiesSection();
   if (section === 'news') return loadGlobalNewsSection(region);
@@ -5872,14 +6681,14 @@ const globalMacroSectionCacheTtl: Record<GlobalMacroSectionName, number> = {
 const globalMarketHeatmapCache = new Map<string, { storedAt: number; data: Awaited<ReturnType<typeof getGlobalMarketHeatmap>> }>();
 const globalMarketHeatmapInFlight = new Map<string, Promise<Awaited<ReturnType<typeof getGlobalMarketHeatmap>>>>();
 
-async function getCachedGlobalMacroSection(region: GlobalMacroRegion, section: GlobalMacroSectionName) {
+async function getCachedGlobalMacroSection(region: GlobalMacroRegion, section: GlobalMacroSectionName, forceOfficial = false) {
   const key = `${region}:${section}`;
   const cached = globalMacroSectionCache.get(key);
-  if (cached && Date.now() - cached.storedAt < globalMacroSectionCacheTtl[section]) return cached.data;
+  if (!forceOfficial && cached && Date.now() - cached.storedAt < globalMacroSectionCacheTtl[section]) return cached.data;
   const running = globalMacroSectionInFlight.get(key);
   if (running) return running;
 
-  const request = loadGlobalMacroSection(region, section)
+  const request = loadGlobalMacroSection(region, section, forceOfficial)
     .then((data) => {
       globalMacroSectionCache.set(key, { storedAt: Date.now(), data });
       return data;
@@ -7147,6 +7956,12 @@ function allWeatherApiPlugin() {
             return;
           }
 
+          if (url.pathname === '/api/global-macro-release-sync') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await loadOfficialMacroReleasePatch());
+            return;
+          }
+
           if (url.pathname === '/api/global-macro-dashboard') {
             const region = String(url.searchParams.get('region') || 'global');
             if (!['global', 'apac', 'middleEast', 'europe', 'americas'].includes(region)) {
@@ -7154,6 +7969,7 @@ function allWeatherApiPlugin() {
               return;
             }
             const section = String(url.searchParams.get('section') || '');
+            const forceOfficial = section === 'macro' && url.searchParams.get('fresh') === '1';
             if (section && !globalMacroSectionNames.includes(section as GlobalMacroSectionName)) {
               sendJson(res, 400, { error: '不支持的数据分区' });
               return;
@@ -7162,7 +7978,7 @@ function allWeatherApiPlugin() {
               res,
               200,
               section
-                ? await getCachedGlobalMacroSection(region as GlobalMacroRegion, section as GlobalMacroSectionName)
+                ? await getCachedGlobalMacroSection(region as GlobalMacroRegion, section as GlobalMacroSectionName, forceOfficial)
                 : await getCachedGlobalMacroDashboard(region as GlobalMacroRegion),
             );
             return;

@@ -85,6 +85,7 @@ type Metric = {
   value: number | null;
   display: string;
   change?: number | null;
+  changeDisplay?: string;
   updatedAt?: string;
   sourceUrl: string;
   status: 'live' | 'delayed' | 'unavailable';
@@ -93,6 +94,10 @@ type Metric = {
     label: string;
     display: string;
     updatedAt?: string;
+  }>;
+  stats?: Array<{
+    label: string;
+    display: string;
   }>;
 };
 type CpiMetric = {
@@ -173,6 +178,22 @@ type FedRateExpectation = {
   method: string;
   status: 'delayed' | 'unavailable';
 };
+type OfficialMacroRelease = {
+  id: string;
+  family: 'ppi' | 'cpi' | 'employment' | 'pce';
+  label: string;
+  releaseAt: string;
+  expectedPeriod: string;
+  sourceUrl: string;
+};
+type MacroReleaseSync = {
+  active: boolean;
+  synced: boolean;
+  pollAfterMs: number;
+  checkedAt: string;
+  release?: OfficialMacroRelease;
+  nextRelease?: OfficialMacroRelease;
+};
 type Dashboard = {
   generatedAt: string;
   global: Quote | null;
@@ -187,6 +208,7 @@ type Dashboard = {
   news: News[];
   focusNews: News[];
   calendar: CalendarEvent[];
+  releaseSync?: MacroReleaseSync;
 };
 const GLOBAL_MACRO_SECTIONS = ['markets', 'macro', 'pmi', 'commodities', 'news', 'calendar'] as const;
 type GlobalMacroSection = (typeof GLOBAL_MACRO_SECTIONS)[number];
@@ -216,6 +238,7 @@ const EMPTY_DASHBOARD: Dashboard = {
   news: [],
   focusNews: [],
   calendar: [],
+  releaseSync: undefined,
 };
 
 type LiveDashboardItem = { id: string; updatedAt?: string; history?: HistoryPoint[] };
@@ -418,6 +441,21 @@ function signed(value?: number | null) {
 function trendClass(value?: number | null) {
   if (value === undefined || value === null || !Number.isFinite(value) || Math.abs(value) <= 0.03) return 'macro-flat';
   return value > 0 ? 'macro-up' : 'macro-down';
+}
+
+function ppiExpectationState(stats?: Metric['stats']) {
+  const parseDisplay = (display?: string) => {
+    const normalized = display?.replace(/[^\d+.-]/g, '') || '';
+    return normalized ? Number(normalized) : Number.NaN;
+  };
+  const actual = parseDisplay(stats?.[1]?.display);
+  const expected = parseDisplay(stats?.[2]?.display);
+  if (!Number.isFinite(actual) || !Number.isFinite(expected)) return { tone: 'pending', label: '预期待更新' };
+  const surprise = actual - expected;
+  if (Math.abs(surprise) < 0.05) return { tone: 'matched', label: '符合预期' };
+  return surprise > 0
+    ? { tone: 'above', label: '高于预期' }
+    : { tone: 'below', label: '低于预期' };
 }
 
 function formatSessionCountdown(milliseconds: number) {
@@ -1788,14 +1826,21 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     return payload;
   }, [applyFastQuotes]);
 
+  const refreshOfficialMacroRelease = useCallback(async () => {
+    const payload = await request<DashboardSectionPayload>('/api/global-macro-release-sync');
+    setData((current) => mergeDashboardPayload(current, payload, true));
+    return payload;
+  }, []);
+
   const load = useCallback(async (
     sections: readonly GlobalMacroSection[] = GLOBAL_MACRO_SECTIONS,
     reportError = true,
+    forceOfficialMacro = false,
   ) => {
     if (reportError) setError('');
     const results = await Promise.allSettled(sections.map(async (section: GlobalMacroSection) => {
       const payload = await request<DashboardSectionPayload>(
-        `/api/global-macro-dashboard?region=global&section=${encodeURIComponent(section)}`,
+        `/api/global-macro-dashboard?region=global&section=${encodeURIComponent(section)}${section === 'macro' && forceOfficialMacro ? '&fresh=1' : ''}`,
       );
       setData((current) => mergeDashboardPayload(current, payload, true));
       if (section === 'markets') setLoading(false);
@@ -1809,7 +1854,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   useEffect(() => {
     void load();
     const historyRefresh = window.setInterval(
-      () => void load(['markets', 'macro', 'commodities'], false),
+      () => void load(['markets', 'commodities'], false),
       5 * 60_000,
     );
     const slowDataRefresh = window.setInterval(
@@ -1823,6 +1868,47 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       window.clearInterval(newsRefresh);
     };
   }, [load]);
+
+  const criticalMacroUnavailable = Boolean(data?.macro?.some((item) => (
+    ['ppi', 'cpi-pce'].includes(item.id) && (item.value === null || item.status === 'unavailable')
+  )));
+
+  useEffect(() => {
+    const releaseSync = data?.releaseSync;
+    if (!releaseSync) return undefined;
+    let timer: number | undefined;
+    let disposed = false;
+    const refreshMacro = () => {
+      if (disposed) return;
+      if (document.hidden) {
+        timer = window.setTimeout(refreshMacro, 60_000);
+        return;
+      }
+      if (releaseSync.active && !releaseSync.synced) {
+        void refreshOfficialMacroRelease().catch(() => {
+          if (!disposed && !document.hidden) timer = window.setTimeout(refreshMacro, 15_000);
+        });
+      } else {
+        void load(['macro'], false, criticalMacroUnavailable);
+      }
+    };
+    timer = window.setTimeout(
+      refreshMacro,
+      criticalMacroUnavailable ? 15_000 : Math.max(10_000, releaseSync.pollAfterMs),
+    );
+    const handleVisibility = () => {
+      if (!document.hidden && releaseSync.active && !releaseSync.synced) {
+        if (timer !== undefined) window.clearTimeout(timer);
+        refreshMacro();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [criticalMacroUnavailable, data?.releaseSync?.checkedAt, load, refreshOfficialMacroRelease]);
 
   useEffect(() => {
     let disposed = false;
@@ -2011,7 +2097,34 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             <p className="macro-section-title">宏观风险指标</p>
             <div className="macro-metric-list">
               {macroRiskMetrics.map((item) => (
-                <a key={item.id} className="macro-metric-row" href={item.sourceUrl} target="_blank" rel="noreferrer">
+                <a key={item.id} className={`macro-metric-row${item.stats?.length ? ' macro-metric-row-stats' : ''}`} href={item.sourceUrl} target="_blank" rel="noreferrer">
+                  {item.stats?.length ? (() => {
+                    const expectation = ppiExpectationState(item.stats);
+                    return (
+                    <span className="macro-metric-stat-layout">
+                      <small className="macro-metric-stat-title"><i aria-hidden="true" />美国 PPI</small>
+                      <span className="macro-metric-stat-previous">
+                        <em>前值</em>
+                        <strong>{item.stats[0]?.display}</strong>
+                      </span>
+                      <span className="macro-metric-stat-primary">
+                        <strong className={trendClass(Number(item.stats[1]?.display.replace(/[^\d+.-]/g, '')))}>{item.stats[1]?.display}</strong>
+                        <em>同比</em>
+                      </span>
+                      <span className="macro-metric-stat-change">
+                        <em>市场预期</em>
+                        <strong>{item.stats[2]?.display}</strong>
+                      </span>
+                      <span className="macro-metric-stat-rule" aria-hidden="true" />
+                      <span className={`macro-metric-stat-verdict ${expectation.tone}`}>
+                        <i aria-hidden="true" />{expectation.label}
+                      </span>
+                      <span className="macro-metric-stat-pressure" aria-hidden="true">
+                        <i /><i /><i /><i />
+                      </span>
+                    </span>
+                    );
+                  })() : <>
                   <span className="macro-metric-copy">
                     <small>{item.label}</small>
                     {item.parts?.length ? (
@@ -2020,8 +2133,9 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                       </strong>
                     ) : <strong>{item.display}</strong>}
                   </span>
-                  <span className={`macro-metric-change ${trendClass(item.change)}`}>{signed(item.change)}</span>
+                  <span className={`macro-metric-change ${trendClass(item.change)}`}>{item.changeDisplay || signed(item.change)}</span>
                   <span className="macro-metric-chart"><MiniLine history={item.history} color={item.value === null ? '#506273' : '#55d9b0'} /></span>
+                  </>}
                 </a>
               ))}
             </div>
