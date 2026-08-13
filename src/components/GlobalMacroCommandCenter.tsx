@@ -89,6 +89,11 @@ type Metric = {
   sourceUrl: string;
   status: 'live' | 'delayed' | 'unavailable';
   history: HistoryPoint[];
+  parts?: Array<{
+    label: string;
+    display: string;
+    updatedAt?: string;
+  }>;
 };
 type CpiMetric = {
   id: 'china-cpi' | 'us-cpi';
@@ -129,7 +134,7 @@ const KEY_SIGNAL_ICONS: Partial<Record<string, LucideIcon>> = {
   brent: Droplets,
   gold: GoldBarIcon as LucideIcon,
 };
-const HIDDEN_MACRO_RISK_IDS = new Set(['dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi']);
+const HIDDEN_MACRO_RISK_IDS = new Set(['vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi']);
 type News = {
   id: string;
   title: string;
@@ -2007,7 +2012,14 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             <div className="macro-metric-list">
               {macroRiskMetrics.map((item) => (
                 <a key={item.id} className="macro-metric-row" href={item.sourceUrl} target="_blank" rel="noreferrer">
-                  <span className="macro-metric-copy"><small>{item.label}</small><strong>{item.display}</strong></span>
+                  <span className="macro-metric-copy">
+                    <small>{item.label}</small>
+                    {item.parts?.length ? (
+                      <strong className="macro-metric-parts">
+                        {item.parts.map((part) => <span key={part.label}><em>{part.label}</em>{part.display}</span>)}
+                      </strong>
+                    ) : <strong>{item.display}</strong>}
+                  </span>
                   <span className={`macro-metric-change ${trendClass(item.change)}`}>{signed(item.change)}</span>
                   <span className="macro-metric-chart"><MiniLine history={item.history} color={item.value === null ? '#506273' : '#55d9b0'} /></span>
                 </a>

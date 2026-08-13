@@ -4378,13 +4378,37 @@ function parseFredSeries(csv: string) {
   return values;
 }
 
+const fredSeriesCache = new Map<string, { storedAt: number; values: Array<{ time: string; value: number }> }>();
+const fredSeriesInFlight = new Map<string, Promise<Array<{ time: string; value: number }>>>();
+
+async function getFredSeries(seriesId: string) {
+  const cached = fredSeriesCache.get(seriesId);
+  if (cached && Date.now() - cached.storedAt < 5 * 60_000) return cached.values;
+  const running = fredSeriesInFlight.get(seriesId);
+  if (running) return running;
+  const sourceUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`;
+  const request = (async () => {
+    let csv: string;
+    try {
+      csv = await fetchRoutedText(sourceUrl, 'proxy', 18000, 'text/csv,text/plain,*/*');
+    } catch {
+      csv = await fetchRoutedText(sourceUrl, 'direct', 12000, 'text/csv,text/plain,*/*');
+    }
+    const values = parseFredSeries(csv);
+    if (!values.length) throw new Error(`${seriesId} 无可用 FRED 数据`);
+    fredSeriesCache.set(seriesId, { storedAt: Date.now(), values });
+    return values;
+  })().finally(() => fredSeriesInFlight.delete(seriesId));
+  fredSeriesInFlight.set(seriesId, request);
+  return request;
+}
+
 async function getFredMacroMetric(id: string, seriesIds: string[], label: string, display: (value: number) => string, transform?: (history: Array<{ time: string; value: number }>) => Array<{ time: string; value: number }>) {
   let lastError: unknown;
   for (const seriesId of seriesIds) {
     const sourceUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`;
     try {
-      const csv = await fetchExternalCsv(sourceUrl, 18000);
-      const raw = parseFredSeries(csv);
+      const raw = await getFredSeries(seriesId);
       const history = transform ? transform(raw) : raw;
       const latest = history.at(-1);
       const previous = history.at(-2);
@@ -4397,10 +4421,28 @@ async function getFredMacroMetric(id: string, seriesIds: string[], label: string
   throw lastError instanceof Error ? lastError : new Error(`${label} 暂时不可用`);
 }
 
+function monthlyPercentChanges(values: Array<{ time: string; value: number }>) {
+  const byMonth = new Map(values.map((item) => [item.time.slice(0, 7), item.value]));
+  return values.flatMap((item) => {
+    const date = new Date(item.time);
+    date.setUTCMonth(date.getUTCMonth() - 1);
+    const previous = byMonth.get(date.toISOString().slice(0, 7));
+    return previous && previous > 0 ? [{ time: item.time, value: (item.value / previous - 1) * 100 }] : [];
+  });
+}
+
+function yearlyPercentChanges(values: Array<{ time: string; value: number }>) {
+  const byMonth = new Map(values.map((item) => [item.time.slice(0, 7), item.value]));
+  return values.flatMap((item) => {
+    const date = new Date(item.time);
+    date.setUTCFullYear(date.getUTCFullYear() - 1);
+    const previous = byMonth.get(date.toISOString().slice(0, 7));
+    return previous && previous > 0 ? [{ time: item.time, value: (item.value / previous - 1) * 100 }] : [];
+  });
+}
+
 async function getVixMacroMetric() {
   try {
-    return await getFredMacroMetric('vix', ['VIXCLS'], 'VIX 波动率', (value) => value.toFixed(2));
-  } catch {
     const quote = await getYahooMacroQuote('^VIX', '3mo');
     return {
       id: 'vix',
@@ -4413,7 +4455,42 @@ async function getVixMacroMetric() {
       status: 'live' as const,
       history: quote.history.slice(-48),
     };
+  } catch {
+    return getFredMacroMetric('vix', ['VIXCLS'], 'VIX 波动率', (value) => value.toFixed(2));
   }
+}
+
+async function getUsPpiMacroMetric() {
+  return getFredMacroMetric(
+    'ppi',
+    ['PPIFIS'],
+    '美国 PPI 月率',
+    (value) => `${value.toFixed(2)}%`,
+    monthlyPercentChanges,
+  );
+}
+
+async function getUsCpiPceMacroMetric() {
+  const [cpi, pce] = await Promise.all([
+    getFredMacroMetric('us-cpi-mom', ['CPIAUCSL'], '美国 CPI 月率', (value) => `${value.toFixed(2)}%`, monthlyPercentChanges),
+    getFredMacroMetric('us-pce-mom', ['PCEPI'], '美国 PCE 月率', (value) => `${value.toFixed(2)}%`, monthlyPercentChanges),
+  ]);
+  const updatedAt = [cpi.updatedAt, pce.updatedAt].filter(Boolean).sort().at(-1);
+  return {
+    id: 'cpi-pce',
+    label: '美国 CPI / PCE 月率',
+    value: cpi.value,
+    display: `CPI ${cpi.display} / PCE ${pce.display}`,
+    change: cpi.change,
+    updatedAt,
+    sourceUrl: 'https://fred.stlouisfed.org/series/CPIAUCSL',
+    status: 'delayed' as const,
+    history: cpi.history,
+    parts: [
+      { label: 'CPI', display: cpi.display, updatedAt: cpi.updatedAt },
+      { label: 'PCE', display: pce.display, updatedAt: pce.updatedAt },
+    ],
+  };
 }
 
 async function getGscpiMetric() {
@@ -4543,7 +4620,7 @@ async function fetchBlsCpiSeries(seriesId: string) {
   }
 }
 
-async function getUsCpiMetric(): Promise<GlobalCpiMetric> {
+async function getUsCpiMetricFromBls(): Promise<GlobalCpiMetric> {
   const [unadjustedPayload, adjustedPayload] = await Promise.all([
     fetchBlsCpiSeries('CUUR0000SA0'),
     fetchBlsCpiSeries('CUSR0000SA0'),
@@ -4579,6 +4656,31 @@ async function getUsCpiMetric(): Promise<GlobalCpiMetric> {
     status: 'delayed',
     history,
   };
+}
+
+async function getUsCpiMetricFromFred(): Promise<GlobalCpiMetric> {
+  const [yoy, mom] = await Promise.all([
+    getFredMacroMetric('us-cpi-yoy', ['CPIAUCSL'], '美国 CPI 同比', (value) => `${value.toFixed(1)}%`, yearlyPercentChanges),
+    getFredMacroMetric('us-cpi-mom-card', ['CPIAUCSL'], '美国 CPI 环比', (value) => `${value.toFixed(1)}%`, monthlyPercentChanges),
+  ]);
+  const latestDate = new Date(yoy.updatedAt);
+  return {
+    id: 'us-cpi',
+    label: '美国 CPI',
+    value: yoy.value,
+    display: `${yoy.value > 0 ? '+' : ''}${yoy.value.toFixed(1)}%`,
+    change: mom.value,
+    period: `${latestDate.getUTCFullYear()}年${latestDate.getUTCMonth() + 1}月`,
+    updatedAt: yoy.updatedAt,
+    source: '美国劳工统计局 · FRED',
+    sourceUrl: 'https://fred.stlouisfed.org/series/CPIAUCSL',
+    status: 'delayed',
+    history: yoy.history,
+  };
+}
+
+async function getUsCpiMetric(): Promise<GlobalCpiMetric> {
+  return Promise.any([getUsCpiMetricFromBls(), getUsCpiMetricFromFred()]);
 }
 
 function pmiObservationTime(monthName: string) {
@@ -5310,6 +5412,7 @@ async function loadGlobalMarketsSection() {
 
 async function loadGlobalMacroMetricsSection() {
   const macroTaskFactories = [
+    () => getUsPpiMacroMetric(),
     () => getVixMacroMetric(),
     async () => {
       const quote = await getYahooMacroQuote('DX-Y.NYB');
@@ -5329,7 +5432,7 @@ async function loadGlobalMacroMetricsSection() {
     () => getFredMacroMetric('ust2y10y', ['T10Y2Y'], '美债 2Y-10Y 利差', (value) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`),
     () => getFredMacroMetric('fedfunds', ['DFF', 'FEDFUNDS'], '联邦基金利率', (value) => `${value.toFixed(2)}%`),
     () => getGscpiMetric(),
-    () => getFredMacroMetric('cpi', ['CPIAUCSL'], 'CPI 环比', (value) => `${value.toFixed(2)}%`, (values) => values.slice(1).flatMap((item, index) => values[index].value > 0 ? [{ time: item.time, value: (item.value / values[index].value - 1) * 100 }] : [])),
+    () => getUsCpiPceMacroMetric(),
     () => getFredMacroMetric('unemployment', ['UNRATE'], '美国失业率', (value) => `${value.toFixed(1)}%`),
     () => getFredMacroMetric('nonfarm', ['PAYEMS'], '非农就业变动', (value) => `${Math.round(value)} 千人`, (values) => values.slice(1).map((item, index) => ({ time: item.time, value: item.value - values[index].value }))),
   ];
@@ -5349,8 +5452,8 @@ async function loadGlobalMacroMetricsSection() {
     : Promise.resolve([] as PromiseSettledResult<Awaited<ReturnType<typeof getYahooMacroQuote>>>[]);
   const cpiRequest = Promise.allSettled([getChinaCpiMetric(), getUsCpiMetric()]);
   const [macro, fedFundsFuture, cpiResults] = await Promise.all([macroRequest, fedFundsFutureRequest, cpiRequest]);
-  const macroMetricIds = ['vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi', 'cpi', 'unemployment', 'nonfarm'];
-  const macroMetricLabels = ['VIX 波动率', '美元指数', '美国10年期国债收益率', '美债 2Y-10Y 利差', '联邦基金利率', '供应链压力', 'CPI 环比', '美国失业率', '非农就业变动'];
+  const macroMetricIds = ['ppi', 'vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi', 'cpi-pce', 'unemployment', 'nonfarm'];
+  const macroMetricLabels = ['美国 PPI 月率', 'VIX 波动率', '美元指数', '美国10年期国债收益率', '美债 2Y-10Y 利差', '联邦基金利率', '供应链压力', '美国 CPI / PCE 月率', '美国失业率', '非农就业变动'];
   const macroMetrics = macro.map((result, index) => {
     const metricId = macroMetricIds[index];
     if (result.status === 'fulfilled') {

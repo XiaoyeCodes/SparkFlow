@@ -594,6 +594,9 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-metric-copy { position: relative; z-index: 2; display: flex; flex-direction: column; min-width: 0; }
 .macro-metric-copy small { color: var(--macro-muted); font-size: 10.5px; letter-spacing: .04em; }
 .macro-metric-copy strong { margin-top: 6px; color: #eff6f8; font: 600 19px/1 "JetBrains Mono", monospace; white-space: nowrap; }
+.macro-metric-copy strong.macro-metric-parts { display: grid; gap: 4px; margin-top: 5px; font-size: 13px; line-height: 1.05; }
+.macro-metric-parts span { display: flex; align-items: baseline; gap: 5px; }
+.macro-metric-parts em { min-width: 25px; color: var(--macro-muted); font-size: 9px; font-style: normal; font-weight: 500; }
 .macro-metric-change { position: relative; z-index: 2; font: 600 10px "JetBrains Mono", monospace; }
 .macro-metric-chart { position: absolute; right: 21px; bottom: 8px; width: 96px; height: 42px; opacity: .92; }
 .macro-line { display: block; width: 100%; height: 100%; overflow: visible; }
