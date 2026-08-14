@@ -8,9 +8,11 @@ import * as THREE from 'three';
 import {
   ArrowRight,
   Bitcoin,
+  BriefcaseBusiness,
   CircleDollarSign,
   Droplets,
   ExternalLink,
+  Factory,
   Globe2,
   Landmark,
   Map as MapIcon,
@@ -18,6 +20,8 @@ import {
   Minus,
   Plus,
   RefreshCw,
+  ShoppingBasket,
+  UserRoundX,
   X,
   type LucideIcon,
   type LucideProps,
@@ -106,6 +110,7 @@ type CpiMetric = {
   value: number | null;
   display: string;
   change: number | null;
+  expectation?: number;
   period: string;
   releasedAt?: string;
   updatedAt?: string;
@@ -469,9 +474,10 @@ function ppiExpectationState(stats?: Metric['stats']) {
   if (!Number.isFinite(actual) || !Number.isFinite(expected)) return { tone: 'pending', label: '预期待更新' };
   const surprise = actual - expected;
   if (Math.abs(surprise) < 0.05) return { tone: 'matched', label: '符合预期' };
+  const distance = `${Math.abs(surprise).toFixed(1)}pct`;
   return surprise > 0
-    ? { tone: 'above', label: '高于预期' }
-    : { tone: 'below', label: '低于预期' };
+    ? { tone: 'above', label: `高于预期 ${distance}` }
+    : { tone: 'below', label: `低于预期 ${distance}` };
 }
 
 function formatSessionCountdown(milliseconds: number) {
@@ -2046,6 +2052,13 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const rightMarketSignals = useMemo(() => buildMarketSignals(data?.macro || [], data?.commodities || []), [data?.macro, data?.commodities]);
   const pmiSignals = useMemo(() => buildPmiSignals(data?.pmi || []), [data?.pmi]);
   const cpiMetrics = data?.cpi || [];
+  const usCpiMetric = cpiMetrics.find((item) => item.id === 'us-cpi');
+  const usCpiPrevious = usCpiMetric?.history[usCpiMetric.history.length - 2]?.value;
+  const usCpiExpectationTone = usCpiMetric?.value === null || usCpiMetric?.value === undefined || usCpiMetric.expectation === undefined
+    ? 'pending'
+    : Math.abs(usCpiMetric.value - usCpiMetric.expectation) < 0.05
+      ? 'matched'
+      : usCpiMetric.value > usCpiMetric.expectation ? 'above' : 'below';
   const macroRiskMetrics = macro.filter((item) => !HIDDEN_MACRO_RISK_IDS.has(item.id));
   const treasurySpread = macro.find((item) => item.id === 'ust2y10y');
   const crypto = commodities.filter((item) => ['bitcoin', 'ethereum'].includes(item.id));
@@ -2138,32 +2151,114 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             <p className="macro-section-title">宏观风险指标</p>
             <div className="macro-metric-list">
               {macroRiskMetrics.map((item) => (
-                <a key={item.id} className={`macro-metric-row${item.stats?.length ? ' macro-metric-row-stats' : ''}`} href={item.sourceUrl} target="_blank" rel="noreferrer">
-                  {item.stats?.length ? (() => {
+                <a key={item.id} className={`macro-metric-row${item.stats?.length || ['cpi-pce', 'unemployment', 'nonfarm'].includes(item.id) ? ' macro-metric-row-stats' : ''}`} href={item.id === 'cpi-pce' ? usCpiMetric?.sourceUrl || item.sourceUrl : item.sourceUrl} target="_blank" rel="noreferrer">
+                  {item.id === 'ppi' && item.stats?.length ? (() => {
                     const expectation = ppiExpectationState(item.stats);
                     return (
                     <span className="macro-metric-stat-layout">
-                      <small className="macro-metric-stat-title"><i aria-hidden="true" />美国 PPI</small>
-                      <span className="macro-metric-stat-previous">
-                        <em>前值</em>
+                      <small className="macro-metric-stat-title"><i aria-hidden="true" />PPI</small>
+                      <span className="macro-metric-stat-mom">
+                        <em>{item.stats[0]?.label || '环比'}</em>
                         <strong>{item.stats[0]?.display}</strong>
                       </span>
                       <span className="macro-metric-stat-primary">
                         <strong className={trendClass(Number(item.stats[1]?.display.replace(/[^\d+.-]/g, '')))}>{item.stats[1]?.display}</strong>
-                        <em>同比</em>
                       </span>
                       <span className="macro-metric-stat-change">
-                        <em>预期</em>
-                        <strong>{item.stats[2]?.display}</strong>
+                        <em>{item.stats[3]?.label || '前值'}</em>
+                        <strong>{item.stats[3]?.display || '待更新'}</strong>
                       </span>
                       <span className="macro-metric-stat-rule" aria-hidden="true" />
                       <span className={`macro-metric-stat-verdict ${expectation.tone}`}>
-                        <i aria-hidden="true" />{expectation.label}
+                        <em>预期</em>
+                        <strong>{item.stats[2]?.display || '待更新'}</strong>
                       </span>
-                      <span className="macro-metric-stat-pressure" aria-hidden="true">
-                        <i /><i /><i /><i />
+                      <span className={`macro-metric-stat-symbol ${expectation.tone}`} aria-hidden="true">
+                        <Factory />
                       </span>
                     </span>
+                    );
+                  })() : item.id === 'cpi-pce' ? (
+                    <span className="macro-metric-stat-layout macro-metric-stat-layout-cpi">
+                      <small className="macro-metric-stat-title"><i aria-hidden="true" />CPI</small>
+                      <span className="macro-metric-stat-mom">
+                        <em>环比</em>
+                        <strong>{usCpiMetric?.change === null || usCpiMetric?.change === undefined
+                          ? '待更新'
+                          : `${usCpiMetric.change > 0 ? '+' : ''}${usCpiMetric.change.toFixed(1)}%`}</strong>
+                      </span>
+                      <span className="macro-metric-stat-primary">
+                        <strong className={trendClass(usCpiMetric?.value)}>{usCpiMetric?.display || '待更新'}</strong>
+                      </span>
+                      <span className="macro-metric-stat-change">
+                        <em>前值</em>
+                        <strong>{usCpiPrevious === undefined
+                          ? '待更新'
+                          : `${usCpiPrevious > 0 ? '+' : ''}${usCpiPrevious.toFixed(1)}%`}</strong>
+                      </span>
+                      <span className="macro-metric-stat-rule" aria-hidden="true" />
+                      <span className={`macro-metric-stat-verdict ${usCpiExpectationTone}`}>
+                        <em>预期</em>
+                        <strong>{usCpiMetric?.expectation === undefined
+                          ? '待更新'
+                          : `${usCpiMetric.expectation > 0 ? '+' : ''}${usCpiMetric.expectation.toFixed(1)}%`}</strong>
+                      </span>
+                      <span className="macro-metric-stat-symbol matched" aria-hidden="true">
+                        <ShoppingBasket />
+                      </span>
+                    </span>
+                  ) : ['unemployment', 'nonfarm'].includes(item.id) ? (() => {
+                    const isNonfarm = item.id === 'nonfarm';
+                    const previous = item.history[item.history.length - 2]?.value;
+                    const nonfarmActual = item.stats?.find((stat) => stat.label === '实际')?.display
+                      || (item.value === null ? '待更新' : `${item.value > 0 ? '+' : ''}${Math.round(item.value)}K`);
+                    const nonfarmExpected = item.stats?.find((stat) => stat.label === '预期')?.display || '待更新';
+                    const nonfarmPrevious = item.stats?.find((stat) => stat.label === '前值')?.display
+                      || (previous === undefined ? '待更新' : `${previous > 0 ? '+' : ''}${Math.round(previous)}K`);
+                    const unemploymentExpected = item.stats?.find((stat) => stat.label === '预期')?.display || '待更新';
+                    const semanticChange = item.change === null || item.change === undefined
+                      ? null
+                      : isNonfarm ? -item.change : item.change;
+                    const tone = semanticChange === null
+                      ? 'pending'
+                      : Math.abs(semanticChange) <= 0.03 ? 'matched' : semanticChange > 0 ? 'above' : 'below';
+                    const previousDisplay = isNonfarm
+                      ? nonfarmPrevious
+                      : previous === undefined
+                        ? '待更新'
+                        : `${previous.toFixed(1)}%`;
+                    return (
+                      <span className={`macro-metric-stat-layout macro-metric-stat-layout-employment${isNonfarm ? ' macro-metric-stat-layout-nonfarm' : ''}`}>
+                        <small className="macro-metric-stat-title"><i aria-hidden="true" />{isNonfarm ? '非农' : '失业率'}</small>
+                        {isNonfarm ? (
+                          <span className="macro-metric-stat-mom">
+                            <em>较前值</em>
+                            <strong>{item.change === null || item.change === undefined
+                              ? '待更新'
+                              : `${item.change > 0 ? '+' : ''}${Math.round(item.change)}K`}</strong>
+                          </span>
+                        ) : <span className="macro-metric-stat-mom">
+                          <em>较前值</em>
+                          <strong>{item.change === null || item.change === undefined
+                            ? '待更新'
+                            : `${item.change > 0 ? '+' : ''}${item.change.toFixed(1)}p`}</strong>
+                        </span>}
+                        <span className="macro-metric-stat-primary">
+                          <strong className={trendClass(semanticChange)}>{isNonfarm ? nonfarmActual : item.display}</strong>
+                        </span>
+                        <span className="macro-metric-stat-change">
+                          <em>前值</em>
+                          <strong>{previousDisplay}</strong>
+                        </span>
+                        <span className="macro-metric-stat-rule" aria-hidden="true" />
+                        <span className={`macro-metric-stat-verdict ${tone}`}>
+                          <em>预期</em>
+                          <strong>{isNonfarm ? nonfarmExpected : unemploymentExpected}</strong>
+                        </span>
+                        <span className={`macro-metric-stat-symbol ${tone}`} aria-hidden="true">
+                          {isNonfarm ? <BriefcaseBusiness /> : <UserRoundX />}
+                        </span>
+                      </span>
                     );
                   })() : <>
                   <span className="macro-metric-copy">

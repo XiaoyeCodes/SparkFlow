@@ -4489,33 +4489,39 @@ async function getVixMacroMetric() {
 }
 
 async function getUsPpiMacroMetric(forceOfficial = false, waitForExpectation = false) {
-  if (forceOfficial) return getBlsOfficialMacroMetric('ppi', true);
-  const ppiMarketContextRequest: Promise<PpiMarketContext | undefined> = waitForExpectation
-    ? getPpiMarketContext(false)
-    : Promise.race([
-      getPpiMarketContext(false),
-      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
-    ]).catch(() => undefined);
-  const [yearly, ppiMarketContext] = await Promise.all([
-    getFredMacroMetric('ppi', ['PPIFIS'], '美国 PPI 同比', (value) => `${value.toFixed(1)}%`, yearlyPercentChanges),
-    ppiMarketContextRequest,
-  ]);
-  const previous = yearly.history.at(-2)?.value;
-  const validMarketContext = ppiMarketContext
-    && Math.abs(ppiMarketContext.actual - yearly.value) < 0.051
-      ? ppiMarketContext
-      : undefined;
-  const change = previous === undefined ? null : yearly.value - previous;
-  return {
-    ...yearly,
-    change,
-    changeDisplay: change === null ? undefined : signedMetricChange(change, 'pct'),
-    stats: [
-      { label: '前值', display: previous === undefined ? '待更新' : `${previous > 0 ? '+' : ''}${previous.toFixed(1)}%` },
-      { label: '同比值', display: `${yearly.value > 0 ? '+' : ''}${yearly.value.toFixed(1)}%` },
-      { label: '市场预期', display: validMarketContext ? `${validMarketContext.consensus > 0 ? '+' : ''}${validMarketContext.consensus.toFixed(1)}%` : '待更新' },
-    ],
-  };
+  if (forceOfficial) return getBlsReleaseMacroMetric('ppi', true, waitForExpectation);
+  try {
+    return await getBlsReleaseMacroMetric('ppi', false, waitForExpectation);
+  } catch {
+    try {
+      const official = await getBlsOfficialMacroMetricFromApi('ppi');
+      const ppiMarketContext = await getPpiMarketContext(false).catch(() => undefined);
+      return {
+        ...official,
+        stats: [
+          { label: '环比', display: official.display },
+          { label: '同比值', display: ppiMarketContext ? `${ppiMarketContext.actual > 0 ? '+' : ''}${ppiMarketContext.actual.toFixed(1)}%` : '待更新' },
+          { label: '市场预期', display: ppiMarketContext ? `${ppiMarketContext.consensus > 0 ? '+' : ''}${ppiMarketContext.consensus.toFixed(1)}%` : '待更新' },
+          { label: '前值', display: ppiMarketContext ? `${ppiMarketContext.previous > 0 ? '+' : ''}${ppiMarketContext.previous.toFixed(1)}%` : '待更新' },
+        ],
+      };
+    } catch {
+      const [yearly, monthly, ppiMarketContext] = await Promise.all([
+        getFredMacroMetric('ppi', ['PPIFIS'], '美国 PPI 同比', (value) => `${value.toFixed(1)}%`, yearlyPercentChanges),
+        getFredMacroMetric('ppi-mom', ['PPIFIS'], '美国 PPI 环比', (value) => `${value.toFixed(1)}%`, monthlyPercentChanges),
+        getPpiMarketContext(false).catch(() => undefined),
+      ]);
+      return {
+        ...yearly,
+        stats: [
+          { label: '环比', display: monthly.display },
+          { label: '同比值', display: `${yearly.value > 0 ? '+' : ''}${yearly.value.toFixed(1)}%` },
+          { label: '市场预期', display: ppiMarketContext ? `${ppiMarketContext.consensus > 0 ? '+' : ''}${ppiMarketContext.consensus.toFixed(1)}%` : '待更新' },
+          { label: '前值', display: yearly.history.at(-2)?.value === undefined ? '待更新' : `${yearly.history.at(-2)!.value > 0 ? '+' : ''}${yearly.history.at(-2)!.value.toFixed(1)}%` },
+        ],
+      };
+    }
+  }
 }
 
 async function getUsCpiPceMacroMetric(forceOfficial = false) {
@@ -4587,6 +4593,7 @@ type GlobalCpiMetric = {
   value: number | null;
   display: string;
   change: number | null;
+  expectation?: number;
   period: string;
   releasedAt?: string;
   updatedAt: string;
@@ -4745,10 +4752,13 @@ type BlsReleaseReportSnapshot = {
   ppi?: number;
   ppiPrevious?: number;
   ppiYoy?: number;
+  ppiPreviousYoy?: number;
   cpi?: number;
   cpiYoy?: number;
   unemployment?: number;
+  unemploymentPrevious?: number;
   nonfarm?: number;
+  nonfarmPrevious?: number;
   storedAt: number;
 };
 const blsReleaseReportCache = new Map<BlsReleaseReportSnapshot['family'], BlsReleaseReportSnapshot>();
@@ -4765,8 +4775,28 @@ type PpiMarketContext = {
 let ppiMarketContextCache: PpiMarketContext | undefined;
 let ppiMarketContextInFlight: Promise<PpiMarketContext> | undefined;
 
+type NonfarmMarketContext = {
+  period: string;
+  actual: number;
+  previous: number;
+  consensus: number;
+  sourceUrl: string;
+  storedAt: number;
+};
+let nonfarmMarketContextCache: NonfarmMarketContext | undefined;
+let nonfarmMarketContextInFlight: Promise<NonfarmMarketContext> | undefined;
+let cpiMarketContextCache: NonfarmMarketContext | undefined;
+let cpiMarketContextInFlight: Promise<NonfarmMarketContext> | undefined;
+let unemploymentMarketContextCache: NonfarmMarketContext | undefined;
+let unemploymentMarketContextInFlight: Promise<NonfarmMarketContext> | undefined;
+
 function parsePercentCell(value: string) {
   const normalized = stripTags(value).replace(/&nbsp;|&#160;|%/gi, '').trim();
+  return normalized ? asFiniteNumber(normalized) : undefined;
+}
+
+function parseThousandsCell(value: string) {
+  const normalized = stripTags(value).replace(/&nbsp;|&#160;|,/gi, '').replace(/K\b/i, '').trim();
   return normalized ? asFiniteNumber(normalized) : undefined;
 }
 
@@ -4846,16 +4876,227 @@ async function getPpiMarketContext(forceRefresh = false) {
   return ppiMarketContextInFlight;
 }
 
+async function fetchNonfarmMarketContext(): Promise<NonfarmMarketContext> {
+  const sourceUrl = 'https://tradingeconomics.com/united-states/non-farm-payrolls';
+  const html = await fetchDirectHtml(sourceUrl).catch(() => fetchFastMarketText(sourceUrl, 12_000));
+  const rows = [...html.matchAll(/<tr[^>]*data-category=["'][^"']*(?:Non Farm Payrolls|Nonfarm Payrolls)[^"']*["'][^>]*>([\s\S]*?)<\/tr>/gi)];
+  const released = rows.flatMap((rowMatch) => {
+    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => match[1]);
+    const actual = parseThousandsCell(cells[4] || '');
+    const previous = parseThousandsCell(cells[5] || '');
+    const consensus = parseThousandsCell(cells[6] || '');
+    const date = stripTags(cells[0] || '').trim();
+    if (!date || actual === undefined || previous === undefined || consensus === undefined) return [];
+    return [{ date, actual, previous, consensus }];
+  }).sort((left, right) => right.date.localeCompare(left.date));
+  const latest = released[0];
+  if (!latest) throw new Error('非农市场一致预期暂不可用');
+  const releaseDate = new Date(`${latest.date}T00:00:00Z`);
+  releaseDate.setUTCMonth(releaseDate.getUTCMonth() - 1);
+  return {
+    period: releaseDate.toISOString().slice(0, 7),
+    actual: latest.actual,
+    previous: latest.previous,
+    consensus: latest.consensus,
+    sourceUrl,
+    storedAt: Date.now(),
+  };
+}
+
+async function getNonfarmMarketContext(forceRefresh = false) {
+  if (!forceRefresh && nonfarmMarketContextCache && Date.now() - nonfarmMarketContextCache.storedAt < BLS_MACRO_CACHE_TTL_MS) {
+    return nonfarmMarketContextCache;
+  }
+  if (nonfarmMarketContextInFlight) return nonfarmMarketContextInFlight;
+  nonfarmMarketContextInFlight = fetchNonfarmMarketContext()
+    .then((context) => {
+      nonfarmMarketContextCache = context;
+      return context;
+    })
+    .catch((error) => {
+      if (nonfarmMarketContextCache) return nonfarmMarketContextCache;
+      throw error;
+    })
+    .finally(() => {
+      nonfarmMarketContextInFlight = undefined;
+    });
+  return nonfarmMarketContextInFlight;
+}
+
+async function fetchCpiMarketContext(): Promise<NonfarmMarketContext> {
+  const sourceUrl = 'https://tradingeconomics.com/united-states/inflation-cpi';
+  const html = await fetchDirectHtml(sourceUrl).catch(() => fetchFastMarketText(sourceUrl, 12_000));
+  const rows = [...html.matchAll(/<tr[^>]*data-category=["']Inflation Rate["'][^>]*>([\s\S]*?)<\/tr>/gi)]
+    .filter((rowMatch) => /Inflation Rate YoY/i.test(rowMatch[1]));
+  const htmlReleased = rows.flatMap((rowMatch) => {
+    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => match[1]);
+    const actual = parsePercentCell(cells[4] || '');
+    const previous = parsePercentCell(cells[5] || '');
+    const consensus = parsePercentCell(cells[6] || '');
+    const date = stripTags(cells[0] || '').trim();
+    if (!date || actual === undefined || previous === undefined || consensus === undefined) return [];
+    return [{ date, actual, previous, consensus }];
+  });
+  const markdownReleased = [...html.matchAll(/(\d{4}-\d{2}-\d{2})\s*\|\s*[^|\r\n]*\|\s*\|\s*[A-Za-z]{3}\s*\|\s*([-+]?\d+(?:\.\d+)?)%\s*\|\s*([-+]?\d+(?:\.\d+)?)%\s*\|\s*([-+]?\d+(?:\.\d+)?)%/g)]
+    .map((match) => ({
+      date: match[1],
+      actual: Number(match[2]),
+      previous: Number(match[3]),
+      consensus: Number(match[4]),
+    }));
+  const released = [...htmlReleased, ...markdownReleased]
+    .sort((left, right) => right.date.localeCompare(left.date));
+  const latest = released[0];
+  if (!latest) throw new Error('CPI 市场一致预期暂不可用');
+  const releaseDate = new Date(`${latest.date}T00:00:00Z`);
+  releaseDate.setUTCMonth(releaseDate.getUTCMonth() - 1);
+  return {
+    period: releaseDate.toISOString().slice(0, 7),
+    actual: latest.actual,
+    previous: latest.previous,
+    consensus: latest.consensus,
+    sourceUrl,
+    storedAt: Date.now(),
+  };
+}
+
+async function getCpiMarketContext(forceRefresh = false) {
+  if (!forceRefresh && cpiMarketContextCache && Date.now() - cpiMarketContextCache.storedAt < BLS_MACRO_CACHE_TTL_MS) {
+    return cpiMarketContextCache;
+  }
+  if (cpiMarketContextInFlight) return cpiMarketContextInFlight;
+  cpiMarketContextInFlight = fetchCpiMarketContext()
+    .then((context) => {
+      cpiMarketContextCache = context;
+      return context;
+    })
+    .catch((error) => {
+      if (cpiMarketContextCache) return cpiMarketContextCache;
+      throw error;
+    })
+    .finally(() => {
+      cpiMarketContextInFlight = undefined;
+    });
+  return cpiMarketContextInFlight;
+}
+
+async function fetchUnemploymentMarketContext(): Promise<NonfarmMarketContext> {
+  const sourceUrl = 'https://tradingeconomics.com/united-states/unemployment-rate';
+  const html = await fetchDirectHtml(sourceUrl).catch(() => fetchFastMarketText(sourceUrl, 12_000));
+  const rows = [...html.matchAll(/<tr[^>]*data-category=["']Unemployment Rate["'][^>]*>([\s\S]*?)<\/tr>/gi)]
+    .filter((rowMatch) => /Unemployment Rate/i.test(rowMatch[1]));
+  const htmlReleased = rows.flatMap((rowMatch) => {
+    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => match[1]);
+    const actual = parsePercentCell(cells[4] || '');
+    const previous = parsePercentCell(cells[5] || '');
+    const consensus = parsePercentCell(cells[6] || '');
+    const date = stripTags(cells[0] || '').trim();
+    if (!date || actual === undefined || previous === undefined || consensus === undefined) return [];
+    return [{ date, actual, previous, consensus }];
+  });
+  const markdownReleased = [...html.matchAll(/(\d{4}-\d{2}-\d{2})\s*\|\s*[^|\r\n]*\|\s*\|\s*[A-Za-z]{3}\s*\|\s*([-+]?\d+(?:\.\d+)?)%\s*\|\s*([-+]?\d+(?:\.\d+)?)%\s*\|\s*([-+]?\d+(?:\.\d+)?)%/g)]
+    .map((match) => ({
+      date: match[1],
+      actual: Number(match[2]),
+      previous: Number(match[3]),
+      consensus: Number(match[4]),
+    }));
+  const latest = [...htmlReleased, ...markdownReleased]
+    .sort((left, right) => right.date.localeCompare(left.date))[0];
+  if (!latest) throw new Error('失业率市场一致预期暂不可用');
+  const releaseDate = new Date(`${latest.date}T00:00:00Z`);
+  releaseDate.setUTCMonth(releaseDate.getUTCMonth() - 1);
+  return {
+    period: releaseDate.toISOString().slice(0, 7),
+    actual: latest.actual,
+    previous: latest.previous,
+    consensus: latest.consensus,
+    sourceUrl,
+    storedAt: Date.now(),
+  };
+}
+
+async function getUnemploymentMarketContext(forceRefresh = false) {
+  if (!forceRefresh && unemploymentMarketContextCache && Date.now() - unemploymentMarketContextCache.storedAt < BLS_MACRO_CACHE_TTL_MS) {
+    return unemploymentMarketContextCache;
+  }
+  if (unemploymentMarketContextInFlight) return unemploymentMarketContextInFlight;
+  unemploymentMarketContextInFlight = fetchUnemploymentMarketContext()
+    .then((context) => {
+      unemploymentMarketContextCache = context;
+      return context;
+    })
+    .catch((error) => {
+      if (unemploymentMarketContextCache) return unemploymentMarketContextCache;
+      throw error;
+    })
+    .finally(() => {
+      unemploymentMarketContextInFlight = undefined;
+    });
+  return unemploymentMarketContextInFlight;
+}
+
 function signedReleaseValue(direction: string, magnitude?: string) {
   const value = asFiniteNumber(magnitude) || 0;
   return /(decreased|declined|fell|falling|edged down)/i.test(direction) ? -value : value;
 }
 
+function parseBlsPpiPreviousYoy(raw: string, period: string) {
+  const [year, month] = period.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return undefined;
+  const previousMonth = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(year, month - 2, 1)));
+  const tableA = raw.match(/Table A\.[\s\S]*?(?:Intermediate Demand by Commodity Type|Table B\.)/i)?.[0] || raw;
+  const htmlRows = [...tableA.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((match) => stripTags(match[1]));
+  const markdownRows = tableA.split(/\r?\n/).filter((line) => line.trim().startsWith('|'));
+  const previousRow = [...htmlRows, ...markdownRows].find((row) => (
+    new RegExp(`(?:^|\\|\\s*)${previousMonth}(?:\\b|\\()`, 'i').test(row)
+  ));
+  if (!previousRow) return undefined;
+  const values = previousRow.match(/[-+]?\d+(?:\.\d+)?/g)?.map(Number).filter(Number.isFinite) || [];
+  return values.length >= 2 ? values.at(-2) : undefined;
+}
+
+function findBlsTableRow(raw: string, tableStart: string, tableEnd: string, rowLabel: RegExp) {
+  const section = raw.match(new RegExp(`${tableStart}[\\s\\S]*?${tableEnd}`, 'i'))?.[0] || raw;
+  const htmlRows = [...section.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((rowMatch) => (
+    [...rowMatch[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => stripTags(cell[1]).trim())
+  ));
+  const markdownRows = section.split(/\r?\n/)
+    .filter((line) => line.trim().startsWith('|'))
+    .map((line) => line.split('|').slice(1, -1).map((cell) => stripTags(cell).trim()));
+  return [...htmlRows, ...markdownRows]
+    .filter((cells) => rowLabel.test(cells[0] || ''))
+    .sort((left, right) => right.length - left.length)[0];
+}
+
+function parseBlsEmploymentPrevious(raw: string) {
+  const unemploymentRow = findBlsTableRow(raw, 'Table A-1\\.', 'Table A-2\\.', /^Unemployment rate$/i);
+  const unemploymentValues = (unemploymentRow || []).slice(1).flatMap((cell) => {
+    const value = asFiniteNumber(cell.replace(/,/g, '').match(/[-+]?\d+(?:\.\d+)?/)?.[0]);
+    return value === undefined ? [] : [value];
+  });
+
+  const nonfarmRow = findBlsTableRow(raw, 'Table B-1\\.', 'Table B-2\\.', /^Total nonfarm$/i);
+  const nonfarmValues = (nonfarmRow || []).slice(1).flatMap((cell) => {
+    const value = asFiniteNumber(cell.replace(/,/g, '').match(/[-+]?\d+(?:\.\d+)?/)?.[0]);
+    return value === undefined ? [] : [value];
+  });
+  const previousNonfarm = nonfarmValues.length >= 4
+    ? nonfarmValues[nonfarmValues.length - 3] - nonfarmValues[nonfarmValues.length - 4]
+    : undefined;
+
+  return {
+    unemploymentPrevious: unemploymentValues.length >= 2 ? unemploymentValues[unemploymentValues.length - 2] : undefined,
+    nonfarmPrevious: previousNonfarm,
+  };
+}
+
 async function fetchBlsReleaseReport(family: BlsReleaseReportSnapshot['family']): Promise<BlsReleaseReportSnapshot> {
   const sourceUrl = family === 'ppi'
-    ? 'https://www.bls.gov/news.release/ppi.htm'
+    ? 'https://www.bls.gov/news.release/ppi.nr0.htm'
     : family === 'cpi'
-      ? 'https://www.bls.gov/news.release/cpi.htm'
+      ? 'https://www.bls.gov/news.release/cpi.nr0.htm'
       : 'https://www.bls.gov/news.release/empsit.htm';
   let html: string;
   try {
@@ -4888,6 +5129,7 @@ async function fetchBlsReleaseReport(family: BlsReleaseReportSnapshot['family'])
       ppi: unchanged ? 0 : signedReleaseValue(match![1], match![2]),
       ppiPrevious: signedReleaseValue(previousMatch[1], previousMatch[2]),
       ppiYoy: signedReleaseValue(yoyMatch[1], yoyMatch[2]),
+      ppiPreviousYoy: parseBlsPpiPreviousYoy(html, period),
     } satisfies BlsReleaseReportSnapshot;
   }
   if (family === 'cpi') {
@@ -4907,12 +5149,22 @@ async function fetchBlsReleaseReport(family: BlsReleaseReportSnapshot['family'])
   const unemployment = asFiniteNumber(unemploymentMatch?.[1]);
   const nonfarmRaw = asFiniteNumber(nonfarmMatch?.[1]?.replace(/,/g, ''));
   if (unemployment === undefined || nonfarmRaw === undefined) throw new Error('BLS 就业新闻稿数值无法识别');
-  return { ...base, unemployment, nonfarm: nonfarmRaw / 1000 } satisfies BlsReleaseReportSnapshot;
+  const previous = parseBlsEmploymentPrevious(html);
+  return {
+    ...base,
+    unemployment,
+    unemploymentPrevious: previous.unemploymentPrevious,
+    nonfarm: nonfarmRaw / 1000,
+    nonfarmPrevious: previous.nonfarmPrevious,
+  } satisfies BlsReleaseReportSnapshot;
 }
 
 async function getBlsReleaseReport(family: BlsReleaseReportSnapshot['family'], forceRefresh = false): Promise<BlsReleaseReportSnapshot> {
   const cached = blsReleaseReportCache.get(family);
-  if (!forceRefresh && cached && Date.now() - cached.storedAt < BLS_MACRO_CACHE_TTL_MS) return cached;
+  const cachedEmploymentIncomplete = family === 'employment'
+    && cached
+    && (cached.unemploymentPrevious === undefined || cached.nonfarmPrevious === undefined);
+  if (!forceRefresh && !cachedEmploymentIncomplete && cached && Date.now() - cached.storedAt < BLS_MACRO_CACHE_TTL_MS) return cached;
   const running = blsReleaseReportInFlight.get(family);
   if (running) return running;
   const request = fetchBlsReleaseReport(family)
@@ -4929,12 +5181,30 @@ async function getBlsReleaseReport(family: BlsReleaseReportSnapshot['family'], f
   return request;
 }
 
-async function getBlsReleaseMacroMetric(id: 'ppi' | 'cpi' | 'unemployment' | 'nonfarm', forceRefresh = false) {
+async function getBlsReleaseMacroMetric(
+  id: 'ppi' | 'cpi' | 'unemployment' | 'nonfarm',
+  forceRefresh = false,
+  waitForExpectation = false,
+) {
   const family = id === 'ppi' ? 'ppi' : id === 'cpi' ? 'cpi' : 'employment';
   const report = await getBlsReleaseReport(family, forceRefresh);
   const ppiMarketContext = id === 'ppi'
+    ? await (waitForExpectation
+      ? getPpiMarketContext(forceRefresh)
+      : Promise.race([
+        getPpiMarketContext(forceRefresh),
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
+      ])).catch(() => undefined)
+    : undefined;
+  const nonfarmMarketContext = id === 'nonfarm'
     ? await Promise.race([
-      getPpiMarketContext(forceRefresh),
+      getNonfarmMarketContext(forceRefresh),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
+    ]).catch(() => undefined)
+    : undefined;
+  const unemploymentMarketContext = id === 'unemployment'
+    ? await Promise.race([
+      getUnemploymentMarketContext(forceRefresh),
       new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
     ]).catch(() => undefined)
     : undefined;
@@ -4943,6 +5213,18 @@ async function getBlsReleaseMacroMetric(id: 'ppi' | 'cpi' | 'unemployment' | 'no
     && report.ppiYoy !== undefined
     && Math.abs(ppiMarketContext.actual - report.ppiYoy) < 0.051
       ? ppiMarketContext
+      : undefined;
+  const validNonfarmMarketContext = id === 'nonfarm'
+    && nonfarmMarketContext?.period === report.period
+    && report.nonfarm !== undefined
+    && Math.abs(nonfarmMarketContext.actual - report.nonfarm) < 0.51
+      ? nonfarmMarketContext
+      : undefined;
+  const validUnemploymentMarketContext = id === 'unemployment'
+    && unemploymentMarketContext?.period === report.period
+    && report.unemployment !== undefined
+    && Math.abs(unemploymentMarketContext.actual - report.unemployment) < 0.051
+      ? unemploymentMarketContext
       : undefined;
   const metricId = id === 'cpi' ? 'us-cpi-mom' : id;
   const labels = { ppi: '美国 PPI 月率', cpi: '美国 CPI 月率', unemployment: '美国失业率', nonfarm: '非农就业变动' };
@@ -4962,10 +5244,24 @@ async function getBlsReleaseMacroMetric(id: 'ppi' | 'cpi' | 'unemployment' | 'no
         : report.nonfarm;
   if (value === undefined) throw new Error('BLS 新闻稿缺少目标指标');
   const updatedAt = `${report.period}-01T00:00:00.000Z`;
-  const history = [...base.history.filter((item) => item.time.slice(0, 7) !== report.period), { time: updatedAt, value }]
+  const previousValue = id === 'unemployment'
+    ? report.unemploymentPrevious
+    : id === 'nonfarm'
+      ? report.nonfarmPrevious
+      : undefined;
+  const previousDate = new Date(updatedAt);
+  previousDate.setUTCMonth(previousDate.getUTCMonth() - 1);
+  const previousPeriod = previousDate.toISOString().slice(0, 7);
+  const releaseHistory = previousValue === undefined
+    ? [{ time: updatedAt, value }]
+    : [{ time: `${previousPeriod}-01T00:00:00.000Z`, value: previousValue }, { time: updatedAt, value }];
+  const history = [
+    ...base.history.filter((item) => item.time.slice(0, 7) !== report.period && item.time.slice(0, 7) !== previousPeriod),
+    ...releaseHistory,
+  ]
     .sort((left, right) => left.time.localeCompare(right.time))
     .slice(-48);
-  const previous = history.at(-2);
+  const previous = previousValue === undefined ? history.at(-2) : { value: previousValue };
   const change = previous ? value - previous.value : null;
   return {
     ...base,
@@ -4973,13 +5269,13 @@ async function getBlsReleaseMacroMetric(id: 'ppi' | 'cpi' | 'unemployment' | 'no
     display: id === 'unemployment'
       ? `${value.toFixed(1)}%`
       : id === 'nonfarm'
-        ? `${Math.round(value)} 千人`
+        ? `${value > 0 ? '+' : ''}${Math.round(value)}K`
         : `${value.toFixed(2)}%`,
     change,
     changeDisplay: change === null
       ? undefined
       : id === 'nonfarm'
-        ? `${change > 0 ? '+' : ''}${Math.round(change)} 千人`
+        ? `${change > 0 ? '+' : ''}${Math.round(change)}K`
         : signedMetricChange(change, 'pct'),
     updatedAt,
     sourceUrl: report.sourceUrl,
@@ -4988,9 +5284,36 @@ async function getBlsReleaseMacroMetric(id: 'ppi' | 'cpi' | 'unemployment' | 'no
     history,
     ...(id === 'ppi' ? {
       stats: [
-        { label: '前值', display: validPpiMarketContext?.previous === undefined ? '待更新' : `${validPpiMarketContext.previous > 0 ? '+' : ''}${validPpiMarketContext.previous.toFixed(1)}%` },
+        { label: '环比', display: `${report.ppi! > 0 ? '+' : ''}${report.ppi!.toFixed(1)}%` },
         { label: '同比值', display: `${report.ppiYoy! > 0 ? '+' : ''}${report.ppiYoy!.toFixed(1)}%` },
         { label: '市场预期', display: validPpiMarketContext?.consensus === undefined ? '待更新' : `${validPpiMarketContext.consensus > 0 ? '+' : ''}${validPpiMarketContext.consensus.toFixed(1)}%` },
+        { label: '前值', display: report.ppiPreviousYoy === undefined
+          ? (validPpiMarketContext?.previous === undefined ? '待更新' : `${validPpiMarketContext.previous > 0 ? '+' : ''}${validPpiMarketContext.previous.toFixed(1)}%`)
+          : `${report.ppiPreviousYoy > 0 ? '+' : ''}${report.ppiPreviousYoy.toFixed(1)}%` },
+      ],
+    } : id === 'nonfarm' ? {
+      stats: [
+        { label: '实际', display: `${value > 0 ? '+' : ''}${Math.round(value)}K` },
+        { label: '预期', display: validNonfarmMarketContext?.consensus === undefined
+          ? '待更新'
+          : `${validNonfarmMarketContext.consensus > 0 ? '+' : ''}${Math.round(validNonfarmMarketContext.consensus)}K` },
+        { label: '前值', display: previousValue === undefined
+          ? (validNonfarmMarketContext?.previous === undefined
+            ? '待更新'
+            : `${validNonfarmMarketContext.previous > 0 ? '+' : ''}${Math.round(validNonfarmMarketContext.previous)}K`)
+          : `${previousValue > 0 ? '+' : ''}${Math.round(previousValue)}K` },
+      ],
+    } : id === 'unemployment' ? {
+      stats: [
+        { label: '实际', display: `${value.toFixed(1)}%` },
+        { label: '预期', display: validUnemploymentMarketContext?.consensus === undefined
+          ? '待更新'
+          : `${validUnemploymentMarketContext.consensus.toFixed(1)}%` },
+        { label: '前值', display: previousValue === undefined
+          ? (validUnemploymentMarketContext?.previous === undefined
+            ? '待更新'
+            : `${validUnemploymentMarketContext.previous.toFixed(1)}%`)
+          : `${previousValue.toFixed(1)}%` },
       ],
     } : {}),
   };
@@ -5058,7 +5381,42 @@ async function getBlsOfficialMacroMetricFromApi(id: 'ppi' | 'cpi' | 'unemploymen
 }
 
 async function getBlsOfficialMacroMetric(id: 'ppi' | 'cpi' | 'unemployment' | 'nonfarm', forceRefresh = false) {
-  return getBlsReleaseMacroMetric(id, forceRefresh);
+  const releaseMetric = await getBlsReleaseMacroMetric(id, forceRefresh);
+  if (!['unemployment', 'nonfarm'].includes(id)) return releaseMetric;
+  const currentPeriod = releaseMetric.updatedAt?.slice(0, 7) || '';
+  const previousDate = new Date(`${currentPeriod}-01T00:00:00.000Z`);
+  previousDate.setUTCMonth(previousDate.getUTCMonth() - 1);
+  const previousPeriod = previousDate.toISOString().slice(0, 7);
+  if (releaseMetric.history.some((item) => item.time.slice(0, 7) === previousPeriod)) return releaseMetric;
+  try {
+    // Keep the current headline value on the BLS release and use the BLS API only to fill its prior observation.
+    const apiMetric = await getBlsOfficialMacroMetricFromApi(id, forceRefresh);
+    const previous = [...apiMetric.history]
+      .reverse()
+      .find((item) => item.time.slice(0, 7) < currentPeriod);
+    if (!previous || releaseMetric.value === null || releaseMetric.value === undefined) return releaseMetric;
+    const change = releaseMetric.value - previous.value;
+    const currentPoint = { time: releaseMetric.updatedAt || `${currentPeriod}-01T00:00:00.000Z`, value: releaseMetric.value };
+    const history = [
+      ...apiMetric.history.filter((item) => item.time.slice(0, 7) < currentPeriod),
+      currentPoint,
+    ].slice(-48);
+    return {
+      ...releaseMetric,
+      history,
+      change,
+      changeDisplay: id === 'nonfarm'
+        ? `${change > 0 ? '+' : ''}${Math.round(change)}K`
+        : signedMetricChange(change, 'pct'),
+      ...(id === 'nonfarm' ? {
+        stats: (releaseMetric.stats || []).map((stat) => stat.label === '前值'
+          ? { ...stat, display: `${previous.value > 0 ? '+' : ''}${Math.round(previous.value)}K` }
+          : stat),
+      } : {}),
+    };
+  } catch {
+    return releaseMetric;
+  }
 }
 
 type BeaPceSnapshot = Awaited<ReturnType<typeof fetchBeaPceMacroMetric>> & { storedAt: number };
@@ -5128,7 +5486,22 @@ async function getUsCpiMetricFromBlsReport(forceRefresh = false): Promise<Global
   const [year, month] = report.period.split('-').map(Number);
   const updatedAt = cpiPeriodTime(year, month);
   const existing = globalCpiMetricLastGood.get('us-cpi');
-  const history = [...(existing?.history || []).filter((item) => item.time.slice(0, 7) !== report.period), { time: updatedAt, value: report.cpiYoy }]
+  const marketContext = await Promise.race([
+    getCpiMarketContext(forceRefresh),
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
+  ]).catch(() => undefined);
+  const expectation = marketContext?.period === report.period
+    && Math.abs(marketContext.actual - report.cpiYoy) < 0.051
+      ? marketContext.consensus
+      : undefined;
+  let officialHistory = existing?.history || [];
+  try {
+    // Only use the BLS API to hydrate prior observations. The current core YoY remains the BLS release value below.
+    officialHistory = (await getUsCpiMetricFromBls(forceRefresh)).history;
+  } catch {
+    // The release value remains authoritative even when the BLS history API is temporarily unavailable.
+  }
+  const history = [...officialHistory.filter((item) => item.time.slice(0, 7) !== report.period), { time: updatedAt, value: report.cpiYoy }]
     .sort((left, right) => left.time.localeCompare(right.time))
     .slice(-48);
   return {
@@ -5137,6 +5510,7 @@ async function getUsCpiMetricFromBlsReport(forceRefresh = false): Promise<Global
     value: report.cpiYoy,
     display: `${report.cpiYoy > 0 ? '+' : ''}${report.cpiYoy.toFixed(1)}%`,
     change: report.cpi,
+    expectation,
     period: `${year}年${month}月`,
     updatedAt,
     source: '美国劳工统计局',
@@ -5204,7 +5578,12 @@ async function getUsCpiMetricFromFred(): Promise<GlobalCpiMetric> {
 }
 
 async function getUsCpiMetric(forceOfficial = false): Promise<GlobalCpiMetric> {
-  return forceOfficial ? getUsCpiMetricFromBlsReport(true) : getUsCpiMetricFromFred();
+  if (forceOfficial) return getUsCpiMetricFromBlsReport(true);
+  try {
+    return await getUsCpiMetricFromBlsReport();
+  } catch {
+    return getUsCpiMetricFromBls();
+  }
 }
 
 function pmiObservationTime(monthName: string) {
@@ -6717,7 +7096,22 @@ const globalMarketHeatmapInFlight = new Map<string, Promise<Awaited<ReturnType<t
 async function getCachedGlobalMacroSection(region: GlobalMacroRegion, section: GlobalMacroSectionName, forceOfficial = false) {
   const key = `${region}:${section}`;
   const cached = globalMacroSectionCache.get(key);
-  if (!forceOfficial && cached && Date.now() - cached.storedAt < globalMacroSectionCacheTtl[section]) return cached.data;
+  const cachedMacroPayload = section === 'macro'
+    ? cached?.data as { macro?: Array<{ id: string; history?: Array<{ time: string; value: number }> }>; cpi?: Array<{ id: string; history?: Array<{ time: string; value: number }> }> }
+    : undefined;
+  const cachedMacro = cachedMacroPayload?.macro || [];
+  const cachedCpi = cachedMacroPayload?.cpi || [];
+  const missingOfficialContext = section === 'macro' && Boolean(cached) && (
+    ['unemployment', 'nonfarm'].some((id) => {
+      const metric = cachedMacro.find((item) => item.id === id);
+      return !metric || !Array.isArray(metric.history) || metric.history.length < 2;
+    })
+    || (() => {
+      const metric = cachedCpi.find((item) => item.id === 'us-cpi');
+      return !metric || !Array.isArray(metric.history) || metric.history.length < 2;
+    })()
+  );
+  if (!forceOfficial && !missingOfficialContext && cached && Date.now() - cached.storedAt < globalMacroSectionCacheTtl[section]) return cached.data;
   const running = globalMacroSectionInFlight.get(key);
   if (running) return running;
 
