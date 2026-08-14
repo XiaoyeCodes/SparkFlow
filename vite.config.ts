@@ -3662,6 +3662,29 @@ const globalMacroCommodities = [
   ['bitcoin', '比特币', 'BTC-USD'], ['ethereum', '以太坊', 'ETH-USD'],
 ] as const;
 
+const globalMacroFxRates = [
+  { id: 'usd-jpy', label: '美元兑日元', pair: 'USD/JPY', symbol: 'JPY=X', digits: 2, inverse: false },
+  { id: 'usd-cny', label: '美元兑人民币', pair: 'USD/CNY', symbol: 'CNY=X', digits: 4, inverse: false },
+  { id: 'usd-eur', label: '美元兑欧元', pair: 'USD/EUR', symbol: 'EURUSD=X', digits: 4, inverse: true },
+] as const;
+
+function normalizeFxPrice(price: number, inverse: boolean) {
+  return inverse && price > 0 ? 1 / price : price;
+}
+
+function normalizeFxChangePercent(changePercent: number, inverse: boolean) {
+  if (!inverse) return changePercent;
+  const ratio = 1 + changePercent / 100;
+  return ratio > 0 ? (1 / ratio - 1) * 100 : 0;
+}
+
+function formatFxRate(value: number, digits: number) {
+  return new Intl.NumberFormat('zh-CN', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value);
+}
+
 type GlobalHeatmapConfig = { symbol: string; name: string; sector: string; weight: number };
 
 const globalHeatmapConfigs: Record<string, GlobalHeatmapConfig[]> = {
@@ -6729,10 +6752,26 @@ async function loadGlobalPmiSection() {
 }
 
 async function loadGlobalCommoditiesSection() {
-  const taskFactories = globalMacroCommodities.map(([id, label, symbol]) => async () => {
+  const commodityTaskFactories = globalMacroCommodities.map(([id, label, symbol]) => async () => {
     const quote = await getYahooMacroQuote(symbol);
     return { id, label, value: quote.price, display: new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(quote.price), change: quote.changePercent, updatedAt: quote.updatedAt, sourceUrl: quote.sourceUrl, status: 'live' as const, history: quote.history.slice(-24) };
   });
+  const fxTaskFactories = globalMacroFxRates.map((config) => async () => {
+    const quote = await getYahooMacroQuote(config.symbol);
+    const value = normalizeFxPrice(quote.price, config.inverse);
+    return {
+      id: config.id,
+      label: config.label,
+      value,
+      display: formatFxRate(value, config.digits),
+      change: normalizeFxChangePercent(quote.changePercent, config.inverse),
+      updatedAt: quote.updatedAt,
+      sourceUrl: quote.sourceUrl,
+      status: 'live' as const,
+      history: quote.history.slice(-24).map((point) => ({ ...point, value: normalizeFxPrice(point.value, config.inverse) })),
+    };
+  });
+  const taskFactories = [...commodityTaskFactories, ...fxTaskFactories];
   const commodities: PromiseSettledResult<Awaited<ReturnType<(typeof taskFactories)[number]>>>[] = [];
   for (let index = 0; index < taskFactories.length; index += 4) {
     commodities.push(...await Promise.allSettled(taskFactories.slice(index, index + 4).map((task) => task())));
@@ -6824,9 +6863,14 @@ async function loadGlobalMacroFastQuotes() {
   const yahooMarketSymbols = globalMacroQuotes
     .filter((item) => yahooMarketIds.has(item.id))
     .map((item) => item.symbol);
+  const yahooForegroundSymbols = [
+    ...yahooMarketSymbols,
+    ...globalMacroFxRates.map((item) => item.symbol),
+  ];
   const yahooSymbols = [
     ...globalMacroQuotes.map((item) => item.symbol),
     ...globalMacroCommodities.map(([, , symbol]) => symbol),
+    ...globalMacroFxRates.map((item) => item.symbol),
     'VT',
     '^SOX',
     '^TNX',
@@ -6838,7 +6882,7 @@ async function loadGlobalMacroFastQuotes() {
     readFastGlobalIndexSource(),
     readFastAssetSource(),
     readFastCryptoSource(),
-    getYahooFastQuotes(yahooMarketSymbols),
+    getYahooFastQuotes(yahooForegroundSymbols),
   ]);
   const yahoo = new Map(yahooFastQuoteLastGood);
   yahooMarketQuotes.forEach((quote, symbol) => yahoo.set(symbol, quote));
@@ -6948,6 +6992,22 @@ async function loadGlobalMacroFastQuotes() {
       history: [],
     }];
   });
+  const fxRates = globalMacroFxRates.flatMap((config) => {
+    const quote = yahoo.get(config.symbol);
+    if (!quote) return [];
+    const value = normalizeFxPrice(quote.price, config.inverse);
+    return [{
+      id: config.id,
+      label: config.label,
+      value,
+      display: formatFxRate(value, config.digits),
+      change: normalizeFxChangePercent(quote.changePercent, config.inverse),
+      updatedAt: quote.updatedAt,
+      sourceUrl: quote.sourceUrl,
+      status: fastQuoteStatus(quote.updatedAt),
+      history: [],
+    }];
+  });
 
   const vtQuote = yahoo.get('VT');
   const global = vtQuote ? {
@@ -6990,7 +7050,7 @@ async function loadGlobalMacroFastQuotes() {
     markets,
     coreIndices,
     macro,
-    commodities,
+    commodities: [...commodities, ...fxRates],
   };
 }
 

@@ -145,6 +145,11 @@ const KEY_SIGNAL_ICONS: Partial<Record<string, LucideIcon>> = {
   gold: GoldBarIcon as LucideIcon,
 };
 const HIDDEN_MACRO_RISK_IDS = new Set(['vix', 'dxy', 'us10y', 'ust2y10y', 'fedfunds', 'gscpi']);
+const FX_RATE_META = [
+  { id: 'usd-jpy', pair: 'USD/JPY', target: '日元', mark: '¥', sourceUrl: 'https://finance.yahoo.com/quote/JPY%3DX' },
+  { id: 'usd-cny', pair: 'USD/CNY', target: '人民币', mark: '￥', sourceUrl: 'https://finance.yahoo.com/quote/CNY%3DX' },
+  { id: 'usd-eur', pair: 'USD/EUR', target: '欧元', mark: '€', sourceUrl: 'https://finance.yahoo.com/quote/EURUSD%3DX' },
+] as const;
 type News = {
   id: string;
   title: string;
@@ -806,12 +811,14 @@ function MacroPulsePanel({
   data,
   loading,
   marketSignals,
+  exchangeRates,
   crypto,
   onOpenCrypto,
 }: {
   data: Dashboard | null;
   loading: boolean;
   marketSignals: KeySignal[];
+  exchangeRates: Metric[];
   crypto: Metric[];
   onOpenCrypto: () => void;
 }) {
@@ -895,6 +902,19 @@ function MacroPulsePanel({
         <p className="macro-section-title">核心指数 · 24H</p>
         <div className="macro-core-index-grid">
           {(data?.coreIndices || []).map((item) => <CoreIndexCard key={item.id} item={item} />)}
+        </div>
+      </section>
+
+      <section className="macro-terminal-section macro-fx-section">
+        <p className="macro-section-title">主要汇率 · 24H</p>
+        <div className="macro-fx-grid">
+          {FX_RATE_META.map((meta) => (
+            <ExchangeRateCard
+              key={meta.id}
+              meta={meta}
+              item={exchangeRates.find((rate) => rate.id === meta.id)}
+            />
+          ))}
         </div>
       </section>
 
@@ -2061,6 +2081,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       : usCpiMetric.value > usCpiMetric.expectation ? 'above' : 'below';
   const macroRiskMetrics = macro.filter((item) => !HIDDEN_MACRO_RISK_IDS.has(item.id));
   const treasurySpread = macro.find((item) => item.id === 'ust2y10y');
+  const exchangeRates = commodities.filter((item) => FX_RATE_META.some((rate) => rate.id === item.id));
   const crypto = commodities.filter((item) => ['bitcoin', 'ethereum'].includes(item.id));
   const markets = data?.markets || [];
 
@@ -2121,6 +2142,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
           data={data}
           loading={loading}
           marketSignals={rightMarketSignals}
+          exchangeRates={exchangeRates}
           crypto={crypto}
           onOpenCrypto={() => { setSelected(null); setModalMode('crypto'); }}
         />
@@ -2156,7 +2178,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                     const expectation = ppiExpectationState(item.stats);
                     return (
                     <span className="macro-metric-stat-layout">
-                      <small className="macro-metric-stat-title"><i aria-hidden="true" />PPI</small>
+                      <small className={`macro-metric-stat-title ${expectation.tone}`}><i aria-hidden="true" />PPI</small>
                       <span className="macro-metric-stat-mom">
                         <em>{item.stats[0]?.label || '环比'}</em>
                         <strong>{item.stats[0]?.display}</strong>
@@ -2180,7 +2202,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                     );
                   })() : item.id === 'cpi-pce' ? (
                     <span className="macro-metric-stat-layout macro-metric-stat-layout-cpi">
-                      <small className="macro-metric-stat-title"><i aria-hidden="true" />CPI</small>
+                      <small className={`macro-metric-stat-title ${usCpiExpectationTone}`}><i aria-hidden="true" />CPI</small>
                       <span className="macro-metric-stat-mom">
                         <em>环比</em>
                         <strong>{usCpiMetric?.change === null || usCpiMetric?.change === undefined
@@ -2229,7 +2251,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                         : `${previous.toFixed(1)}%`;
                     return (
                       <span className={`macro-metric-stat-layout macro-metric-stat-layout-employment${isNonfarm ? ' macro-metric-stat-layout-nonfarm' : ''}`}>
-                        <small className="macro-metric-stat-title"><i aria-hidden="true" />{isNonfarm ? '非农' : '失业率'}</small>
+                        <small className={`macro-metric-stat-title ${tone}`}><i aria-hidden="true" />{isNonfarm ? '非农' : '失业率'}</small>
                         {isNonfarm ? (
                           <span className="macro-metric-stat-mom">
                             <em>较前值</em>
@@ -2415,6 +2437,32 @@ function CryptoRow({ item, onOpen }: { item: Metric; onOpen: () => void }) {
       <span className="macro-crypto-copy"><strong>{item.label}</strong><small>{symbol}</small></span>
       <span className="macro-crypto-value"><strong>{item.display}</strong><b className={trendClass(item.change)}>{signed(item.change)}</b></span>
     </button>
+  );
+}
+
+function ExchangeRateCard({
+  meta,
+  item,
+}: {
+  meta: (typeof FX_RATE_META)[number];
+  item?: Metric;
+}) {
+  const available = item?.value !== null && item?.value !== undefined;
+  return (
+    <a
+      className={`macro-fx-card ${available ? '' : 'unavailable'}`}
+      href={item?.sourceUrl || meta.sourceUrl}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`${meta.pair} 当前汇率 ${item?.display || '待更新'}`}
+    >
+      <span className="macro-fx-card-head"><i>{meta.mark}</i><strong>{meta.pair}</strong></span>
+      <b>{item?.display || '待更新'}</b>
+      <span className="macro-fx-card-foot">
+        <small>{meta.target}</small>
+        <em className={trendClass(item?.change)}>{signed(item?.change)}</em>
+      </span>
+    </a>
   );
 }
 
