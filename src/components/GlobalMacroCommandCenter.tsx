@@ -41,6 +41,7 @@ import './GlobalMacroCommandCenter.css';
 export type GlobalMarketMode = 'china' | 'hongkong' | 'us' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk' | 'crypto';
 const INTERNATIONAL_MARKET_IDS = new Set<GlobalMarketMode>(['japan', 'korea', 'india', 'germany', 'france', 'uk']);
 type RegionId = 'global' | 'apac' | 'middleEast' | 'europe' | 'americas';
+type GlobeCountryFocus = 'china' | 'us' | null;
 
 function isInternationalMarketMode(market?: GlobalMarketMode): market is InternationalMarketMode {
   return Boolean(market && INTERNATIONAL_MARKET_IDS.has(market));
@@ -98,6 +99,7 @@ type Metric = {
     label: string;
     display: string;
     updatedAt?: string;
+    sourceUrl?: string;
   }>;
   stats?: Array<{
     label: string;
@@ -188,6 +190,27 @@ type FedRateExpectation = {
   method: string;
   status: 'delayed' | 'unavailable';
 };
+type FedNetLiquidity = {
+  id: 'fed-net-liquidity';
+  value: number;
+  display: string;
+  change30d: number;
+  changeDisplay: string;
+  regime: 'injection' | 'contraction';
+  regimeLabel: '流动性投放' | '流动性收缩';
+  updatedAt: string;
+  sourceUrl: string;
+  status: 'delayed';
+  history: HistoryPoint[];
+  chartHistory: HistoryPoint[];
+  chartMethod: '5D EMA';
+  components: {
+    totalAssets: number;
+    treasuryGeneralAccount: number;
+    overnightReverseRepo: number;
+  };
+};
+type FedNetLiquidityPayload = { generatedAt: string; liquidity: FedNetLiquidity };
 type OfficialMacroRelease = {
   id: string;
   family: 'ppi' | 'cpi' | 'employment' | 'pce';
@@ -223,6 +246,9 @@ type Dashboard = {
 const GLOBAL_MACRO_SECTIONS = ['markets', 'macro', 'pmi', 'commodities', 'news', 'calendar'] as const;
 type GlobalMacroSection = (typeof GLOBAL_MACRO_SECTIONS)[number];
 type DashboardSectionPayload = Partial<Dashboard> & { generatedAt: string };
+type IsolatedUsMacroCardId = 'ppi' | 'cpi' | 'unemployment' | 'nonfarm' | 'pmi' | 'pce';
+type IsolatedUsMacroCardPayload = { generatedAt: string; card: Metric };
+const ISOLATED_US_MACRO_CARD_IDS: IsolatedUsMacroCardId[] = ['ppi', 'cpi', 'unemployment', 'nonfarm', 'pmi', 'pce'];
 type FastQuotePayload = DashboardSectionPayload & {
   cadenceMs: number;
   coverage: {
@@ -743,6 +769,13 @@ function pointChange(value?: number | null) {
   return `${value > 0 ? '+' : ''}${value.toFixed(2)} pts`;
 }
 
+function displayNumber(value?: string) {
+  const match = value?.match(/[+-]?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function signalChange(item?: Metric, basisPoints = false) {
   if (item?.change === undefined || item.change === null || !Number.isFinite(item.change)) return '待更新';
   if (basisPoints) {
@@ -750,45 +783,6 @@ function signalChange(item?: Metric, basisPoints = false) {
     return `${value > 0 ? '+' : ''}${value}bp`;
   }
   return signed(item.change);
-}
-
-function buildPmiSignals(pmi: Metric[]): KeySignal[] {
-  const metric = (id: string) => pmi.find((item) => item.id === id);
-  const signal = (item: Metric | undefined, id: string, label: string): KeySignal => ({
-    id,
-    label,
-    value: item?.display || '待更新',
-    change: pointChange(item?.change),
-    rawChange: item?.change,
-    note: item?.value === null || item?.value === undefined ? '等待数据' : item.value >= 50 ? '制造业扩张' : '制造业收缩',
-    url: item?.sourceUrl,
-  });
-  const us = metric('pmi-us');
-  const china = metric('pmi-china');
-  const europe = metric('pmi-europe');
-  const japan = metric('pmi-japan');
-  const korea = metric('pmi-korea');
-  const asiaValues = [japan?.value, korea?.value].filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value));
-  const asiaChanges = [japan?.change, korea?.change].filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value));
-  const asiaValue = asiaValues.length === 2 ? average(asiaValues) : null;
-  const asiaChange = asiaChanges.length === 2 ? average(asiaChanges) : null;
-
-  return [
-    signal(us, 'pmi-us', '美国 PMI'),
-    signal(china, 'pmi-china', '中国 PMI'),
-    signal(europe, 'pmi-europe', '欧洲 PMI'),
-    {
-      id: 'pmi-asia',
-      label: '日韩 PMI',
-      value: asiaValue === null ? '待更新' : asiaValue.toFixed(2),
-      change: pointChange(asiaChange),
-      rawChange: asiaChange,
-      note: japan?.value !== null && japan?.value !== undefined && korea?.value !== null && korea?.value !== undefined
-        ? `均值 · 日${japan.display}/韩${korea.display}`
-        : '等待日韩数据',
-      url: 'https://www.spglobal.com/market-intelligence/en/solutions/products/pmi',
-    },
-  ];
 }
 
 function buildMarketSignals(macro: Metric[], commodities: Metric[]): KeySignal[] {
@@ -1031,13 +1025,17 @@ function MiniLine({ history, color = '#61dfff' }: { history: HistoryPoint[]; col
 function HologramGlobe({
   markets,
   selectedId,
+  focusCountry,
   onSelect,
   onPrefetch,
+  onUnlockFocus,
 }: {
   markets: Quote[];
   selectedId?: string;
+  focusCountry: GlobeCountryFocus;
   onSelect: (quote: Quote) => void;
   onPrefetch: (quote: Quote) => void;
+  onUnlockFocus: () => void;
 }) {
   const markerClusters = useMemo(() => clusterMarketMarkers(markets), [markets]);
   const mount = useRef<HTMLDivElement | null>(null);
@@ -1047,10 +1045,18 @@ function HologramGlobe({
   const quoteMapRef = useRef(new Map(markets.map((quote) => [quote.id, quote])));
   const markerClustersRef = useRef(markerClusters);
   const syncMarkerClustersRef = useRef<((clusters: MarketMarkerCluster[]) => void) | null>(null);
+  const focusCountryRef = useRef(focusCountry);
+  const focusControllerRef = useRef<((country: GlobeCountryFocus) => void) | null>(null);
+  const unlockFocusRef = useRef(onUnlockFocus);
   const [labels, setLabels] = useState<Array<{ quote: Quote; markerY: number; x: number; y: number; visible: boolean }>>([]);
 
   useEffect(() => { callbackRef.current = onSelect; }, [onSelect]);
   useEffect(() => { selectedRef.current = selectedId; }, [selectedId]);
+  useEffect(() => { unlockFocusRef.current = onUnlockFocus; }, [onUnlockFocus]);
+  useEffect(() => {
+    focusCountryRef.current = focusCountry;
+    focusControllerRef.current?.(focusCountry);
+  }, [focusCountry]);
   useEffect(() => {
     marketsRef.current = markets;
     quoteMapRef.current = new Map(markets.map((quote) => [quote.id, quote]));
@@ -1192,8 +1198,30 @@ function HologramGlobe({
     const pointer = new THREE.Vector2();
     const drag = { active: false, moved: false, x: 0, y: 0 };
     const target = { x: root.rotation.x, y: root.rotation.y };
-    const zoom = { current: 1, target: 1 };
+    // Match the reference composition: the globe occupies about 69% of the stage height.
+    const defaultGlobeZoom = 0.72;
+    const zoom = { current: defaultGlobeZoom, target: defaultGlobeZoom };
+    let lockedCountry: GlobeCountryFocus = null;
     let baseCameraZ = 6.7;
+
+    const countryRotations: Record<Exclude<GlobeCountryFocus, null>, { x: number; y: number }> = {
+      china: { x: 0.34, y: 2.90 },
+      us: { x: 0.36, y: 0.14 },
+    };
+    const nearestEquivalentAngle = (current: number, requested: number) => {
+      const fullTurn = Math.PI * 2;
+      const delta = ((requested - current + Math.PI) % fullTurn + fullTurn) % fullTurn - Math.PI;
+      return current + delta;
+    };
+    const applyCountryFocus = (country: GlobeCountryFocus) => {
+      lockedCountry = country;
+      if (!country) return;
+      const rotation = countryRotations[country];
+      target.x = rotation.x;
+      target.y = nearestEquivalentAngle(root.rotation.y, rotation.y);
+    };
+    focusControllerRef.current = applyCountryFocus;
+    applyCountryFocus(focusCountryRef.current);
 
     const resize = () => {
       const rect = host.getBoundingClientRect();
@@ -1221,7 +1249,14 @@ function HologramGlobe({
       if (!drag.active) return;
       const dx = event.clientX - drag.x;
       const dy = event.clientY - drag.y;
-      if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 2) {
+        drag.moved = true;
+        if (lockedCountry) {
+          lockedCountry = null;
+          focusCountryRef.current = null;
+          unlockFocusRef.current();
+        }
+      }
       target.y += dx * 0.008;
       target.x = THREE.MathUtils.clamp(target.x + dy * 0.006, -0.78, 0.78);
       drag.x = event.clientX;
@@ -1264,7 +1299,7 @@ function HologramGlobe({
     const markerToCamera = new THREE.Vector3();
     const animate = () => {
       const delta = Math.min(clock.getDelta(), 0.05);
-      if (!drag.active) target.y += delta * 0.018;
+      if (!drag.active && !lockedCountry) target.y += delta * 0.018;
       const rotationBlend = 1 - Math.exp(-delta * 4.35);
       const zoomBlend = 1 - Math.exp(-delta * 7);
       root.rotation.x += (target.x - root.rotation.x) * rotationBlend;
@@ -1326,6 +1361,7 @@ function HologramGlobe({
     return () => {
       cancelAnimationFrame(animationFrame);
       syncMarkerClustersRef.current = null;
+      focusControllerRef.current = null;
       observer.disconnect();
       host.removeEventListener('pointerdown', handleDown);
       host.removeEventListener('pointermove', handleMove);
@@ -1842,11 +1878,14 @@ function InteractiveFlatMap({
 
 export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (market: GlobalMarketMode) => void }) {
   const [view, setView] = useState<'globe' | 'map'>('globe');
+  const [globeFocus, setGlobeFocus] = useState<GlobeCountryFocus>(null);
   const [data, setData] = useState<Dashboard | null>(null);
   const [selected, setSelected] = useState<Quote | null>(null);
   const [modalMode, setModalMode] = useState<GlobalMarketMode | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isolatedUsMacroCards, setIsolatedUsMacroCards] = useState<Partial<Record<IsolatedUsMacroCardId, Metric>>>({});
+  const [fedNetLiquidity, setFedNetLiquidity] = useState<FedNetLiquidity | null>(null);
   const lastFastQuoteFrameRef = useRef('');
   const worldHeatmapWarmupStartedRef = useRef(false);
 
@@ -1878,6 +1917,18 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     const payload = await request<DashboardSectionPayload>('/api/global-macro-ppi-expectation');
     setData((current) => mergeDashboardPayload(current, payload, false));
     return payload;
+  }, []);
+
+  const refreshIsolatedUsMacroCard = useCallback(async (id: IsolatedUsMacroCardId) => {
+    const payload = await request<IsolatedUsMacroCardPayload>(`/api/us-macro-card?id=${encodeURIComponent(id)}`);
+    setIsolatedUsMacroCards((current) => ({ ...current, [id]: payload.card }));
+    return payload.card;
+  }, []);
+
+  const refreshFedNetLiquidity = useCallback(async () => {
+    const payload = await request<FedNetLiquidityPayload>('/api/fed-net-liquidity');
+    setFedNetLiquidity(payload.liquidity);
+    return payload.liquidity;
   }, []);
 
   const load = useCallback(async (
@@ -1916,6 +1967,44 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       window.clearInterval(newsRefresh);
     };
   }, [load]);
+
+  useEffect(() => {
+    let disposed = false;
+    const refreshAll = () => {
+      ISOLATED_US_MACRO_CARD_IDS.forEach((id) => {
+        void refreshIsolatedUsMacroCard(id).catch(() => {
+          // Each card keeps its own last valid snapshot; one failure must not affect the other cards.
+        });
+      });
+    };
+    refreshAll();
+    const timer = window.setInterval(() => {
+      if (!disposed && !document.hidden) refreshAll();
+    }, 60_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshIsolatedUsMacroCard]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: number | undefined;
+    const refresh = async () => {
+      if (disposed) return;
+      try {
+        await refreshFedNetLiquidity();
+        if (!disposed) timer = window.setTimeout(refresh, 15 * 60_000);
+      } catch {
+        if (!disposed) timer = window.setTimeout(refresh, 60_000);
+      }
+    };
+    void refresh();
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [refreshFedNetLiquidity]);
 
   useEffect(() => {
     let disposed = false;
@@ -2070,16 +2159,20 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const macro = data?.macro || [];
   const commodities = data?.commodities || [];
   const rightMarketSignals = useMemo(() => buildMarketSignals(data?.macro || [], data?.commodities || []), [data?.macro, data?.commodities]);
-  const pmiSignals = useMemo(() => buildPmiSignals(data?.pmi || []), [data?.pmi]);
-  const cpiMetrics = data?.cpi || [];
-  const usCpiMetric = cpiMetrics.find((item) => item.id === 'us-cpi');
-  const usCpiPrevious = usCpiMetric?.history[usCpiMetric.history.length - 2]?.value;
-  const usCpiExpectationTone = usCpiMetric?.value === null || usCpiMetric?.value === undefined || usCpiMetric.expectation === undefined
+  const isolatedCpiMetric = isolatedUsMacroCards.cpi;
+  const isolatedCpiStat = (label: string) => isolatedCpiMetric?.stats?.find((item) => item.label === label)?.display;
+  const isolatedCpiActual = displayNumber(isolatedCpiStat('同比值') || isolatedCpiMetric?.display);
+  const isolatedCpiExpectation = displayNumber(isolatedCpiStat('预期'));
+  const usCpiExpectationTone = isolatedCpiActual === null || isolatedCpiExpectation === null
     ? 'pending'
-    : Math.abs(usCpiMetric.value - usCpiMetric.expectation) < 0.05
+    : Math.abs(isolatedCpiActual - isolatedCpiExpectation) < 0.05
       ? 'matched'
-      : usCpiMetric.value > usCpiMetric.expectation ? 'above' : 'below';
-  const macroRiskMetrics = macro.filter((item) => !HIDDEN_MACRO_RISK_IDS.has(item.id));
+      : isolatedCpiActual > isolatedCpiExpectation ? 'above' : 'below';
+  const macroRiskMetrics = macro
+    .filter((item) => !HIDDEN_MACRO_RISK_IDS.has(item.id))
+    .map((item) => isolatedUsMacroCards[item.id as IsolatedUsMacroCardId] || item);
+  const usPmiMetric = isolatedUsMacroCards.pmi || data?.pmi?.find((item) => item.id === 'pmi-us');
+  const usPceMetric = isolatedUsMacroCards.pce || macro.find((item) => item.id === 'cpi-pce');
   const treasurySpread = macro.find((item) => item.id === 'ust2y10y');
   const exchangeRates = commodities.filter((item) => FX_RATE_META.some((rate) => rate.id === item.id));
   const crypto = commodities.filter((item) => ['bitcoin', 'ethereum'].includes(item.id));
@@ -2150,16 +2243,43 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
         <main className="macro-main macro-panel">
           <div className="macro-stage">
             <div className="macro-stage-head">
-              <div><span>GLOBAL EXCHANGE NETWORK</span><h1>全球资本市场主控台</h1></div>
+              <div className="macro-stage-title">
+                <span>GLOBAL EXCHANGE NETWORK</span>
+                <h1>全球资本市场主控台</h1>
+                {view === 'globe' ? (
+                  <div className="macro-country-focus" role="group" aria-label="地球国家定位">
+                    {([
+                      { id: 'china', code: 'CN', label: '中国' },
+                      { id: 'us', code: 'US', label: '美国' },
+                    ] as const).map((country) => {
+                      const active = globeFocus === country.id;
+                      return (
+                        <button
+                          key={country.id}
+                          type="button"
+                          className={active ? 'active' : ''}
+                          aria-pressed={active}
+                          title={active ? `解除${country.label}视角锁定` : `定位并锁定${country.label}视角`}
+                          onClick={() => setGlobeFocus((current) => current === country.id ? null : country.id)}
+                        >
+                          <small>{country.code}</small>
+                          <b>{country.label}</b>
+                          <i aria-hidden="true" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
               <div className="macro-mode-toggle">
                 <button type="button" className={view === 'globe' ? 'active' : ''} onClick={() => setView('globe')} title="全息地球"><Globe2 size={15} /></button>
-                <button type="button" className={view === 'map' ? 'active' : ''} onClick={() => setView('map')} title="平板地图"><MapIcon size={15} /></button>
+                <button type="button" className={view === 'map' ? 'active' : ''} onClick={() => { setGlobeFocus(null); setView('map'); }} title="平板地图"><MapIcon size={15} /></button>
               </div>
             </div>
             {error ? <button type="button" className="macro-error" onClick={() => void load()}>{error} · 点击重试</button> : null}
             <div className={`macro-globe-wrap ${view === 'map' ? 'flat' : ''}`}>
               {view === 'globe' ? (
-                markets.length ? <HologramGlobe markets={markets} selectedId={selected?.id} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} /> : null
+                markets.length ? <HologramGlobe markets={markets} selectedId={selected?.id} focusCountry={globeFocus} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} onUnlockFocus={() => setGlobeFocus(null)} /> : null
               ) : (
                 <InteractiveFlatMap markets={markets} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} />
               )}
@@ -2173,7 +2293,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             <p className="macro-section-title">宏观风险指标</p>
             <div className="macro-metric-list">
               {macroRiskMetrics.map((item) => (
-                <a key={item.id} className={`macro-metric-row${item.stats?.length || ['cpi-pce', 'unemployment', 'nonfarm'].includes(item.id) ? ' macro-metric-row-stats' : ''}`} href={item.id === 'cpi-pce' ? usCpiMetric?.sourceUrl || item.sourceUrl : item.sourceUrl} target="_blank" rel="noreferrer">
+                <a key={item.id} className={`macro-metric-row macro-metric-card-${item.id}${item.stats?.length || ['cpi-pce', 'unemployment', 'nonfarm'].includes(item.id) ? ' macro-metric-row-stats' : ''}`} href={item.id === 'cpi-pce' ? isolatedCpiMetric?.sourceUrl || item.sourceUrl : item.sourceUrl} target="_blank" rel="noreferrer">
                   {item.id === 'ppi' && item.stats?.length ? (() => {
                     const expectation = ppiExpectationState(item.stats);
                     return (
@@ -2205,25 +2325,19 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                       <small className={`macro-metric-stat-title ${usCpiExpectationTone}`}><i aria-hidden="true" />CPI</small>
                       <span className="macro-metric-stat-mom">
                         <em>环比</em>
-                        <strong>{usCpiMetric?.change === null || usCpiMetric?.change === undefined
-                          ? '待更新'
-                          : `${usCpiMetric.change > 0 ? '+' : ''}${usCpiMetric.change.toFixed(1)}%`}</strong>
+                        <strong>{isolatedCpiStat('环比') || '待更新'}</strong>
                       </span>
                       <span className="macro-metric-stat-primary">
-                        <strong className={trendClass(usCpiMetric?.value)}>{usCpiMetric?.display || '待更新'}</strong>
+                        <strong>{isolatedCpiStat('同比值') || isolatedCpiMetric?.display || '待更新'}</strong>
                       </span>
                       <span className="macro-metric-stat-change">
                         <em>前值</em>
-                        <strong>{usCpiPrevious === undefined
-                          ? '待更新'
-                          : `${usCpiPrevious > 0 ? '+' : ''}${usCpiPrevious.toFixed(1)}%`}</strong>
+                        <strong>{isolatedCpiStat('前值') || '待更新'}</strong>
                       </span>
                       <span className="macro-metric-stat-rule" aria-hidden="true" />
                       <span className={`macro-metric-stat-verdict ${usCpiExpectationTone}`}>
                         <em>预期</em>
-                        <strong>{usCpiMetric?.expectation === undefined
-                          ? '待更新'
-                          : `${usCpiMetric.expectation > 0 ? '+' : ''}${usCpiMetric.expectation.toFixed(1)}%`}</strong>
+                        <strong>{isolatedCpiStat('预期') || '待更新'}</strong>
                       </span>
                       <span className="macro-metric-stat-symbol matched" aria-hidden="true">
                         <ShoppingBasket />
@@ -2232,38 +2346,43 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                   ) : ['unemployment', 'nonfarm'].includes(item.id) ? (() => {
                     const isNonfarm = item.id === 'nonfarm';
                     const previous = item.history[item.history.length - 2]?.value;
+                    const stat = (label: string) => item.stats?.find((entry) => entry.label === label)?.display;
                     const nonfarmActual = item.stats?.find((stat) => stat.label === '实际')?.display
                       || (item.value === null ? '待更新' : `${item.value > 0 ? '+' : ''}${Math.round(item.value)}K`);
-                    const nonfarmExpected = item.stats?.find((stat) => stat.label === '预期')?.display || '待更新';
-                    const nonfarmPrevious = item.stats?.find((stat) => stat.label === '前值')?.display
+                    const nonfarmExpected = stat('预期') || '待更新';
+                    const nonfarmPrevious = stat('前值')
                       || (previous === undefined ? '待更新' : `${previous > 0 ? '+' : ''}${Math.round(previous)}K`);
-                    const unemploymentExpected = item.stats?.find((stat) => stat.label === '预期')?.display || '待更新';
-                    const semanticChange = item.change === null || item.change === undefined
+                    const unemploymentExpected = stat('预期') || '待更新';
+                    const unemploymentPrevious = stat('前值')
+                      || (previous === undefined ? '待更新' : `${previous.toFixed(1)}%`);
+                    const displayedPreviousValue = displayNumber(isNonfarm ? nonfarmPrevious : unemploymentPrevious);
+                    const resolvedChange: number | null = item.value !== null && item.value !== undefined && displayedPreviousValue !== null
+                      ? item.value - displayedPreviousValue
+                      : item.change ?? null;
+                    const semanticChange = resolvedChange === null
                       ? null
-                      : isNonfarm ? -item.change : item.change;
+                      : isNonfarm ? -resolvedChange : resolvedChange;
                     const tone = semanticChange === null
                       ? 'pending'
                       : Math.abs(semanticChange) <= 0.03 ? 'matched' : semanticChange > 0 ? 'above' : 'below';
                     const previousDisplay = isNonfarm
                       ? nonfarmPrevious
-                      : previous === undefined
-                        ? '待更新'
-                        : `${previous.toFixed(1)}%`;
+                      : unemploymentPrevious;
                     return (
                       <span className={`macro-metric-stat-layout macro-metric-stat-layout-employment${isNonfarm ? ' macro-metric-stat-layout-nonfarm' : ''}`}>
                         <small className={`macro-metric-stat-title ${tone}`}><i aria-hidden="true" />{isNonfarm ? '非农' : '失业率'}</small>
                         {isNonfarm ? (
                           <span className="macro-metric-stat-mom">
                             <em>较前值</em>
-                            <strong>{item.change === null || item.change === undefined
+                            <strong>{resolvedChange === null || resolvedChange === undefined
                               ? '待更新'
-                              : `${item.change > 0 ? '+' : ''}${Math.round(item.change)}K`}</strong>
+                              : `${resolvedChange > 0 ? '+' : ''}${Math.round(resolvedChange)}K`}</strong>
                           </span>
                         ) : <span className="macro-metric-stat-mom">
                           <em>较前值</em>
-                          <strong>{item.change === null || item.change === undefined
+                          <strong>{resolvedChange === null
                             ? '待更新'
-                            : `${item.change > 0 ? '+' : ''}${item.change.toFixed(1)}p`}</strong>
+                            : `${resolvedChange > 0 ? '+' : ''}${resolvedChange.toFixed(1)}p`}</strong>
                         </span>}
                         <span className="macro-metric-stat-primary">
                           <strong className={trendClass(semanticChange)}>{isNonfarm ? nonfarmActual : item.display}</strong>
@@ -2296,28 +2415,17 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                   </>}
                 </a>
               ))}
+              <UsMacroIndicatorCard kind="pmi" item={usPmiMetric} />
+              <UsMacroIndicatorCard kind="pce" item={usPceMetric} />
             </div>
           </section>
 
-          <section className="macro-terminal-section macro-key-change-section macro-pmi-section">
-            <p className="macro-section-title">制造业 PMI · 最新</p>
-            <div className="macro-key-change-grid">
-              {pmiSignals.map((item) => <KeyChangeCard key={item.id} item={item} />)}
-            </div>
-          </section>
-          <section className="macro-terminal-section macro-cpi-section">
-            <p className="macro-section-title">消费者价格 CPI · 最新</p>
-            <div className="macro-cpi-grid">
-              {(['china-cpi', 'us-cpi'] as const).map((id) => (
-                <CpiCard key={id} id={id} item={cpiMetrics.find((metric) => metric.id === id)} />
-              ))}
-            </div>
-          </section>
           <section className="macro-terminal-section macro-treasury-section">
             <p className="macro-section-title">美债期限结构</p>
             <TreasurySpreadCard item={treasurySpread} />
           </section>
           <FedRateExpectationCard expectation={data?.fedRateExpectation || null} />
+          <FedNetLiquidityCard liquidity={fedNetLiquidity} />
         </aside>
 
         <footer className="macro-news macro-panel">
@@ -2357,40 +2465,109 @@ function KeyChangeCard({ item }: { item: KeySignal }) {
   );
 }
 
-function CpiCard({ id, item }: { id: CpiMetric['id']; item?: CpiMetric }) {
-  const isChina = id === 'china-cpi';
-  const label = item?.label || (isChina ? '中国 CPI' : '美国 CPI');
-  const source = item?.source || (isChina ? '国家统计局' : '美国劳工统计局');
-  const sourceUrl = item?.sourceUrl || (isChina
-    ? 'https://www.stats.gov.cn/sj/zxfb/'
-    : 'https://www.bls.gov/cpi/');
-  const available = item?.value !== null && item?.value !== undefined && Number.isFinite(item.value);
-  const monthChange = item?.change;
-  const monthChangeDisplay = monthChange === null || monthChange === undefined || !Number.isFinite(monthChange)
-    ? '待更新'
-    : `${monthChange > 0 ? '+' : ''}${monthChange.toFixed(1)}%`;
+function UsMacroIndicatorCard({ kind, item }: { kind: 'pmi' | 'pce'; item?: Metric }) {
+  const isPmi = kind === 'pmi';
+  const pcePart = item?.parts?.find((part) => part.label === 'PCE');
+  const stat = (label: string) => item?.stats?.find((entry) => entry.label === label)?.display;
+  const primaryDisplay = isPmi ? item?.display : pcePart?.display || stat('PCE实际');
+  const primaryValue = isPmi
+    ? item?.value
+    : displayNumber(primaryDisplay);
+  const previousValue = isPmi ? item?.history[item.history.length - 2]?.value : undefined;
+  const previousDisplay = isPmi
+    ? previousValue === undefined ? '待更新' : previousValue.toFixed(2)
+    : stat('PCE前值') || '待更新';
+  const expectationDisplay = isPmi ? stat('预期') || '待更新' : stat('PCE预期') || '待更新';
+  const expectationValue = displayNumber(expectationDisplay);
+  const changeValue = isPmi
+    ? item?.change
+    : displayNumber(stat('PCE变化'));
+  const availableChange = changeValue !== null && changeValue !== undefined && Number.isFinite(changeValue);
+  const changeDisplay = availableChange
+    ? `${changeValue > 0 ? '+' : ''}${changeValue.toFixed(2)}p`
+    : '待更新';
+  const tone = primaryValue === null || primaryValue === undefined || !Number.isFinite(primaryValue) || expectationValue === null
+    ? 'pending'
+    : Math.abs(primaryValue - expectationValue) < 0.005 ? 'matched' : primaryValue > expectationValue ? 'above' : 'below';
+  const sourceUrl = isPmi
+    ? item?.sourceUrl || 'https://tradingeconomics.com/united-states/manufacturing-pmi'
+    : item?.sourceUrl || pcePart?.sourceUrl || 'https://www.bea.gov/data/personal-consumption-expenditures-price-index';
 
   return (
     <a
-      className={`macro-cpi-card ${isChina ? 'china' : 'us'} ${available ? '' : 'unavailable'}`}
+      className={`macro-metric-row macro-metric-row-stats macro-metric-card-${kind}`}
       href={sourceUrl}
       target="_blank"
       rel="noreferrer"
-      title={`${label} ${item?.display || '待更新'} · 环比 ${monthChangeDisplay} · ${item?.period || '等待最新一期'}`}
+      title={`${isPmi ? 'PMI' : 'PCE'} ${primaryDisplay || '待更新'} · 较前值 ${changeDisplay} · 预期 ${expectationDisplay}`}
     >
-      <span className="macro-cpi-head">
-        <span><i />{label}</span>
-        <small>{item?.period || '等待数据'}</small>
-      </span>
-      <span className="macro-cpi-value">
-        <strong>{item?.display || '待更新'}</strong>
-        <em>同比</em>
-      </span>
-      <span className="macro-cpi-foot">
-        <span>环比 <b className={trendClass(monthChange)}>{monthChangeDisplay}</b></span>
-        <small>{source}</small>
+      <span className={`macro-metric-stat-layout macro-us-indicator-card is-${kind}`}>
+        <small className={`macro-metric-stat-title ${tone}`}><i aria-hidden="true" />{isPmi ? 'PMI' : 'PCE'}</small>
+        <span className="macro-metric-stat-mom">
+          <em>较前值</em>
+          <strong>{changeDisplay}</strong>
+        </span>
+        <span className="macro-metric-stat-primary">
+          <strong>{primaryDisplay || '待更新'}</strong>
+        </span>
+        <span className="macro-metric-stat-change">
+          <em>前值</em>
+          <strong>{previousDisplay}</strong>
+        </span>
+        <span className="macro-metric-stat-rule" aria-hidden="true" />
+        <span className={`macro-metric-stat-verdict ${tone}`}>
+          <em>预期</em>
+          <strong>{expectationDisplay}</strong>
+        </span>
+        <span className={`macro-metric-stat-symbol ${tone}`} aria-hidden="true">
+          {isPmi ? <Factory /> : <ShoppingBasket />}
+        </span>
       </span>
     </a>
+  );
+}
+
+function SmoothMiniLine({ history, color }: { history: HistoryPoint[]; color: string }) {
+  const values = history.filter((item) => Number.isFinite(item.value)).slice(-36);
+  if (values.length < 2) return <div className="macro-line-empty">等待序列更新</div>;
+  const width = 320;
+  const height = 72;
+  const insetX = 4;
+  const insetTop = 7;
+  const insetBottom = 9;
+  const min = Math.min(...values.map((item) => item.value));
+  const max = Math.max(...values.map((item) => item.value));
+  const rawSpan = Math.max(max - min, 0.0001);
+  const scalePadding = rawSpan * 0.12;
+  const scaleMin = min - scalePadding;
+  const scaleMax = max + scalePadding;
+  const span = scaleMax - scaleMin;
+  const points = values.map((item, index) => ({
+    x: insetX + (index / (values.length - 1)) * (width - insetX * 2),
+    y: insetTop + (1 - ((item.value - scaleMin) / span)) * (height - insetTop - insetBottom),
+  }));
+  const linePath = points.slice(1).reduce((path, point, index) => {
+    const previous = points[index];
+    const middle = (previous.x + point.x) / 2;
+    return `${path} C ${middle.toFixed(2)} ${previous.y.toFixed(2)}, ${middle.toFixed(2)} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+  }, `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`);
+  const areaBottom = height - 2;
+  const areaPath = `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${areaBottom} L ${points[0].x.toFixed(2)} ${areaBottom} Z`;
+  const latest = points[points.length - 1];
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="macro-line macro-liquidity-line" aria-hidden="true">
+      <defs>
+        <linearGradient id="fed-liquidity-smooth-gradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={color} stopOpacity="0.22" />
+          <stop offset="1" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {[18, 36, 54].map((y) => <line key={y} x1={insetX} y1={y} x2={width - insetX} y2={y} className="macro-liquidity-gridline" />)}
+      <path d={areaPath} fill="url(#fed-liquidity-smooth-gradient)" />
+      <path d={linePath} className="macro-liquidity-line-glow" fill="none" stroke={color} vectorEffect="non-scaling-stroke" />
+      <path d={linePath} fill="none" stroke={color} strokeWidth="1.35" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={latest.x} cy={latest.y} r="2.6" fill={color} className="macro-liquidity-last-point" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }
 
@@ -2522,6 +2699,40 @@ function FedRateExpectationCard({ expectation }: { expectation: FedRateExpectati
           ))}
         </div>
         <footer><span>{expectation ? `${expectation.method} · ${expectation.contractSymbol}` : '等待会议月 ZQ 期货与 FRED 数据'}</span><span>CME 方法说明 <ExternalLink size={9} /></span></footer>
+      </a>
+    </section>
+  );
+}
+
+function FedNetLiquidityCard({ liquidity }: { liquidity: FedNetLiquidity | null }) {
+  const tone = liquidity?.regime || 'unavailable';
+  const chartColor = tone === 'injection' ? '#52e0b5' : tone === 'contraction' ? '#ff5d7d' : '#71849a';
+  const updatedLabel = liquidity?.updatedAt
+    ? new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', timeZone: 'UTC' }).format(new Date(liquidity.updatedAt))
+    : '待更新';
+  const sourceUrl = liquidity?.sourceUrl || 'https://fred.stlouisfed.org/series/WALCL';
+
+  return (
+    <section className="macro-terminal-section macro-liquidity-section">
+      <p className="macro-section-title">美联储净流动性</p>
+      <a
+        className={`macro-liquidity-card ${tone}`}
+        href={sourceUrl}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`美联储净流动性 ${liquidity?.display || '等待数据'}，${liquidity?.regimeLabel || '状态待更新'}`}
+      >
+        <div className="macro-liquidity-head">
+          <span><small>FED NET LIQUIDITY · 30D · {liquidity?.chartMethod || '5D EMA'}</small><strong>{liquidity?.display || '待更新'}</strong></span>
+          <b><Droplets size={12} />{liquidity?.regimeLabel || '状态待更新'}</b>
+        </div>
+        <div className="macro-liquidity-chart">
+          <SmoothMiniLine history={liquidity?.chartHistory || liquidity?.history || []} color={chartColor} />
+        </div>
+        <footer>
+          <span><small>30日变化</small><b>{liquidity?.changeDisplay || '待更新'}</b></span>
+          <span>总资产 − TGA − ON RRP · {updatedLabel} <ExternalLink size={9} /></span>
+        </footer>
       </a>
     </section>
   );

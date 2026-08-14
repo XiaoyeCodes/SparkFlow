@@ -4548,13 +4548,22 @@ async function getUsPpiMacroMetric(forceOfficial = false, waitForExpectation = f
 }
 
 async function getUsCpiPceMacroMetric(forceOfficial = false) {
-  const [cpi, pce] = forceOfficial
-    ? await Promise.all([getBlsOfficialMacroMetric('cpi', true), getBeaPceMacroMetric(true)])
+  const [cpi, pce, pceMarketContext] = forceOfficial
+    ? await Promise.all([getBlsOfficialMacroMetric('cpi', true), getBeaPceMacroMetric(true), getPceMarketContext(true).catch(() => undefined)])
     : await Promise.all([
       getFredMacroMetric('us-cpi-mom', ['CPIAUCSL'], '美国 CPI 月率', (value) => `${value.toFixed(2)}%`, monthlyPercentChanges),
       getFredMacroMetric('us-pce-mom', ['PCEPI'], '美国 PCE 月率', (value) => `${value.toFixed(2)}%`, monthlyPercentChanges),
+      getPceMarketContext(false).catch(() => undefined),
     ]);
   const updatedAt = [cpi.updatedAt, pce.updatedAt].filter(Boolean).sort().at(-1);
+  const pcePeriod = pce.updatedAt?.slice(0, 7);
+  const matchedPceContext = pceMarketContext
+    && pcePeriod === pceMarketContext.period
+    && Math.abs(pce.value - pceMarketContext.actual) <= 0.06
+    ? pceMarketContext
+    : undefined;
+  const pcePrevious = matchedPceContext?.previous ?? pce.history.at(-2)?.value;
+  const pceChange = pcePrevious === undefined ? pce.change : pce.value - pcePrevious;
   return {
     id: 'cpi-pce',
     label: '美国 CPI / PCE 月率',
@@ -4568,7 +4577,13 @@ async function getUsCpiPceMacroMetric(forceOfficial = false) {
     history: cpi.history,
     parts: [
       { label: 'CPI', display: cpi.display, updatedAt: cpi.updatedAt },
-      { label: 'PCE', display: pce.display, updatedAt: pce.updatedAt },
+      { label: 'PCE', display: pce.display, updatedAt: pce.updatedAt, sourceUrl: pce.sourceUrl },
+    ],
+    stats: [
+      { label: 'PCE实际', display: pce.display },
+      { label: 'PCE前值', display: pcePrevious === undefined ? '待更新' : `${pcePrevious.toFixed(2)}%` },
+      { label: 'PCE变化', display: pceChange === null ? '待更新' : signedMetricChange(pceChange, 'pct') },
+      { label: 'PCE预期', display: matchedPceContext ? `${matchedPceContext.consensus.toFixed(2)}%` : '待更新' },
     ],
   };
 }
@@ -4786,6 +4801,7 @@ type BlsReleaseReportSnapshot = {
 };
 const blsReleaseReportCache = new Map<BlsReleaseReportSnapshot['family'], BlsReleaseReportSnapshot>();
 const blsReleaseReportInFlight = new Map<BlsReleaseReportSnapshot['family'], Promise<BlsReleaseReportSnapshot>>();
+const MACRO_EXPECTATION_WAIT_MS = 12_000;
 
 type PpiMarketContext = {
   period: string;
@@ -4812,6 +4828,10 @@ let cpiMarketContextCache: NonfarmMarketContext | undefined;
 let cpiMarketContextInFlight: Promise<NonfarmMarketContext> | undefined;
 let unemploymentMarketContextCache: NonfarmMarketContext | undefined;
 let unemploymentMarketContextInFlight: Promise<NonfarmMarketContext> | undefined;
+let pmiMarketContextCache: NonfarmMarketContext | undefined;
+let pmiMarketContextInFlight: Promise<NonfarmMarketContext> | undefined;
+let pceMarketContextCache: NonfarmMarketContext | undefined;
+let pceMarketContextInFlight: Promise<NonfarmMarketContext> | undefined;
 
 function parsePercentCell(value: string) {
   const normalized = stripTags(value).replace(/&nbsp;|&#160;|%/gi, '').trim();
@@ -4823,7 +4843,7 @@ function parseThousandsCell(value: string) {
   return normalized ? asFiniteNumber(normalized) : undefined;
 }
 
-function fetchDirectHtml(url: string, timeoutMs = 8_000, redirects = 0): Promise<string> {
+function fetchDirectHtml(url: string, timeoutMs = 15_000, redirects = 0): Promise<string> {
   return new Promise((resolve, reject) => {
     const request = httpsGet(url, {
       headers: {
@@ -5059,6 +5079,96 @@ async function getUnemploymentMarketContext(forceRefresh = false) {
   return unemploymentMarketContextInFlight;
 }
 
+async function fetchUsMarketContext(
+  sourceUrl: string,
+  category: string,
+  eventPattern: RegExp,
+  unavailableMessage: string,
+): Promise<NonfarmMarketContext> {
+  const html = await fetchDirectHtml(sourceUrl, 15_000).catch(() => fetchFastMarketText(sourceUrl, 18_000));
+  const escapedCategory = category.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rows = [...html.matchAll(new RegExp(`<tr[^>]*data-category=["']${escapedCategory}["'][^>]*>([\\s\\S]*?)<\\/tr>`, 'gi'))];
+  const latest = rows.flatMap((rowMatch) => {
+    if (!eventPattern.test(rowMatch[1])) return [];
+    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => match[1]);
+    const actual = parsePercentCell(cells[4] || '');
+    const previous = parsePercentCell(cells[5] || '');
+    const consensus = parsePercentCell(cells[6] || '');
+    const date = stripTags(cells[0] || '').trim();
+    if (!date || actual === undefined || previous === undefined || consensus === undefined) return [];
+    return [{ date, actual, previous, consensus }];
+  }).sort((left, right) => right.date.localeCompare(left.date))[0];
+  if (!latest) throw new Error(unavailableMessage);
+  const releaseDate = new Date(`${latest.date}T00:00:00Z`);
+  releaseDate.setUTCMonth(releaseDate.getUTCMonth() - 1);
+  return {
+    period: releaseDate.toISOString().slice(0, 7),
+    actual: latest.actual,
+    previous: latest.previous,
+    consensus: latest.consensus,
+    sourceUrl,
+    storedAt: Date.now(),
+  };
+}
+
+async function fetchPmiMarketContext() {
+  return fetchUsMarketContext(
+    'https://tradingeconomics.com/united-states/business-confidence',
+    'Business Confidence',
+    /ISM Manufacturing PMI/i,
+    'PMI 市场一致预期暂不可用',
+  );
+}
+
+async function getPmiMarketContext(forceRefresh = false) {
+  if (!forceRefresh && pmiMarketContextCache && Date.now() - pmiMarketContextCache.storedAt < BLS_MACRO_CACHE_TTL_MS) {
+    return pmiMarketContextCache;
+  }
+  if (pmiMarketContextInFlight) return pmiMarketContextInFlight;
+  pmiMarketContextInFlight = fetchPmiMarketContext()
+    .then((context) => {
+      pmiMarketContextCache = context;
+      return context;
+    })
+    .catch((error) => {
+      if (pmiMarketContextCache) return pmiMarketContextCache;
+      throw error;
+    })
+    .finally(() => {
+      pmiMarketContextInFlight = undefined;
+    });
+  return pmiMarketContextInFlight;
+}
+
+async function fetchPceMarketContext() {
+  return fetchUsMarketContext(
+    'https://tradingeconomics.com/united-states/pce-price-index-monthly-change',
+    'PCE Price Index Monthly Change',
+    /PCE Price Index MoM/i,
+    'PCE 市场一致预期暂不可用',
+  );
+}
+
+async function getPceMarketContext(forceRefresh = false) {
+  if (!forceRefresh && pceMarketContextCache && Date.now() - pceMarketContextCache.storedAt < BLS_MACRO_CACHE_TTL_MS) {
+    return pceMarketContextCache;
+  }
+  if (pceMarketContextInFlight) return pceMarketContextInFlight;
+  pceMarketContextInFlight = fetchPceMarketContext()
+    .then((context) => {
+      pceMarketContextCache = context;
+      return context;
+    })
+    .catch((error) => {
+      if (pceMarketContextCache) return pceMarketContextCache;
+      throw error;
+    })
+    .finally(() => {
+      pceMarketContextInFlight = undefined;
+    });
+  return pceMarketContextInFlight;
+}
+
 function signedReleaseValue(direction: string, magnitude?: string) {
   const value = asFiniteNumber(magnitude) || 0;
   return /(decreased|declined|fell|falling|edged down)/i.test(direction) ? -value : value;
@@ -5216,19 +5326,19 @@ async function getBlsReleaseMacroMetric(
       ? getPpiMarketContext(forceRefresh)
       : Promise.race([
         getPpiMarketContext(forceRefresh),
-        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), MACRO_EXPECTATION_WAIT_MS)),
       ])).catch(() => undefined)
     : undefined;
   const nonfarmMarketContext = id === 'nonfarm'
     ? await Promise.race([
       getNonfarmMarketContext(forceRefresh),
-      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), MACRO_EXPECTATION_WAIT_MS)),
     ]).catch(() => undefined)
     : undefined;
   const unemploymentMarketContext = id === 'unemployment'
     ? await Promise.race([
       getUnemploymentMarketContext(forceRefresh),
-      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3_000)),
+      new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), MACRO_EXPECTATION_WAIT_MS)),
     ]).catch(() => undefined)
     : undefined;
   const validPpiMarketContext = id === 'ppi'
@@ -5619,6 +5729,27 @@ function pmiObservationTime(monthName: string) {
 }
 
 async function getGlobalPmiMetric(config: (typeof globalPmiConfigs)[number]) {
+  if (config.id === 'pmi-us') {
+    const context = await getPmiMarketContext(false);
+    const updatedAt = `${context.period}-01T00:00:00.000Z`;
+    const previousDate = new Date(updatedAt);
+    previousDate.setUTCMonth(previousDate.getUTCMonth() - 1);
+    return {
+      id: config.id,
+      label: config.label,
+      value: context.actual,
+      display: context.actual.toFixed(2),
+      change: context.actual - context.previous,
+      updatedAt,
+      sourceUrl: context.sourceUrl,
+      status: 'delayed' as const,
+      history: [{ time: previousDate.toISOString(), value: context.previous }, { time: updatedAt, value: context.actual }],
+      stats: [
+        { label: '前值', display: context.previous.toFixed(2) },
+        { label: '预期', display: context.consensus.toFixed(2) },
+      ],
+    };
+  }
   const sourceUrl = `https://tradingeconomics.com/${config.slug}/manufacturing-pmi`;
   const html = await fetchExternalText(sourceUrl, 20000, 'text/html,application/xhtml+xml,*/*');
   const description = decodeXml(html.match(/<meta[^>]+id=["']metaDesc["'][^>]+content=["']([^"']+)["']/i)?.[1] || '');
@@ -5644,6 +5775,354 @@ async function getGlobalPmiMetric(config: (typeof globalPmiConfigs)[number]) {
     status: 'delayed' as const,
     history: [{ time: previousDate.toISOString(), value: previousValue }, { time: updatedAt, value: currentValue }],
   };
+}
+
+type IsolatedUsMacroCardId = 'ppi' | 'cpi' | 'unemployment' | 'nonfarm' | 'pmi' | 'pce';
+type IsolatedUsMacroCard = {
+  id: IsolatedUsMacroCardId;
+  label: string;
+  value: number;
+  display: string;
+  change: number;
+  changeDisplay: string;
+  updatedAt: string;
+  sourceUrl: string;
+  status: 'delayed';
+  history: Array<{ time: string; value: number }>;
+  stats: Array<{ label: string; display: string }>;
+};
+const ISOLATED_US_MACRO_CARD_IDS: IsolatedUsMacroCardId[] = ['ppi', 'cpi', 'unemployment', 'nonfarm', 'pmi', 'pce'];
+const ISOLATED_US_MACRO_CARD_TTL_MS = 60_000;
+const isolatedUsMacroCardCacheFile = path.join(sparkflowStateDir, 'us-macro-card-snapshots.json');
+const isolatedUsMacroCardCache = new Map<IsolatedUsMacroCardId, { storedAt: number; data: IsolatedUsMacroCard }>();
+const isolatedUsMacroCardInFlight = new Map<IsolatedUsMacroCardId, Promise<IsolatedUsMacroCard>>();
+let isolatedUsMacroCardWriteQueue = Promise.resolve();
+
+try {
+  const snapshots = JSON.parse(readFileSync(isolatedUsMacroCardCacheFile, 'utf8')) as Partial<Record<IsolatedUsMacroCardId, { storedAt: number; data: IsolatedUsMacroCard }>>;
+  ISOLATED_US_MACRO_CARD_IDS.forEach((id) => {
+    const snapshot = snapshots[id];
+    if (snapshot?.data?.id === id && snapshot.data.stats?.every((stat) => !stat.display.includes('待更新'))) {
+      isolatedUsMacroCardCache.set(id, snapshot);
+    }
+  });
+} catch {
+  // A first run has no durable snapshots yet; each card will create its own after a successful fetch.
+}
+
+function signedCardValue(value: number, digits: number, suffix: string) {
+  return `${value > 0 ? '+' : ''}${value.toFixed(digits)}${suffix}`;
+}
+
+function isolatedCardHistory(period: string, previous: number, actual: number) {
+  const currentTime = `${period}-01T00:00:00.000Z`;
+  const previousDate = new Date(currentTime);
+  previousDate.setUTCMonth(previousDate.getUTCMonth() - 1);
+  return {
+    currentTime,
+    history: [{ time: previousDate.toISOString(), value: previous }, { time: currentTime, value: actual }],
+  };
+}
+
+function persistIsolatedUsMacroCards() {
+  const payload = Object.fromEntries(isolatedUsMacroCardCache.entries());
+  isolatedUsMacroCardWriteQueue = isolatedUsMacroCardWriteQueue
+    .then(async () => {
+      await mkdir(sparkflowStateDir, { recursive: true });
+      await writeFile(isolatedUsMacroCardCacheFile, JSON.stringify(payload, null, 2), 'utf8');
+    })
+    .catch(() => undefined);
+}
+
+async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<IsolatedUsMacroCard> {
+  if (id === 'pmi') {
+    const context = await getPmiMarketContext(true);
+    const { currentTime, history } = isolatedCardHistory(context.period, context.previous, context.actual);
+    const change = context.actual - context.previous;
+    return {
+      id,
+      label: 'PMI',
+      value: context.actual,
+      display: context.actual.toFixed(2),
+      change,
+      changeDisplay: signedCardValue(change, 2, 'p'),
+      updatedAt: currentTime,
+      sourceUrl: context.sourceUrl,
+      status: 'delayed',
+      history,
+      stats: [
+        { label: '前值', display: context.previous.toFixed(2) },
+        { label: '预期', display: context.consensus.toFixed(2) },
+      ],
+    };
+  }
+
+  if (id === 'pce') {
+    const context = await getPceMarketContext(true);
+    const { currentTime, history } = isolatedCardHistory(context.period, context.previous, context.actual);
+    const change = context.actual - context.previous;
+    return {
+      id,
+      label: 'PCE',
+      value: context.actual,
+      display: `${context.actual.toFixed(2)}%`,
+      change,
+      changeDisplay: signedCardValue(change, 2, 'p'),
+      updatedAt: currentTime,
+      sourceUrl: context.sourceUrl,
+      status: 'delayed',
+      history,
+      stats: [
+        { label: 'PCE实际', display: `${context.actual.toFixed(2)}%` },
+        { label: 'PCE前值', display: `${context.previous.toFixed(2)}%` },
+        { label: 'PCE变化', display: signedCardValue(change, 2, 'p') },
+        { label: 'PCE预期', display: `${context.consensus.toFixed(2)}%` },
+      ],
+    };
+  }
+
+  if (id === 'ppi' || id === 'cpi') {
+    const [report, context] = await Promise.all([
+      getBlsReleaseReport(id, true),
+      id === 'ppi' ? getPpiMarketContext(true) : getCpiMarketContext(true),
+    ]);
+    const actual = id === 'ppi' ? report.ppiYoy : report.cpiYoy;
+    const monthly = id === 'ppi' ? report.ppi : report.cpi;
+    if (actual === undefined || monthly === undefined || context.period !== report.period || Math.abs(actual - context.actual) > 0.051) {
+      throw new Error(`${id.toUpperCase()} 官方值与市场日历未完成同周期校验`);
+    }
+    const { currentTime, history } = isolatedCardHistory(report.period, context.previous, actual);
+    return {
+      id,
+      label: id.toUpperCase(),
+      value: actual,
+      display: signedCardValue(actual, 1, '%'),
+      change: monthly,
+      changeDisplay: signedCardValue(monthly, 1, '%'),
+      updatedAt: currentTime,
+      sourceUrl: report.sourceUrl,
+      status: 'delayed',
+      history,
+      stats: [
+        { label: '环比', display: signedCardValue(monthly, 1, '%') },
+        { label: '同比值', display: signedCardValue(actual, 1, '%') },
+        { label: '预期', display: signedCardValue(context.consensus, 1, '%') },
+        { label: '前值', display: signedCardValue(context.previous, 1, '%') },
+      ],
+    };
+  }
+
+  const [report, context] = await Promise.all([
+    getBlsReleaseReport('employment', true),
+    id === 'nonfarm' ? getNonfarmMarketContext(true) : getUnemploymentMarketContext(true),
+  ]);
+  const actual = id === 'nonfarm' ? report.nonfarm : report.unemployment;
+  if (actual === undefined || context.period !== report.period || Math.abs(actual - context.actual) > (id === 'nonfarm' ? 0.51 : 0.051)) {
+    throw new Error(`${id} 官方值与市场日历未完成同周期校验`);
+  }
+  const { currentTime, history } = isolatedCardHistory(report.period, context.previous, actual);
+  const change = actual - context.previous;
+  const nonfarm = id === 'nonfarm';
+  const format = (value: number) => nonfarm
+    ? `${value > 0 ? '+' : ''}${Math.round(value)}K`
+    : `${value.toFixed(1)}%`;
+  return {
+    id,
+    label: nonfarm ? '非农' : '失业率',
+    value: actual,
+    display: format(actual),
+    change,
+    changeDisplay: nonfarm ? `${change > 0 ? '+' : ''}${Math.round(change)}K` : signedCardValue(change, 1, 'p'),
+    updatedAt: currentTime,
+    sourceUrl: report.sourceUrl,
+    status: 'delayed',
+    history,
+    stats: [
+      { label: '实际', display: format(actual) },
+      { label: '预期', display: format(context.consensus) },
+      { label: '前值', display: format(context.previous) },
+    ],
+  };
+}
+
+async function refreshIsolatedUsMacroCard(id: IsolatedUsMacroCardId) {
+  const running = isolatedUsMacroCardInFlight.get(id);
+  if (running) return running;
+  const request = buildIsolatedUsMacroCard(id)
+    .then((data) => {
+      isolatedUsMacroCardCache.set(id, { storedAt: Date.now(), data });
+      persistIsolatedUsMacroCards();
+      return data;
+    })
+    .catch((error) => {
+      const cached = isolatedUsMacroCardCache.get(id);
+      if (cached) return cached.data;
+      throw error;
+    })
+    .finally(() => isolatedUsMacroCardInFlight.delete(id));
+  isolatedUsMacroCardInFlight.set(id, request);
+  return request;
+}
+
+async function getIsolatedUsMacroCard(id: IsolatedUsMacroCardId, forceRefresh = false) {
+  const cached = isolatedUsMacroCardCache.get(id);
+  if (!forceRefresh && cached) {
+    if (Date.now() - cached.storedAt >= ISOLATED_US_MACRO_CARD_TTL_MS) {
+      void refreshIsolatedUsMacroCard(id);
+    }
+    return cached.data;
+  }
+  return refreshIsolatedUsMacroCard(id);
+}
+
+type FedNetLiquidityPoint = { time: string; value: number };
+type FedNetLiquiditySnapshot = {
+  id: 'fed-net-liquidity';
+  value: number;
+  display: string;
+  change30d: number;
+  changeDisplay: string;
+  regime: 'injection' | 'contraction';
+  regimeLabel: '流动性投放' | '流动性收缩';
+  updatedAt: string;
+  sourceUrl: string;
+  status: 'delayed';
+  history: FedNetLiquidityPoint[];
+  chartHistory: FedNetLiquidityPoint[];
+  chartMethod: '5D EMA';
+  components: {
+    totalAssets: number;
+    treasuryGeneralAccount: number;
+    overnightReverseRepo: number;
+  };
+};
+
+const FED_NET_LIQUIDITY_TTL_MS = 15 * 60_000;
+const FED_NET_LIQUIDITY_DAY_MS = 24 * 60 * 60_000;
+const fedNetLiquidityCacheFile = path.join(sparkflowStateDir, 'fed-net-liquidity.json');
+let fedNetLiquidityCache: { storedAt: number; data: FedNetLiquiditySnapshot } | null = null;
+let fedNetLiquidityInFlight: Promise<FedNetLiquiditySnapshot> | null = null;
+
+try {
+  const snapshot = JSON.parse(readFileSync(fedNetLiquidityCacheFile, 'utf8')) as { storedAt?: number; data?: FedNetLiquiditySnapshot };
+  if (
+    snapshot.data?.id === 'fed-net-liquidity'
+    && Number.isFinite(snapshot.data.value)
+    && snapshot.data.history?.length >= 2
+    && snapshot.data.chartHistory?.length === snapshot.data.history.length
+  ) {
+    fedNetLiquidityCache = { storedAt: Number(snapshot.storedAt) || 0, data: snapshot.data };
+  }
+} catch {
+  // The first successful FRED synchronization creates the independent durable snapshot.
+}
+
+function formatLiquidityChange(valueTrillions: number) {
+  const valueBillions = valueTrillions * 1_000;
+  return `${valueBillions > 0 ? '+' : valueBillions < 0 ? '-' : ''}$${Math.abs(valueBillions).toFixed(0)}B`;
+}
+
+function latestFredValueAtOrBefore(values: FedNetLiquidityPoint[], timestamp: number) {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (new Date(values[index].time).getTime() <= timestamp) return values[index].value;
+  }
+  return undefined;
+}
+
+function exponentialMovingAverage(values: FedNetLiquidityPoint[], period: number) {
+  const alpha = 2 / (period + 1);
+  let previous: number | undefined;
+  return values.map((point) => {
+    previous = previous === undefined ? point.value : alpha * point.value + (1 - alpha) * previous;
+    return { time: point.time, value: Number(previous.toFixed(6)) };
+  });
+}
+
+async function buildFedNetLiquiditySnapshot(): Promise<FedNetLiquiditySnapshot> {
+  const [totalAssetsSeries, treasuryAccountSeries, reverseRepoSeries] = await Promise.all([
+    getFredSeries('WALCL'),
+    getFredSeries('WTREGEN'),
+    getFredSeries('RRPONTSYD'),
+  ]);
+  const series = [totalAssetsSeries, treasuryAccountSeries, reverseRepoSeries];
+  const latestTimes = series.map((values) => new Date(values.at(-1)?.time || '').getTime());
+  if (latestTimes.some((time) => !Number.isFinite(time))) throw new Error('美联储净流动性序列日期无效');
+  const latestTime = Math.max(...latestTimes);
+  if (latestTime - latestTimes[0] > 15 * FED_NET_LIQUIDITY_DAY_MS) throw new Error('美联储总资产序列过期');
+  if (latestTime - latestTimes[1] > 15 * FED_NET_LIQUIDITY_DAY_MS) throw new Error('财政部一般账户序列过期');
+  if (latestTime - latestTimes[2] > 7 * FED_NET_LIQUIDITY_DAY_MS) throw new Error('隔夜逆回购序列过期');
+
+  const history: FedNetLiquidityPoint[] = [];
+  const startTime = latestTime - 30 * FED_NET_LIQUIDITY_DAY_MS;
+  for (let timestamp = startTime; timestamp <= latestTime; timestamp += FED_NET_LIQUIDITY_DAY_MS) {
+    const totalAssets = latestFredValueAtOrBefore(totalAssetsSeries, timestamp);
+    const treasuryGeneralAccount = latestFredValueAtOrBefore(treasuryAccountSeries, timestamp);
+    const overnightReverseRepo = latestFredValueAtOrBefore(reverseRepoSeries, timestamp);
+    if (
+      totalAssets === undefined
+      || treasuryGeneralAccount === undefined
+      || overnightReverseRepo === undefined
+    ) continue;
+    const value = totalAssets / 1_000_000
+      - treasuryGeneralAccount / 1_000_000
+      - overnightReverseRepo / 1_000;
+    if (!Number.isFinite(value) || value <= 0) throw new Error('美联储净流动性计算结果无效');
+    history.push({ time: new Date(timestamp).toISOString(), value: Number(value.toFixed(6)) });
+  }
+  if (history.length < 20) throw new Error('美联储净流动性近30天序列不完整');
+
+  const latest = history.at(-1)!;
+  const first = history[0];
+  const change30d = latest.value - first.value;
+  const chartHistory = exponentialMovingAverage(history, 5);
+  const components = {
+    totalAssets: latestFredValueAtOrBefore(totalAssetsSeries, latestTime)! / 1_000_000,
+    treasuryGeneralAccount: latestFredValueAtOrBefore(treasuryAccountSeries, latestTime)! / 1_000_000,
+    overnightReverseRepo: latestFredValueAtOrBefore(reverseRepoSeries, latestTime)! / 1_000,
+  };
+  return {
+    id: 'fed-net-liquidity',
+    value: latest.value,
+    display: `$${latest.value.toFixed(2)}T`,
+    change30d,
+    changeDisplay: formatLiquidityChange(change30d),
+    regime: change30d >= 0 ? 'injection' : 'contraction',
+    regimeLabel: change30d >= 0 ? '流动性投放' : '流动性收缩',
+    updatedAt: latest.time,
+    sourceUrl: fredSeriesPageUrl('WALCL'),
+    status: 'delayed',
+    history,
+    chartHistory,
+    chartMethod: '5D EMA',
+    components,
+  };
+}
+
+async function refreshFedNetLiquidity() {
+  if (fedNetLiquidityInFlight) return fedNetLiquidityInFlight;
+  fedNetLiquidityInFlight = buildFedNetLiquiditySnapshot()
+    .then(async (data) => {
+      fedNetLiquidityCache = { storedAt: Date.now(), data };
+      await mkdir(sparkflowStateDir, { recursive: true });
+      await writeFile(fedNetLiquidityCacheFile, JSON.stringify(fedNetLiquidityCache, null, 2), 'utf8');
+      return data;
+    })
+    .catch((error) => {
+      if (fedNetLiquidityCache) return fedNetLiquidityCache.data;
+      throw error;
+    })
+    .finally(() => { fedNetLiquidityInFlight = null; });
+  return fedNetLiquidityInFlight;
+}
+
+async function getFedNetLiquidity(forceRefresh = false) {
+  if (!forceRefresh && fedNetLiquidityCache) {
+    if (Date.now() - fedNetLiquidityCache.storedAt >= FED_NET_LIQUIDITY_TTL_MS) {
+      void refreshFedNetLiquidity();
+    }
+    return fedNetLiquidityCache.data;
+  }
+  return refreshFedNetLiquidity();
 }
 
 async function getEastmoneyMacroTickerCandidates(region: GlobalMacroRegion) {
@@ -6602,7 +7081,7 @@ async function loadGlobalMacroMetricsSection(forceOfficial = false) {
       )
     )),
   ];
-  const macroRequest = Promise.allSettled(macroTaskFactories.map((task) => withMacroTimeout(task(), 18_000, '宏观指标')));
+  const macroRequest = Promise.allSettled(macroTaskFactories.map((task) => withMacroTimeout(task(), 30_000, '宏观指标')));
   const nextMeeting = officialMacroEvents.find((event) => (
     event.kind === 'central-bank' && new Date(`${event.date}T23:59:59Z`).getTime() >= Date.now()
   ));
@@ -8421,6 +8900,8 @@ function allWeatherApiPlugin() {
     configureServer(server: ViteDevServer) {
       // Warm the slow consensus page without delaying the first dashboard response.
       void getPpiMarketContext(false).catch(() => undefined);
+      void getNonfarmMarketContext(false).catch(() => undefined);
+      void getUnemploymentMarketContext(false).catch(() => undefined);
       server.middlewares.use(async (req, res, next) => {
         try {
           const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -8456,6 +8937,29 @@ function allWeatherApiPlugin() {
             sendJson(res, 200, {
               generatedAt: new Date().toISOString(),
               macro: [await getUsPpiMacroMetric(false, true)],
+            });
+            return;
+          }
+
+          if (url.pathname === '/api/us-macro-card') {
+            const id = String(url.searchParams.get('id') || '') as IsolatedUsMacroCardId;
+            if (!ISOLATED_US_MACRO_CARD_IDS.includes(id)) {
+              sendJson(res, 400, { error: '不支持的美国宏观卡片' });
+              return;
+            }
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, {
+              generatedAt: new Date().toISOString(),
+              card: await getIsolatedUsMacroCard(id, url.searchParams.get('fresh') === '1'),
+            });
+            return;
+          }
+
+          if (url.pathname === '/api/fed-net-liquidity') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, {
+              generatedAt: new Date().toISOString(),
+              liquidity: await getFedNetLiquidity(url.searchParams.get('fresh') === '1'),
             });
             return;
           }
