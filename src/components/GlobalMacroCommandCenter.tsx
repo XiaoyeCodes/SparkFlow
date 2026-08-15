@@ -36,6 +36,7 @@ import {
   UsMarketHeatmap,
   type InternationalMarketMode,
 } from './ChinaMarketHeatmap';
+import { requestIsolatedJson } from '../lib/isolatedResource';
 import './GlobalMacroCommandCenter.css';
 
 export type GlobalMarketMode = 'china' | 'hongkong' | 'us' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk' | 'crypto';
@@ -249,6 +250,15 @@ type DashboardSectionPayload = Partial<Dashboard> & { generatedAt: string };
 type IsolatedUsMacroCardId = 'ppi' | 'cpi' | 'unemployment' | 'nonfarm' | 'pmi' | 'pce';
 type IsolatedUsMacroCardPayload = { generatedAt: string; card: Metric };
 const ISOLATED_US_MACRO_CARD_IDS: IsolatedUsMacroCardId[] = ['ppi', 'cpi', 'unemployment', 'nonfarm', 'pmi', 'pce'];
+const ISOLATED_CORE_INDEX_IDS: CoreIndex['id'][] = ['nasdaq', 'sp500', 'shanghai', 'sox'];
+type IsolatedFxRateId = (typeof FX_RATE_META)[number]['id'];
+const ISOLATED_FX_RATE_IDS: IsolatedFxRateId[] = FX_RATE_META.map((item) => item.id);
+const ISOLATED_MARKET_ASSET_IDS = ['vix', 'dxy', 'us10y', 'gold', 'brent', 'bitcoin', 'ethereum'] as const;
+type IsolatedMarketAssetId = (typeof ISOLATED_MARKET_ASSET_IDS)[number];
+type IsolatedCoreIndexPayload = { generatedAt: string; index: CoreIndex };
+type IsolatedFxRatePayload = { generatedAt: string; rate: Metric };
+type IsolatedMarketAssetPayload = { generatedAt: string; asset: Metric };
+type IsolatedFedRatePayload = { generatedAt: string; expectation: FedRateExpectation };
 type FastQuotePayload = DashboardSectionPayload & {
   cadenceMs: number;
   coverage: {
@@ -1075,6 +1085,7 @@ function HologramGlobe({
     camera.position.set(0, 0, 6.7);
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setClearColor(0x000000, 0);
     host.appendChild(renderer.domElement);
 
     const root = new THREE.Group();
@@ -1825,9 +1836,9 @@ function InteractiveFlatMap({
         <svg className="macro-vector-map" viewBox={`0 0 ${size.width} ${size.height}`} aria-hidden="true">
           <defs>
             <radialGradient id="macro-ocean-glow" cx="50%" cy="44%" r="65%">
-              <stop offset="0%" stopColor="#07141e" />
-              <stop offset="72%" stopColor="#030a11" />
-              <stop offset="100%" stopColor="#010509" />
+              <stop offset="0%" stopColor="#071617" />
+              <stop offset="72%" stopColor="#030b0c" />
+              <stop offset="100%" stopColor="#020708" />
             </radialGradient>
           </defs>
           <g transform={`translate(${size.width / 2 + transform.x} ${size.height / 2 + transform.y}) scale(${transform.scale}) translate(${-size.width / 2} ${-size.height / 2})`}>
@@ -1885,6 +1896,10 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [isolatedUsMacroCards, setIsolatedUsMacroCards] = useState<Partial<Record<IsolatedUsMacroCardId, Metric>>>({});
+  const [isolatedCoreIndices, setIsolatedCoreIndices] = useState<Partial<Record<CoreIndex['id'], CoreIndex>>>({});
+  const [isolatedFxRates, setIsolatedFxRates] = useState<Partial<Record<IsolatedFxRateId, Metric>>>({});
+  const [isolatedMarketAssets, setIsolatedMarketAssets] = useState<Partial<Record<IsolatedMarketAssetId, Metric>>>({});
+  const [isolatedFedRateExpectation, setIsolatedFedRateExpectation] = useState<FedRateExpectation | null>(null);
   const [fedNetLiquidity, setFedNetLiquidity] = useState<FedNetLiquidity | null>(null);
   const lastFastQuoteFrameRef = useRef('');
   const worldHeatmapWarmupStartedRef = useRef(false);
@@ -2005,6 +2020,90 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [refreshFedNetLiquidity]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timers = new Set<number>();
+    const schedule = (task: () => void, delayMs: number) => {
+      const timer = window.setTimeout(() => {
+        timers.delete(timer);
+        if (!controller.signal.aborted) task();
+      }, delayMs);
+      timers.add(timer);
+    };
+
+    ISOLATED_CORE_INDEX_IDS.forEach((id) => {
+      const refresh = async () => {
+        try {
+          const payload = await requestIsolatedJson<IsolatedCoreIndexPayload>(
+            `/api/global-macro-core-index?id=${encodeURIComponent(id)}`,
+            { signal: controller.signal },
+          );
+          if (controller.signal.aborted) return;
+          setIsolatedCoreIndices((current) => ({ ...current, [id]: payload.index }));
+          schedule(() => void refresh(), 15_000);
+        } catch {
+          // This resource stops after its own third attempt. Sibling resources continue independently.
+        }
+      };
+      void refresh();
+    });
+
+    ISOLATED_FX_RATE_IDS.forEach((id) => {
+      const refresh = async () => {
+        try {
+          const payload = await requestIsolatedJson<IsolatedFxRatePayload>(
+            `/api/global-macro-fx-rate?id=${encodeURIComponent(id)}`,
+            { signal: controller.signal },
+          );
+          if (controller.signal.aborted) return;
+          setIsolatedFxRates((current) => ({ ...current, [id]: payload.rate }));
+          schedule(() => void refresh(), 15_000);
+        } catch {
+          // This resource stops after its own third attempt. Sibling resources continue independently.
+        }
+      };
+      void refresh();
+    });
+
+    ISOLATED_MARKET_ASSET_IDS.forEach((id) => {
+      const refresh = async () => {
+        try {
+          const payload = await requestIsolatedJson<IsolatedMarketAssetPayload>(
+            `/api/global-macro-asset?id=${encodeURIComponent(id)}`,
+            { signal: controller.signal },
+          );
+          if (controller.signal.aborted) return;
+          setIsolatedMarketAssets((current) => ({ ...current, [id]: payload.asset }));
+          schedule(() => void refresh(), 15_000);
+        } catch {
+          // This resource stops after its own third attempt. Sibling resources continue independently.
+        }
+      };
+      void refresh();
+    });
+
+    const refreshFedRate = async () => {
+      try {
+        const payload = await requestIsolatedJson<IsolatedFedRatePayload>(
+          '/api/global-macro-fed-rate',
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+        setIsolatedFedRateExpectation(payload.expectation);
+        schedule(() => void refreshFedRate(), 15 * 60_000);
+      } catch {
+        // Stop after three attempts; the existing macro snapshot remains visible as fallback.
+      }
+    };
+    void refreshFedRate();
+
+    return () => {
+      controller.abort();
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -2156,9 +2255,13 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     void prefetchInternationalMarketHeatmaps();
   }, []);
 
-  const macro = data?.macro || [];
-  const commodities = data?.commodities || [];
-  const rightMarketSignals = useMemo(() => buildMarketSignals(data?.macro || [], data?.commodities || []), [data?.macro, data?.commodities]);
+  const isolatedMacroAssets = (['vix', 'dxy', 'us10y'] as const)
+    .flatMap((id) => isolatedMarketAssets[id] ? [isolatedMarketAssets[id]] : []);
+  const isolatedCommodityAssets = (['gold', 'brent', 'bitcoin', 'ethereum'] as const)
+    .flatMap((id) => isolatedMarketAssets[id] ? [isolatedMarketAssets[id]] : []);
+  const macro = mergeDashboardItems(data?.macro || [], isolatedMacroAssets, true);
+  const commodities = mergeDashboardItems(data?.commodities || [], isolatedCommodityAssets, true);
+  const rightMarketSignals = useMemo(() => buildMarketSignals(macro, commodities), [macro, commodities]);
   const isolatedCpiMetric = isolatedUsMacroCards.cpi;
   const isolatedCpiStat = (label: string) => isolatedCpiMetric?.stats?.find((item) => item.label === label)?.display;
   const isolatedCpiActual = displayNumber(isolatedCpiStat('同比值') || isolatedCpiMetric?.display);
@@ -2174,7 +2277,18 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const usPmiMetric = isolatedUsMacroCards.pmi || data?.pmi?.find((item) => item.id === 'pmi-us');
   const usPceMetric = isolatedUsMacroCards.pce || macro.find((item) => item.id === 'cpi-pce');
   const treasurySpread = macro.find((item) => item.id === 'ust2y10y');
-  const exchangeRates = commodities.filter((item) => FX_RATE_META.some((rate) => rate.id === item.id));
+  const isolatedCoreIndexValues = Object.values(isolatedCoreIndices).filter((item): item is CoreIndex => Boolean(item));
+  const coreIndices = mergeDashboardItems(data?.coreIndices || [], isolatedCoreIndexValues, true);
+  const fedRateExpectation = isolatedFedRateExpectation || data?.fedRateExpectation || null;
+  const displayData = data || coreIndices.length || macro.length || commodities.length
+    ? { ...(data || EMPTY_DASHBOARD), coreIndices, macro, commodities, fedRateExpectation }
+    : null;
+  const exchangeRates = FX_RATE_META.flatMap((meta) => {
+    const isolatedRate = isolatedFxRates[meta.id];
+    if (isolatedRate) return [isolatedRate];
+    const fallback = commodities.find((item) => item.id === meta.id);
+    return fallback ? [fallback] : [];
+  });
   const crypto = commodities.filter((item) => ['bitcoin', 'ethereum'].includes(item.id));
   const markets = data?.markets || [];
 
@@ -2232,7 +2346,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
         </header>
 
         <MacroPulsePanel
-          data={data}
+          data={displayData}
           loading={loading}
           marketSignals={rightMarketSignals}
           exchangeRates={exchangeRates}
@@ -2424,7 +2538,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             <p className="macro-section-title">美债期限结构</p>
             <TreasurySpreadCard item={treasurySpread} />
           </section>
-          <FedRateExpectationCard expectation={data?.fedRateExpectation || null} />
+          <FedRateExpectationCard expectation={fedRateExpectation} />
           <FedNetLiquidityCard liquidity={fedNetLiquidity} />
         </aside>
 
