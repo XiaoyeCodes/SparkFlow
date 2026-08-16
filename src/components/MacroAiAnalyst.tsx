@@ -20,6 +20,9 @@ type StoredReport = {
   markdown: string;
   generatedAt: string;
   title: string;
+  status: 'running' | 'completed';
+  sessionId?: string;
+  attemptId?: string;
 };
 
 type AnalystView = 'home' | 'report';
@@ -72,14 +75,22 @@ function extractReportTitle(markdown: string) {
 function normalizeStoredReport(value: unknown): StoredReport | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<StoredReport>;
-  if (typeof candidate.markdown !== 'string' || typeof candidate.generatedAt !== 'string') return null;
+  if (typeof candidate.generatedAt !== 'string') return null;
+  const status = candidate.status === 'running' ? 'running' : 'completed';
+  const markdown = typeof candidate.markdown === 'string' ? candidate.markdown : '';
+  if (status === 'completed' && !markdown.trim()) return null;
   return {
     id: typeof candidate.id === 'string' ? candidate.id : `report-${candidate.generatedAt}`,
-    markdown: candidate.markdown,
+    markdown,
     generatedAt: candidate.generatedAt,
-    title: typeof candidate.title === 'string' && candidate.title.trim()
+    title: status === 'running'
+      ? '全球宏观经济分析生成中'
+      : typeof candidate.title === 'string' && candidate.title.trim()
       ? candidate.title.trim()
-      : extractReportTitle(candidate.markdown),
+      : extractReportTitle(markdown),
+    status,
+    sessionId: typeof candidate.sessionId === 'string' ? candidate.sessionId : undefined,
+    attemptId: typeof candidate.attemptId === 'string' ? candidate.attemptId : undefined,
   };
 }
 
@@ -114,10 +125,50 @@ function persistReports(reports: StoredReport[]) {
   }
 }
 
+function upsertStoredReport(report: StoredReport) {
+  const current = readStoredReports();
+  const next = [report, ...current.filter((item) => item.id !== report.id)]
+    .sort((a, b) => Date.parse(b.generatedAt) - Date.parse(a.generatedAt))
+    .slice(0, MAX_REPORT_HISTORY);
+  persistReports(next);
+  return next;
+}
+
+function removeStoredReport(id: string) {
+  const next = readStoredReports().filter((item) => item.id !== id);
+  persistReports(next);
+  return next;
+}
+
+function readableError(value: unknown, fallback = '请求失败'): string {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const messages: string[] = value.map((item): string => readableError(item, '')).filter(Boolean);
+    return messages.join('；') || fallback;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const message: string = readableError(record.message ?? record.msg ?? record.error ?? record.detail, '');
+    if (message) {
+      const location = Array.isArray(record.loc) ? record.loc.map(String).join('.') : '';
+      return location ? `${location}：${message}` : message;
+    }
+    try {
+      const serialized = JSON.stringify(value);
+      if (serialized && serialized !== '{}') return serialized;
+    } catch {
+      // Fall through to the human-readable fallback.
+    }
+  }
+  return fallback;
+}
+
 function requestJson<T>(url: string, init?: RequestInit) {
   return fetch(url, init).then(async (response) => {
-    const payload = await response.json().catch(() => ({})) as T & { detail?: string };
-    if (!response.ok) throw new Error(payload.detail || `请求失败：HTTP ${response.status}`);
+    const payload = await response.json().catch(() => ({})) as T & { detail?: unknown; message?: unknown; error?: unknown };
+    if (!response.ok) {
+      throw new Error(readableError(payload.detail ?? payload.message ?? payload.error, `请求失败：HTTP ${response.status}`));
+    }
     return payload;
   });
 }
@@ -316,10 +367,12 @@ export function MacroAiAnalyst({
   const [copied, setCopied] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const liveTextRef = useRef('');
-  const completedRef = useRef(false);
+  const completedAnalysisIdsRef = useRef(new Set<string>());
+  const activeAnalysisIdRef = useRef<string | null>(null);
   const stageIndexRef = useRef(0);
   const stateRef = useRef<MacroAiRunState>(state);
   const wasOpenRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const transitionState = useCallback((next: MacroAiRunState) => {
     stateRef.current = next;
@@ -338,6 +391,15 @@ export function MacroAiAnalyst({
     persistReports(initialHistory.current);
   }, []);
   useEffect(() => {
+    const syncHistory = () => setHistory(readStoredReports());
+    const timer = window.setInterval(syncHistory, 1500);
+    window.addEventListener('storage', syncHistory);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('storage', syncHistory);
+    };
+  }, []);
+  useEffect(() => {
     const justOpened = open && !wasOpenRef.current;
     wasOpenRef.current = open;
     if (!justOpened || stateRef.current === 'connecting' || stateRef.current === 'analyzing') return;
@@ -351,43 +413,51 @@ export function MacroAiAnalyst({
     const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, [state]);
-  useEffect(() => () => eventSourceRef.current?.close(), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      eventSourceRef.current?.close();
+    };
+  }, []);
 
-  const complete = useCallback((markdown: string) => {
-    if (completedRef.current) return;
+  const complete = useCallback((markdown: string, analysisId?: string, reveal = true) => {
     const normalized = normalizeMarkdown(markdown);
     if (!normalized) return;
-    completedRef.current = true;
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
+    const resolvedId = analysisId || activeAnalysisIdRef.current || `report-${Date.now()}`;
+    if (completedAnalysisIdsRef.current.has(resolvedId)) return;
+    completedAnalysisIdsRef.current.add(resolvedId);
+    const existing = readStoredReports().find((item) => item.id === resolvedId);
     const completedAt = new Date().toISOString();
     const completedReport: StoredReport = {
-      id: `report-${completedAt}-${Math.random().toString(36).slice(2, 7)}`,
+      id: resolvedId,
       markdown: normalized,
-      generatedAt: completedAt,
+      generatedAt: existing?.generatedAt || completedAt,
       title: extractReportTitle(normalized),
+      status: 'completed',
     };
+    const next = upsertStoredReport(completedReport);
+    if (!mountedRef.current) return;
+    setHistory(next);
+    if (!reveal || activeAnalysisIdRef.current !== resolvedId) return;
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
     setReport(normalized);
-    setGeneratedAt(completedAt);
-    setHistory((current) => {
-      const next = [completedReport, ...current.filter((item) => item.id !== completedReport.id)].slice(0, MAX_REPORT_HISTORY);
-      persistReports(next);
-      return next;
-    });
+    setGeneratedAt(completedReport.generatedAt);
     setView('report');
     setStage('宏观经济情报生成完成');
     transitionState('completed');
   }, [transitionState]);
 
-  const recoverReport = useCallback(async (sessionId: string, attemptId: string) => {
+  const recoverReport = useCallback(async (sessionId: string, attemptId: string, analysisId: string, reveal = true) => {
     for (let index = 0; index < 240; index += 1) {
-      if (completedRef.current || stateRef.current === 'error') return;
+      if (completedAnalysisIdsRef.current.has(analysisId)) return;
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
       try {
-        const history = await requestJson<StoredMessage[]>(`/api/vibe/research/messages?sessionId=${encodeURIComponent(sessionId)}`);
-        const answer = history.find((message) => message.role === 'assistant' && message.linked_attempt_id === attemptId);
+        const messages = await requestJson<StoredMessage[]>(`/api/vibe/research/messages?sessionId=${encodeURIComponent(sessionId)}`);
+        const answer = messages.find((message) => message.role === 'assistant' && message.linked_attempt_id === attemptId);
         if (answer?.content) {
-          complete(answer.content);
+          complete(answer.content, analysisId, reveal);
           return;
         }
       } catch {
@@ -396,7 +466,7 @@ export function MacroAiAnalyst({
     }
   }, [complete]);
 
-  const connectStream = useCallback((sessionId: string) => new Promise<void>((resolve, reject) => {
+  const connectStream = useCallback((sessionId: string, analysisId: string, reveal = true) => new Promise<void>((resolve, reject) => {
     eventSourceRef.current?.close();
     const source = new EventSource(`/api/vibe/research/events?sessionId=${encodeURIComponent(sessionId)}`);
     eventSourceRef.current = source;
@@ -431,12 +501,15 @@ export function MacroAiAnalyst({
     });
     source.addEventListener('attempt.completed', (event) => {
       const data = parseEvent(event);
-      complete(String(data.summary || liveTextRef.current));
+      complete(String(data.summary || liveTextRef.current), analysisId, reveal);
     });
     source.addEventListener('attempt.failed', (event) => {
       const data = parseEvent(event);
       source.close();
-      setError(String(data.error || 'AI 市场分析执行失败'));
+      const next = removeStoredReport(analysisId);
+      if (mountedRef.current) setHistory(next);
+      if (!reveal || activeAnalysisIdRef.current !== analysisId || !mountedRef.current) return;
+      setError(readableError(data.error, 'AI 市场分析执行失败'));
       transitionState('error');
     });
   }), [advanceStage, complete, transitionState]);
@@ -449,7 +522,10 @@ export function MacroAiAnalyst({
       transitionState('error');
       return;
     }
-    completedRef.current = false;
+    const analysisId = `analysis-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const startedAt = new Date().toISOString();
+    activeAnalysisIdRef.current = analysisId;
+    completedAnalysisIdsRef.current.delete(analysisId);
     liveTextRef.current = '';
     stageIndexRef.current = 0;
     setElapsed(0);
@@ -457,6 +533,14 @@ export function MacroAiAnalyst({
     setStage(ANALYSIS_STAGES[0]);
     setView('home');
     transitionState('connecting');
+    const runningReport: StoredReport = {
+      id: analysisId,
+      markdown: '',
+      generatedAt: startedAt,
+      title: '全球宏观经济分析生成中',
+      status: 'running',
+    };
+    setHistory(upsertStoredReport(runningReport));
     const prompt = buildMacroAiPrompt(snapshot);
     try {
       const prepared = await requestJson<{ sessionId: string }>('/api/vibe/research/session', {
@@ -464,21 +548,69 @@ export function MacroAiAnalyst({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...buildAiPayload(settings, prompt), sessionId: '' }),
       });
-      await connectStream(prepared.sessionId);
+      const withSession = { ...runningReport, sessionId: prepared.sessionId };
+      const sessionHistory = upsertStoredReport(withSession);
+      if (mountedRef.current) setHistory(sessionHistory);
       const sent = await requestJson<{ attempt_id: string }>('/api/vibe/research/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: prepared.sessionId, prompt }),
       });
-      transitionState('analyzing');
-      void recoverReport(prepared.sessionId, sent.attempt_id);
+      const activeReport = { ...withSession, attemptId: sent.attempt_id };
+      const activeHistory = upsertStoredReport(activeReport);
+      if (mountedRef.current) {
+        setHistory(activeHistory);
+        transitionState('analyzing');
+      }
+      if (mountedRef.current) void connectStream(prepared.sessionId, analysisId).catch(() => undefined);
+      void recoverReport(prepared.sessionId, sent.attempt_id, analysisId);
     } catch (reason) {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
-      setError(reason instanceof Error ? reason.message : String(reason));
-      transitionState('error');
+      const next = removeStoredReport(analysisId);
+      if (mountedRef.current) setHistory(next);
+      if (mountedRef.current) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        transitionState('error');
+      }
     }
   }, [connectStream, recoverReport, snapshot, transitionState]);
+
+  useEffect(() => {
+    initialHistory.current
+      .filter((item) => item.status === 'running' && item.sessionId && item.attemptId)
+      .forEach((item) => {
+        void recoverReport(item.sessionId!, item.attemptId!, item.id, false);
+      });
+  }, [recoverReport]);
+
+  const resumeRunningAnalysis = useCallback(async (item: StoredReport) => {
+    activeAnalysisIdRef.current = item.id;
+    completedAnalysisIdsRef.current.delete(item.id);
+    liveTextRef.current = '';
+    const runningFor = Math.max(0, Math.floor((Date.now() - Date.parse(item.generatedAt)) / 1000));
+    const inferredStage = Math.min(ANALYSIS_STAGES.length - 1, Math.floor(runningFor / 9));
+    stageIndexRef.current = inferredStage;
+    setElapsed(runningFor);
+    setStage(ANALYSIS_STAGES[inferredStage]);
+    setError('');
+    setView('home');
+    transitionState(item.sessionId && item.attemptId ? 'analyzing' : 'connecting');
+
+    let resumable = item;
+    for (let index = 0; index < 20 && (!resumable.sessionId || !resumable.attemptId); index += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+      resumable = readStoredReports().find((candidate) => candidate.id === item.id) || resumable;
+    }
+    if (!resumable.sessionId || !resumable.attemptId) {
+      setError('分析任务正在初始化，请稍后重新进入。');
+      transitionState('error');
+      return;
+    }
+    transitionState('analyzing');
+    void connectStream(resumable.sessionId, resumable.id).catch(() => undefined);
+    void recoverReport(resumable.sessionId, resumable.attemptId, resumable.id);
+  }, [connectStream, recoverReport, transitionState]);
 
   const copyReport = async () => {
     await navigator.clipboard.writeText(report);
@@ -487,6 +619,10 @@ export function MacroAiAnalyst({
   };
 
   const openHistoricalReport = (item: StoredReport) => {
+    if (item.status === 'running') {
+      void resumeRunningAnalysis(item);
+      return;
+    }
     setReport(item.markdown);
     setGeneratedAt(item.generatedAt);
     setError('');
@@ -539,7 +675,7 @@ export function MacroAiAnalyst({
                   {error ? <div className="macro-ai-error">{error}</div> : null}
                   <button type="button" onClick={() => void startAnalysis()}>
                     <Sparkles size={16} />
-                    <span>{state === 'error' ? '重新连接 LLM 分析师' : '开始 LLM 分析市场'}</span>
+                    <span>{state === 'error' ? '重新开始分析' : '开始 LLM 分析市场'}</span>
                     <i>RUN</i>
                   </button>
                   <small>分析只使用当前页面快照 · 复用 AI 助手引擎</small>
@@ -553,13 +689,22 @@ export function MacroAiAnalyst({
                   {history.length ? (
                     <div className="macro-ai-history-list">
                       {history.map((item, index) => (
-                        <button type="button" key={item.id} onClick={() => openHistoricalReport(item)}>
+                        <button
+                          type="button"
+                          key={item.id}
+                          className={item.status === 'running' ? 'is-running' : undefined}
+                          onClick={() => openHistoricalReport(item)}
+                        >
                           <span className="macro-ai-history-index">{String(index + 1).padStart(2, '0')}</span>
                           <span className="macro-ai-history-copy">
                             <strong>{item.title}</strong>
                             <small><CalendarDays size={11} />{formatReportDate(item.generatedAt)}<i /><Clock3 size={11} />{formatReportClock(item.generatedAt)}</small>
                           </span>
-                          <span className="macro-ai-history-open">查看报告<ChevronRight size={14} /></span>
+                          {item.status === 'running' ? (
+                            <span className="macro-ai-history-running"><i />分析中<ChevronRight size={14} /></span>
+                          ) : (
+                            <span className="macro-ai-history-open">查看报告<ChevronRight size={14} /></span>
+                          )}
                         </button>
                       ))}
                     </div>

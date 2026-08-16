@@ -70,6 +70,7 @@
 .macro-ai-history-list { display: grid; gap: 7px; }
 .macro-ai-history-list > button { display: grid; min-height: 62px; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 14px 8px 10px; border: 1px solid rgba(83, 147, 148, .14); border-radius: 4px; background: linear-gradient(95deg, rgba(30, 94, 87, .075), rgba(3, 12, 15, .58)); color: inherit; text-align: left; transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease; }
 .macro-ai-history-list > button:hover { border-color: rgba(84, 232, 195, .36); background: linear-gradient(95deg, rgba(37, 130, 117, .13), rgba(6, 20, 23, .72)); box-shadow: inset 3px 0 rgba(84, 232, 195, .65), 0 10px 30px rgba(0, 0, 0, .12); transform: translateX(3px); }
+.macro-ai-history-list > button.is-running { border-color: rgba(84, 232, 195, .3); background: linear-gradient(95deg, rgba(30, 116, 105, .16), rgba(4, 16, 19, .7)); box-shadow: inset 2px 0 rgba(84, 232, 195, .58); }
 .macro-ai-history-index { color: #39585b; font: 600 11px "JetBrains Mono", monospace; text-align: center; }
 .macro-ai-history-copy { display: grid; min-width: 0; gap: 5px; }
 .macro-ai-history-copy strong { overflow: hidden; color: #bdcfcc; font: 590 11px "Noto Serif SC", "Songti SC", serif; text-overflow: ellipsis; white-space: nowrap; }
@@ -77,6 +78,8 @@
 .macro-ai-history-copy small svg { color: #5c8f88; }
 .macro-ai-history-copy small i { width: 1px; height: 9px; margin: 0 4px; background: rgba(85, 131, 133, .22); }
 .macro-ai-history-open { display: inline-flex; align-items: center; gap: 5px; color: #5f7b7f; font-size: 8px; transition: color .18s ease; }
+.macro-ai-history-running { display: inline-flex; align-items: center; gap: 6px; color: #73e8d2; font: 650 8px "JetBrains Mono", monospace; letter-spacing: .08em; }
+.macro-ai-history-running > i { width: 6px; height: 6px; border-radius: 50%; background: #58e5c8; box-shadow: 0 0 9px rgba(88, 229, 200, .8); animation: macro-ai-status-pulse 1.3s ease-in-out infinite; }
 .macro-ai-history-list > button:hover .macro-ai-history-open { color: var(--ai-mint); }
 .macro-ai-history-empty { display: grid; min-height: 112px; place-items: center; align-content: center; gap: 5px; border: 1px dashed rgba(77, 139, 139, .17); border-radius: 4px; color: #36575a; background: rgba(5, 16, 19, .28); }
 .macro-ai-history-empty span { color: #60787b; font-size: 10px; }
@@ -213,6 +216,8 @@
   .macro-ai-history { width: calc(100% - 24px); margin-bottom: 42px; }
   .macro-ai-history-list > button { grid-template-columns: 32px minmax(0, 1fr) 20px; }
   .macro-ai-history-open { font-size: 0; }
+  .macro-ai-history-running { justify-content: center; gap: 0; font-size: 0; }
+  .macro-ai-history-running svg { display: none; }
   .macro-ai-report { grid-template-rows: 58px minmax(0, 1fr); padding: 0 10px 10px; }
   .macro-ai-report-head > div:first-child > span, .macro-ai-report-head small, .macro-ai-report-head button span { display: none; }
   .macro-ai-report-head > div:first-child { display: flex; align-items: center; gap: 8px; }

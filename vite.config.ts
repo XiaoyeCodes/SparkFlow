@@ -8869,8 +8869,31 @@ async function ensureVibeTradingServer() {
 }
 
 async function readVibeError(response: Response) {
-  const payload = (await response.json().catch(() => ({}))) as { detail?: string; message?: string };
-  return payload.detail || payload.message || `Vibe-Trading 返回 HTTP ${response.status}`;
+  const payload = (await response.json().catch(() => ({}))) as { detail?: unknown; message?: unknown; error?: unknown };
+  return formatVibeError(payload.detail ?? payload.message ?? payload.error, `Vibe-Trading 返回 HTTP ${response.status}`);
+}
+
+function formatVibeError(value: unknown, fallback: string): string {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const messages = value.map((item) => formatVibeError(item, '')).filter(Boolean);
+    return messages.join('；') || fallback;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const message = formatVibeError(record.message ?? record.msg ?? record.error ?? record.detail, '');
+    if (message) {
+      const location = Array.isArray(record.loc) ? record.loc.map(String).join('.') : '';
+      return location ? `${location}：${message}` : message;
+    }
+    try {
+      const serialized = JSON.stringify(value);
+      if (serialized && serialized !== '{}') return serialized;
+    } catch {
+      // Fall through to the supplied fallback.
+    }
+  }
+  return fallback;
 }
 
 async function requestVibeJson<T>(baseUrl: string, pathname: string, init: RequestInit = {}) {
@@ -8938,7 +8961,7 @@ async function prepareVibeResearchSession(body: any) {
   const settings = await syncVibeLlmSettings(baseUrl, body);
   const prompt = String(body.prompt || '').trim();
   if (!prompt) throw new Error('研究问题不能为空');
-  if (prompt.length > 12000) throw new Error('研究问题不能超过 12000 个字符');
+  if (prompt.length > 5000) throw new Error('研究问题不能超过 5000 个字符');
 
   let sessionId = String(body.sessionId || '');
   let reused = false;
@@ -9703,7 +9726,7 @@ function allWeatherApiPlugin() {
             const sessionId = validateVibeSessionId(body.sessionId);
             const prompt = String(body.prompt || '').trim();
             if (!prompt) throw new Error('研究问题不能为空');
-            if (prompt.length > 12000) throw new Error('研究问题不能超过 12000 个字符');
+            if (prompt.length > 5000) throw new Error('研究问题不能超过 5000 个字符');
             const baseUrl = await ensureVibeTradingServer();
             const result = await requestVibeJson<{ message_id: string; attempt_id: string }>(
               baseUrl,
