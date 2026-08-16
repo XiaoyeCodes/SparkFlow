@@ -1,10 +1,12 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, BrainCircuit, CalendarDays, Check, ChevronRight, Clock3, Copy, History, RefreshCw, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, BrainCircuit, Building2, CalendarDays, Check, ChevronRight, Clock3, Copy, Globe2, History, Landmark, RefreshCw, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { buildAiPayload, loadIntegrationSettings } from '../lib/integrations';
 import { buildMacroAiPrompt } from '../lib/macroAiPrompt';
+import { buildCountryMarketPrompt, buildEquityResearchPrompt, type AiResearchScope } from '../lib/marketResearchPrompts';
+import { readableError } from '../lib/readableError';
 import './MacroAiAnalyst.css';
 
 export type MacroAiRunState = 'idle' | 'connecting' | 'analyzing' | 'completed' | 'error';
@@ -20,9 +22,12 @@ type StoredReport = {
   markdown: string;
   generatedAt: string;
   title: string;
-  status: 'running' | 'completed';
+  status: 'running' | 'completed' | 'failed';
   sessionId?: string;
   attemptId?: string;
+  scope: AiResearchScope;
+  query?: string;
+  error?: string;
 };
 
 type AnalystView = 'home' | 'report';
@@ -72,25 +77,44 @@ function extractReportTitle(markdown: string) {
   return heading.replace(/[*_`#]/g, '').trim().slice(0, 42) || '全球宏观市场快照简报';
 }
 
+function runningReportTitle(scope: AiResearchScope, query = '') {
+  if (scope === 'country') return `${query || '国家'}市场研究生成中`;
+  if (scope === 'equity') return `${query || '个股'}研究生成中`;
+  return '全球宏观经济分析生成中';
+}
+
+function scopeLabel(scope: AiResearchScope, query = '') {
+  if (scope === 'country') return query ? `国家市场 · ${query}` : '国家市场';
+  if (scope === 'equity') return query ? `个股研究 · ${query}` : '个股研究';
+  return '全球宏观';
+}
+
 function normalizeStoredReport(value: unknown): StoredReport | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<StoredReport>;
   if (typeof candidate.generatedAt !== 'string') return null;
-  const status = candidate.status === 'running' ? 'running' : 'completed';
+  const status = candidate.status === 'running' ? 'running' : candidate.status === 'failed' ? 'failed' : 'completed';
   const markdown = typeof candidate.markdown === 'string' ? candidate.markdown : '';
   if (status === 'completed' && !markdown.trim()) return null;
+  const scope: AiResearchScope = candidate.scope === 'country' || candidate.scope === 'equity' ? candidate.scope : 'global';
+  const query = typeof candidate.query === 'string' ? candidate.query.trim() : '';
   return {
     id: typeof candidate.id === 'string' ? candidate.id : `report-${candidate.generatedAt}`,
     markdown,
     generatedAt: candidate.generatedAt,
     title: status === 'running'
-      ? '全球宏观经济分析生成中'
+      ? runningReportTitle(scope, query)
+      : status === 'failed'
+      ? (typeof candidate.title === 'string' && candidate.title.trim() ? candidate.title.trim() : `${scopeLabel(scope, query)}分析未完成`)
       : typeof candidate.title === 'string' && candidate.title.trim()
       ? candidate.title.trim()
       : extractReportTitle(markdown),
     status,
     sessionId: typeof candidate.sessionId === 'string' ? candidate.sessionId : undefined,
     attemptId: typeof candidate.attemptId === 'string' ? candidate.attemptId : undefined,
+    scope,
+    query: query || undefined,
+    error: typeof candidate.error === 'string' ? candidate.error : undefined,
   };
 }
 
@@ -132,35 +156,6 @@ function upsertStoredReport(report: StoredReport) {
     .slice(0, MAX_REPORT_HISTORY);
   persistReports(next);
   return next;
-}
-
-function removeStoredReport(id: string) {
-  const next = readStoredReports().filter((item) => item.id !== id);
-  persistReports(next);
-  return next;
-}
-
-function readableError(value: unknown, fallback = '请求失败'): string {
-  if (typeof value === 'string' && value.trim()) return value.trim();
-  if (Array.isArray(value)) {
-    const messages: string[] = value.map((item): string => readableError(item, '')).filter(Boolean);
-    return messages.join('；') || fallback;
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const message: string = readableError(record.message ?? record.msg ?? record.error ?? record.detail, '');
-    if (message) {
-      const location = Array.isArray(record.loc) ? record.loc.map(String).join('.') : '';
-      return location ? `${location}：${message}` : message;
-    }
-    try {
-      const serialized = JSON.stringify(value);
-      if (serialized && serialized !== '{}') return serialized;
-    } catch {
-      // Fall through to the human-readable fallback.
-    }
-  }
-  return fallback;
 }
 
 function requestJson<T>(url: string, init?: RequestInit) {
@@ -328,9 +323,9 @@ function NeuralInference({ stage, elapsed }: { stage: string; elapsed: number })
   );
 }
 
-function MacroAiMarkdown({ content }: { content: string }) {
+function MacroAiMarkdown({ content, scope }: { content: string; scope: AiResearchScope }) {
   return (
-    <div className="macro-ai-markdown">
+    <div className={`macro-ai-markdown${scope === 'equity' ? ' macro-ai-markdown-equity' : ''}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -361,6 +356,12 @@ export function MacroAiAnalyst({
   const [history, setHistory] = useState<StoredReport[]>(initialHistory.current);
   const [report, setReport] = useState('');
   const [generatedAt, setGeneratedAt] = useState('');
+  const [reportScope, setReportScope] = useState<AiResearchScope>('global');
+  const [reportQuery, setReportQuery] = useState('');
+  const [researchScope, setResearchScope] = useState<AiResearchScope>('global');
+  const [countryQuery, setCountryQuery] = useState('');
+  const [equityQuery, setEquityQuery] = useState('');
+  const [modeTrayOpen, setModeTrayOpen] = useState(false);
   const [stage, setStage] = useState<string>(ANALYSIS_STAGES[0]);
   const [error, setError] = useState('');
   const [elapsed, setElapsed] = useState(0);
@@ -373,6 +374,15 @@ export function MacroAiAnalyst({
   const stateRef = useRef<MacroAiRunState>(state);
   const wasOpenRef = useRef(false);
   const mountedRef = useRef(true);
+  const researchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const selectedQuery = researchScope === 'country' ? countryQuery : researchScope === 'equity' ? equityQuery : '';
+
+  const selectResearchScope = (scope: AiResearchScope) => {
+    setResearchScope(scope);
+    setError('');
+    if (scope !== 'global') window.setTimeout(() => researchInputRef.current?.focus(), 80);
+  };
 
   const transitionState = useCallback((next: MacroAiRunState) => {
     stateRef.current = next;
@@ -435,6 +445,8 @@ export function MacroAiAnalyst({
       generatedAt: existing?.generatedAt || completedAt,
       title: extractReportTitle(normalized),
       status: 'completed',
+      scope: existing?.scope || 'global',
+      query: existing?.query,
     };
     const next = upsertStoredReport(completedReport);
     if (!mountedRef.current) return;
@@ -444,9 +456,30 @@ export function MacroAiAnalyst({
     eventSourceRef.current = null;
     setReport(normalized);
     setGeneratedAt(completedReport.generatedAt);
+    setReportScope(completedReport.scope);
+    setReportQuery(completedReport.query || '');
     setView('report');
     setStage('宏观经济情报生成完成');
     transitionState('completed');
+  }, [transitionState]);
+
+  const failAnalysis = useCallback((analysisId: string, reason: unknown, reveal = true) => {
+    const message = readableError(reason, 'AI 市场分析执行失败，请稍后重新开始。');
+    const existing = readStoredReports().find((item) => item.id === analysisId);
+    const next = existing
+      ? upsertStoredReport({
+          ...existing,
+          status: 'failed',
+          title: `${scopeLabel(existing.scope, existing.query)}分析未完成`,
+          error: message,
+        })
+      : readStoredReports();
+    if (!mountedRef.current) return;
+    setHistory(next);
+    if (!reveal || activeAnalysisIdRef.current !== analysisId) return;
+    setError(message);
+    setView('home');
+    transitionState('error');
   }, [transitionState]);
 
   const recoverReport = useCallback(async (sessionId: string, attemptId: string, analysisId: string, reveal = true) => {
@@ -506,16 +539,21 @@ export function MacroAiAnalyst({
     source.addEventListener('attempt.failed', (event) => {
       const data = parseEvent(event);
       source.close();
-      const next = removeStoredReport(analysisId);
-      if (mountedRef.current) setHistory(next);
-      if (!reveal || activeAnalysisIdRef.current !== analysisId || !mountedRef.current) return;
-      setError(readableError(data.error, 'AI 市场分析执行失败'));
-      transitionState('error');
+      failAnalysis(analysisId, data.error ?? data.detail ?? data, reveal);
     });
-  }), [advanceStage, complete, transitionState]);
+  }), [advanceStage, complete, failAnalysis, transitionState]);
 
-  const startAnalysis = useCallback(async () => {
+  const startAnalysis = useCallback(async (override?: { scope: AiResearchScope; query?: string }) => {
     if (stateRef.current === 'connecting' || stateRef.current === 'analyzing') return;
+    const scope = override?.scope || researchScope;
+    const query = String(override?.query ?? (scope === 'country' ? countryQuery : scope === 'equity' ? equityQuery : '')).trim();
+    if (scope !== 'global' && !query) {
+      setModeTrayOpen(true);
+      setError(scope === 'country' ? '请输入需要研究的国家或地区。' : '请输入股票代码或公司名称。');
+      window.setTimeout(() => researchInputRef.current?.focus(), 80);
+      transitionState('error');
+      return;
+    }
     const settings = loadIntegrationSettings();
     if (Boolean(settings.ai.apiKey.trim()) !== Boolean(settings.ai.model.trim())) {
       setError('请先在右上角“设置”中同时填写 AI API Key 与模型名称。');
@@ -537,11 +575,18 @@ export function MacroAiAnalyst({
       id: analysisId,
       markdown: '',
       generatedAt: startedAt,
-      title: '全球宏观经济分析生成中',
+      title: runningReportTitle(scope, query),
       status: 'running',
+      scope,
+      query: query || undefined,
     };
     setHistory(upsertStoredReport(runningReport));
-    const prompt = buildMacroAiPrompt(snapshot);
+    setModeTrayOpen(false);
+    const prompt = scope === 'country'
+      ? buildCountryMarketPrompt(query, snapshot)
+      : scope === 'equity'
+      ? buildEquityResearchPrompt(query, snapshot)
+      : buildMacroAiPrompt(snapshot);
     try {
       const prepared = await requestJson<{ sessionId: string }>('/api/vibe/research/session', {
         method: 'POST',
@@ -567,14 +612,9 @@ export function MacroAiAnalyst({
     } catch (reason) {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
-      const next = removeStoredReport(analysisId);
-      if (mountedRef.current) setHistory(next);
-      if (mountedRef.current) {
-        setError(reason instanceof Error ? reason.message : String(reason));
-        transitionState('error');
-      }
+      failAnalysis(analysisId, reason);
     }
-  }, [connectStream, recoverReport, snapshot, transitionState]);
+  }, [connectStream, countryQuery, equityQuery, failAnalysis, recoverReport, researchScope, snapshot, transitionState]);
 
   useEffect(() => {
     initialHistory.current
@@ -603,14 +643,13 @@ export function MacroAiAnalyst({
       resumable = readStoredReports().find((candidate) => candidate.id === item.id) || resumable;
     }
     if (!resumable.sessionId || !resumable.attemptId) {
-      setError('分析任务正在初始化，请稍后重新进入。');
-      transitionState('error');
+      failAnalysis(resumable.id, '分析任务未能完成初始化，请重新开始分析。');
       return;
     }
     transitionState('analyzing');
     void connectStream(resumable.sessionId, resumable.id).catch(() => undefined);
     void recoverReport(resumable.sessionId, resumable.attemptId, resumable.id);
-  }, [connectStream, recoverReport, transitionState]);
+  }, [connectStream, failAnalysis, recoverReport, transitionState]);
 
   const copyReport = async () => {
     await navigator.clipboard.writeText(report);
@@ -623,11 +662,30 @@ export function MacroAiAnalyst({
       void resumeRunningAnalysis(item);
       return;
     }
+    if (item.status === 'failed') {
+      setResearchScope(item.scope);
+      if (item.scope === 'country') setCountryQuery(item.query || '');
+      if (item.scope === 'equity') setEquityQuery(item.query || '');
+      setError(item.error || '上一次分析未完成，请重新开始。');
+      setView('home');
+      setModeTrayOpen(true);
+      transitionState('error');
+      return;
+    }
     setReport(item.markdown);
     setGeneratedAt(item.generatedAt);
+    setReportScope(item.scope);
+    setReportQuery(item.query || '');
     setError('');
     setView('report');
     transitionState('completed');
+  };
+
+  const rerunReport = () => {
+    setResearchScope(reportScope);
+    if (reportScope === 'country') setCountryQuery(reportQuery);
+    if (reportScope === 'equity') setEquityQuery(reportQuery);
+    void startAnalysis({ scope: reportScope, query: reportQuery });
   };
 
   const returnHome = () => {
@@ -637,6 +695,26 @@ export function MacroAiAnalyst({
   };
 
   const running = state === 'connecting' || state === 'analyzing';
+  const launchCopy = researchScope === 'country'
+    ? {
+        eyebrow: 'SOVEREIGN MARKET INTELLIGENCE',
+        title: '读取一个国家的经济与市场脉搏',
+        description: '从增长、通胀、政策、汇率、流动性和股票结构出发，补齐公开数据并生成国家市场研究。',
+        action: '开始国家市场分析',
+      }
+    : researchScope === 'equity'
+    ? {
+        eyebrow: 'INSTITUTIONAL EQUITY RESEARCH',
+        title: '生成一份机构级个股研究',
+        description: '只需输入一个公司名称或股票代码；系统自动识别上市地与币种，再核验行情、财报、行业、估值和风险。',
+        action: '开始个股研究',
+      }
+    : {
+        eyebrow: 'QUANT SIGNAL SYNTHESIS',
+        title: '让 AI 读取此刻的全球市场',
+        description: '汇总宏观、利率、流动性、全球股指、商品、汇率、加密资产与今日要闻，生成一份 30 秒可扫读的决策简报。',
+        action: '开始全球宏观分析',
+      };
 
   return (
     <AnimatePresence>
@@ -669,16 +747,59 @@ export function MacroAiAnalyst({
               <div className="macro-ai-home">
                 <div className="macro-ai-launch">
                   <div className="macro-ai-launch-brain"><BrainCircuit size={51} strokeWidth={1.05} /><i /><b /></div>
-                  <span>QUANT SIGNAL SYNTHESIS</span>
-                  <h2>让 AI 读取此刻的全球市场</h2>
-                  <p>汇总宏观、利率、流动性、全球股指、商品、汇率、加密资产与今日要闻，生成一份 30 秒可扫读的决策简报。</p>
-                  {error ? <div className="macro-ai-error">{error}</div> : null}
-                  <button type="button" onClick={() => void startAnalysis()}>
-                    <Sparkles size={16} />
-                    <span>{state === 'error' ? '重新开始分析' : '开始 LLM 分析市场'}</span>
-                    <i>RUN</i>
-                  </button>
-                  <small>分析只使用当前页面快照 · 复用 AI 助手引擎</small>
+                  <span>{launchCopy.eyebrow}</span>
+                  <h2>{launchCopy.title}</h2>
+                  <p>{launchCopy.description}</p>
+                  <div className="macro-ai-launch-action">
+                    <button
+                      type="button"
+                      className="macro-ai-mode-trigger"
+                      aria-label="选择 AI 分析模式"
+                      aria-expanded={modeTrayOpen}
+                      title="选择 AI 分析模式"
+                      onClick={() => setModeTrayOpen((current) => !current)}
+                    >
+                      <Sparkles size={17} />
+                    </button>
+                    <button type="button" className="macro-ai-run-button" onClick={() => void startAnalysis()}>
+                      <span>{state === 'error' ? '重新开始分析' : launchCopy.action}</span>
+                      <i>RUN</i>
+                    </button>
+                  </div>
+                  <AnimatePresence initial={false}>
+                    {modeTrayOpen ? (
+                      <motion.div
+                        className="macro-ai-mode-tray"
+                        initial={{ opacity: 0, y: -7, height: 0 }}
+                        animate={{ opacity: 1, y: 0, height: 'auto' }}
+                        exit={{ opacity: 0, y: -5, height: 0 }}
+                        transition={{ duration: .2, ease: [0.2, 0.8, 0.2, 1] }}
+                      >
+                        <div className="macro-ai-mode-options" role="tablist" aria-label="AI 分析范围">
+                          <button type="button" role="tab" aria-selected={researchScope === 'global'} className={researchScope === 'global' ? 'selected' : ''} onClick={() => selectResearchScope('global')}><Globe2 size={15} /><span><strong>全球市场</strong><small>宏观与跨资产</small></span></button>
+                          <button type="button" role="tab" aria-selected={researchScope === 'country'} className={researchScope === 'country' ? 'selected' : ''} onClick={() => selectResearchScope('country')}><Landmark size={15} /><span><strong>国家市场</strong><small>周期与政策</small></span></button>
+                          <button type="button" role="tab" aria-selected={researchScope === 'equity'} className={researchScope === 'equity' ? 'selected' : ''} onClick={() => selectResearchScope('equity')}><Building2 size={15} /><span><strong>具体股票</strong><small>公司名 / 代码（二选一）</small></span></button>
+                        </div>
+                        {researchScope !== 'global' ? (
+                          <label className="macro-ai-research-input">
+                            <span>{researchScope === 'country' ? '研究对象 / COUNTRY' : '证券标识 / EQUITY'}</span>
+                            <input
+                              ref={researchInputRef}
+                              value={selectedQuery}
+                              onChange={(event) => researchScope === 'country' ? setCountryQuery(event.target.value) : setEquityQuery(event.target.value)}
+                              onKeyDown={(event) => { if (event.key === 'Enter') void startAnalysis(); }}
+                              placeholder={researchScope === 'country' ? '输入国家或地区，例如：中国、美国、日本' : '输入一个公司名称或股票代码，例如：长鑫科技、AAPL'}
+                              maxLength={80}
+                            />
+                          </label>
+                        ) : (
+                          <div className="macro-ai-mode-note">将使用当前全球终端快照，并在关键数据缺失时查询权威公开来源。</div>
+                        )}
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                  {error ? <div className="macro-ai-error" role="alert">{readableError(error, '分析请求失败，请重新开始。')}</div> : null}
+                  <small>点击星芒可选择分析范围 · 复用当前 AI 助手研究引擎</small>
                 </div>
 
                 <section className="macro-ai-history" aria-label="历史分析报告">
@@ -698,10 +819,12 @@ export function MacroAiAnalyst({
                           <span className="macro-ai-history-index">{String(index + 1).padStart(2, '0')}</span>
                           <span className="macro-ai-history-copy">
                             <strong>{item.title}</strong>
-                            <small><CalendarDays size={11} />{formatReportDate(item.generatedAt)}<i /><Clock3 size={11} />{formatReportClock(item.generatedAt)}</small>
+                            <small><em>{scopeLabel(item.scope, item.query)}</em><i /><CalendarDays size={11} />{formatReportDate(item.generatedAt)}<i /><Clock3 size={11} />{formatReportClock(item.generatedAt)}</small>
                           </span>
                           {item.status === 'running' ? (
                             <span className="macro-ai-history-running"><i />分析中<ChevronRight size={14} /></span>
+                          ) : item.status === 'failed' ? (
+                            <span className="macro-ai-history-failed">未完成 · 重试<ChevronRight size={14} /></span>
                           ) : (
                             <span className="macro-ai-history-open">查看报告<ChevronRight size={14} /></span>
                           )}
@@ -716,15 +839,18 @@ export function MacroAiAnalyst({
             ) : null}
 
             {!running && view === 'report' ? (
-              <motion.div className="macro-ai-report" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+              <motion.div className={`macro-ai-report macro-ai-report-${reportScope}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
                 <div className="macro-ai-report-head">
                   <div><button type="button" className="macro-ai-report-back" onClick={returnHome} title="返回分析首页"><ArrowLeft size={14} /></button><span><i /> ANALYSIS REPORT</span><strong>{extractReportTitle(report)}</strong><small>{formatReportDate(generatedAt)} {formatReportClock(generatedAt)} · AI 分析师</small></div>
                   <div>
                     <button type="button" onClick={() => void copyReport()} title="复制 Markdown">{copied ? <Check size={14} /> : <Copy size={14} />}<span>{copied ? '已复制' : '复制'}</span></button>
-                    <button type="button" onClick={() => void startAnalysis()} title="使用最新页面数据重新分析"><RefreshCw size={14} /><span>重新分析</span></button>
+                    <button type="button" onClick={rerunReport} title="使用最新页面数据重新分析"><RefreshCw size={14} /><span>重新分析</span></button>
                   </div>
                 </div>
-                <MacroAiMarkdown content={report} />
+                {reportScope === 'equity' ? (
+                  <div className="macro-ai-equity-masthead"><span>AI EQUITY RESEARCH</span><strong>{reportQuery || extractReportTitle(report)}</strong><small>INSTITUTIONAL RESEARCH NOTE</small></div>
+                ) : null}
+                <MacroAiMarkdown content={report} scope={reportScope} />
               </motion.div>
             ) : null}
           </div>
