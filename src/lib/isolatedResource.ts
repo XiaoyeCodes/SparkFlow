@@ -1,4 +1,4 @@
-export const ISOLATED_RESOURCE_TIMEOUT_MS = 30_000;
+export const ISOLATED_RESOURCE_TIMEOUT_MS = 60_000;
 export const ISOLATED_RESOURCE_MAX_ATTEMPTS = 3;
 
 type IsolatedResourceOptions = {

@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -13,6 +13,7 @@ import {
   Gauge,
   Landmark,
   LoaderCircle,
+  MapPinned,
   Radar,
   RefreshCw,
   Save,
@@ -31,15 +32,24 @@ import {
   type InternationalMarketMode,
 } from '../components/ChinaMarketHeatmap';
 import { BitcoinCycleChart } from '../components/BitcoinCycleChart';
-import { GlobalMacroCommandCenter } from '../components/GlobalMacroCommandCenter';
 import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
 import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper';
 import { PageTransition } from '../components/PageTransition';
 import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 
+const GlobalMacroCommandCenter = lazy(async () => {
+  const module = await import('../components/GlobalMacroCommandCenter');
+  return { default: module.GlobalMacroCommandCenter };
+});
+
+const ChinaMacroCommandCenter = lazy(async () => {
+  const module = await import('../components/ChinaMacroCommandCenter');
+  return { default: module.ChinaMacroCommandCenter };
+});
+
 type MarketChartMode = 'china' | 'hongkong' | 'us' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk' | 'crypto';
-type MarketDashboardView = 'global' | 'markets';
+type MarketDashboardView = 'global' | 'china-macro' | 'markets';
 
 type UsMarketSystemStatus = {
   state: 'normal' | 'halted' | 'unknown';
@@ -445,10 +455,24 @@ function parseEvent(event: Event) {
   }
 }
 
+function DashboardViewFallback({ label }: { label: string }) {
+  return (
+    <div className="flex h-full min-h-[520px] items-center justify-center bg-[#030706] text-white/58">
+      <div className="flex items-center gap-3 text-sm">
+        <LoaderCircle size={18} className="animate-spin text-[#66dfb7]" />
+        正在载入{label}
+      </div>
+    </div>
+  );
+}
+
 export function Market() {
   const navigate = useNavigate();
   const [activeMarket, setActiveMarket] = useState<MarketChartMode>(() => initialMarketSelection() || 'china');
-  const [dashboardView, setDashboardView] = useState<MarketDashboardView>(() => initialMarketSelection() ? 'markets' : 'global');
+  const [dashboardView, setDashboardView] = useState<MarketDashboardView>(() => {
+    if (window.location.hash === '#china-macro') return 'china-macro';
+    return initialMarketSelection() ? 'markets' : 'global';
+  });
   const [data, setData] = useState<MarketIntelligence | null>(null);
   const [valuationSnapshots, setValuationSnapshots] = useState<Partial<Record<Exclude<MarketChartMode, 'crypto'>, AShareValuationSnapshot>>>({});
   const [loadState, setLoadState] = useState<AsyncState>('loading');
@@ -484,6 +508,7 @@ export function Market() {
   const eventSourcesRef = useRef(new Map<MarketChartMode, EventSource>());
   const pollingRef = useRef(new Map<MarketChartMode, number>());
   const quoteRequestRef = useRef(false);
+  const marketRequestRef = useRef<AbortController | null>(null);
   const reportRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -503,26 +528,40 @@ export function Market() {
   );
 
   const loadMarket = useCallback(async () => {
+    marketRequestRef.current?.abort();
+    const controller = new AbortController();
+    marketRequestRef.current = controller;
     setLoadState('loading');
     setError('');
     try {
-      const payload = await requestJson<MarketIntelligence>('/api/market-intelligence');
+      const payload = await requestJson<MarketIntelligence>('/api/market-intelligence', { signal: controller.signal });
+      if (controller.signal.aborted) return;
       setData(payload);
       setLoadState('success');
     } catch (requestError) {
+      if (controller.signal.aborted) return;
       setLoadState('error');
       setError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      if (marketRequestRef.current === controller) marketRequestRef.current = null;
     }
   }, []);
 
   useEffect(() => {
+    if (dashboardView !== 'markets') return;
     void loadMarket();
-  }, [loadMarket]);
+    return () => {
+      marketRequestRef.current?.abort();
+      marketRequestRef.current = null;
+    };
+  }, [dashboardView, loadMarket]);
 
   useEffect(() => {
+    if (dashboardView !== 'markets') return;
     if (activeMarket === 'crypto') return;
+    const controller = new AbortController();
     let cancelled = false;
-    requestJson<AShareValuationSnapshot>(`/api/valuation-temperature?market=${activeMarket}`)
+    requestJson<AShareValuationSnapshot>(`/api/valuation-temperature?market=${activeMarket}`, { signal: controller.signal })
       .then((payload) => {
         if (!cancelled) setValuationSnapshots((current) => ({ ...current, [activeMarket]: payload }));
       })
@@ -535,19 +574,25 @@ export function Market() {
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [activeMarket]);
+  }, [activeMarket, dashboardView]);
 
   useEffect(() => {
+    if (dashboardView !== 'markets') return;
     if (!['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket)) return;
     const market = activeMarket as InternationalMarketMode;
+    const controller = new AbortController();
     let cancelled = false;
     let inFlight = false;
     const refresh = async () => {
       if (inFlight || document.visibilityState !== 'visible') return;
       inFlight = true;
       try {
-        const payload = await requestJson<{ indices: MarketIndexSnapshot[] }>(`/api/international-market-overview?market=${market}`);
+        const payload = await requestJson<{ indices: MarketIndexSnapshot[] }>(
+          `/api/international-market-overview?market=${market}`,
+          { signal: controller.signal },
+        );
         if (!cancelled && payload.indices.length) {
           setInternationalIndices((current) => ({ ...current, [market]: payload.indices }));
         }
@@ -561,18 +606,21 @@ export function Market() {
     const timer = window.setInterval(() => void refresh(), 5_000);
     return () => {
       cancelled = true;
+      controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeMarket]);
+  }, [activeMarket, dashboardView]);
 
   useEffect(() => {
+    if (dashboardView !== 'markets') return;
     if (!data) return;
+    const controller = new AbortController();
     let cancelled = false;
     const refreshQuotes = async () => {
       if (quoteRequestRef.current || document.visibilityState !== 'visible') return;
       quoteRequestRef.current = true;
       try {
-        const payload = await requestJson<{ indices: MarketIndexSnapshot[] }>('/api/market-quotes');
+        const payload = await requestJson<{ indices: MarketIndexSnapshot[] }>('/api/market-quotes', { signal: controller.signal });
         if (!cancelled && payload.indices.length) {
           setData((current) => (current ? { ...current, generatedAt: new Date().toISOString(), indices: payload.indices } : current));
         }
@@ -585,16 +633,20 @@ export function Market() {
     const timer = window.setInterval(() => void refreshQuotes(), 3000);
     return () => {
       cancelled = true;
+      controller.abort();
+      quoteRequestRef.current = false;
       window.clearInterval(timer);
     };
-  }, [Boolean(data)]);
+  }, [dashboardView, Boolean(data)]);
 
   useEffect(() => {
+    if (dashboardView !== 'markets') return;
     if (activeMarket !== 'us') return;
+    const controller = new AbortController();
     let cancelled = false;
     const refreshSystemStatus = async () => {
       try {
-        const payload = await requestJson<UsMarketSystemStatus>('/api/us-market-system-status');
+        const payload = await requestJson<UsMarketSystemStatus>('/api/us-market-system-status', { signal: controller.signal });
         if (!cancelled) setUsMarketSystem(payload);
       } catch {
         if (!cancelled) {
@@ -610,16 +662,19 @@ export function Market() {
     const timer = window.setInterval(() => void refreshSystemStatus(), 30_000);
     return () => {
       cancelled = true;
+      controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeMarket]);
+  }, [activeMarket, dashboardView]);
 
   useEffect(() => {
+    if (dashboardView !== 'markets') return;
     if (activeMarket !== 'hongkong' && activeMarket !== 'us') return;
+    const controller = new AbortController();
     let cancelled = false;
     setRegionalContentState('loading');
     setRegionalContentError('');
-    requestJson<RegionalMarketContent>(`/api/regional-market-content?market=${activeMarket}`)
+    requestJson<RegionalMarketContent>(`/api/regional-market-content?market=${activeMarket}`, { signal: controller.signal })
       .then((payload) => {
         if (cancelled) return;
         setRegionalContent((current) => ({ ...current, [activeMarket]: payload }));
@@ -632,8 +687,9 @@ export function Market() {
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [activeMarket]);
+  }, [activeMarket, dashboardView]);
 
   const stopPolling = useCallback((mode: MarketChartMode) => {
     const timer = pollingRef.current.get(mode);
@@ -795,6 +851,7 @@ export function Market() {
   );
 
   useEffect(() => {
+    if (dashboardView !== 'markets') return;
     (Object.keys(MARKET_META) as MarketChartMode[]).forEach((mode) => {
       const state = researchRef.current[mode];
       if (!state.running || !state.sessionId) return;
@@ -808,7 +865,7 @@ export function Market() {
       pollingRef.current.forEach((timer) => window.clearInterval(timer));
       pollingRef.current.clear();
     };
-  }, [connectResearchStream, pollResearchResult]);
+  }, [connectResearchStream, dashboardView, pollResearchResult]);
 
   const activeIndices = useMemo(() => {
     if (['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket)) {
@@ -864,6 +921,7 @@ export function Market() {
       : data?.sources || [];
 
   useEffect(() => {
+    if (dashboardView !== 'markets') return;
     if (activeMarket === 'china' || activeMarket === 'crypto') {
       setRotationLoadState('success');
       setRotationError('');
@@ -904,7 +962,7 @@ export function Market() {
       });
 
     return () => controller.abort();
-  }, [activeMarket, rotationReloadKey]);
+  }, [activeMarket, dashboardView, rotationReloadKey]);
 
   const runVibeResearch = async (target: ResearchTarget) => {
     if (!data || activeResearch.running || activeResearch.connecting) return;
@@ -1075,7 +1133,21 @@ export function Market() {
     return (
       <PageTransition>
       <section className="h-[calc(100vh-var(--nav-height))] min-h-[640px] overflow-hidden bg-[#030405] text-white">
-          <GlobalMacroCommandCenter onOpenMarket={(mode) => { setActiveMarket(mode); setDashboardView('markets'); }} />
+          <Suspense fallback={<DashboardViewFallback label="全球资本市场主控台" />}>
+            <GlobalMacroCommandCenter onOpenMarket={(mode) => { setActiveMarket(mode); setDashboardView('markets'); }} />
+          </Suspense>
+        </section>
+      </PageTransition>
+    );
+  }
+
+  if (dashboardView === 'china-macro') {
+    return (
+      <PageTransition>
+        <section className="h-[calc(100vh-var(--nav-height))] min-h-[680px] overflow-hidden bg-[#030706] text-white">
+          <Suspense fallback={<DashboardViewFallback label="中国宏观主控台" />}>
+            <ChinaMacroCommandCenter onBack={() => setDashboardView('markets')} />
+          </Suspense>
         </section>
       </PageTransition>
     );
@@ -1095,6 +1167,13 @@ export function Market() {
               <p className="mt-3 text-sm text-white/46">实时指数、资金风向、中文新闻、券商研报与 Vibe-Trading 深度研究</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDashboardView('china-macro')}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-[#66dfb7]/30 bg-[#66dfb7]/8 px-3 text-xs font-semibold text-[#a8efd7] transition hover:border-[#66dfb7]/55 hover:bg-[#66dfb7]/14"
+              >
+                <MapPinned size={14} /> 中国宏观
+              </button>
               <StatusPill data={data} loadState={loadState} latestAt={latestAt} />
               <IconButton label="刷新完整情报" onClick={() => void loadMarket()} disabled={loadState === 'loading'}>
                 <RefreshCw size={16} className={loadState === 'loading' ? 'animate-spin' : ''} />

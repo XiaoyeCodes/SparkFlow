@@ -6,7 +6,7 @@ import {
   requestIsolatedJson,
 } from '../src/lib/isolatedResource.ts';
 
-assert.equal(ISOLATED_RESOURCE_TIMEOUT_MS, 30_000, '每次独立请求应允许 30 秒');
+assert.equal(ISOLATED_RESOURCE_TIMEOUT_MS, 60_000, '每次独立请求应允许 60 秒');
 assert.equal(ISOLATED_RESOURCE_MAX_ATTEMPTS, 3, '每条独立链路最多尝试 3 次');
 
 let recoveredAttempts = 0;
@@ -112,4 +112,4 @@ for (const id of assetIds) {
   assert.match(server, new RegExp(`\\b${id}: \\{`), `服务端缺少 ${id} 独立资源配置`);
 }
 
-console.log('独立市场数据链路验证通过：30 秒超时、最多 3 次、七项资产单卡失败隔离。');
+console.log('独立市场数据链路验证通过：60 秒超时、最多 3 次、七项资产单卡失败隔离。');

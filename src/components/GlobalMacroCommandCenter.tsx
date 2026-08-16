@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import {
   ArrowRight,
   Bitcoin,
+  BrainCircuit,
   BriefcaseBusiness,
   CircleDollarSign,
   Droplets,
@@ -36,6 +37,7 @@ import {
   UsMarketHeatmap,
   type InternationalMarketMode,
 } from './ChinaMarketHeatmap';
+import { MacroAiAnalyst, type MacroAiRunState } from './MacroAiAnalyst';
 import { requestIsolatedJson } from '../lib/isolatedResource';
 import './GlobalMacroCommandCenter.css';
 
@@ -176,6 +178,7 @@ type CalendarEvent = {
 };
 type FedRateExpectation = {
   meetingDate?: string;
+  meetingAt?: string;
   meetingLabel: string;
   currentRate: number;
   impliedRate: number;
@@ -809,6 +812,92 @@ function buildMarketSignals(macro: Metric[], commodities: Metric[]): KeySignal[]
     { id: 'brent', label: '布伦特原油', value: brent?.display || '待更新', change: signalChange(brent), rawChange: brent?.change, note: brent?.change === undefined || brent.change === null ? '等待数据' : brent.change >= 0 ? '能源价格走强' : '能源价格走弱', url: brent?.sourceUrl },
     { id: 'gold', label: '黄金', value: gold?.display || '待更新', change: signalChange(gold), rawChange: gold?.change, note: gold?.change === undefined || gold.change === null ? '等待数据' : gold.change >= 0 ? '避险资产走强' : '避险资产走弱', url: gold?.sourceUrl },
   ];
+}
+
+function cleanSnapshotText(value: string) {
+  return value.replace(/[\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
+function metricSnapshotLine(item: Metric) {
+  const details = [
+    ...(item.parts || []).map((part) => `${part.label} ${part.display}`),
+    ...(item.stats || []).map((stat) => `${stat.label} ${stat.display}`),
+  ].filter(Boolean);
+  const change = item.changeDisplay || (item.change === undefined || item.change === null ? '' : signed(item.change));
+  const history = historySnapshot(item.history);
+  return `- ${cleanSnapshotText(item.label)}: ${item.display}${change ? ` (${change})` : ''}${details.length ? `；${details.join('，')}` : ''}${history}`;
+}
+
+function historySnapshot(history: HistoryPoint[], limit = 16) {
+  const points = history
+    .filter((point) => point.time && Number.isFinite(point.value))
+    .slice(-limit)
+    .map((point) => `${point.time.slice(5, 10)}=${Number(point.value.toFixed(3))}`);
+  return points.length >= 3 ? `；真实序列(旧→新) [${points.join(', ')}]` : '';
+}
+
+function buildMacroAiSnapshot({
+  generatedAt,
+  global,
+  macroMetrics,
+  fedRateExpectation,
+  liquidity,
+  indices,
+  markets,
+  marketSignals,
+  exchangeRates,
+  crypto,
+  news,
+}: {
+  generatedAt?: string;
+  global: Quote | null;
+  macroMetrics: Metric[];
+  fedRateExpectation: FedRateExpectation | null;
+  liquidity: FedNetLiquidity | null;
+  indices: CoreIndex[];
+  markets: Quote[];
+  marketSignals: KeySignal[];
+  exchangeRates: Metric[];
+  crypto: Metric[];
+  news: News[];
+}) {
+  const validIndices = indices.filter((item) => item.price !== null);
+  const validMarkets = markets.filter((item) => Number.isFinite(item.price));
+  const validSignals = marketSignals.filter((item) => item.value !== '待更新');
+  const validRates = exchangeRates.filter((item) => item.value !== null);
+  const validCrypto = crypto.filter((item) => item.value !== null);
+  const snapshotTime = generatedAt && !Number.isNaN(new Date(generatedAt).getTime()) ? new Date(generatedAt) : new Date();
+  const lines = [
+    `时间快照: ${new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'medium', hourCycle: 'h23' }).format(snapshotTime)}`,
+    `世界时钟: 纽约 ${clock('America/New_York', snapshotTime)} / 伦敦 ${clock('Europe/London', snapshotTime)} / 东京 ${clock('Asia/Tokyo', snapshotTime)} / 上海 ${clock('Asia/Shanghai', snapshotTime)}`,
+    '',
+    '## 宏观指标（美国）',
+    ...(macroMetrics.length ? macroMetrics.map(metricSnapshotLine) : ['- 当前无可用宏观指标']),
+    '',
+    '## 利率与流动性',
+    ...(fedRateExpectation ? [
+      `- 下次 FOMC: ${fedRateExpectation.meetingLabel}；当前利率 ${fedRateExpectation.currentRate.toFixed(2)}%；隐含利率 ${fedRateExpectation.impliedRate.toFixed(2)}%；预期变化 ${fedRateExpectation.expectedChangeBps > 0 ? '+' : ''}${fedRateExpectation.expectedChangeBps.toFixed(1)}bp；维持/加息/降息概率以页面分布为准：${fedRateExpectation.distribution.map((item) => `${item.label} ${item.probability.toFixed(1)}%`).join('，')}`,
+    ] : ['- FOMC 预期待更新']),
+    ...(liquidity ? [`- Fed 净流动性: ${liquidity.display}；30 日变化 ${liquidity.changeDisplay}；状态 ${liquidity.regimeLabel}${historySnapshot(liquidity.chartHistory, 20)}`] : ['- Fed 净流动性待更新']),
+    '',
+    '## 全球股指',
+    ...(global ? [`- VT 全球股票代理: ${formatNumber(global.price)} (${signed(global.changePercent)})`] : []),
+    ...validIndices.map((item) => `- ${item.name}: ${formatNumber(item.price)} (${signed(item.changePercent)})${historySnapshot(item.history)}`),
+    ...validMarkets.map((item) => `- ${item.name}: ${formatNumber(item.price)} (${signed(item.changePercent)})；${item.session.label}`),
+    '',
+    '## 大宗商品、美元与美债',
+    ...(validSignals.length ? validSignals.map((item) => `- ${item.label}: ${item.value} (${item.change})；${item.note}`) : ['- 当前无可用数据']),
+    '',
+    '## 汇率',
+    ...(validRates.length ? validRates.map(metricSnapshotLine) : ['- 当前无可用汇率']),
+    '',
+    '## 加密市场',
+    ...(validCrypto.length ? validCrypto.map(metricSnapshotLine) : ['- 当前无可用加密行情']),
+    '',
+    '## 今日要闻（华尔街见闻）',
+    ...(news.length ? news.slice(0, 5).map((item, index) => `${index + 1}. 【${cleanSnapshotText(item.category)}】${cleanSnapshotText(item.title)}`) : ['1. 当前无可用重点新闻']),
+  ];
+  return lines.join('\n');
 }
 
 function MacroPulsePanel({
@@ -1890,6 +1979,8 @@ function InteractiveFlatMap({
 export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (market: GlobalMarketMode) => void }) {
   const [view, setView] = useState<'globe' | 'map'>('globe');
   const [globeFocus, setGlobeFocus] = useState<GlobeCountryFocus>(null);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiRunState, setAiRunState] = useState<MacroAiRunState>('idle');
   const [data, setData] = useState<Dashboard | null>(null);
   const [selected, setSelected] = useState<Quote | null>(null);
   const [modalMode, setModalMode] = useState<GlobalMarketMode | null>(null);
@@ -2093,7 +2184,8 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
         setIsolatedFedRateExpectation(payload.expectation);
         schedule(() => void refreshFedRate(), 15 * 60_000);
       } catch {
-        // Stop after three attempts; the existing macro snapshot remains visible as fallback.
+        // A slow upstream must not disable this card forever; retry later without blocking siblings.
+        schedule(() => void refreshFedRate(), 60_000);
       }
     };
     void refreshFedRate();
@@ -2245,7 +2337,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setSelected(null); setModalMode(null); }
+      if (event.key === 'Escape') { setAiPanelOpen(false); setSelected(null); setModalMode(null); }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -2291,6 +2383,19 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   });
   const crypto = commodities.filter((item) => ['bitcoin', 'ethereum'].includes(item.id));
   const markets = data?.markets || [];
+  const aiSnapshot = buildMacroAiSnapshot({
+    generatedAt: data?.generatedAt,
+    global: data?.global || null,
+    macroMetrics: [...macroRiskMetrics, ...(usPmiMetric ? [usPmiMetric] : []), ...(usPceMetric ? [usPceMetric] : [])],
+    fedRateExpectation,
+    liquidity: fedNetLiquidity,
+    indices: coreIndices,
+    markets,
+    marketSignals: rightMarketSignals,
+    exchangeRates,
+    crypto,
+    news: data?.focusNews || [],
+  });
 
   const warmQuoteHeatmap = useCallback((quote: Quote) => {
     if (isInternationalMarketMode(quote.market)) {
@@ -2388,6 +2493,15 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
               <div className="macro-mode-toggle">
                 <button type="button" className={view === 'globe' ? 'active' : ''} onClick={() => setView('globe')} title="全息地球"><Globe2 size={15} /></button>
                 <button type="button" className={view === 'map' ? 'active' : ''} onClick={() => { setGlobeFocus(null); setView('map'); }} title="平板地图"><MapIcon size={15} /></button>
+                <button
+                  type="button"
+                  className={`macro-ai-toggle ${aiPanelOpen ? 'active' : ''} ${aiRunState === 'connecting' || aiRunState === 'analyzing' ? 'is-running' : ''} ${aiRunState === 'completed' ? 'is-complete' : ''}`}
+                  onClick={() => setAiPanelOpen(true)}
+                  title="AI 市场分析"
+                  aria-label="打开 AI 市场分析舱"
+                >
+                  <BrainCircuit size={16} strokeWidth={1.45} />
+                </button>
               </div>
             </div>
             {error ? <button type="button" className="macro-error" onClick={() => void load()}>{error} · 点击重试</button> : null}
@@ -2398,6 +2512,12 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                 <InteractiveFlatMap markets={markets} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} />
               )}
             </div>
+            <MacroAiAnalyst
+              open={aiPanelOpen}
+              snapshot={aiSnapshot}
+              onClose={() => setAiPanelOpen(false)}
+              onStateChange={setAiRunState}
+            />
             {loading ? <div className="macro-loading"><span />正在连接全球市场数据</div> : null}
           </div>
         </main>
@@ -2784,6 +2904,13 @@ function TreasurySpreadCard({ item }: { item?: Metric }) {
 }
 
 function FedRateExpectationCard({ expectation }: { expectation: FedRateExpectation | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!expectation?.meetingAt) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [expectation?.meetingAt]);
+
   const distribution = expectation?.distribution || [
     { id: 'hold', label: '维持', probability: 0, direction: 'hold' as const },
     { id: 'cut25', label: '降息 25bp', probability: 0, direction: 'cut' as const },
@@ -2795,6 +2922,10 @@ function FedRateExpectationCard({ expectation }: { expectation: FedRateExpectati
     ? `${expectation.expectedChangeBps > 0 ? '+' : ''}${expectation.expectedChangeBps.toFixed(1)}bp`
     : '待更新';
   const sourceUrl = expectation?.sourceUrl || 'https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html';
+  const meetingAt = expectation?.meetingAt ? new Date(expectation.meetingAt).getTime() : Number.NaN;
+  const countdown = Number.isFinite(meetingAt)
+    ? meetingAt > now ? `${Math.ceil((meetingAt - now) / 86_400_000)}天` : '等待决议结果'
+    : '等待会议日期';
 
   return (
     <section className="macro-terminal-section macro-fed-section">
@@ -2812,7 +2943,10 @@ function FedRateExpectationCard({ expectation }: { expectation: FedRateExpectati
             </div>
           ))}
         </div>
-        <footer><span>{expectation ? `${expectation.method} · ${expectation.contractSymbol}` : '等待会议月 ZQ 期货与 FRED 数据'}</span><span>CME 方法说明 <ExternalLink size={9} /></span></footer>
+        <footer title={expectation ? `${expectation.method} · ${expectation.contractSymbol}` : '等待会议月 ZQ 期货与 FRED 数据'}>
+          <span className="macro-fed-countdown"><small>距 FOMC 决议</small><b>{countdown}</b></span>
+          <span>CME 方法说明 <ExternalLink size={9} /></span>
+        </footer>
       </a>
     </section>
   );

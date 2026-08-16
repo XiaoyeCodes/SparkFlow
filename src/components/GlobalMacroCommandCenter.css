@@ -407,6 +407,12 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-mode-toggle button { width: 38px; height: 34px; }
 .macro-mode-toggle button + button { border-left: 0; }
 .macro-mode-toggle button.active { color: var(--macro-cyan); background: rgba(34, 211, 238, 0.14); border-color: var(--macro-border-strong); }
+.macro-mode-toggle .macro-ai-toggle { position: relative; color: #718b94; }
+.macro-mode-toggle .macro-ai-toggle::after { position: absolute; top: 6px; right: 6px; width: 4px; height: 4px; border: 1px solid rgba(95, 228, 201, .52); border-radius: 50%; background: #071014; content: ''; }
+.macro-mode-toggle .macro-ai-toggle:hover { color: #75e7d1; background: rgba(57, 193, 169, .09); }
+.macro-mode-toggle .macro-ai-toggle.active { color: #79f0d7; border-color: rgba(91, 224, 200, .36); background: linear-gradient(145deg, rgba(50, 184, 159, .14), rgba(13, 37, 42, .52)); box-shadow: inset 0 0 15px rgba(62, 215, 186, .05); }
+.macro-mode-toggle .macro-ai-toggle.is-running::after { border-color: #64efd1; background: #64efd1; box-shadow: 0 0 8px rgba(100, 239, 209, .85); animation: macro-ai-toggle-pulse 1s ease-in-out infinite; }
+.macro-mode-toggle .macro-ai-toggle.is-complete::after { border-color: #ff9b59; background: #ff9b59; box-shadow: 0 0 7px rgba(255, 155, 89, .7); }
 
 .macro-globe-wrap {
   position: relative;
@@ -937,6 +943,9 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-fed-row.cut50 > i > em { background: var(--macro-gold); box-shadow: 0 0 9px rgba(255,184,77,.3); }
 .macro-fed-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 9px; border-top: 1px solid rgba(97,223,255,.1); color: var(--macro-muted); font-size: 8px; }
 .macro-fed-card footer span { display: flex; align-items: center; gap: 4px; }
+.macro-fed-card footer .macro-fed-countdown { align-items: flex-start; flex-direction: column; gap: 2px; }
+.macro-fed-countdown small { color: var(--macro-muted); font: 500 7px "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.macro-fed-countdown b { color: var(--macro-cyan); font: 650 10px "JetBrains Mono", monospace; letter-spacing: .04em; text-shadow: 0 0 10px rgba(34,211,238,.22); }
 .macro-liquidity-card {
   --liquidity-accent: #71849a;
   position: relative;
@@ -1228,6 +1237,10 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 @keyframes macro-country-lock-pulse {
   0%, 100% { transform: scale(.82); opacity: .65; }
   50% { transform: scale(1.15); opacity: 1; }
+}
+
+@keyframes macro-ai-toggle-pulse {
+  50% { opacity: .3; transform: scale(.72); }
 }
 
 @keyframes macro-driver-scroll {
