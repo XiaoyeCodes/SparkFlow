@@ -14,6 +14,7 @@ import {
   getMarketHolidayName,
   type MarketCalendarId,
 } from './src/data/marketCalendars';
+import { CozeReportTaskService } from './server/cozeReportTasks';
 
 const rootDir = process.cwd();
 const allWeatherDataDir = path.join(rootDir, 'public', 'allweather', 'data');
@@ -24,7 +25,7 @@ const sparkflowStateDir = path.join(rootDir, '.sparkflow');
 const vibePortFile = path.join(sparkflowStateDir, 'vibe.port');
 const vibePidFile = path.join(sparkflowStateDir, 'vibe.pid');
 const vibePortRange = Array.from({ length: 101 }, (_, index) => 8899 + index);
-const cozeReportDefaultUrl = 'https://mgbqhc4wd9.coze.site/stream_run';
+const cozeReportDefaultUrl = 'https://274d0c8f-47e6-46aa-b386-e1e79a1f8425.dev.coze.site';
 const cozeReportDefaultProjectId = '7610987478518071337';
 const cozeReportMaxBytes = 24 * 1024 * 1024;
 let cachedVibeBaseUrl = '';
@@ -9271,6 +9272,13 @@ async function requestCozeEquityResearch(query: string) {
   }
 }
 
+const cozeReportTasks = new CozeReportTaskService({
+  rootDir,
+  stateDir: sparkflowStateDir,
+  maxBytes: cozeReportMaxBytes,
+  getConfig: getCozeReportConfig,
+});
+
 function sanitizeFileName(value: string) {
   return value
     .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
@@ -9936,13 +9944,44 @@ function allWeatherApiPlugin() {
             return;
           }
 
+          if (url.pathname === '/api/coze/equity-research/tasks' && req.method === 'POST') {
+            const payload = JSON.parse(await getRequestBody(req)) as { query?: string };
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 202, await cozeReportTasks.createTask(String(payload.query || '')));
+            return;
+          }
+
+          if (url.pathname === '/api/coze/equity-research/tasks' && req.method === 'GET') {
+            const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit')) || 40));
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await cozeReportTasks.listTasks(limit));
+            return;
+          }
+
+          const cozeTaskFileMatch = url.pathname.match(/^\/api\/coze\/equity-research\/tasks\/([^/]+)\/files\/(.+)$/);
+          if (cozeTaskFileMatch && req.method === 'GET') {
+            const taskId = decodeURIComponent(cozeTaskFileMatch[1]);
+            const relativePath = cozeTaskFileMatch[2].split('/').map(decodeURIComponent).join('/');
+            const file = await cozeReportTasks.readTaskFile(taskId, relativePath);
+            res.statusCode = 200;
+            res.setHeader('Content-Type', file.mimeType);
+            res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+            res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+            res.end(file.data);
+            return;
+          }
+
+          const cozeTaskMatch = url.pathname.match(/^\/api\/coze\/equity-research\/tasks\/([^/]+)$/);
+          if (cozeTaskMatch && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await cozeReportTasks.getTask(decodeURIComponent(cozeTaskMatch[1])));
+            return;
+          }
+
           if (url.pathname === '/api/coze/equity-research' && req.method === 'POST') {
             const payload = JSON.parse(await getRequestBody(req)) as { query?: string };
-            const query = String(payload.query || '').trim().replace(/\s*cz$/i, '').trim();
-            if (!query) throw new Error('请输入股票代码或公司名称');
-            if (query.length > 120) throw new Error('股票代码或公司名称过长');
             res.setHeader('Cache-Control', 'no-store');
-            sendJson(res, 200, { markdown: await requestCozeEquityResearch(query) });
+            sendJson(res, 202, await cozeReportTasks.createTask(String(payload.query || '')));
             return;
           }
 

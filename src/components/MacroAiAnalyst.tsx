@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, BrainCircuit, Building2, CalendarDays, Check, ChevronRight, Clock3, Copy, Globe2, History, Landmark, RefreshCw, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, BrainCircuit, Building2, CalendarDays, Check, ChevronRight, Clock3, Copy, Download, FileArchive, Globe2, History, Landmark, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -28,6 +28,35 @@ type StoredReport = {
   scope: AiResearchScope;
   query?: string;
   error?: string;
+  provider?: 'vibe' | 'coze';
+  taskId?: string;
+  artifacts?: CozeTaskArtifact[];
+};
+
+type CozeTaskArtifact = {
+  kind: 'raw-response' | 'answer-source' | 'original-pdf' | 'generated-pdf' | 'page-image' | 'embedded-image' | 'table';
+  path: string;
+  mimeType: string;
+  bytes: number;
+  sha256: string;
+  label: string;
+  page?: number;
+  url: string;
+};
+
+type CozeTaskSnapshot = {
+  id: string;
+  query: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  stage: 'queued' | 'requesting' | 'archiving' | 'rendering' | 'extracting' | 'formatting' | 'completed' | 'failed';
+  progress: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  error?: string;
+  warnings: string[];
+  markdown?: string;
+  artifacts: CozeTaskArtifact[];
 };
 
 type AnalystView = 'home' | 'report';
@@ -43,6 +72,16 @@ const ANALYSIS_STAGES = [
   '正在执行多资产量化演算',
   '宏观经济情报生成中',
 ] as const;
+const COZE_STAGE_LABELS: Record<CozeTaskSnapshot['stage'], string> = {
+  queued: '外部研报任务已进入后台队列',
+  requesting: '正在接收 Coze 机构研报内容',
+  archiving: '正在封存原始响应与完整答案',
+  rendering: '正在生成可审计 PDF 原件',
+  extracting: '正在读取 PDF 文本',
+  formatting: '正在编排 Markdown 展示副本',
+  completed: '外部个股研报生成完成',
+  failed: '外部个股研报生成未完成',
+};
 type GatewayPoint = readonly [number, number];
 
 const GATEWAY_LANES = [
@@ -115,6 +154,16 @@ function normalizeStoredReport(value: unknown): StoredReport | null {
     scope,
     query: query || undefined,
     error: typeof candidate.error === 'string' ? candidate.error : undefined,
+    provider: candidate.provider === 'coze' ? 'coze' : candidate.provider === 'vibe' ? 'vibe' : undefined,
+    taskId: typeof candidate.taskId === 'string' ? candidate.taskId : undefined,
+    artifacts: Array.isArray(candidate.artifacts)
+      ? candidate.artifacts.filter((artifact): artifact is CozeTaskArtifact => Boolean(
+          artifact
+          && typeof artifact === 'object'
+          && typeof (artifact as CozeTaskArtifact).url === 'string'
+          && typeof (artifact as CozeTaskArtifact).sha256 === 'string',
+        ))
+      : undefined,
   };
 }
 
@@ -201,6 +250,13 @@ function formatReportClock(value: string) {
     minute: '2-digit',
     hourCycle: 'h23',
   }).format(date);
+}
+
+function formatArtifactBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function NeuralInference({ stage, elapsed }: { stage: string; elapsed: number }) {
@@ -331,6 +387,12 @@ function MacroAiMarkdown({ content }: { content: string }) {
         components={{
           a: ({ children, ...props }) => <a {...props} target="_blank" rel="noreferrer">{children}</a>,
           table: ({ children }) => <div className="macro-ai-table-wrap"><table>{children}</table></div>,
+          img: ({ alt, ...props }) => (
+            <span className="macro-ai-report-visual">
+              <img {...props} alt={alt || '研报视觉资源'} loading="lazy" />
+              {alt ? <small>{alt}</small> : null}
+            </span>
+          ),
         }}
       >
         {content}
@@ -358,6 +420,8 @@ export function MacroAiAnalyst({
   const [generatedAt, setGeneratedAt] = useState('');
   const [reportScope, setReportScope] = useState<AiResearchScope>('global');
   const [reportQuery, setReportQuery] = useState('');
+  const [reportProvider, setReportProvider] = useState<'vibe' | 'coze'>('vibe');
+  const [reportArtifacts, setReportArtifacts] = useState<CozeTaskArtifact[]>([]);
   const [researchScope, setResearchScope] = useState<AiResearchScope>('global');
   const [countryQuery, setCountryQuery] = useState('');
   const [equityQuery, setEquityQuery] = useState('');
@@ -431,7 +495,12 @@ export function MacroAiAnalyst({
     };
   }, []);
 
-  const complete = useCallback((markdown: string, analysisId?: string, reveal = true) => {
+  const complete = useCallback((
+    markdown: string,
+    analysisId?: string,
+    reveal = true,
+    details?: { provider?: 'vibe' | 'coze'; taskId?: string; artifacts?: CozeTaskArtifact[] },
+  ) => {
     const normalized = normalizeMarkdown(markdown);
     if (!normalized) return;
     const resolvedId = analysisId || activeAnalysisIdRef.current || `report-${Date.now()}`;
@@ -447,6 +516,9 @@ export function MacroAiAnalyst({
       status: 'completed',
       scope: existing?.scope || 'global',
       query: existing?.query,
+      provider: details?.provider || existing?.provider || 'vibe',
+      taskId: details?.taskId || existing?.taskId,
+      artifacts: details?.artifacts || existing?.artifacts,
     };
     const next = upsertStoredReport(completedReport);
     if (!mountedRef.current) return;
@@ -458,6 +530,8 @@ export function MacroAiAnalyst({
     setGeneratedAt(completedReport.generatedAt);
     setReportScope(completedReport.scope);
     setReportQuery(completedReport.query || '');
+    setReportProvider(completedReport.provider || 'vibe');
+    setReportArtifacts(completedReport.artifacts || []);
     setView('report');
     setStage('宏观经济情报生成完成');
     transitionState('completed');
@@ -498,6 +572,53 @@ export function MacroAiAnalyst({
       }
     }
   }, [complete]);
+
+  const recoverCozeTask = useCallback(async (taskId: string, analysisId = taskId, reveal = true) => {
+    for (let index = 0; index < 2400; index += 1) {
+      if (!mountedRef.current || completedAnalysisIdsRef.current.has(analysisId)) return;
+      try {
+        const task = await requestJson<CozeTaskSnapshot>(`/api/coze/equity-research/tasks/${encodeURIComponent(taskId)}`);
+        const existing = readStoredReports().find((item) => item.id === analysisId);
+        const synchronized: StoredReport = {
+          id: analysisId,
+          markdown: task.markdown || existing?.markdown || '',
+          generatedAt: existing?.generatedAt || task.createdAt,
+          title: task.status === 'completed' && task.markdown
+            ? extractReportTitle(task.markdown)
+            : task.status === 'failed'
+            ? `${scopeLabel('equity', task.query)}分析未完成`
+            : runningReportTitle('equity', task.query),
+          status: task.status === 'completed' ? 'completed' : task.status === 'failed' ? 'failed' : 'running',
+          scope: 'equity',
+          query: task.query,
+          error: task.error,
+          provider: 'coze',
+          taskId,
+          artifacts: task.artifacts,
+        };
+        const next = upsertStoredReport(synchronized);
+        if (mountedRef.current) setHistory(next);
+        if (reveal && activeAnalysisIdRef.current === analysisId) {
+          setStage(COZE_STAGE_LABELS[task.stage]);
+          transitionState(task.status === 'queued' ? 'connecting' : task.status === 'failed' ? 'error' : task.status === 'completed' ? 'completed' : 'analyzing');
+        }
+        if (task.status === 'completed' && task.markdown) {
+          complete(task.markdown, analysisId, reveal, { provider: 'coze', taskId, artifacts: task.artifacts });
+          return;
+        }
+        if (task.status === 'failed') {
+          failAnalysis(analysisId, task.error || 'Coze 研报后台任务未完成。', reveal);
+          return;
+        }
+      } catch (reason) {
+        if (index >= 8) {
+          failAnalysis(analysisId, reason, reveal);
+          return;
+        }
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+  }, [complete, failAnalysis, transitionState]);
 
   const connectStream = useCallback((sessionId: string, analysisId: string, reveal = true) => new Promise<void>((resolve, reject) => {
     eventSourceRef.current?.close();
@@ -581,24 +702,39 @@ export function MacroAiAnalyst({
       status: 'running',
       scope,
       query: query || undefined,
+      provider: useCozeChannel ? 'coze' : 'vibe',
     };
-    setHistory(upsertStoredReport(runningReport));
     setModeTrayOpen(false);
     if (useCozeChannel) {
       try {
-        setStage('外部个股研报生成中');
-        transitionState('analyzing');
-        const result = await requestJson<{ markdown: string }>('/api/coze/equity-research', {
+        setStage('正在创建可恢复的后台研报任务');
+        const task = await requestJson<CozeTaskSnapshot>('/api/coze/equity-research/tasks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query }),
         });
-        complete(result.markdown, analysisId);
+        activeAnalysisIdRef.current = task.id;
+        completedAnalysisIdsRef.current.delete(task.id);
+        const serverReport: StoredReport = {
+          ...runningReport,
+          id: task.id,
+          generatedAt: task.createdAt,
+          taskId: task.id,
+          provider: 'coze',
+          artifacts: task.artifacts,
+        };
+        if (mountedRef.current) {
+          setHistory(upsertStoredReport(serverReport));
+          setStage(COZE_STAGE_LABELS[task.stage]);
+          transitionState(task.status === 'queued' ? 'connecting' : 'analyzing');
+        }
+        void recoverCozeTask(task.id, task.id);
       } catch (reason) {
         failAnalysis(analysisId, reason);
       }
       return;
     }
+    setHistory(upsertStoredReport(runningReport));
     const prompt = scope === 'country'
       ? buildCountryMarketPrompt(query, snapshot)
       : scope === 'equity'
@@ -631,15 +767,20 @@ export function MacroAiAnalyst({
       eventSourceRef.current = null;
       failAnalysis(analysisId, reason);
     }
-  }, [complete, connectStream, countryQuery, equityQuery, failAnalysis, recoverReport, researchScope, snapshot, transitionState]);
+  }, [connectStream, countryQuery, equityQuery, failAnalysis, recoverCozeTask, recoverReport, researchScope, snapshot, transitionState]);
 
   useEffect(() => {
+    initialHistory.current
+      .filter((item) => item.status === 'running' && item.provider === 'coze' && item.taskId)
+      .forEach((item) => {
+        void recoverCozeTask(item.taskId!, item.id, false);
+      });
     initialHistory.current
       .filter((item) => item.status === 'running' && item.sessionId && item.attemptId)
       .forEach((item) => {
         void recoverReport(item.sessionId!, item.attemptId!, item.id, false);
       });
-  }, [recoverReport]);
+  }, [recoverCozeTask, recoverReport]);
 
   const resumeRunningAnalysis = useCallback(async (item: StoredReport) => {
     activeAnalysisIdRef.current = item.id;
@@ -652,6 +793,12 @@ export function MacroAiAnalyst({
     setStage(ANALYSIS_STAGES[inferredStage]);
     setError('');
     setView('home');
+    if (item.provider === 'coze' && item.taskId) {
+      setStage('正在重新读取后台研报任务');
+      transitionState('analyzing');
+      void recoverCozeTask(item.taskId, item.id);
+      return;
+    }
     transitionState(item.sessionId && item.attemptId ? 'analyzing' : 'connecting');
 
     let resumable = item;
@@ -666,7 +813,7 @@ export function MacroAiAnalyst({
     transitionState('analyzing');
     void connectStream(resumable.sessionId, resumable.id).catch(() => undefined);
     void recoverReport(resumable.sessionId, resumable.attemptId, resumable.id);
-  }, [connectStream, failAnalysis, recoverReport, transitionState]);
+  }, [connectStream, failAnalysis, recoverCozeTask, recoverReport, transitionState]);
 
   const copyReport = async () => {
     await navigator.clipboard.writeText(report);
@@ -674,7 +821,7 @@ export function MacroAiAnalyst({
     window.setTimeout(() => setCopied(false), 1400);
   };
 
-  const openHistoricalReport = (item: StoredReport) => {
+  const openHistoricalReport = async (item: StoredReport) => {
     if (item.status === 'running') {
       void resumeRunningAnalysis(item);
       return;
@@ -689,10 +836,34 @@ export function MacroAiAnalyst({
       transitionState('error');
       return;
     }
+    if (item.provider === 'coze' && item.taskId) {
+      try {
+        const task = await requestJson<CozeTaskSnapshot>(`/api/coze/equity-research/tasks/${encodeURIComponent(item.taskId)}`);
+        if (task.status === 'queued' || task.status === 'running') {
+          const runningItem = { ...item, status: 'running' as const, artifacts: task.artifacts };
+          setHistory(upsertStoredReport(runningItem));
+          void resumeRunningAnalysis(runningItem);
+          return;
+        }
+        if (task.status === 'failed' || !task.markdown) {
+          failAnalysis(item.id, task.error || '服务器未返回可显示的研报副本。');
+          return;
+        }
+        activeAnalysisIdRef.current = item.id;
+        completedAnalysisIdsRef.current.delete(item.id);
+        complete(task.markdown, item.id, true, { provider: 'coze', taskId: item.taskId, artifacts: task.artifacts });
+        return;
+      } catch (reason) {
+        failAnalysis(item.id, reason);
+        return;
+      }
+    }
     setReport(item.markdown);
     setGeneratedAt(item.generatedAt);
     setReportScope(item.scope);
     setReportQuery(item.query || '');
+    setReportProvider(item.provider || 'vibe');
+    setReportArtifacts(item.artifacts || []);
     setError('');
     setView('report');
     transitionState('completed');
@@ -732,6 +903,12 @@ export function MacroAiAnalyst({
         description: '汇总宏观、利率、流动性、全球股指、商品、汇率、加密资产与今日要闻，生成一份 30 秒可扫读的决策简报。',
         action: '开始全球宏观分析',
       };
+  const primaryArtifacts = reportArtifacts.filter((artifact) => (
+    artifact.kind === 'raw-response'
+    || artifact.kind === 'answer-source'
+    || artifact.kind === 'original-pdf'
+    || artifact.kind === 'generated-pdf'
+  ));
 
   return (
     <AnimatePresence>
@@ -831,7 +1008,7 @@ export function MacroAiAnalyst({
                           type="button"
                           key={item.id}
                           className={item.status === 'running' ? 'is-running' : undefined}
-                          onClick={() => openHistoricalReport(item)}
+                          onClick={() => void openHistoricalReport(item)}
                         >
                           <span className="macro-ai-history-index">{String(index + 1).padStart(2, '0')}</span>
                           <span className="macro-ai-history-copy">
@@ -856,7 +1033,7 @@ export function MacroAiAnalyst({
             ) : null}
 
             {!running && view === 'report' ? (
-              <motion.div className="macro-ai-report" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+              <motion.div className={`macro-ai-report${reportProvider === 'coze' ? ' is-coze' : ''}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
                 <div className="macro-ai-report-head">
                   <div><button type="button" className="macro-ai-report-back" onClick={returnHome} title="返回分析首页"><ArrowLeft size={14} /></button><span><i /> ANALYSIS REPORT</span><strong>{extractReportTitle(report)}</strong><small>{formatReportDate(generatedAt)} {formatReportClock(generatedAt)} · AI 分析师</small></div>
                   <div>
@@ -864,6 +1041,20 @@ export function MacroAiAnalyst({
                     <button type="button" onClick={rerunReport} title="使用最新页面数据重新分析"><RefreshCw size={14} /><span>重新分析</span></button>
                   </div>
                 </div>
+                {reportProvider === 'coze' && primaryArtifacts.length ? (
+                  <div className="macro-ai-artifact-bar" aria-label="研报原始文件与完整性信息">
+                    <div className="macro-ai-artifact-proof"><ShieldCheck size={15} /><span><strong>完整文本已封存</strong><small>浏览器直接展示 Markdown · SHA-256 完整性校验</small></span></div>
+                    <div className="macro-ai-artifact-links">
+                      {primaryArtifacts.map((artifact) => (
+                        <a key={artifact.path} href={artifact.url} target="_blank" rel="noreferrer" title={`${artifact.label} · SHA-256 ${artifact.sha256}`}>
+                          {artifact.kind.includes('pdf') ? <FileArchive size={13} /> : <Download size={13} />}
+                          <span>{artifact.kind === 'raw-response' ? '原始响应' : artifact.kind === 'answer-source' ? '完整答案' : 'PDF 原件'}</span>
+                          <small>{formatArtifactBytes(artifact.bytes)} · {artifact.sha256.slice(0, 10)}</small>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <MacroAiMarkdown content={report} />
               </motion.div>
             ) : null}

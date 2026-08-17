@@ -11,6 +11,7 @@
     "test:macro-cards": "node scripts/verify-us-macro-cards.mjs",
     "test:fed-liquidity": "node scripts/verify-fed-net-liquidity.mjs",
     "test:isolated-market-data": "node --no-warnings --experimental-strip-types scripts/verify-isolated-market-resources.mjs",
+    "test:coze-report": "node --no-warnings --experimental-strip-types scripts/verify-coze-report-pipeline.mjs",
     "predev": "npm run research:setup",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.8",
+    "@napi-rs/canvas": "^1.0.6",
     "d3-geo": "^3.1.1",
     "d3-hierarchy": "^3.1.2",
     "face-api.js": "^0.22.2",
@@ -37,6 +39,8 @@
     "remark-gfm": "^4.0.1",
     "three": "^0.184.0",
     "topojson-client": "^3.1.0",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
     "undici": "^6.21.3",
     "world-atlas": "^2.0.2"
   },
@@ -48,6 +52,7 @@
     "@types/react-dom": "^18.3.1",
     "@types/three": "^0.184.1",
     "@types/topojson-client": "^3.1.5",
+    "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",

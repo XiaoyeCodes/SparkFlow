@@ -173,6 +173,7 @@
 .macro-ai-stage-copy small i { width: 1px; height: 9px; background: rgba(81, 132, 135, .26); }
 
 .macro-ai-report { position: absolute; inset: 0; display: grid; min-height: 0; grid-template-rows: 66px minmax(0, 1fr); padding: 0 18px 16px; }
+.macro-ai-report.is-coze { grid-template-rows: 66px auto minmax(0, 1fr); }
 .macro-ai-report-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(88, 181, 173, .16); }
 .macro-ai-report-head > div:first-child { display: grid; min-width: 0; grid-template-columns: auto auto 1fr; align-items: center; column-gap: 10px; }
 .macro-ai-report-head > div:first-child > span { display: inline-flex; align-items: center; gap: 5px; color: #66cdb9; font: 650 7px "JetBrains Mono", monospace; letter-spacing: .13em; }
@@ -183,6 +184,18 @@
 .macro-ai-report-head button { display: inline-flex; height: 30px; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid rgba(100, 157, 161, .18); border-radius: 3px; background: rgba(15, 35, 39, .5); color: #81999e; font-size: 8px; transition: border-color .16s ease, color .16s ease, background .16s ease; }
 .macro-ai-report-head button:hover { border-color: rgba(89, 222, 198, .36); background: rgba(48, 143, 127, .09); color: #d6e8e4; }
 .macro-ai-report-head .macro-ai-report-back { grid-row: 1 / span 2; width: 30px; padding: 0; justify-content: center; border-color: rgba(84, 232, 195, .2); color: #74b8ad; }
+.macro-ai-artifact-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px clamp(6px, 1.8vw, 25px); border-bottom: 1px solid rgba(88, 181, 173, .13); background: linear-gradient(90deg, rgba(42, 130, 116, .065), rgba(4, 14, 17, .2) 45%, rgba(195, 145, 76, .035)); }
+.macro-ai-artifact-proof { display: flex; min-width: 190px; align-items: center; gap: 9px; color: #74d8c5; }
+.macro-ai-artifact-proof > svg { flex: none; filter: drop-shadow(0 0 7px rgba(88, 229, 200, .38)); }
+.macro-ai-artifact-proof > span { display: grid; gap: 2px; }
+.macro-ai-artifact-proof strong { color: #bfe5de; font: 620 9px "Noto Serif SC", "Songti SC", serif; letter-spacing: .08em; }
+.macro-ai-artifact-proof small { color: #496b6d; font: 520 7px "JetBrains Mono", monospace; letter-spacing: .04em; }
+.macro-ai-artifact-links { display: flex; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.macro-ai-artifact-links > a { display: grid; min-width: 126px; grid-template-columns: auto 1fr; align-items: center; column-gap: 7px; padding: 6px 9px; border: 1px solid rgba(90, 173, 163, .18); border-radius: 3px; background: rgba(7, 23, 26, .55); color: #8ab4ae; text-decoration: none; transition: border-color .18s ease, background .18s ease, color .18s ease; }
+.macro-ai-artifact-links > a:hover { border-color: rgba(85, 225, 199, .42); background: rgba(43, 126, 113, .1); color: #d8ebe7; }
+.macro-ai-artifact-links > a svg { grid-row: 1 / span 2; color: #70d8c3; }
+.macro-ai-artifact-links > a span { color: inherit; font: 620 8px "Noto Serif SC", "Songti SC", serif; }
+.macro-ai-artifact-links > a small { color: #456267; font: 550 6px "JetBrains Mono", monospace; letter-spacing: .02em; }
 .macro-ai-markdown { min-height: 0; padding: 18px clamp(6px, 1.8vw, 25px) 60px; overflow-y: auto; color: #a9b9b8; font-size: 11px; line-height: 1.75; scrollbar-color: rgba(78, 180, 166, .35) transparent; scrollbar-width: thin; }
 .macro-ai-markdown > :first-child { margin-top: 0; }
 .macro-ai-markdown h1 { margin: 0 0 22px; color: #edf5f2; font: 600 25px/1.25 "Noto Serif SC", "Songti SC", serif; }
@@ -200,6 +213,12 @@
 .macro-ai-markdown li { margin: 5px 0; padding-left: 3px; }
 .macro-ai-markdown li::marker { color: var(--ai-mint); }
 .macro-ai-markdown a { color: #7dd9e7; text-decoration-color: rgba(125, 217, 231, .3); text-underline-offset: 3px; }
+.macro-ai-report.is-coze .macro-ai-markdown { margin: 0 auto; width: min(1180px, 100%); }
+.macro-ai-report.is-coze .macro-ai-markdown h1 { padding-bottom: 16px; border-bottom: 1px solid rgba(197, 160, 101, .22); background: linear-gradient(90deg, #eef6f3, #b9d8d2 72%); background-clip: text; color: transparent; }
+.macro-ai-report.is-coze .macro-ai-markdown h2 { border-left-color: #c5a065; background: linear-gradient(90deg, rgba(197, 160, 101, .08), rgba(48, 151, 134, .035) 44%, transparent 76%); }
+.macro-ai-report-visual { display: grid; width: min(100%, 980px); margin: 18px auto 24px; overflow: hidden; border: 1px solid rgba(89, 177, 167, .2); border-radius: 5px; background: radial-gradient(circle at 50% 0, rgba(62, 156, 142, .06), transparent 45%), rgba(2, 9, 12, .78); box-shadow: 0 20px 52px rgba(0, 0, 0, .28); }
+.macro-ai-report-visual img { display: block; width: 100%; height: auto; max-height: 82vh; object-fit: contain; background: #f5f7f6; }
+.macro-ai-report-visual small { padding: 7px 11px; border-top: 1px solid rgba(84, 160, 155, .14); color: #557579; font: 550 7px "JetBrains Mono", monospace; letter-spacing: .05em; }
 .macro-ai-table-wrap { width: 100%; margin: 13px 0 17px; overflow-x: auto; border: 1px solid rgba(84, 163, 158, .17); border-radius: 4px; background: rgba(6, 17, 21, .5); }
 .macro-ai-table-wrap table { width: 100%; min-width: 540px; border-collapse: collapse; }
 .macro-ai-table-wrap th { padding: 8px 10px; border-bottom: 1px solid rgba(89, 186, 175, .2); background: rgba(48, 132, 120, .08); color: #cde1dd; font-size: 9px; text-align: left; }
@@ -241,6 +260,11 @@
   .macro-ai-history-running { justify-content: center; gap: 0; font-size: 0; }
   .macro-ai-history-running svg { display: none; }
   .macro-ai-report { grid-template-rows: 58px minmax(0, 1fr); padding: 0 10px 10px; }
+  .macro-ai-report.is-coze { grid-template-rows: 58px auto minmax(0, 1fr); }
+  .macro-ai-artifact-bar { align-items: flex-start; padding: 8px 4px; }
+  .macro-ai-artifact-proof { min-width: 0; }
+  .macro-ai-artifact-proof small, .macro-ai-artifact-links > a small { display: none; }
+  .macro-ai-artifact-links > a { min-width: 0; grid-template-columns: auto auto; padding: 6px 8px; }
   .macro-ai-report-head > div:first-child > span, .macro-ai-report-head small, .macro-ai-report-head button span { display: none; }
   .macro-ai-report-head > div:first-child { display: flex; align-items: center; gap: 8px; }
   .macro-ai-markdown { padding: 13px 4px 42px; font-size: 10px; }

@@ -4,6 +4,8 @@ dist
 *.log
 *.local
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 node_modules/.tmp
 .sparkflow/
 services/vibe-trading/.venv/
