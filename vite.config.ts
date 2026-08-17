@@ -7,7 +7,7 @@ import { get as httpsGet } from 'node:https';
 import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { ProxyAgent } from 'undici';
-import { defineConfig, type ViteDevServer } from 'vite';
+import { defineConfig, loadEnv, type ViteDevServer } from 'vite';
 import {
   getMarketHalfDay,
   getMarketHolidayDates,
@@ -24,6 +24,9 @@ const sparkflowStateDir = path.join(rootDir, '.sparkflow');
 const vibePortFile = path.join(sparkflowStateDir, 'vibe.port');
 const vibePidFile = path.join(sparkflowStateDir, 'vibe.pid');
 const vibePortRange = Array.from({ length: 101 }, (_, index) => 8899 + index);
+const cozeReportDefaultUrl = 'https://mgbqhc4wd9.coze.site/stream_run';
+const cozeReportDefaultProjectId = '7610987478518071337';
+const cozeReportMaxBytes = 24 * 1024 * 1024;
 let cachedVibeBaseUrl = '';
 let vibeStartupPromise: Promise<string> | null = null;
 
@@ -9027,6 +9030,247 @@ async function proxyVibeEventStream(req: any, res: any, sessionId: string, resum
   }
 }
 
+function getCozeReportConfig() {
+  const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+  const localEnv = loadEnv(mode, rootDir, '');
+  const token = String(process.env.COZE_REPORT_TOKEN || localEnv.COZE_REPORT_TOKEN || '').trim();
+  if (!token) {
+    throw new Error('Coze 研报渠道尚未配置，请在 .env.local 中填写 COZE_REPORT_TOKEN');
+  }
+  return {
+    token,
+    url: String(process.env.COZE_REPORT_URL || localEnv.COZE_REPORT_URL || cozeReportDefaultUrl).trim(),
+    projectId: String(process.env.COZE_REPORT_PROJECT_ID || localEnv.COZE_REPORT_PROJECT_ID || cozeReportDefaultProjectId).trim(),
+  };
+}
+
+function stripMarkdownFence(value: string) {
+  return value.trim()
+    .replace(/^```(?:markdown|md|text)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+function htmlResearchToMarkdown(value: string) {
+  return value
+    .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '# $1\n\n')
+    .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '## $1\n\n')
+    .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '### $1\n\n')
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .trim();
+}
+
+function plainResearchTextToMarkdown(value: string, query: string) {
+  const cleaned = stripMarkdownFence(value)
+    .replace(/\r\n?/g, '\n')
+    .replace(/^Goldman Sachs\s*$/gim, '')
+    .replace(/^Global Investment Research\s*$/gim, '')
+    .replace(/^Confidential\s*&\s*Proprietary.*$/gim, '')
+    .replace(/^Page\s+\d+\s*$/gim, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (!cleaned) throw new Error('外部研报没有返回可显示的文本内容');
+
+  const markdown = /<\/?(?:html|body|h1|h2|h3|p|li|table)\b/i.test(cleaned)
+    ? htmlResearchToMarkdown(cleaned)
+    : cleaned;
+  const withSections = markdown.split('\n').map((line) => {
+    const text = line.trim();
+    if (!text || /^#{1,6}\s/.test(text) || /^[-*+]\s/.test(text) || /^\|/.test(text)) return line;
+    if (/^(执行摘要|公司简介|行业分析|市场环境|经营状况|财务(?:分析|表格|与经营质量)?|同业对比|估值与可比公司|股价与估值|基本面与技术面分析|投资建议|风险(?:矩阵与情景)?|研究结论|结论|数据来源与局限)\s*[：:]?$/.test(text)) {
+      return `## ${text.replace(/[：:]$/, '')}`;
+    }
+    if (/^(?:第\s*)?(?:[一二三四五六七八九十]+|\d+)[、.．]\s*[^。；]{2,40}$/.test(text)) {
+      return `## ${text}`;
+    }
+    return line;
+  }).join('\n').trim();
+  return /^#\s+/m.test(withSections)
+    ? withSections
+    : `# ${query} 投资研究报告\n\n${withSections}`;
+}
+
+async function pdfReportToMarkdown(data: Buffer, query: string) {
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const loadingTask = getDocument({
+    data: new Uint8Array(data),
+    disableWorker: true,
+    useSystemFonts: true,
+  } as any);
+  const document = await loadingTask.promise;
+  const pages: string[] = [];
+  try {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const rows: Array<{ y: number; items: Array<{ x: number; text: string }> }> = [];
+      for (const item of content.items as any[]) {
+        const text = String(item?.str || '').trim();
+        const transform = Array.isArray(item?.transform) ? item.transform : [];
+        if (!text || transform.length < 6) continue;
+        const x = Number(transform[4]) || 0;
+        const y = Number(transform[5]) || 0;
+        let row = rows.find((candidate) => Math.abs(candidate.y - y) < 2.5);
+        if (!row) {
+          row = { y, items: [] };
+          rows.push(row);
+        }
+        row.items.push({ x, text });
+      }
+      const lines = rows
+        .sort((a, b) => b.y - a.y)
+        .map((row) => row.items.sort((a, b) => a.x - b.x).map((item) => item.text).join(' ').trim())
+        .filter(Boolean);
+      if (lines.length) pages.push(lines.join('\n'));
+      page.cleanup();
+    }
+  } finally {
+    await document.destroy();
+  }
+  const extracted = pages.join('\n\n');
+  if (extracted.replace(/\s/g, '').length < 80) {
+    throw new Error('外部渠道返回的 PDF 缺少可提取文字，暂不支持纯扫描图片 PDF');
+  }
+  return plainResearchTextToMarkdown(extracted, query);
+}
+
+function collectPdfReferences(value: unknown, references: string[], parentMime = '') {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (/^data:application\/pdf;base64,/i.test(text)) references.push(text);
+    for (const match of text.matchAll(/https?:\/\/[^\s<>"')\]]+/gi)) {
+      const candidate = match[0].replace(/[.,;，。；]+$/, '');
+      if (/\.pdf(?:$|[?#])/i.test(candidate) || /pdf/i.test(parentMime)) references.push(candidate);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectPdfReferences(item, references, parentMime));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  const record = value as Record<string, unknown>;
+  const mime = String(record.mime_type || record.content_type || record.media_type || parentMime || '');
+  for (const [key, item] of Object.entries(record)) {
+    collectPdfReferences(item, references, /mime|type/i.test(key) ? String(item || mime) : mime);
+  }
+}
+
+function collectCozeAnswers(value: unknown, answers: string[]) {
+  if (!value || typeof value !== 'object') return;
+  const record = value as Record<string, any>;
+  const answer = record.type === 'answer'
+    ? record.content?.answer ?? record.answer
+    : record.answer ?? record.output?.answer;
+  if (typeof answer === 'string' && answer) answers.push(answer);
+}
+
+async function loadCozePdf(reference: string, token: string) {
+  if (/^data:application\/pdf;base64,/i.test(reference)) {
+    const encoded = reference.slice(reference.indexOf(',') + 1);
+    return Buffer.from(encoded, 'base64');
+  }
+  const url = new URL(reference);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('外部研报 PDF 地址无效');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: /(?:^|\.)coze\.(?:cn|site)$/i.test(url.hostname)
+        ? { Authorization: `Bearer ${token}` }
+        : {},
+    });
+    if (!response.ok) throw new Error(`外部研报 PDF 下载失败：HTTP ${response.status}`);
+    const data = Buffer.from(await response.arrayBuffer());
+    if (data.length > cozeReportMaxBytes) throw new Error('外部研报 PDF 超过 24MB 限制');
+    if (data.subarray(0, 5).toString('ascii') !== '%PDF-') throw new Error('外部文件不是有效 PDF');
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestCozeEquityResearch(query: string) {
+  const config = getCozeReportConfig();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 180_000);
+  try {
+    const response = await fetch(config.url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream,application/json,application/pdf,text/plain,*/*',
+      },
+      body: JSON.stringify({
+        content: { query: { prompt: [{ type: 'text', content: { text: query } }] } },
+        type: 'query',
+        project_id: Number(config.projectId),
+      }),
+    });
+    const data = Buffer.from(await response.arrayBuffer());
+    if (data.length > cozeReportMaxBytes) throw new Error('外部研报响应超过 24MB 限制');
+    if (!response.ok) {
+      const detail = data.toString('utf8').replace(/\s+/g, ' ').slice(0, 500);
+      throw new Error(`Coze 研报请求失败：HTTP ${response.status}${detail ? ` · ${detail}` : ''}`);
+    }
+    const contentType = String(response.headers.get('content-type') || '');
+    if (/application\/pdf/i.test(contentType) || data.subarray(0, 5).toString('ascii') === '%PDF-') {
+      return pdfReportToMarkdown(data, query);
+    }
+
+    const raw = data.toString('utf8').trim();
+    const answers: string[] = [];
+    const pdfReferences: string[] = [];
+    let parsedPayload: unknown;
+    for (const line of raw.split(/\r?\n/)) {
+      if (!line.startsWith('data:')) continue;
+      const eventData = line.slice(5).trim();
+      if (!eventData || eventData === '[DONE]') continue;
+      try {
+        const payload = JSON.parse(eventData);
+        collectCozeAnswers(payload, answers);
+        collectPdfReferences(payload, pdfReferences);
+      } catch {
+        // Ignore non-JSON SSE keepalive messages.
+      }
+    }
+    if (!answers.length) {
+      try {
+        parsedPayload = JSON.parse(raw);
+        collectCozeAnswers(parsedPayload, answers);
+        collectPdfReferences(parsedPayload, pdfReferences);
+      } catch {
+        answers.push(raw);
+      }
+    }
+    collectPdfReferences(answers.join('\n'), pdfReferences);
+    const pdfReference = [...new Set(pdfReferences)].find(Boolean);
+    if (pdfReference) {
+      const pdf = await loadCozePdf(pdfReference, config.token);
+      return pdfReportToMarkdown(pdf, query);
+    }
+    return plainResearchTextToMarkdown(answers.join(''), query);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Coze 研报生成超时，请稍后重试');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function sanitizeFileName(value: string) {
   return value
     .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
@@ -9689,6 +9933,16 @@ function allWeatherApiPlugin() {
             const asset = String(url.searchParams.get('asset') || '').replace(/[^a-z0-9-]/gi, '');
             const timeframe = String(url.searchParams.get('timeframe') || '').replace(/[^a-z0-9-]/gi, '');
             sendJson(res, 200, readLocalJson(path.join('candles', `${asset}-${timeframe}.json`)));
+            return;
+          }
+
+          if (url.pathname === '/api/coze/equity-research' && req.method === 'POST') {
+            const payload = JSON.parse(await getRequestBody(req)) as { query?: string };
+            const query = String(payload.query || '').trim().replace(/\s*cz$/i, '').trim();
+            if (!query) throw new Error('请输入股票代码或公司名称');
+            if (query.length > 120) throw new Error('股票代码或公司名称过长');
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, { markdown: await requestCozeEquityResearch(query) });
             return;
           }
 

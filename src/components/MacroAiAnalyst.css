@@ -206,27 +206,6 @@
 .macro-ai-table-wrap td { padding: 8px 10px; border-top: 1px solid rgba(90, 140, 145, .1); color: #9eb2b1; font-size: 9px; vertical-align: top; }
 .macro-ai-table-wrap tr:hover td { background: rgba(71, 184, 164, .035); }
 
-.macro-ai-report-equity { grid-template-rows: 66px 52px minmax(0, 1fr); }
-.macro-ai-equity-masthead { display: grid; grid-template-columns: 1fr auto; align-content: center; padding: 0 18px; border-bottom: 2px solid #b99a62; background: #123b5d; color: #fff; }
-.macro-ai-equity-masthead span { grid-column: 1 / -1; color: #d9c79e; font: 700 7px "JetBrains Mono", monospace; letter-spacing: .18em; }
-.macro-ai-equity-masthead strong { align-self: end; overflow: hidden; font: 650 15px "Noto Serif SC", "Songti SC", serif; text-overflow: ellipsis; white-space: nowrap; }
-.macro-ai-equity-masthead small { align-self: end; color: #bfd0df; font: 600 7px "JetBrains Mono", monospace; letter-spacing: .1em; }
-.macro-ai-markdown-equity { margin: 0; padding: 24px clamp(18px, 3.5vw, 56px) 66px; background: #f7f8fa; color: #354656; font-size: 11px; line-height: 1.72; }
-.macro-ai-markdown-equity h1 { margin-bottom: 11px; color: #123b5d; font-size: 26px; }
-.macro-ai-markdown-equity h2 { margin-top: 25px; padding: 8px 12px; border-left: 0; border-bottom: 2px solid #b99a62; background: #123b5d; color: #fff; font: 700 14px/1.35 "Noto Sans SC", sans-serif; }
-.macro-ai-markdown-equity h3 { color: #164f78; }
-.macro-ai-markdown-equity strong { color: #163d5d; }
-.macro-ai-markdown-equity em { color: #7c6439; }
-.macro-ai-markdown-equity > h1 + blockquote { border-bottom-color: #d4dce3; color: #657a8c; }
-.macro-ai-markdown-equity blockquote { border-left-color: #b99a62; background: #f1eee7; color: #5f5545; }
-.macro-ai-markdown-equity code { border-color: #d4dde4; background: #eef3f6; color: #16557d; }
-.macro-ai-markdown-equity li::marker { color: #b99a62; }
-.macro-ai-markdown-equity a { color: #12608f; }
-.macro-ai-markdown-equity .macro-ai-table-wrap { border-color: #cbd7e0; background: #fff; }
-.macro-ai-markdown-equity .macro-ai-table-wrap th { border-bottom-color: #b9c8d4; background: #eaf1f7; color: #123b5d; }
-.macro-ai-markdown-equity .macro-ai-table-wrap td { border-top-color: #dfe6eb; color: #415568; }
-.macro-ai-markdown-equity .macro-ai-table-wrap tr:hover td { background: #f4f7f9; }
-
 @keyframes macro-ai-status-pulse { 50% { opacity: .35; transform: scale(.72); } }
 @keyframes macro-ai-gateway-frame { 0%, 100% { opacity: .34; transform: translateY(-50%) perspective(520px) rotateY(var(--gateway-frame-angle)) scale(.98); } 50% { opacity: .76; transform: translateY(-50%) perspective(520px) rotateY(var(--gateway-frame-angle)) scale(1.015); } }
 @keyframes macro-ai-gateway-grid { 50% { opacity: .54; } }
@@ -262,9 +241,6 @@
   .macro-ai-history-running { justify-content: center; gap: 0; font-size: 0; }
   .macro-ai-history-running svg { display: none; }
   .macro-ai-report { grid-template-rows: 58px minmax(0, 1fr); padding: 0 10px 10px; }
-  .macro-ai-report-equity { grid-template-rows: 58px 47px minmax(0, 1fr); }
-  .macro-ai-equity-masthead { padding: 0 10px; }
-  .macro-ai-equity-masthead small { display: none; }
   .macro-ai-report-head > div:first-child > span, .macro-ai-report-head small, .macro-ai-report-head button span { display: none; }
   .macro-ai-report-head > div:first-child { display: flex; align-items: center; gap: 8px; }
   .macro-ai-markdown { padding: 13px 4px 42px; font-size: 10px; }

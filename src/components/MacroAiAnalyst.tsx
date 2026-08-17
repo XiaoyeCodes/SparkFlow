@@ -323,9 +323,9 @@ function NeuralInference({ stage, elapsed }: { stage: string; elapsed: number })
   );
 }
 
-function MacroAiMarkdown({ content, scope }: { content: string; scope: AiResearchScope }) {
+function MacroAiMarkdown({ content }: { content: string }) {
   return (
-    <div className={`macro-ai-markdown${scope === 'equity' ? ' macro-ai-markdown-equity' : ''}`}>
+    <div className="macro-ai-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -546,7 +546,9 @@ export function MacroAiAnalyst({
   const startAnalysis = useCallback(async (override?: { scope: AiResearchScope; query?: string }) => {
     if (stateRef.current === 'connecting' || stateRef.current === 'analyzing') return;
     const scope = override?.scope || researchScope;
-    const query = String(override?.query ?? (scope === 'country' ? countryQuery : scope === 'equity' ? equityQuery : '')).trim();
+    const rawQuery = String(override?.query ?? (scope === 'country' ? countryQuery : scope === 'equity' ? equityQuery : '')).trim();
+    const useCozeChannel = scope === 'equity' && /cz$/i.test(rawQuery);
+    const query = useCozeChannel ? rawQuery.slice(0, -2).trim() : rawQuery;
     if (scope !== 'global' && !query) {
       setModeTrayOpen(true);
       setError(scope === 'country' ? '请输入需要研究的国家或地区。' : '请输入股票代码或公司名称。');
@@ -555,7 +557,7 @@ export function MacroAiAnalyst({
       return;
     }
     const settings = loadIntegrationSettings();
-    if (Boolean(settings.ai.apiKey.trim()) !== Boolean(settings.ai.model.trim())) {
+    if (!useCozeChannel && Boolean(settings.ai.apiKey.trim()) !== Boolean(settings.ai.model.trim())) {
       setError('请先在右上角“设置”中同时填写 AI API Key 与模型名称。');
       transitionState('error');
       return;
@@ -582,10 +584,25 @@ export function MacroAiAnalyst({
     };
     setHistory(upsertStoredReport(runningReport));
     setModeTrayOpen(false);
+    if (useCozeChannel) {
+      try {
+        setStage('外部个股研报生成中');
+        transitionState('analyzing');
+        const result = await requestJson<{ markdown: string }>('/api/coze/equity-research', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query }),
+        });
+        complete(result.markdown, analysisId);
+      } catch (reason) {
+        failAnalysis(analysisId, reason);
+      }
+      return;
+    }
     const prompt = scope === 'country'
       ? buildCountryMarketPrompt(query, snapshot)
       : scope === 'equity'
-      ? buildEquityResearchPrompt(query, snapshot)
+      ? buildEquityResearchPrompt(query)
       : buildMacroAiPrompt(snapshot);
     try {
       const prepared = await requestJson<{ sessionId: string }>('/api/vibe/research/session', {
@@ -614,7 +631,7 @@ export function MacroAiAnalyst({
       eventSourceRef.current = null;
       failAnalysis(analysisId, reason);
     }
-  }, [connectStream, countryQuery, equityQuery, failAnalysis, recoverReport, researchScope, snapshot, transitionState]);
+  }, [complete, connectStream, countryQuery, equityQuery, failAnalysis, recoverReport, researchScope, snapshot, transitionState]);
 
   useEffect(() => {
     initialHistory.current
@@ -839,7 +856,7 @@ export function MacroAiAnalyst({
             ) : null}
 
             {!running && view === 'report' ? (
-              <motion.div className={`macro-ai-report macro-ai-report-${reportScope}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+              <motion.div className="macro-ai-report" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
                 <div className="macro-ai-report-head">
                   <div><button type="button" className="macro-ai-report-back" onClick={returnHome} title="返回分析首页"><ArrowLeft size={14} /></button><span><i /> ANALYSIS REPORT</span><strong>{extractReportTitle(report)}</strong><small>{formatReportDate(generatedAt)} {formatReportClock(generatedAt)} · AI 分析师</small></div>
                   <div>
@@ -847,10 +864,7 @@ export function MacroAiAnalyst({
                     <button type="button" onClick={rerunReport} title="使用最新页面数据重新分析"><RefreshCw size={14} /><span>重新分析</span></button>
                   </div>
                 </div>
-                {reportScope === 'equity' ? (
-                  <div className="macro-ai-equity-masthead"><span>AI EQUITY RESEARCH</span><strong>{reportQuery || extractReportTitle(report)}</strong><small>INSTITUTIONAL RESEARCH NOTE</small></div>
-                ) : null}
-                <MacroAiMarkdown content={report} scope={reportScope} />
+                <MacroAiMarkdown content={report} />
               </motion.div>
             ) : null}
           </div>
