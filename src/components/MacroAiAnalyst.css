@@ -198,7 +198,7 @@
 .macro-ai-artifact-links > a span { color: inherit; font: 620 8px "Noto Serif SC", "Songti SC", serif; }
 .macro-ai-artifact-links > a small { color: #456267; font: 550 6px "JetBrains Mono", monospace; letter-spacing: .02em; }
 .macro-ai-markdown { min-height: 0; padding: 18px clamp(6px, 1.8vw, 25px) 60px; overflow-y: auto; color: #a9b9b8; font-size: 11px; line-height: 1.75; scrollbar-color: rgba(78, 180, 166, .35) transparent; scrollbar-width: thin; }
-.macro-ai-markdown > :first-child { margin-top: 0; }
+.macro-ai-markdown-body > :first-child { margin-top: 0; }
 .macro-ai-markdown h1 { margin: 0 0 22px; color: #edf5f2; font: 600 25px/1.25 "Noto Serif SC", "Songti SC", serif; }
 .macro-ai-markdown h2 { position: relative; margin: 28px 0 12px; padding: 8px 10px 8px 15px; border-left: 2px solid var(--ai-mint); background: linear-gradient(90deg, rgba(60, 199, 172, .08), transparent 70%); color: #e1ece9; font: 650 15px/1.35 "Noto Serif SC", "Songti SC", serif; letter-spacing: .02em; }
 .macro-ai-markdown h3 { margin: 20px 0 9px; color: #cfe1dd; font-size: 12px; }
@@ -209,7 +209,7 @@
 .macro-ai-markdown pre { margin: 12px 0; padding: 13px 15px; overflow-x: auto; border: 1px solid rgba(81, 150, 153, .16); border-radius: 4px; background: rgba(2, 8, 11, .72); color: #b7cbc8; font: 550 10px/1.75 "JetBrains Mono", monospace; }
 .macro-ai-markdown pre code { padding: 0; border: 0; background: transparent; color: inherit; }
 .macro-ai-markdown blockquote { margin: 13px 0; padding: 10px 13px; border-left: 2px solid var(--ai-amber); background: rgba(255, 153, 82, .045); color: #c9b3a3; }
-.macro-ai-markdown > h1 + blockquote { margin-top: -5px; padding: 2px 0 9px; border-left: 0; border-bottom: 1px solid rgba(89, 186, 175, .12); background: transparent; color: #6f8f8d; font: 500 9px/1.7 "JetBrains Mono", monospace; letter-spacing: .08em; }
+.macro-ai-markdown-body > h1 + blockquote { margin-top: -5px; padding: 2px 0 9px; border-left: 0; border-bottom: 1px solid rgba(89, 186, 175, .12); background: transparent; color: #6f8f8d; font: 500 9px/1.7 "JetBrains Mono", monospace; letter-spacing: .08em; }
 .macro-ai-markdown ul, .macro-ai-markdown ol { margin: 8px 0; padding-left: 21px; }
 .macro-ai-markdown li { margin: 5px 0; padding-left: 3px; }
 .macro-ai-markdown li::marker { color: var(--ai-mint); }
@@ -217,6 +217,24 @@
 .macro-ai-report.is-coze .macro-ai-markdown { margin: 0 auto; width: min(1180px, 100%); }
 .macro-ai-report.is-coze .macro-ai-markdown h1 { padding-bottom: 16px; border-bottom: 1px solid rgba(197, 160, 101, .22); background: linear-gradient(90deg, #eef6f3, #b9d8d2 72%); background-clip: text; color: transparent; }
 .macro-ai-report.is-coze .macro-ai-markdown h2 { border-left-color: #c5a065; background: linear-gradient(90deg, rgba(197, 160, 101, .08), rgba(48, 151, 134, .035) 44%, transparent 76%); }
+.macro-ai-markdown.has-equity-cover { --equity-jade-deep: #092526; --equity-jade: #0d3935; --equity-jade-soft: #154b44; --equity-gold: #c5a065; padding-top: 0; }
+.macro-ai-equity-cover { margin: 0 0 24px; overflow: hidden; border: 1px solid rgba(79, 161, 146, .24); border-top: 0; background: linear-gradient(180deg, rgba(8, 34, 34, .72), rgba(3, 15, 17, .7)); box-shadow: 0 20px 50px rgba(0, 0, 0, .24), inset 0 0 60px rgba(48, 151, 134, .025); }
+.macro-ai-equity-brand { display: flex; height: 48px; align-items: center; justify-content: space-between; padding: 0 clamp(18px, 3vw, 34px); border-bottom: 3px solid var(--equity-gold); background: linear-gradient(100deg, #0a2b2c 0%, var(--equity-jade) 48%, #081f22 100%); color: #fff; box-shadow: inset 0 -1px rgba(102, 216, 187, .16); }
+.macro-ai-equity-brand strong { color: #fff; font: 700 18px/1 "Noto Serif SC", Georgia, serif; letter-spacing: -.01em; }
+.macro-ai-equity-brand span { color: rgba(255, 255, 255, .92); font: 500 11px/1 "JetBrains Mono", monospace; letter-spacing: .02em; }
+.macro-ai-equity-title { padding: 34px clamp(24px, 6vw, 76px) 18px; text-align: center; }
+.macro-ai-report.is-coze .macro-ai-equity-title h1 { margin: 0; padding: 0 0 14px; border: 0; background: none; color: #dfeceb; font: 500 clamp(25px, 3.2vw, 39px)/1.25 "Noto Serif SC", "Songti SC", serif; letter-spacing: .015em; }
+.macro-ai-equity-title i { display: block; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, var(--equity-gold) 8%, var(--equity-gold) 92%, transparent); opacity: .9; }
+.macro-ai-equity-meta { display: grid; margin: 0 clamp(24px, 8vw, 104px) 30px; border: 1px solid rgba(94, 174, 158, .22); }
+.macro-ai-equity-meta > div { display: grid; min-height: 34px; grid-template-columns: minmax(92px, 22%) 1fr; border-top: 1px solid rgba(164, 211, 200, .11); background: rgba(29, 85, 78, .2); }
+.macro-ai-equity-meta > div:first-child { border-top: 0; }
+.macro-ai-equity-meta dt, .macro-ai-equity-meta dd { display: flex; align-items: center; margin: 0; padding: 7px 12px; }
+.macro-ai-equity-meta dt { border-right: 1px solid rgba(164, 211, 200, .13); background: rgba(6, 31, 32, .26); color: #85aaa3; font: 600 10px/1.4 "Noto Serif SC", "Songti SC", serif; }
+.macro-ai-equity-meta dd { color: #ccdcda; font: 540 11px/1.5 "Noto Serif SC", "Songti SC", serif; }
+.macro-ai-markdown.has-equity-cover .macro-ai-markdown-body > h2:first-child { margin-top: 0; padding: 9px 16px; border: 1px solid rgba(91, 203, 177, .17); border-left: 3px solid #5bcfb2; border-radius: 3px; background: linear-gradient(90deg, var(--equity-jade-soft), var(--equity-jade) 58%, var(--equity-jade-deep)); color: #eef8f4; font-size: 15px; box-shadow: inset 0 1px rgba(255, 255, 255, .025); }
+.macro-ai-markdown.has-equity-cover .macro-ai-markdown-body ol { display: grid; gap: 6px; margin: 10px 0 14px; padding-left: 28px; list-style: decimal; }
+.macro-ai-markdown.has-equity-cover .macro-ai-markdown-body ol li { padding: 2px 0 2px 4px; color: #b8c7c6; list-style: decimal; }
+.macro-ai-markdown.has-equity-cover .macro-ai-markdown-body ol li::marker { color: #d2b273; font: 650 10px "JetBrains Mono", monospace; }
 .macro-ai-report-visual { display: grid; width: min(100%, 980px); margin: 18px auto 24px; overflow: hidden; border: 1px solid rgba(89, 177, 167, .2); border-radius: 5px; background: radial-gradient(circle at 50% 0, rgba(62, 156, 142, .06), transparent 45%), rgba(2, 9, 12, .78); box-shadow: 0 20px 52px rgba(0, 0, 0, .28); }
 .macro-ai-report-visual img { display: block; width: 100%; height: auto; max-height: 82vh; object-fit: contain; background: #f5f7f6; }
 .macro-ai-report-visual small { padding: 7px 11px; border-top: 1px solid rgba(84, 160, 155, .14); color: #557579; font: 550 7px "JetBrains Mono", monospace; letter-spacing: .05em; }
@@ -269,6 +287,14 @@
   .macro-ai-report-head > div:first-child > span, .macro-ai-report-head small, .macro-ai-report-head button span, .macro-ai-report-download span { display: none; }
   .macro-ai-report-head > div:first-child { display: flex; align-items: center; gap: 8px; }
   .macro-ai-markdown { padding: 13px 4px 42px; font-size: 10px; }
+  .macro-ai-equity-brand { height: 40px; padding: 0 14px; }
+  .macro-ai-equity-brand strong { font-size: 14px; }
+  .macro-ai-equity-brand span { font-size: 8px; }
+  .macro-ai-equity-title { padding: 24px 14px 14px; }
+  .macro-ai-report.is-coze .macro-ai-equity-title h1 { font-size: clamp(20px, 6vw, 28px); }
+  .macro-ai-equity-meta { margin: 0 12px 20px; }
+  .macro-ai-equity-meta > div { grid-template-columns: 82px 1fr; }
+  .macro-ai-equity-meta dt, .macro-ai-equity-meta dd { padding: 6px 8px; font-size: 9px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

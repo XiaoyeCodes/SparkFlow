@@ -203,11 +203,19 @@ export function buildLosslessDisplayMarkdown(source: string, query: string) {
   const lines = converted.replace(/\r\n?/g, '\n').split('\n');
   const formatted = lines.map((line) => {
     const text = line.trim();
+    const numberedPseudoHeading = text.match(/^#{1,6}\s+(\d+)[.)、．]\s+(.+)$/);
+    if (numberedPseudoHeading) {
+      return `${line.match(/^\s*/)?.[0] || ''}${numberedPseudoHeading[1]}. ${numberedPseudoHeading[2].trim()}`;
+    }
+    const numberedListItem = text.match(/^(\d+)[.)、．]\s+(.+)$/);
+    if (numberedListItem) {
+      return `${line.match(/^\s*/)?.[0] || ''}${numberedListItem[1]}. ${numberedListItem[2].trim()}`;
+    }
     if (!text || /^#{1,6}\s/.test(text) || /^[-*+]\s/.test(text) || /^\|/.test(text) || /^>/.test(text)) return line;
     if (/^(执行摘要|核心观点|公司简介|行业分析|市场环境|经营状况|财务(?:分析|表格|与经营质量)?|同业对比|估值与可比公司|股价与估值|基本面与技术面分析|投资建议|风险(?:矩阵与情景)?|研究结论|结论|数据来源与局限|附录)\s*[：:]?$/.test(text)) {
       return `## ${text.replace(/[：:]$/, '')}`;
     }
-    if (/^(?:第\s*)?(?:[一二三四五六七八九十]+|\d+)[、.．]\s*[^。；]{2,48}$/.test(text)) return `## ${text}`;
+    if (/^(?:第\s*)?[一二三四五六七八九十]+[、.．]\s*[^。；]{2,48}$/.test(text)) return `## ${text}`;
     return line;
   }).join('\n').trim();
   return /^#\s+/m.test(formatted) ? formatted : `# ${query} 投资研究报告\n\n${formatted}`;
@@ -854,7 +862,7 @@ export class CozeReportTaskService {
           [
             this.pdfRendererPath,
             '--input',
-            path.join(taskDir, ANSWER_FILE),
+            path.join(taskDir, REPORT_FILE),
             '--output',
             pdfPath,
             '--title',

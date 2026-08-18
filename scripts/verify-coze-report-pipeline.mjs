@@ -10,7 +10,14 @@ import {
   normalizeReportComparisonText,
 } from '../server/cozeReportTasks.ts';
 
-const fixture = `# 博通完整投资研究报告
+const fixture = `# 【投研报告】博通（Broadcom）投资研究报告
+
+**报告日期**：2026年08月18日
+**分析对象**：博通（Broadcom） | 股票代码：AVGO.O
+**所属行业**：半导体与基础设施软件
+**研究分析师**：Goldman Sachs AI Analyst
+
+---
 
 Goldman Sachs
 
@@ -31,6 +38,11 @@ Confidential & Proprietary · 仅供测试
 
 - 上行情景：AI 网络需求继续扩张。
 - 下行情景：客户集中度与估值压缩同时出现。
+
+- **关键观察点**：
+## 1. AI 网络业务订单增速
+## 2. VMware 软件续约率
+## 3. 自由现金流兑现情况
 
 Page 1
 `;
@@ -135,6 +147,8 @@ try {
   for (const required of ['Goldman Sachs', 'Global Investment Research', 'Confidential & Proprietary', '123.45', '67.89%', 'Page 1']) {
     assert.ok(preview.includes(required), `display conversion removed: ${required}`);
   }
+  assert.doesNotMatch(preview, /^#{1,6}\s+\d+[.)、．]\s+/m, 'numbered items must not remain pseudo headings');
+  assert.match(preview, /^1\. AI 网络业务订单增速$/m, 'numbered pseudo headings must become an ordered list');
 
   const created = await service.createTask('博通');
   assert.match(created.id, /^coze-[0-9]{13}-[a-f0-9]{12}$/);
@@ -164,6 +178,7 @@ try {
   const stats = comparisonStats(fixture, completed.markdown);
   assert.deepEqual(stats.missingLines, []);
   assert.deepEqual(stats.missingNumbers, []);
+  assert.doesNotMatch(completed.markdown, /^#{1,6}\s+\d+[.)、．]\s+/m);
   await assert.rejects(() => service.readTaskFile(created.id, '../task.json'), /路径无效|路径越界/);
   console.log(JSON.stringify({
     ok: true,

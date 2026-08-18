@@ -42,6 +42,15 @@ import { requestIsolatedJson } from '../lib/isolatedResource';
 import './GlobalMacroCommandCenter.css';
 
 export type GlobalMarketMode = 'china' | 'hongkong' | 'us' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk' | 'crypto';
+
+const PHONE_DESKTOP_VIEW_STORAGE_KEY = 'sparkflow.market.phone-desktop-view.v1';
+const PHONE_DESKTOP_CANVAS_WIDTH = 1920;
+const PHONE_DESKTOP_CANVAS_HEIGHT = 1080;
+
+function detectPhoneDevice() {
+  if (typeof navigator === 'undefined') return false;
+  return /Android.*Mobile|iPhone|iPod|Windows Phone|Mobile Safari/i.test(navigator.userAgent);
+}
 const INTERNATIONAL_MARKET_IDS = new Set<GlobalMarketMode>(['japan', 'korea', 'india', 'germany', 'france', 'uk']);
 type RegionId = 'global' | 'apac' | 'middleEast' | 'europe' | 'americas';
 type GlobeCountryFocus = 'china' | 'us' | null;
@@ -1979,6 +1988,9 @@ function InteractiveFlatMap({
 export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (market: GlobalMarketMode) => void }) {
   const [view, setView] = useState<'globe' | 'map'>('globe');
   const [globeFocus, setGlobeFocus] = useState<GlobeCountryFocus>(null);
+  const [phoneDevice, setPhoneDevice] = useState(false);
+  const [phoneDesktopMode, setPhoneDesktopMode] = useState(false);
+  const [phoneDesktopScale, setPhoneDesktopScale] = useState(1);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiRunState, setAiRunState] = useState<MacroAiRunState>('idle');
   const [data, setData] = useState<Dashboard | null>(null);
@@ -1994,6 +2006,47 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [fedNetLiquidity, setFedNetLiquidity] = useState<FedNetLiquidity | null>(null);
   const lastFastQuoteFrameRef = useRef('');
   const worldHeatmapWarmupStartedRef = useRef(false);
+
+  useEffect(() => {
+    const detected = detectPhoneDevice();
+    setPhoneDevice(detected);
+    if (!detected) return;
+    try {
+      setPhoneDesktopMode(window.localStorage.getItem(PHONE_DESKTOP_VIEW_STORAGE_KEY) === 'desktop');
+    } catch {
+      // The toggle still works for this visit when storage is unavailable.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!phoneDevice || !phoneDesktopMode) return;
+    const updateScale = () => setPhoneDesktopScale(Math.min(1, window.innerWidth / PHONE_DESKTOP_CANVAS_WIDTH));
+    updateScale();
+    window.addEventListener('resize', updateScale);
+    window.visualViewport?.addEventListener('resize', updateScale);
+    return () => {
+      window.removeEventListener('resize', updateScale);
+      window.visualViewport?.removeEventListener('resize', updateScale);
+    };
+  }, [phoneDesktopMode, phoneDevice]);
+
+  const togglePhoneDesktopMode = useCallback(() => {
+    setPhoneDesktopMode((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(PHONE_DESKTOP_VIEW_STORAGE_KEY, next ? 'desktop' : 'mobile');
+      } catch {
+        // Persistence is optional; the live switch remains available.
+      }
+      return next;
+    });
+  }, []);
+
+  const phoneDesktopStageStyle = phoneDesktopMode ? {
+    width: `${PHONE_DESKTOP_CANVAS_WIDTH * phoneDesktopScale}px`,
+    height: `${PHONE_DESKTOP_CANVAS_HEIGHT * phoneDesktopScale}px`,
+    '--macro-phone-desktop-scale': phoneDesktopScale,
+  } as CSSProperties : undefined;
 
   const applyFastQuotes = useCallback((payload: FastQuotePayload) => {
     if (payload.generatedAt && payload.generatedAt === lastFastQuoteFrameRef.current) return;
@@ -2436,8 +2489,21 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   }, [markets.length]);
 
   return (
-    <section className="global-macro-shell">
-      <div className="macro-app">
+    <section className={`global-macro-shell${phoneDesktopMode ? ' macro-phone-desktop-mode' : ''}`}>
+      {phoneDevice ? (
+        <button
+          type="button"
+          className="macro-phone-desktop-toggle"
+          aria-pressed={phoneDesktopMode}
+          aria-label={phoneDesktopMode ? '恢复手机布局' : '切换为电脑原貌'}
+          onClick={togglePhoneDesktopMode}
+        >
+          <Maximize2 size={13} />
+          <span>{phoneDesktopMode ? '手机布局' : '电脑原貌'}</span>
+        </button>
+      ) : null}
+      <div className="macro-phone-desktop-stage" style={phoneDesktopStageStyle}>
+        <div className="macro-app">
         <header className="macro-ticker macro-panel">
           <div className="macro-vt">
             <span className="macro-status-dot" />
@@ -2668,6 +2734,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             {data?.news?.length ? <GlobalNewsTicker news={data.news} /> : <span className="macro-news-empty">今日暂无达到头条级门槛的国际新闻</span>}
           </div>
         </footer>
+        </div>
       </div>
 
       <MarketModal

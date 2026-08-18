@@ -379,24 +379,84 @@ function NeuralInference({ stage, elapsed }: { stage: string; elapsed: number })
   );
 }
 
-function MacroAiMarkdown({ content }: { content: string }) {
+const EQUITY_META_LABELS = ['报告日期', '分析对象', '所属行业', '研究分析师'] as const;
+
+type EquityReportMetaLabel = typeof EQUITY_META_LABELS[number];
+
+function normalizeEquityMarkdown(content: string) {
+  return content.replace(/\r\n?/g, '\n').split('\n').map((line) => {
+    const match = line.trim().match(/^#{1,6}\s+(\d+)[.)、．]\s+(.+)$/);
+    if (!match) return line;
+    return `${line.match(/^\s*/)?.[0] || ''}${match[1]}. ${match[2].trim()}`;
+  }).join('\n');
+}
+
+function parseEquityReportDocument(content: string) {
+  const normalized = normalizeEquityMarkdown(content);
+  const lines = normalized.split('\n');
+  const titleIndex = lines.findIndex((line) => /^#\s+/.test(line.trim()));
+  if (titleIndex < 0) return null;
+  const title = lines[titleIndex]
+    .trim()
+    .replace(/^#\s+/, '')
+    .replace(/^【投研报告】\s*/, '')
+    .replace(/\*\*/g, '')
+    .trim();
+  const metadata = new Map<EquityReportMetaLabel, string>();
+  const consumed = new Set<number>([titleIndex]);
+  for (let index = titleIndex + 1; index < lines.length; index += 1) {
+    const text = lines[index].trim();
+    if (/^##\s+/.test(text)) break;
+    const match = text.match(/^\*\*(报告日期|分析对象|所属行业|研究分析师)\*\*[：:]\s*(.+)$/);
+    if (match) {
+      metadata.set(match[1] as EquityReportMetaLabel, match[2].replace(/\*\*/g, '').trim());
+      consumed.add(index);
+      continue;
+    }
+    if (/^---+$/.test(text)) consumed.add(index);
+  }
+  if (metadata.size < 2) return null;
+  const body = lines.filter((_line, index) => !consumed.has(index)).join('\n').replace(/^\s+/, '');
+  return { title, metadata, body };
+}
+
+function EquityReportCover({ title, metadata }: { title: string; metadata: Map<EquityReportMetaLabel, string> }) {
   return (
-    <div className="macro-ai-markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ children, ...props }) => <a {...props} target="_blank" rel="noreferrer">{children}</a>,
-          table: ({ children }) => <div className="macro-ai-table-wrap"><table>{children}</table></div>,
-          img: ({ alt, ...props }) => (
-            <span className="macro-ai-report-visual">
-              <img {...props} alt={alt || '研报视觉资源'} loading="lazy" />
-              {alt ? <small>{alt}</small> : null}
-            </span>
-          ),
-        }}
-      >
-        {content}
-      </ReactMarkdown>
+    <header className="macro-ai-equity-cover">
+      <div className="macro-ai-equity-brand"><strong>Goldman Sachs</strong><span>Global Investment Research</span></div>
+      <div className="macro-ai-equity-title"><h1>{title}</h1><i /></div>
+      <dl className="macro-ai-equity-meta">
+        {EQUITY_META_LABELS.map((label) => (
+          <div key={label}><dt>{label}</dt><dd>{metadata.get(label) || '—'}</dd></div>
+        ))}
+      </dl>
+    </header>
+  );
+}
+
+function MacroAiMarkdown({ content, equityLayout = false }: { content: string; equityLayout?: boolean }) {
+  const equityDocument = equityLayout ? parseEquityReportDocument(content) : null;
+  const markdown = equityDocument?.body || (equityLayout ? normalizeEquityMarkdown(content) : content);
+  return (
+    <div className={`macro-ai-markdown${equityDocument ? ' has-equity-cover' : ''}`}>
+      {equityDocument ? <EquityReportCover title={equityDocument.title} metadata={equityDocument.metadata} /> : null}
+      <div className="macro-ai-markdown-body">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ children, ...props }) => <a {...props} target="_blank" rel="noreferrer">{children}</a>,
+            table: ({ children }) => <div className="macro-ai-table-wrap"><table>{children}</table></div>,
+            img: ({ alt, ...props }) => (
+              <span className="macro-ai-report-visual">
+                <img {...props} alt={alt || '研报视觉资源'} loading="lazy" />
+                {alt ? <small>{alt}</small> : null}
+              </span>
+            ),
+          }}
+        >
+          {markdown}
+        </ReactMarkdown>
+      </div>
     </div>
   );
 }
@@ -904,11 +964,7 @@ export function MacroAiAnalyst({
         action: '开始全球宏观分析',
       };
   const generatedPdfArtifact = reportArtifacts.find((artifact) => artifact.kind === 'generated-pdf');
-  const primaryArtifacts = reportArtifacts.filter((artifact) => (
-    artifact.kind === 'raw-response'
-    || artifact.kind === 'answer-source'
-    || artifact.kind === 'original-pdf'
-  ));
+  const archivedPdfArtifacts = reportArtifacts.filter((artifact) => artifact.kind === 'original-pdf');
 
   return (
     <AnimatePresence>
@@ -1046,21 +1102,23 @@ export function MacroAiAnalyst({
                     <button type="button" onClick={rerunReport} title="使用最新页面数据重新分析"><RefreshCw size={14} /><span>重新分析</span></button>
                   </div>
                 </div>
-                {reportProvider === 'coze' && primaryArtifacts.length ? (
+                {reportProvider === 'coze' ? (
                   <div className="macro-ai-artifact-bar" aria-label="研报原始文件与完整性信息">
                     <div className="macro-ai-artifact-proof"><ShieldCheck size={15} /><span><strong>完整文本已封存</strong><small>浏览器直接展示 Markdown · SHA-256 完整性校验</small></span></div>
-                    <div className="macro-ai-artifact-links">
-                      {primaryArtifacts.map((artifact) => (
-                        <a key={artifact.path} href={artifact.url} target="_blank" rel="noreferrer" title={`${artifact.label} · SHA-256 ${artifact.sha256}`}>
-                          {artifact.kind.includes('pdf') ? <FileArchive size={13} /> : <Download size={13} />}
-                          <span>{artifact.kind === 'raw-response' ? '原始响应' : artifact.kind === 'answer-source' ? '完整答案' : 'PDF 原件'}</span>
+                    {archivedPdfArtifacts.length ? (
+                      <div className="macro-ai-artifact-links">
+                        {archivedPdfArtifacts.map((artifact) => (
+                          <a key={artifact.path} href={artifact.url} target="_blank" rel="noreferrer" title={`${artifact.label} · SHA-256 ${artifact.sha256}`}>
+                          <FileArchive size={13} />
+                          <span>PDF 原件</span>
                           <small>{formatArtifactBytes(artifact.bytes)} · {artifact.sha256.slice(0, 10)}</small>
-                        </a>
-                      ))}
-                    </div>
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
-                <MacroAiMarkdown content={report} />
+                <MacroAiMarkdown content={report} equityLayout={reportProvider === 'coze'} />
               </motion.div>
             ) : null}
           </div>

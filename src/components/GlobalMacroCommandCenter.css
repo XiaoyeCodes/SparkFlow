@@ -30,6 +30,39 @@
   font-family: "IBM Plex Sans", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
 }
 
+.macro-phone-desktop-stage { display: contents; }
+.macro-phone-desktop-toggle {
+  position: fixed;
+  z-index: 140;
+  top: calc(var(--nav-height, 0px) + env(safe-area-inset-top, 0px) + 10px);
+  right: calc(env(safe-area-inset-right, 0px) + 10px);
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid rgba(103, 219, 194, .34);
+  border-radius: 5px;
+  background: rgba(5, 18, 20, .94);
+  color: #b8e9de;
+  box-shadow: 0 9px 28px rgba(0, 0, 0, .42), inset 0 0 18px rgba(68, 190, 165, .05);
+  backdrop-filter: blur(12px);
+  font: 600 10px/1 "IBM Plex Sans", "Microsoft YaHei UI", sans-serif;
+  letter-spacing: .04em;
+  touch-action: manipulation;
+}
+.macro-phone-desktop-toggle[aria-pressed="true"] { border-color: rgba(217, 170, 85, .45); color: #ebd39d; }
+.macro-phone-desktop-toggle:active { transform: translateY(1px); }
+.global-macro-shell.macro-phone-desktop-mode { overflow: auto; overscroll-behavior: contain; }
+.macro-phone-desktop-mode .macro-phone-desktop-stage { position: relative; display: block; flex: none; }
+.macro-phone-desktop-mode .macro-app {
+  width: 1920px;
+  height: 1080px;
+  min-height: 1080px;
+  transform: scale(var(--macro-phone-desktop-scale, 1));
+  transform-origin: left top;
+}
+
 .macro-app {
   display: grid;
   grid-template: "ticker ticker ticker" 64px "right main left" minmax(0, 1fr) "news news news" 46px / 350px minmax(0, 1fr) 350px;
@@ -1205,29 +1238,29 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 }
 
 @media (max-width: 1180px) {
-  .macro-app { grid-template-columns: 310px minmax(0, 1fr) 310px; }
-  .macro-clock > span:nth-child(2), .macro-clock > span:nth-child(3) { display: none; }
-  .macro-right { padding: 9px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-app { grid-template-columns: 310px minmax(0, 1fr) 310px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-clock > span:nth-child(2), .global-macro-shell:not(.macro-phone-desktop-mode) .macro-clock > span:nth-child(3) { display: none; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-right { padding: 9px; }
   .macro-modal-header { grid-template-columns: minmax(150px, 1fr) auto minmax(280px, 1fr); gap: 10px; }
   .macro-modal-session { min-width: 260px; }
   .macro-modal-session-detail b { display: none; }
 }
 
 @media (max-width: 900px) {
-  .global-macro-shell { overflow: auto; }
-  .macro-app { display: flex; flex-direction: column; height: auto; min-height: 100%; }
-  .macro-ticker { position: sticky; z-index: 80; top: 0; height: 58px; }
-  .macro-main { order: 1; }
-  .macro-right { order: 2; }
-  .macro-left { order: 3; }
-  .macro-news { order: 4; }
-  .macro-clock { display: none; }
-  .macro-index-tape { display: none; }
-  .macro-main { height: 620px; border-bottom: 1px solid var(--macro-border); }
-  .macro-left, .macro-right { height: auto; max-height: none; overflow: visible; border: 0; border-bottom: 1px solid var(--macro-border); }
-  .macro-right { display: grid; grid-template-columns: 1fr 1fr; }
-  .macro-macro-section { grid-column: 1 / -1; }
-  .macro-news { position: static; height: 40px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) { overflow: auto; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-app { display: flex; flex-direction: column; height: auto; min-height: 100%; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-ticker { position: sticky; z-index: 80; top: 0; height: 58px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-main { order: 1; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-right { order: 2; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-left { order: 3; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-news { order: 4; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-clock { display: none; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-index-tape { display: none; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-main { height: 620px; border-bottom: 1px solid var(--macro-border); }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-left, .global-macro-shell:not(.macro-phone-desktop-mode) .macro-right { height: auto; max-height: none; overflow: visible; border: 0; border-bottom: 1px solid var(--macro-border); }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-right { display: grid; grid-template-columns: 1fr 1fr; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-macro-section { grid-column: 1 / -1; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-news { position: static; height: 40px; }
 }
 
 @keyframes macro-index-scroll {
@@ -1248,20 +1281,20 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 }
 
 @media (max-width: 600px) {
-  .macro-vt-label { display: none; }
-  .macro-vt-name > strong { font-size: 18px; }
-  .macro-main { height: 520px; }
-  .macro-stage-head { top: 12px; left: 12px; right: 12px; }
-  .macro-stage-head h1 { font-size: 16px; }
-  .macro-country-focus { gap: 5px; margin-top: 9px; }
-  .macro-country-focus button { width: 62px; height: 32px; grid-template-columns: 20px 1fr; padding: 0 7px 0 6px; }
-  .macro-country-focus button b { font-size: 9px; }
-  .macro-globe-wrap { width: 100%; max-width: none; }
-  .macro-holo-label { gap: 4px; font-size: 8px; }
-  .macro-holo-label b { display: none; }
-  .macro-caption { max-width: 85%; overflow: hidden; text-overflow: ellipsis; }
-  .macro-right { display: block; }
-  .macro-terminal-section { margin-bottom: 12px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-vt-label { display: none; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-vt-name > strong { font-size: 18px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-main { height: 520px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-stage-head { top: 12px; left: 12px; right: 12px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-stage-head h1 { font-size: 16px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-country-focus { gap: 5px; margin-top: 9px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-country-focus button { width: 62px; height: 32px; grid-template-columns: 20px 1fr; padding: 0 7px 0 6px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-country-focus button b { font-size: 9px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-globe-wrap { width: 100%; max-width: none; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-holo-label { gap: 4px; font-size: 8px; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-holo-label b { display: none; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-caption { max-width: 85%; overflow: hidden; text-overflow: ellipsis; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-right { display: block; }
+  .global-macro-shell:not(.macro-phone-desktop-mode) .macro-terminal-section { margin-bottom: 12px; }
   .macro-modal-panel { width: 98vw; height: 92vh; grid-template-rows: auto minmax(0, 1fr); }
   .macro-modal-header { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px; }
   .macro-modal-session { grid-column: 1 / -1; grid-row: 2; width: 100%; min-width: 0; box-sizing: border-box; }

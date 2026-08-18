@@ -120,13 +120,14 @@ def is_table_separator(line: str) -> bool:
     return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell.replace(" ", "")) for cell in cells)
 
 
-def parse_markdown(markdown: str) -> tuple[str, list[dict[str, Any]]]:
+def parse_markdown(markdown: str) -> tuple[str, dict[str, str], list[dict[str, Any]]]:
     normalized = markdown.replace("\r\n", "\n").replace("\r", "\n").strip()
     fence = re.fullmatch(r"\s*```(?:markdown|md|text)?\s*\n([\s\S]*?)\n```\s*", normalized, re.IGNORECASE)
     if fence:
         normalized = fence.group(1)
     lines = normalized.splitlines()
     title = "个股投资研究报告"
+    metadata: dict[str, str] = {}
     blocks: list[dict[str, Any]] = []
     paragraph: list[str] = []
 
@@ -144,6 +145,15 @@ def parse_markdown(markdown: str) -> tuple[str, list[dict[str, Any]]]:
         stripped = raw.strip()
         if not stripped:
             flush_paragraph()
+            index += 1
+            continue
+        numbered_heading = re.match(r"^#{1,6}\s+(\d+)[.)、．]\s+(.+)$", stripped)
+        if numbered_heading:
+            stripped = f"{numbered_heading.group(1)}. {numbered_heading.group(2).strip()}"
+        meta = re.match(r"^\*\*(报告日期|分析对象|所属行业|研究分析师)\*\*[：:]\s*(.+)$", stripped)
+        if meta:
+            flush_paragraph()
+            metadata[meta.group(1)] = re.sub(r"\*\*", "", meta.group(2)).strip()
             index += 1
             continue
         heading = re.match(r"^(#{1,4})\s+(.+)$", stripped)
@@ -168,17 +178,29 @@ def parse_markdown(markdown: str) -> tuple[str, list[dict[str, Any]]]:
             rows = [row + [""] * (width - len(row)) for row in rows]
             blocks.append({"type": "table", "rows": rows})
             continue
-        list_match = re.match(r"^(?:[-*+]\s+|\d+[.)、]\s+)(.+)$", stripped)
+        list_match = re.match(r"^(?:[-*+]\s+|\d+[.)、．]\s+)(.+)$", stripped)
         if list_match:
             flush_paragraph()
+            ordered = bool(re.match(r"^\d+[.)、．]\s+", stripped))
             items: list[str] = []
             while index < len(lines):
-                match = re.match(r"^(?:[-*+]\s+|\d+[.)、]\s+)(.+)$", lines[index].strip())
-                if not match:
+                candidate = lines[index].strip()
+                pseudo_heading = re.match(r"^#{1,6}\s+(\d+)[.)、．]\s+(.+)$", candidate)
+                if pseudo_heading:
+                    candidate = f"{pseudo_heading.group(1)}. {pseudo_heading.group(2).strip()}"
+                match = re.match(r"^(?:[-*+]\s+|\d+[.)、．]\s+)(.+)$", candidate)
+                if not match or bool(re.match(r"^\d+[.)、．]\s+", candidate)) != ordered:
                     break
                 items.append(match.group(1).strip())
                 index += 1
-            blocks.append({"type": "list", "items": items})
+            lead = None
+            if ordered and blocks and blocks[-1].get("type") == "list" and not blocks[-1].get("ordered"):
+                previous_items = blocks[-1].get("items", [])
+                if previous_items and re.search(r"(?:关键观察点|Top\s*\d+风险)[：:]?$", re.sub(r"\*\*", "", previous_items[-1]), re.IGNORECASE):
+                    lead = previous_items.pop()
+                    if not previous_items:
+                        blocks.pop()
+            blocks.append({"type": "list", "items": items, "ordered": ordered, "lead": lead})
             continue
         if stripped.startswith(">"):
             flush_paragraph()
@@ -190,19 +212,20 @@ def parse_markdown(markdown: str) -> tuple[str, list[dict[str, Any]]]:
             continue
         if re.fullmatch(r"[-*_]{3,}", stripped):
             flush_paragraph()
-            blocks.append({"type": "rule"})
+            if blocks or not metadata:
+                blocks.append({"type": "rule"})
             index += 1
             continue
         paragraph.append(stripped)
         index += 1
     flush_paragraph()
-    return title, blocks
+    return title, metadata, blocks
 
 
 def build_pdf(markdown_path: Path, output_path: Path, fallback_title: str) -> None:
     markdown = markdown_path.read_text(encoding="utf-8")
-    parsed_title, blocks = parse_markdown(markdown)
-    title = parsed_title or fallback_title or "个股投资研究报告"
+    parsed_title, metadata, blocks = parse_markdown(markdown)
+    title = re.sub(r"^【投研报告】\s*", "", parsed_title or fallback_title or "个股投资研究报告").strip()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(
         str(output_path),
@@ -218,11 +241,7 @@ def build_pdf(markdown_path: Path, output_path: Path, fallback_title: str) -> No
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         "ReportTitle", parent=styles["Title"], fontName=FONT_BOLD, fontSize=23,
-        leading=30, textColor=NAVY, alignment=TA_LEFT, spaceAfter=5,
-    )
-    subtitle_style = ParagraphStyle(
-        "ReportSubtitle", parent=styles["Normal"], fontName=FONT_REGULAR, fontSize=8,
-        leading=12, textColor=TEXT_GREY, alignment=TA_LEFT, spaceAfter=11,
+        leading=30, textColor=NAVY, alignment=TA_CENTER, spaceAfter=5,
     )
     section_style = ParagraphStyle(
         "Section", parent=styles["Heading2"], fontName=FONT_BOLD, fontSize=12,
@@ -246,10 +265,42 @@ def build_pdf(markdown_path: Path, output_path: Path, fallback_title: str) -> No
         "List", parent=body_style, leftIndent=4, firstLineIndent=0, spaceAfter=2,
     )
 
+    meta_label_style = ParagraphStyle(
+        "MetaLabel", parent=body_style, fontName=FONT_REGULAR, fontSize=8.4,
+        leading=11, textColor=TEXT_GREY, spaceAfter=0,
+    )
+    meta_value_style = ParagraphStyle(
+        "MetaValue", parent=body_style, fontName=FONT_REGULAR, fontSize=8.6,
+        leading=11.5, textColor=NAVY, spaceAfter=0,
+    )
+    report_width = A4[0] - 32 * mm
+    fallback_object = re.sub(r"投资研究报告$", "", title).strip() or fallback_title
+    meta_rows = [
+        ("报告日期", metadata.get("报告日期", "—")),
+        ("分析对象", metadata.get("分析对象", fallback_object)),
+        ("所属行业", metadata.get("所属行业", "—")),
+        ("研究分析师", metadata.get("研究分析师", "AI 投研分析师")),
+    ]
+    metadata_table = Table(
+        [[Paragraph(label, meta_label_style), Paragraph(inline_markdown(value), meta_value_style)] for label, value in meta_rows],
+        colWidths=[34 * mm, report_width - 34 * mm],
+        hAlign="LEFT",
+    )
+    metadata_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), BLUE_LIGHT),
+        ("GRID", (0, 0), (-1, -1), 0.6, colors.white),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4.5),
+    ]))
     story: list[Flowable] = [
+        Spacer(1, 8),
         Paragraph(inline_markdown(title), title_style),
-        HorizontalRule(2, ACCENT_GOLD, 3, 7),
-        Paragraph("GLOBAL INVESTMENT RESEARCH · AI GENERATED FROM ARCHIVED SOURCE", subtitle_style),
+        HorizontalRule(2, ACCENT_GOLD, 3, 10),
+        metadata_table,
+        Spacer(1, 10),
     ]
 
     def section_header(text: str) -> Table:
@@ -280,8 +331,17 @@ def build_pdf(markdown_path: Path, output_path: Path, fallback_title: str) -> No
             story.append(Paragraph(inline_markdown(block["text"]), quote_style))
         elif kind == "list":
             items = [ListItem(Paragraph(inline_markdown(item), list_style), leftIndent=8) for item in block["items"]]
-            story.append(ListFlowable(items, bulletType="bullet", start="circle", leftIndent=14, bulletFontName=FONT_REGULAR, bulletFontSize=5))
-            story.append(Spacer(1, 4))
+            if block.get("ordered"):
+                ordered_list = ListFlowable(items, bulletType="1", start="1", leftIndent=18, bulletFontName=FONT_REGULAR, bulletFontSize=8.5)
+                if block.get("lead"):
+                    lead_style = ParagraphStyle("OrderedListLead", parent=subsection_style, spaceBefore=4, spaceAfter=5)
+                    story.append(KeepTogether([Paragraph(inline_markdown(block["lead"]), lead_style), ordered_list, Spacer(1, 4)]))
+                else:
+                    story.append(ordered_list)
+            else:
+                story.append(ListFlowable(items, bulletType="bullet", start="circle", leftIndent=14, bulletFontName=FONT_REGULAR, bulletFontSize=5))
+            if not block.get("lead"):
+                story.append(Spacer(1, 4))
         elif kind == "rule":
             story.append(HorizontalRule(0.6, DIVIDER, 5, 5))
         elif kind == "table":
