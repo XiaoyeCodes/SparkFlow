@@ -65,6 +65,7 @@ type CozeReportTaskServiceOptions = {
   fetchImpl?: typeof fetch;
   pythonCommand?: string;
   reportScriptPath?: string;
+  pdfRendererPath?: string;
 };
 
 type PdfTextItem = {
@@ -90,6 +91,21 @@ type PdfExtractionResult = {
 
 function sha256(data: Buffer | string) {
   return createHash('sha256').update(data).digest('hex');
+}
+
+function bundledPython(rootDir: string) {
+  const candidates = process.platform === 'win32'
+    ? [path.join(rootDir, 'services', 'vibe-trading', '.venv', 'Scripts', 'python.exe')]
+    : [path.join(rootDir, 'services', 'vibe-trading', '.venv', 'bin', 'python')];
+  return candidates.find((candidate) => existsSync(candidate)) || 'python';
+}
+
+function safeDownloadName(value: string) {
+  return String(value || '个股')
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 70) || '个股';
 }
 
 function safeTaskId(value: string) {
@@ -636,6 +652,7 @@ export class CozeReportTaskService {
   private readonly fetchImpl: typeof fetch;
   private readonly pythonCommand: string;
   private readonly reportScriptPath: string;
+  private readonly pdfRendererPath: string;
   private readonly running = new Set<string>();
   private readonly initialized: Promise<void>;
 
@@ -646,8 +663,9 @@ export class CozeReportTaskService {
     this.timeoutMs = options.timeoutMs || 360_000;
     this.getConfig = options.getConfig;
     this.fetchImpl = options.fetchImpl || fetch;
-    this.pythonCommand = options.pythonCommand || process.env.COZE_REPORT_PYTHON || 'python';
+    this.pythonCommand = options.pythonCommand || process.env.COZE_REPORT_PYTHON || bundledPython(this.rootDir);
     this.reportScriptPath = options.reportScriptPath || path.join(this.rootDir, 'scripts', 'generate-equity-report.py');
+    this.pdfRendererPath = options.pdfRendererPath || path.join(this.rootDir, 'scripts', 'render-equity-report-pdf.py');
     this.initialized = this.recoverInterruptedTasks();
   }
 
@@ -758,10 +776,13 @@ export class CozeReportTaskService {
     if (!resolved.startsWith(prefix)) throw new Error('研报资源路径越界');
     const info = await stat(resolved);
     if (!info.isFile()) throw new Error('研报资源不存在');
+    const record = await this.readRecord(taskId);
     return {
       data: await readFile(resolved),
       mimeType: mimeForPath(resolved),
-      fileName: path.basename(resolved),
+      fileName: relativePath === GENERATED_PDF_FILE
+        ? `${safeDownloadName(record.query)}-投资研究报告.pdf`
+        : path.basename(resolved),
     };
   }
 
@@ -821,10 +842,41 @@ export class CozeReportTaskService {
       });
       await writeFile(path.join(taskDir, ANSWER_FILE), answer, 'utf8');
       await this.archiveArtifact(taskId, ANSWER_FILE, 'answer-source', '完整研报源文件');
-      await this.patchRecord(taskId, { stage: 'formatting', progress: 82, warnings: record.warnings });
+      await this.patchRecord(taskId, { stage: 'formatting', progress: 78, warnings: record.warnings });
       record = await this.readRecord(taskId);
       const report = `${buildLosslessDisplayMarkdown(answer, record.query)}\n`;
       await writeFile(path.join(taskDir, REPORT_FILE), report, 'utf8');
+      record = await this.patchRecord(taskId, { stage: 'rendering', progress: 88, warnings: record.warnings });
+      try {
+        const pdfPath = path.join(taskDir, GENERATED_PDF_FILE);
+        await runProcess(
+          this.pythonCommand,
+          [
+            this.pdfRendererPath,
+            '--input',
+            path.join(taskDir, ANSWER_FILE),
+            '--output',
+            pdfPath,
+            '--title',
+            `${record.query} 投资研究报告`,
+          ],
+          120_000,
+          {
+            cwd: this.rootDir,
+            env: { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+            maxBytes: 2 * 1024 * 1024,
+          },
+        );
+        const pdf = await readFile(pdfPath);
+        if (pdf.length > this.maxBytes) throw new Error('生成的 PDF 超过大小限制');
+        if (pdf.subarray(0, 5).toString('ascii') !== '%PDF-') throw new Error('PDF 渲染器没有生成有效文件');
+        await this.archiveArtifact(taskId, GENERATED_PDF_FILE, 'generated-pdf', '可下载 PDF 报告');
+      } catch (pdfError) {
+        const warning = pdfError instanceof Error ? pdfError.message : String(pdfError);
+        record = await this.readRecord(taskId);
+        await this.patchRecord(taskId, { warnings: [...record.warnings, `PDF 生成失败：${warning}`] });
+      }
+      record = await this.readRecord(taskId);
       const completedAt = new Date().toISOString();
       await this.saveRecord({
         ...record,

@@ -44,6 +44,7 @@ Requires-Dist: joblib>=1.3.0
 Requires-Dist: smartmoneyconcepts>=0.0.27
 Requires-Dist: tushare>=1.2.89
 Requires-Dist: requests>=2.31.0
+Requires-Dist: reportlab<5,>=4.4.0
 Requires-Dist: yfinance>=0.2.30
 Requires-Dist: akshare>=1.12.0
 Requires-Dist: ccxt>=4.0.0

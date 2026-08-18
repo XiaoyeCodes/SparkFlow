@@ -62,18 +62,25 @@ async function verifyTask(task, baseUrl) {
   assert.ok(task.markdown, 'task has no Markdown');
   const rawArtifact = task.artifacts.find((artifact) => artifact.kind === 'raw-response');
   const answerArtifact = task.artifacts.find((artifact) => artifact.kind === 'answer-source');
-  assert.ok(rawArtifact && answerArtifact, 'task must retain script output and complete answer');
-  assert.ok(!task.artifacts.some((artifact) => artifact.kind.includes('pdf')), 'new pipeline must not generate PDF');
+  const pdfArtifact = task.artifacts.find((artifact) => artifact.kind === 'generated-pdf');
+  assert.ok(rawArtifact && answerArtifact && pdfArtifact, 'task must retain source files and generated PDF');
 
   const answerResponse = await fetch(`${baseUrl}${answerArtifact.url}`);
   assert.equal(answerResponse.status, 200, `answer HTTP ${answerResponse.status}`);
   const answerData = Buffer.from(await answerResponse.arrayBuffer());
   assert.equal(createHash('sha256').update(answerData).digest('hex'), answerArtifact.sha256, 'answer hash mismatch');
   const answer = answerData.toString('utf8');
+  const pdfResponse = await fetch(`${baseUrl}${pdfArtifact.url}`);
+  assert.equal(pdfResponse.status, 200, `PDF HTTP ${pdfResponse.status}`);
+  assert.match(String(pdfResponse.headers.get('content-type')), /^application\/pdf/i);
+  assert.match(String(pdfResponse.headers.get('content-disposition')), /^attachment;/i);
+  const pdfData = Buffer.from(await pdfResponse.arrayBuffer());
+  assert.equal(pdfData.subarray(0, 5).toString('ascii'), '%PDF-', 'invalid PDF signature');
+  assert.equal(createHash('sha256').update(pdfData).digest('hex'), pdfArtifact.sha256, 'PDF hash mismatch');
   const stats = comparisonStats(answer, task.markdown);
   assert.deepEqual(stats.missingLines, [], `source lines missing in Markdown: ${stats.missingLines.join(' / ')}`);
   assert.deepEqual(stats.missingNumbers, [], `source numbers missing in Markdown: ${stats.missingNumbers.join(' / ')}`);
-  return { rawArtifact, answerArtifact, stats };
+  return { rawArtifact, answerArtifact, pdfArtifact, stats };
 }
 
 if (process.argv[2] === '--task') {
@@ -83,13 +90,14 @@ if (process.argv[2] === '--task') {
   const response = await fetch(`${baseUrl}/api/coze/equity-research/tasks/${encodeURIComponent(taskId)}`);
   assert.equal(response.status, 200, `task HTTP ${response.status}`);
   const task = await response.json();
-  const { rawArtifact, answerArtifact, stats } = await verifyTask(task, baseUrl);
+  const { rawArtifact, answerArtifact, pdfArtifact, stats } = await verifyTask(task, baseUrl);
   console.log(JSON.stringify({
     ok: true,
     taskId,
     artifacts: task.artifacts.length,
     rawSha256: rawArtifact.sha256,
     answerSha256: answerArtifact.sha256,
+    pdfSha256: pdfArtifact.sha256,
     sourceLinesChecked: stats.sourceLines.length,
     numericTokensChecked: stats.numericTokens.length,
   }, null, 2));
@@ -135,18 +143,23 @@ try {
   const answerArtifact = completed.artifacts.find((artifact) => artifact.kind === 'answer-source');
   const rawArtifact = completed.artifacts.find((artifact) => artifact.kind === 'raw-response');
   assert.ok(answerArtifact && rawArtifact);
-  assert.equal(completed.artifacts.length, 2, 'pipeline should only archive raw output and complete answer');
-  assert.ok(!completed.artifacts.some((artifact) => artifact.kind.includes('pdf')));
+  const pdfArtifact = completed.artifacts.find((artifact) => artifact.kind === 'generated-pdf');
+  assert.equal(completed.artifacts.length, 3, 'pipeline should archive source files and generated PDF');
+  assert.ok(pdfArtifact, 'pipeline should generate a downloadable PDF');
 
   const answerFile = await service.readTaskFile(created.id, answerArtifact.path);
   const rawFile = await service.readTaskFile(created.id, rawArtifact.path);
+  const pdfFile = await service.readTaskFile(created.id, pdfArtifact.path);
   assert.equal(answerFile.data.toString('utf8'), fixture, 'answer source must be byte-for-byte complete');
   assert.equal(rawFile.data.toString('utf8'), fixture, 'raw script output must be byte-for-byte complete');
+  assert.equal(pdfFile.data.subarray(0, 5).toString('ascii'), '%PDF-', 'generated file must be a PDF');
+  assert.match(pdfFile.fileName, /博通.*投资研究报告\.pdf$/);
   assert.equal(receivedRequest?.url, '/run');
   assert.equal(receivedRequest?.authorization, 'Bearer fixture-token');
   assert.equal(receivedRequest?.body?.messages?.[0]?.content, '请为博通生成投资研报');
   assert.equal(answerArtifact.sha256, createHash('sha256').update(answerFile.data).digest('hex'));
   assert.equal(rawArtifact.sha256, createHash('sha256').update(rawFile.data).digest('hex'));
+  assert.equal(pdfArtifact.sha256, createHash('sha256').update(pdfFile.data).digest('hex'));
 
   const stats = comparisonStats(fixture, completed.markdown);
   assert.deepEqual(stats.missingLines, []);

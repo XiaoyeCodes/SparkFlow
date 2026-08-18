@@ -9965,7 +9965,8 @@ function allWeatherApiPlugin() {
             const file = await cozeReportTasks.readTaskFile(taskId, relativePath);
             res.statusCode = 200;
             res.setHeader('Content-Type', file.mimeType);
-            res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+            const disposition = file.mimeType === 'application/pdf' ? 'attachment' : 'inline';
+            res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
             res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
             res.end(file.data);
             return;

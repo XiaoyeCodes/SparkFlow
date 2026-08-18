@@ -903,11 +903,11 @@ export function MacroAiAnalyst({
         description: '汇总宏观、利率、流动性、全球股指、商品、汇率、加密资产与今日要闻，生成一份 30 秒可扫读的决策简报。',
         action: '开始全球宏观分析',
       };
+  const generatedPdfArtifact = reportArtifacts.find((artifact) => artifact.kind === 'generated-pdf');
   const primaryArtifacts = reportArtifacts.filter((artifact) => (
     artifact.kind === 'raw-response'
     || artifact.kind === 'answer-source'
     || artifact.kind === 'original-pdf'
-    || artifact.kind === 'generated-pdf'
   ));
 
   return (
@@ -1037,6 +1037,11 @@ export function MacroAiAnalyst({
                 <div className="macro-ai-report-head">
                   <div><button type="button" className="macro-ai-report-back" onClick={returnHome} title="返回分析首页"><ArrowLeft size={14} /></button><span><i /> ANALYSIS REPORT</span><strong>{extractReportTitle(report)}</strong><small>{formatReportDate(generatedAt)} {formatReportClock(generatedAt)} · AI 分析师</small></div>
                   <div>
+                    {generatedPdfArtifact ? (
+                      <a className="macro-ai-report-download" href={generatedPdfArtifact.url} download title="下载 PDF 研究报告">
+                        <Download size={14} /><span>下载 PDF</span>
+                      </a>
+                    ) : null}
                     <button type="button" onClick={() => void copyReport()} title="复制 Markdown">{copied ? <Check size={14} /> : <Copy size={14} />}<span>{copied ? '已复制' : '复制'}</span></button>
                     <button type="button" onClick={rerunReport} title="使用最新页面数据重新分析"><RefreshCw size={14} /><span>重新分析</span></button>
                   </div>

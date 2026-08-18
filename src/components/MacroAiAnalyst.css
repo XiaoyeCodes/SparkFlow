@@ -181,8 +181,9 @@
 .macro-ai-report-head strong { overflow: hidden; color: #e3ecea; font: 600 15px "Noto Serif SC", "Songti SC", serif; text-overflow: ellipsis; white-space: nowrap; }
 .macro-ai-report-head small { grid-column: 3; color: #526a72; font: 500 7px "JetBrains Mono", monospace; }
 .macro-ai-report-head > div:last-child { display: flex; flex: none; gap: 6px; }
-.macro-ai-report-head button { display: inline-flex; height: 30px; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid rgba(100, 157, 161, .18); border-radius: 3px; background: rgba(15, 35, 39, .5); color: #81999e; font-size: 8px; transition: border-color .16s ease, color .16s ease, background .16s ease; }
-.macro-ai-report-head button:hover { border-color: rgba(89, 222, 198, .36); background: rgba(48, 143, 127, .09); color: #d6e8e4; }
+.macro-ai-report-head button, .macro-ai-report-download { display: inline-flex; height: 30px; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid rgba(100, 157, 161, .18); border-radius: 3px; background: rgba(15, 35, 39, .5); color: #81999e; font-size: 8px; text-decoration: none; transition: border-color .16s ease, color .16s ease, background .16s ease; }
+.macro-ai-report-head button:hover, .macro-ai-report-download:hover { border-color: rgba(89, 222, 198, .36); background: rgba(48, 143, 127, .09); color: #d6e8e4; }
+.macro-ai-report-download { border-color: rgba(197, 160, 101, .3); color: #d9bc82; }
 .macro-ai-report-head .macro-ai-report-back { grid-row: 1 / span 2; width: 30px; padding: 0; justify-content: center; border-color: rgba(84, 232, 195, .2); color: #74b8ad; }
 .macro-ai-artifact-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px clamp(6px, 1.8vw, 25px); border-bottom: 1px solid rgba(88, 181, 173, .13); background: linear-gradient(90deg, rgba(42, 130, 116, .065), rgba(4, 14, 17, .2) 45%, rgba(195, 145, 76, .035)); }
 .macro-ai-artifact-proof { display: flex; min-width: 190px; align-items: center; gap: 9px; color: #74d8c5; }
@@ -265,7 +266,7 @@
   .macro-ai-artifact-proof { min-width: 0; }
   .macro-ai-artifact-proof small, .macro-ai-artifact-links > a small { display: none; }
   .macro-ai-artifact-links > a { min-width: 0; grid-template-columns: auto auto; padding: 6px 8px; }
-  .macro-ai-report-head > div:first-child > span, .macro-ai-report-head small, .macro-ai-report-head button span { display: none; }
+  .macro-ai-report-head > div:first-child > span, .macro-ai-report-head small, .macro-ai-report-head button span, .macro-ai-report-download span { display: none; }
   .macro-ai-report-head > div:first-child { display: flex; align-items: center; gap: 8px; }
   .macro-ai-markdown { padding: 13px 4px 42px; font-size: 10px; }
 }
