@@ -1991,6 +1991,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [phoneDevice, setPhoneDevice] = useState(false);
   const [phoneDesktopMode, setPhoneDesktopMode] = useState(false);
   const [phoneDesktopScale, setPhoneDesktopScale] = useState(1);
+  const [phoneToggleVisible, setPhoneToggleVisible] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiRunState, setAiRunState] = useState<MacroAiRunState>('idle');
   const [data, setData] = useState<Dashboard | null>(null);
@@ -2006,6 +2007,16 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [fedNetLiquidity, setFedNetLiquidity] = useState<FedNetLiquidity | null>(null);
   const lastFastQuoteFrameRef = useRef('');
   const worldHeatmapWarmupStartedRef = useRef(false);
+  const phoneToggleHideTimerRef = useRef<number | null>(null);
+
+  const revealPhoneToggle = useCallback(() => {
+    setPhoneToggleVisible(true);
+    if (phoneToggleHideTimerRef.current !== null) window.clearTimeout(phoneToggleHideTimerRef.current);
+    phoneToggleHideTimerRef.current = window.setTimeout(() => {
+      setPhoneToggleVisible(false);
+      phoneToggleHideTimerRef.current = null;
+    }, 3200);
+  }, []);
 
   useEffect(() => {
     const detected = detectPhoneDevice();
@@ -2017,6 +2028,23 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       // The toggle still works for this visit when storage is unavailable.
     }
   }, []);
+
+  useEffect(() => {
+    if (!phoneDevice) return;
+    let scrollEndTimer: number | null = null;
+    const handleScroll = () => {
+      if (scrollEndTimer !== null) window.clearTimeout(scrollEndTimer);
+      scrollEndTimer = window.setTimeout(revealPhoneToggle, 180);
+    };
+
+    revealPhoneToggle();
+    window.addEventListener('scroll', handleScroll, true);
+    return () => {
+      window.removeEventListener('scroll', handleScroll, true);
+      if (scrollEndTimer !== null) window.clearTimeout(scrollEndTimer);
+      if (phoneToggleHideTimerRef.current !== null) window.clearTimeout(phoneToggleHideTimerRef.current);
+    };
+  }, [phoneDevice, revealPhoneToggle]);
 
   useEffect(() => {
     if (!phoneDevice || !phoneDesktopMode) return;
@@ -2031,6 +2059,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   }, [phoneDesktopMode, phoneDevice]);
 
   const togglePhoneDesktopMode = useCallback(() => {
+    revealPhoneToggle();
     setPhoneDesktopMode((current) => {
       const next = !current;
       try {
@@ -2040,7 +2069,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       }
       return next;
     });
-  }, []);
+  }, [revealPhoneToggle]);
 
   const phoneDesktopStageStyle = phoneDesktopMode ? {
     width: `${PHONE_DESKTOP_CANVAS_WIDTH * phoneDesktopScale}px`,
@@ -2491,16 +2520,28 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   return (
     <section className={`global-macro-shell${phoneDesktopMode ? ' macro-phone-desktop-mode' : ''}`}>
       {phoneDevice ? (
-        <button
-          type="button"
-          className="macro-phone-desktop-toggle"
-          aria-pressed={phoneDesktopMode}
-          aria-label={phoneDesktopMode ? '恢复手机布局' : '切换为电脑原貌'}
-          onClick={togglePhoneDesktopMode}
-        >
-          <Maximize2 size={13} />
-          <span>{phoneDesktopMode ? '手机布局' : '电脑原貌'}</span>
-        </button>
+        <>
+          <button
+            type="button"
+            className={`macro-phone-desktop-toggle${phoneToggleVisible ? '' : ' is-hidden'}`}
+            aria-pressed={phoneDesktopMode}
+            aria-hidden={!phoneToggleVisible}
+            aria-label={phoneDesktopMode ? '恢复手机布局' : '切换为电脑原貌'}
+            tabIndex={phoneToggleVisible ? 0 : -1}
+            onClick={togglePhoneDesktopMode}
+          >
+            <Maximize2 size={13} />
+            <span>{phoneDesktopMode ? '手机布局' : '电脑原貌'}</span>
+          </button>
+          {!phoneToggleVisible ? (
+            <button
+              type="button"
+              className="macro-phone-desktop-toggle-wake"
+              aria-label="显示布局切换按钮"
+              onClick={revealPhoneToggle}
+            />
+          ) : null}
+        </>
       ) : null}
       <div className="macro-phone-desktop-stage" style={phoneDesktopStageStyle}>
         <div className="macro-app">

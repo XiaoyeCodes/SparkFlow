@@ -50,9 +50,23 @@
   font: 600 10px/1 "IBM Plex Sans", "Microsoft YaHei UI", sans-serif;
   letter-spacing: .04em;
   touch-action: manipulation;
+  transition: opacity .24s ease, transform .24s ease, border-color .2s ease, color .2s ease;
 }
 .macro-phone-desktop-toggle[aria-pressed="true"] { border-color: rgba(217, 170, 85, .45); color: #ebd39d; }
 .macro-phone-desktop-toggle:active { transform: translateY(1px); }
+.macro-phone-desktop-toggle.is-hidden { opacity: 0; pointer-events: none; transform: translate3d(12px, -4px, 0); }
+.macro-phone-desktop-toggle-wake {
+  position: fixed;
+  z-index: 139;
+  top: calc(var(--nav-height, 0px) + env(safe-area-inset-top, 0px) + 6px);
+  right: calc(env(safe-area-inset-right, 0px) + 4px);
+  width: 52px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  touch-action: manipulation;
+}
 .global-macro-shell.macro-phone-desktop-mode { overflow: auto; overscroll-behavior: contain; }
 .macro-phone-desktop-mode .macro-phone-desktop-stage { position: relative; display: block; flex: none; }
 .macro-phone-desktop-mode .macro-app {
