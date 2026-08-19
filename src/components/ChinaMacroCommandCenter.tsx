@@ -60,6 +60,10 @@ type ChinaNews = {
   publishedAt?: string;
   category: string;
   importance?: 'critical' | 'high' | 'medium';
+  importanceScore?: number;
+  sourceCount?: number;
+  sources?: string[];
+  importanceReason?: string;
 };
 
 type ChinaMacroDashboard = {
@@ -81,7 +85,35 @@ type ChinaMacroDashboard = {
     policies: Array<{ title: string; source: string; url: string }>;
   };
   news: ChinaNews[];
+  newsMeta?: {
+    onlineSources: number;
+    totalSources: number;
+    candidates: number;
+    duplicatesRemoved: number;
+  };
   methodology: string;
+};
+
+const EMPTY_CHINA_DASHBOARD: ChinaMacroDashboard = {
+  generatedAt: '',
+  indices: [],
+  metrics: [],
+  quadrant: {
+    current: '复苏',
+    growthDirection: 0,
+    inflationDirection: 0,
+    explanation: '正在连接增长与通胀数据。',
+  },
+  policy: {
+    stage: '等待政策数据',
+    direction: '正在连接政策信息',
+    creditState: '--',
+    nextData: '国家统计局发布日程',
+    nextDataUrl: 'https://www.stats.gov.cn/sj/',
+    policies: [],
+  },
+  news: [],
+  methodology: '',
 };
 
 type ProvinceFeature = Feature<Geometry, { name?: string; adcode?: number | string }>;
@@ -138,7 +170,7 @@ const ANCHORS = [
 ] as const;
 
 const STRUCTURAL_IDS = ['household-loans', 'corporate-loans', 'fiscal', 'property', 'land-sales', 'exports'];
-const TACTICAL_IDS = ['cn-us-spread', 'cnh-hibor', 'credit-spread', 'bill-rate', 'northbound-holdings', 'foreign-holdings'];
+const TACTICAL_IDS = ['cn-us-spread', 'cnh-hibor', 'credit-spread', 'bill-financing', 'interbank-repo', 'term-spread'];
 
 function formatNumber(value: number, digits = 2) {
   return new Intl.NumberFormat('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
@@ -158,7 +190,7 @@ function provinceValue(item: ChinaProvinceEconomy | undefined, metric: MapMetric
 function provinceMetricText(item: ChinaProvinceEconomy, metric: MapMetric) {
   if (metric === 'population') return `${formatNumber(item.populationMillion, 2)} 百万人`;
   if (metric === 'perCapita') return `¥${formatNumber(item.gdpPerCapitaCny, 0)}`;
-  return `¥${formatNumber(item.gdpMillionCny / 10_000, 2)} 亿元`;
+  return `¥${formatNumber(item.gdpMillionCny / 100, 2)} 亿元`;
 }
 
 function provinceFill(intensity: number, active: boolean, hasData: boolean) {
@@ -270,15 +302,26 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
       setLoadState('loading');
       setError('');
     }
-    try {
-      const dashboardResponse = await fetch('/api/china-macro-dashboard', {
+    const sections = ['indices', 'metrics', 'policy', 'news'] as const;
+    const requests = sections.map(async (section) => {
+      const response = await fetch(`/api/china-macro-dashboard?section=${section}`, {
         cache: 'no-store',
         signal: controller.signal,
       });
-      if (!dashboardResponse.ok) throw new Error(`中国宏观数据请求失败 (${dashboardResponse.status})`);
-      const dashboard = await dashboardResponse.json();
+      if (!response.ok) throw new Error(`${section} 分区请求失败 (${response.status})`);
+      const partial = await response.json() as Partial<ChinaMacroDashboard>;
       if (controller.signal.aborted) return;
-      setData(dashboard as ChinaMacroDashboard);
+      setData((current) => ({ ...EMPTY_CHINA_DASHBOARD, ...current, ...partial }));
+      setLoadState('ready');
+    });
+    try {
+      const results = await Promise.allSettled(requests);
+      if (controller.signal.aborted) return;
+      const failures = results.flatMap((result, index) => result.status === 'rejected' ? [sections[index]] : []);
+      if (failures.length === sections.length) {
+        throw new Error('中国宏观数据分区均未加载成功');
+      }
+      setError(failures.length ? `${failures.join('、')} 分区暂时使用现有内容` : '');
       setLoadState('ready');
     } catch (requestError) {
       if (controller.signal.aborted) return;
@@ -671,12 +714,28 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
           </section>
 
           <section className="china-news-board">
-            <div className="china-section-heading"><Database size={15} /><span>中国政策与经济要闻</span><b>IMPORTANCE</b></div>
+            <div className="china-section-heading">
+              <Database size={15} />
+              <span>中国政策与经济要闻</span>
+              <b>{data?.newsMeta ? `${data.newsMeta.onlineSources}/${data.newsMeta.totalSources} SOURCES` : 'MULTI-SOURCE'}</b>
+            </div>
             <div className="china-news-list">
               {(data?.news || []).length ? data!.news.map((item, index) => (
-                <a key={item.id} href={item.url} target="_blank" rel="noreferrer">
+                <a
+                  key={item.id}
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`${item.importanceReason || '按重要性与时效排序'}${item.sources?.length ? `\n来源：${item.sources.join('、')}` : ''}`}
+                >
                   <em>{String(index + 1).padStart(2, '0')}</em>
-                  <div><strong>{item.title}</strong><span><i className={`is-${item.importance || 'medium'}`} />{item.category} · {item.source} · {timeAgo(item.publishedAt)}</span></div>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <span>
+                      <i className={`is-${item.importance || 'medium'}`} />
+                      {item.category} · {item.sourceCount && item.sourceCount > 1 ? `${item.sourceCount}源印证` : item.source} · {timeAgo(item.publishedAt)}
+                    </span>
+                  </div>
                   <ArrowUpRight size={13} />
                 </a>
               )) : <div className="china-news-empty">今日高重要性国内要闻暂未抓取到，避免用旧闻填充。</div>}

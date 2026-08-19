@@ -446,6 +446,8 @@ const newsSources: NewsSourceConfig[] = [
   { id: 'wallstreetcn', label: '华尔街见闻', category: 'finance', sourceWeight: 78, origin: 'domestic', route: 'direct', url: 'https://dedicated.wallstreetcn.com/rss.xml', kind: 'rss' },
   { id: 'chinanews-finance', label: '中新财经', category: 'finance', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/finance.xml', kind: 'rss' },
   { id: 'gov-cn', label: '中国政府网', category: 'livelihood', sourceWeight: 86, origin: 'domestic', route: 'direct', url: 'https://www.gov.cn/pushinfo/v150203/rss.xml', kind: 'rss' },
+  { id: 'stats-release', label: '国家统计局', category: 'finance', sourceWeight: 94, origin: 'domestic', route: 'direct', url: 'https://www.stats.gov.cn/sj/zxfb/rss.xml', kind: 'rss' },
+  { id: 'stats-interpretation', label: '国家统计局', category: 'finance', sourceWeight: 90, origin: 'domestic', route: 'direct', url: 'https://www.stats.gov.cn/sj/sjjd/rss.xml', kind: 'rss' },
   { id: 'chinanews-society', label: '中新社会', category: 'society', sourceWeight: 66, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/society.xml', kind: 'rss' },
   { id: 'chinanews-world', label: '中新国际', category: 'world', sourceWeight: 68, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/world.xml', kind: 'rss' },
 ];
@@ -4684,15 +4686,15 @@ async function getChinaCpiMetric(): Promise<GlobalCpiMetric> {
   const listingHtml = await fetchExternalText(listingUrl, 16000, 'text/html,application/xhtml+xml,*/*');
   const release = [...listingHtml.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
     .map((match) => ({ href: match[1], title: stripTags(match[2]) }))
-    .find((item) => /20\d{2}年\d{1,2}月份居民消费价格同比/.test(item.title));
+    .find((item) => /20\s*\d{2}\s*年\s*\d{1,2}\s*月份居民消费价格同比/.test(item.title));
   if (!release) throw new Error('国家统计局最新 CPI 发布页未找到');
 
   const sourceUrl = new URL(release.href, listingUrl).toString();
   const html = await fetchExternalText(sourceUrl, 16000, 'text/html,application/xhtml+xml,*/*');
   const text = stripTags(html).replace(/\s+/g, ' ');
   const yearMonth = text.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月份/);
-  const yoyMatch = text.match(/全国居民消费价格同比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
-  const momMatch = text.match(/(?:\d{1,2}\s*月份，?)?全国居民消费价格环比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
+  const yoyMatch = text.match(/全国居民消费价格[^。]{0,8}?同比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
+  const momMatch = text.match(/(?:\d{1,2}\s*月份?[，,]?)?\s*全国居民消费价格[^。]{0,8}?环比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
   if (!yearMonth || !yoyMatch || !momMatch) throw new Error('国家统计局 CPI 页面数据格式异常');
 
   const year = Number(yearMonth[1]);
@@ -5111,7 +5113,7 @@ async function getChinaPpiMetric() {
   const listingHtml = await fetchExternalText(listingUrl, 16000, 'text/html,application/xhtml+xml,*/*');
   const release = [...listingHtml.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
     .map((match) => ({ href: match[1], title: stripTags(match[2]) }))
-    .filter((item) => /20\d{2}年\d{1,2}月份工业生产者出厂价格同比/.test(item.title))
+    .filter((item) => /20\s*\d{2}\s*年\s*\d{1,2}\s*月份工业生产者出厂价格同比/.test(item.title))
     .sort((left, right) => {
       const leftDate = left.title.match(/(20\d{2})年(\d{1,2})月/);
       const rightDate = right.title.match(/(20\d{2})年(\d{1,2})月/);
@@ -5125,8 +5127,8 @@ async function getChinaPpiMetric() {
   const html = await fetchExternalText(sourceUrl, 16000, 'text/html,application/xhtml+xml,*/*');
   const text = stripTags(html).replace(/\s+/g, ' ');
   const yearMonth = text.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月份/);
-  const yoyMatch = text.match(/全国工业生产者出厂价格同比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
-  const momMatch = text.match(/(?:\d{1,2}\s*月份，?)?全国工业生产者出厂价格环比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
+  const yoyMatch = text.match(/全国工业生产者出厂价格[^。]{0,8}?同比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
+  const momMatch = text.match(/全国工业生产者出厂价格[^。]{0,80}?环比\s*(上涨|下降|持平)\s*([\d.]+)?\s*%?/);
   if (!yearMonth || !yoyMatch || !momMatch) throw new Error('国家统计局 PPI 页面数据格式异常');
 
   const year = Number(yearMonth[1]);
@@ -9454,27 +9456,193 @@ type ChinaMacroMetric = {
 
 const chinaMacroReferenceMetrics: ChinaMacroMetric[] = [
   { id: 'tsf', label: '社融存量增速', value: 7.4, display: '+7.4%', change: 0, changeDisplay: '较前月持平', period: '2026-07', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/diaochatongjisi/attachDir/2026/08/2026081417011913181.htm', status: 'delayed', note: '社融存量 463.27 万亿元' },
-  { id: 'm1m2', label: 'M1-M2 剪刀差', value: -3.8, display: '-3.8pp', change: 0.2, changeDisplay: '较前月收窄 0.2pp', period: '2026-07', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/diaochatongjisi/attachDir/2026/08/2026081416590597261.htm', status: 'delayed', note: 'M1 同比约 4.0% 减 M2 同比约 7.8%' },
+  { id: 'm1m2', label: 'M1-M2 剪刀差', value: -3.7, display: '-3.7pp', change: 0.3, changeDisplay: '较前月收窄 0.3pp', period: '2026-07', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/diaochatongjisi/116219/116225/2026081416320925645/index.html', status: 'delayed', note: 'M1 同比 4.0% 减 M2 同比 7.7%' },
   { id: 'caixin-pmi', label: '财新 / 民营制造业 PMI', value: 51.7, display: '51.7', change: -0.1, changeDisplay: '-0.1', period: '2026-06', source: 'RatingDog / S&P Global', sourceUrl: 'https://www.metatrader.com/zh/economic-calendar/china/caixin-manufacturing-pmi', status: 'delayed', note: '原财新调查口径；当前品牌为 RatingDog' },
   { id: 'ppi', label: 'PPI 同比', value: 4.1, display: '+4.1%', change: -0.3, changeDisplay: '-0.3% 环比', period: '2026年6月', source: '国家统计局', sourceUrl: 'https://www.stats.gov.cn/sj/zxfb/202607/t20260709_1964083.html', status: 'delayed', note: '官方最近可复核发布' },
-  { id: 'dr007', label: 'DR007', value: null, display: '待最新值', change: null, changeDisplay: '旧快照已下线', period: '最新交易日', source: '全国银行间同业拆借中心', sourceUrl: 'https://www.chinamoney.com.cn/chinese/bkccpr/', status: 'unavailable', note: '点击进入官方资金价格查询' },
-  { id: 'cn10y', label: '中国 10Y 国债', value: null, display: '待最新值', change: null, changeDisplay: '旧快照已下线', period: '最新交易日', source: '中国债券信息网', sourceUrl: 'https://yield.chinabond.com.cn/cbweb-pbc-web/pbc/historyQuery', status: 'unavailable', note: '点击进入官方收益率查询' },
+  { id: 'dr007', label: 'FDR007 定盘', value: 1.38, display: '1.3800%', change: 0.74, changeDisplay: '+0.74bp', period: '2026-08-19', source: '中国外汇交易中心', sourceUrl: 'https://www.chinamoney.com.cn/chinese/bkfrr/', status: 'delayed', note: '银行间 7 天回购定盘利率；官方快照' },
+  { id: 'cn10y', label: '中国 10Y 国债', value: 1.6864, display: '1.6864%', change: null, changeDisplay: '中债日终估值', period: '2026-08-18', source: '中债估值中心', sourceUrl: 'https://yield.chinabond.com.cn/cbweb-pbc-web/pbc/more?locale=cn_zh', status: 'delayed', note: '中债国债收益率曲线' },
   { id: 'lpr', label: 'LPR', value: 3.0, display: '1Y 3.00% · 5Y 3.50%', change: 0, changeDisplay: '维持', period: '2026-07', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125440/index.html', status: 'delayed' },
-  { id: 'household-loans', label: '居民中长期贷款', value: null, display: '待最新值', change: null, changeDisplay: '旧快照已下线', period: '最新金融统计', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/diaochatongjisi/116219/116225/index.html', status: 'unavailable', note: '等待人民银行分部门贷款表结构化接入' },
-  { id: 'corporate-loans', label: '企业中长期贷款', value: null, display: '待最新值', change: null, changeDisplay: '旧快照已下线', period: '最新金融统计', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/diaochatongjisi/116219/116225/index.html', status: 'unavailable', note: '等待人民银行分部门贷款表结构化接入' },
+  { id: 'household-loans', label: '居民中长期贷款增量', value: 1010, display: '+1,010 亿元', change: null, changeDisplay: '前 7 个月', period: '2026-01—07', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/diaochatongjisi/116219/116225/2026081416320925645/index.html', status: 'delayed', note: '住户中长期人民币贷款累计增量' },
+  { id: 'corporate-loans', label: '企业中长期贷款增量', value: 5.32, display: '+5.32 万亿元', change: null, changeDisplay: '前 7 个月', period: '2026-01—07', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/diaochatongjisi/116219/116225/2026081416320925645/index.html', status: 'delayed', note: '企（事）业单位中长期人民币贷款累计增量' },
   { id: 'fiscal', label: '一般公共预算支出', value: 1.5, display: '+1.5%', change: null, changeDisplay: '支出 14.33 万亿元', period: '2026 H1', source: '财政部', sourceUrl: 'https://gks.mof.gov.cn/tongjishuju/202607/t20260722_3993943.htm', status: 'delayed', note: '全国一般公共预算支出 143,329 亿元' },
   { id: 'property', label: '商品房销售额', value: -13.6, display: '-13.6%', change: -8.1, changeDisplay: '降幅扩大', period: '2026 H1', source: '国家统计局', sourceUrl: 'https://www.stats.gov.cn/sj/zxfbhjd/202607/t20260715_1964126.html', status: 'delayed', note: '全国商品房销售额 37,945 亿元' },
   { id: 'land-sales', label: '土地出让收入', value: -31.5, display: '-31.5%', change: -5.9, changeDisplay: '降幅扩大', period: '2026 H1', source: '财政部', sourceUrl: 'https://gks.mof.gov.cn/tongjishuju/202607/t20260722_3993943.htm', status: 'delayed', note: '国有土地使用权出让收入 9,778 亿元' },
   { id: 'exports', label: '出口累计同比', value: 13.4, display: '+13.4%', change: null, changeDisplay: '外贸保持增长', period: '2026 H1', source: '海关总署 / 新华社', sourceUrl: 'https://www.news.cn/20260714/5aaa930c87bd42e693acbfe3fbfbcb2a/c.html', status: 'delayed' },
-  { id: 'cn-us-spread', label: '中美 10Y 利差', value: null, display: '待最新值', change: null, changeDisplay: '旧快照已下线', period: '最新交易日', source: '中债估值 + U.S. Treasury', sourceUrl: 'https://yield.chinabond.com.cn/cbweb-pbc-web/pbc/historyQuery', status: 'unavailable' },
-  { id: 'cnh-hibor', label: 'CNH HIBOR 隔夜', value: null, display: '待最新值', change: null, changeDisplay: '旧快照已下线', period: '最新交易日', source: '香港财资市场公会', sourceUrl: 'https://benchmark.tma.org.hk/benchmark_hibor.asp?lang=en', status: 'unavailable' },
-  { id: 'credit-spread', label: 'AAA 信用利差', value: null, display: '待最新值', change: null, changeDisplay: '旧快照已下线', period: '最新交易日', source: '中国债券信息网', sourceUrl: 'https://www.chinabond.com.cn/', status: 'unavailable' },
-  { id: 'bill-rate', label: '国股银票转贴现', value: null, display: '待最新值', change: null, changeDisplay: '旧快照已下线', period: '最新交易日', source: '上海票据交易所', sourceUrl: 'https://www.shcpe.com.cn/', status: 'unavailable' },
-  { id: 'northbound-holdings', label: '北向持股披露', value: null, display: '交易后披露', period: '最新交易日', source: '香港交易所', sourceUrl: 'https://www.hkexnews.hk/sdw/search/mutualmarket_c.aspx?t=sh', status: 'delayed', note: '不再用盘中成交额估算净流入' },
-  { id: 'foreign-holdings', label: '境外机构债券持仓', value: null, display: '待最新值', change: null, changeDisplay: '旧快照已下线', period: '最新月度', source: '中央结算公司', sourceUrl: 'https://www.chinabond.com.cn/', status: 'unavailable' },
+  { id: 'cn-us-spread', label: '中美 10Y 利差', value: -2.56, display: '-256bp', change: null, changeDisplay: '中债 - 美债', period: '最近共同交易日', source: '中债估值 + FRED', sourceUrl: 'https://fred.stlouisfed.org/series/DGS10', status: 'delayed', note: '不同市场收盘时点可能存在一天错位' },
+  { id: 'cnh-hibor', label: 'CNH HIBOR 隔夜', value: 1.43303, display: '1.43303%', change: 6.47, changeDisplay: '+6.47bp', period: '2026-08-18', source: '香港财资市场公会', sourceUrl: 'https://benchmark.tma.org.hk/benchmark/history/cnh-hk-interbank-offered-rate', status: 'delayed' },
+  { id: 'credit-spread', label: 'AAA 信用利差', value: 36.29, display: '36.29bp', change: null, changeDisplay: '10Y AAA - 国债', period: '2026-08-18', source: '中债估值中心', sourceUrl: 'https://yield.chinabond.com.cn/cbweb-pbc-web/pbc/more?locale=cn_zh', status: 'delayed' },
+  { id: 'bill-financing', label: '票据融资增量', value: 1.19, display: '+1.19 万亿元', change: null, changeDisplay: '前 7 个月', period: '2026-01—07', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/diaochatongjisi/116219/116225/2026081416320925645/index.html', status: 'delayed' },
+  { id: 'interbank-repo', label: '质押式回购月均利率', value: 1.42, display: '1.42%', change: -1, changeDisplay: '-1bp 较上月', period: '2026-07', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/diaochatongjisi/116219/116225/2026081416320925645/index.html', status: 'delayed' },
+  { id: 'term-spread', label: '国债 10Y-1Y 利差', value: 61, display: '61bp', change: null, changeDisplay: '期限利差', period: '2026-06', source: '中国人民银行', sourceUrl: 'https://www.pbc.gov.cn/jinrongshichangsi/147160/147173/2026072218030841745/index.html', status: 'delayed' },
 ];
 
-let chinaMacroDashboardCache: { storedAt: number; data: any } | undefined;
+type ChinaMacroSectionName = 'indices' | 'metrics' | 'policy' | 'news';
+const chinaMacroSectionCache = new Map<ChinaMacroSectionName, { storedAt: number; data: any }>();
+const chinaMacroSectionInFlight = new Map<ChinaMacroSectionName, Promise<any>>();
+const chinaMacroSectionTtl: Record<ChinaMacroSectionName, number> = {
+  indices: 20_000,
+  metrics: 5 * 60_000,
+  policy: 10 * 60_000,
+  news: 2 * 60_000,
+};
+
+function parseOfficialTableCells(row: string) {
+  const visibleRow = row.replace(/<!--[\s\S]*?-->/g, '');
+  return [...visibleRow.matchAll(/<(?:td|th)\b[^>]*>([\s\S]*?)<\/(?:td|th)>/gi)]
+    .map((match) => stripTags(match[1]))
+    .filter(Boolean);
+}
+
+function parseSignedChinaAmount(text: string, expression: RegExp) {
+  const match = text.match(expression);
+  if (!match) return undefined;
+  const direction = match[1];
+  const amount = asFiniteNumber(match[2]);
+  if (amount === undefined) return undefined;
+  const value100m = amount * (match[3] === '万亿' ? 10_000 : 1);
+  return direction === '减少' ? -value100m : value100m;
+}
+
+async function getLatestPbcArticle(listUrl: string, titlePattern: RegExp) {
+  const listing = await fetchExternalText(listUrl, 16_000, 'text/html,application/xhtml+xml,*/*');
+  const links = [...listing.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].flatMap((match) => {
+    const title = stripTags(match[2]);
+    const period = title.match(titlePattern);
+    if (!period) return [];
+    const year = Number(period[1]);
+    const month = Number(period[2]);
+    if (!Number.isFinite(year) || !Number.isFinite(month)) return [];
+    return [{ title, periodKey: year * 100 + month, url: new URL(match[1], listUrl).toString() }];
+  }).sort((left, right) => right.periodKey - left.periodKey);
+  const latest = links[0];
+  if (!latest) throw new Error('人民银行最新月度报告链接未匹配');
+  const html = await fetchExternalText(latest.url, 16_000, 'text/html,application/xhtml+xml,*/*');
+  return {
+    ...latest,
+    year: Math.floor(latest.periodKey / 100),
+    month: latest.periodKey % 100,
+    text: stripTags(html),
+  };
+}
+
+async function getPbcFinancialStatisticsMetrics(): Promise<ChinaMacroMetric[]> {
+  const article = await getLatestPbcArticle(
+    'https://www.pbc.gov.cn/diaochatongjisi/116219/116225/index.html',
+    /(20\d{2})年(\d{1,2})月金融统计数据报告/,
+  );
+  const period = `${article.year}-${String(article.month).padStart(2, '0')}`;
+  const cumulativePeriod = `${article.year}-01—${String(article.month).padStart(2, '0')}`;
+  const tsf = article.text.match(/社会融资规模存量为([\d.]+)万亿元，同比增长([+-]?[\d.]+)%/);
+  const m2 = article.text.match(/广义货币（M2）余额[\d.]+万亿元，同比增长([+-]?[\d.]+)%/);
+  const m1 = article.text.match(/狭义货币（M1）余额[\d.]+万亿元，同比增长([+-]?[\d.]+)%/);
+  const household = parseSignedChinaAmount(article.text, /住户贷款(?:增加|减少)[\d.]+(?:万亿|亿)元，其中，短期贷款(?:增加|减少)[\d.]+(?:万亿|亿)元，中长期贷款(增加|减少)([\d.]+)(万亿|亿)元/);
+  const corporate = parseSignedChinaAmount(article.text, /企（事）业单位贷款(?:增加|减少)[\d.]+(?:万亿|亿)元，其中，短期贷款(?:增加|减少)[\d.]+(?:万亿|亿)元，中长期贷款(增加|减少)([\d.]+)(万亿|亿)元/);
+  const bill = parseSignedChinaAmount(article.text, /票据融资(增加|减少)([\d.]+)(万亿|亿)元/);
+  const repo = article.text.match(/质押式回购月加权平均利率为([\d.]+)%.*?比上月(高|低)([\d.]+)个百分点/);
+  const results: ChinaMacroMetric[] = [];
+  if (tsf) {
+    const value = Number(tsf[2]);
+    results.push({ id: 'tsf', label: '社融存量增速', value, display: `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`, period, source: '中国人民银行', sourceUrl: article.url, status: 'delayed', note: `社融存量 ${tsf[1]} 万亿元` });
+  }
+  if (m1 && m2) {
+    const m1Value = Number(m1[1]);
+    const m2Value = Number(m2[1]);
+    const value = m1Value - m2Value;
+    results.push({ id: 'm1m2', label: 'M1-M2 剪刀差', value, display: `${value.toFixed(1)}pp`, period, source: '中国人民银行', sourceUrl: article.url, status: 'delayed', note: `M1 同比 ${m1Value.toFixed(1)}% 减 M2 同比 ${m2Value.toFixed(1)}%` });
+  }
+  if (household !== undefined) {
+    results.push({ id: 'household-loans', label: '居民中长期贷款增量', value: household, display: `${household >= 0 ? '+' : ''}${new Intl.NumberFormat('zh-CN').format(household)} 亿元`, period: cumulativePeriod, source: '中国人民银行', sourceUrl: article.url, status: 'delayed', note: '住户中长期人民币贷款累计增量' });
+  }
+  if (corporate !== undefined) {
+    results.push({ id: 'corporate-loans', label: '企业中长期贷款增量', value: corporate / 10_000, display: `${corporate >= 0 ? '+' : ''}${(corporate / 10_000).toFixed(2)} 万亿元`, period: cumulativePeriod, source: '中国人民银行', sourceUrl: article.url, status: 'delayed', note: '企（事）业单位中长期人民币贷款累计增量' });
+  }
+  if (bill !== undefined) {
+    results.push({ id: 'bill-financing', label: '票据融资增量', value: bill / 10_000, display: `${bill >= 0 ? '+' : ''}${(bill / 10_000).toFixed(2)} 万亿元`, period: cumulativePeriod, source: '中国人民银行', sourceUrl: article.url, status: 'delayed' });
+  }
+  if (repo) {
+    const value = Number(repo[1]);
+    const change = Number(repo[3]) * (repo[2] === '低' ? -100 : 100);
+    results.push({ id: 'interbank-repo', label: '质押式回购月均利率', value, display: `${value.toFixed(2)}%`, change, changeDisplay: `${change > 0 ? '+' : ''}${change.toFixed(0)}bp 较上月`, period, source: '中国人民银行', sourceUrl: article.url, status: 'delayed' });
+  }
+  if (results.length < 5) throw new Error('人民银行金融统计报告关键字段不完整');
+  return results;
+}
+
+async function getChinaMoneyFdrMetric(): Promise<ChinaMacroMetric> {
+  const sourceUrl = 'https://www.chinamoney.com.cn/chinese/bkfrr/';
+  const payload = await fetchExternalJson('https://www.chinamoney.com.cn/r/cms/www/chinamoney/data/currency/fdr.json', 12_000) as {
+    records?: Array<{ productCode?: string; produceDate?: string; value?: string }>;
+  };
+  const row = payload.records?.find((item) => item.productCode === 'FDR007');
+  const value = asFiniteNumber(row?.value);
+  if (value === undefined || !row?.produceDate) throw new Error('FDR007 官方接口未返回有效值');
+  return { id: 'dr007', label: 'FDR007 定盘', value, display: `${value.toFixed(4)}%`, period: row.produceDate, source: '中国外汇交易中心', sourceUrl, status: 'live', note: '银行间 7 天回购定盘利率' };
+}
+
+async function getChinaBondCurveMetrics(): Promise<ChinaMacroMetric[]> {
+  const sourceUrl = 'https://yield.chinabond.com.cn/cbweb-pbc-web/pbc/more?locale=cn_zh';
+  const html = await fetchExternalText(sourceUrl, 16_000, 'text/html,application/xhtml+xml,*/*');
+  const rows = [...html.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)].map((match) => parseOfficialTableCells(match[0]));
+  const header = rows.find((cells) => cells[0]?.match(/^20\d{2}-\d{2}-\d{2}/));
+  const government = rows.find((cells) => cells[0] === '中债国债收益率曲线');
+  const aaa = rows.find((cells) => cells[0] === '中债中短期票据收益率曲线(AAA)');
+  const period = header?.[0]?.match(/20\d{2}-\d{2}-\d{2}/)?.[0];
+  const government10y = asFiniteNumber(government?.[7]);
+  const aaa10y = asFiniteNumber(aaa?.[7]);
+  if (!period || government10y === undefined || aaa10y === undefined) throw new Error('中债收益率曲线关键字段不完整');
+  const spread = (aaa10y - government10y) * 100;
+  return [
+    { id: 'cn10y', label: '中国 10Y 国债', value: government10y, display: `${government10y.toFixed(4)}%`, period, source: '中债估值中心', sourceUrl, status: 'delayed', note: '中债国债收益率曲线日终估值' },
+    { id: 'credit-spread', label: 'AAA 信用利差', value: spread, display: `${spread.toFixed(2)}bp`, changeDisplay: '10Y AAA - 国债', period, source: '中债估值中心', sourceUrl, status: 'delayed' },
+  ];
+}
+
+async function getCnhHiborMetric(): Promise<ChinaMacroMetric> {
+  const sourceUrl = 'https://benchmark.tma.org.hk/benchmark/history/cnh-hk-interbank-offered-rate';
+  const html = await fetchExternalText(sourceUrl, 16_000, 'text/html,application/xhtml+xml,*/*');
+  const rows = [...html.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)].map((match) => parseOfficialTableCells(match[0]));
+  const dates = rows.find((cells) => cells[0] === 'Date');
+  const overnight = rows.find((cells) => cells[0] === 'ON');
+  const value = asFiniteNumber(overnight?.[1]);
+  const previous = asFiniteNumber(overnight?.[2]);
+  const date = dates?.[1]?.match(/(\d{2})\/(\d{2})\/(20\d{2})/);
+  if (value === undefined || previous === undefined || !date) throw new Error('CNH HIBOR 官方历史表关键字段不完整');
+  const change = (value - previous) * 100;
+  return { id: 'cnh-hibor', label: 'CNH HIBOR 隔夜', value, display: `${value.toFixed(5)}%`, change, changeDisplay: `${change > 0 ? '+' : ''}${change.toFixed(2)}bp`, period: `${date[3]}-${date[2]}-${date[1]}`, source: '香港财资市场公会', sourceUrl, status: 'delayed' };
+}
+
+async function getChinaTermSpreadMetric(): Promise<ChinaMacroMetric> {
+  const article = await getLatestPbcArticle(
+    'https://www.pbc.gov.cn/jinrongshichangsi/147160/147173/index.html',
+    /(20\d{2})年(\d{1,2})月(?:份)?金融市场运行情况/,
+  );
+  const match = article.text.match(/10年期与1年期国债收益率利差为([\d.]+)个基点/);
+  const value = asFiniteNumber(match?.[1]);
+  if (value === undefined) throw new Error('人民银行金融市场报告未找到国债期限利差');
+  return { id: 'term-spread', label: '国债 10Y-1Y 利差', value, display: `${value.toFixed(0)}bp`, changeDisplay: '期限利差', period: `${article.year}-${String(article.month).padStart(2, '0')}`, source: '中国人民银行', sourceUrl: article.url, status: 'delayed' };
+}
+
+async function getChinaUsTenYearSpreadMetric(china10y: ChinaMacroMetric): Promise<ChinaMacroMetric> {
+  const values = await getFredSeries('DGS10');
+  const latest = values.at(-1);
+  if (!latest || china10y.value === null) throw new Error('中美十年期国债利差缺少有效序列');
+  const value = (china10y.value - latest.value) * 100;
+  return { id: 'cn-us-spread', label: '中美 10Y 利差', value, display: `${value.toFixed(0)}bp`, changeDisplay: '中债 - 美债', period: latest.time.slice(0, 10), source: '中债估值 + FRED', sourceUrl: 'https://fred.stlouisfed.org/series/DGS10', status: 'delayed', note: '不同市场收盘时点可能存在一天错位' };
+}
+
+function mergeChinaMacroMetrics(groups: Array<PromiseSettledResult<ChinaMacroMetric | ChinaMacroMetric[]>>) {
+  const metricById = new Map(chinaMacroReferenceMetrics.map((item) => [item.id, { ...item }]));
+  const expectedIds = new Set([...chinaMacroReferenceMetrics.map((item) => item.id), 'cpi']);
+  for (const result of groups) {
+    if (result.status !== 'fulfilled') continue;
+    const rows = Array.isArray(result.value) ? result.value : [result.value];
+    for (const row of rows) {
+      if (expectedIds.has(row.id)) metricById.set(row.id, row);
+    }
+  }
+  return metricById;
+}
+
 const chinaRegionBoundaryCache = new Map<string, { storedAt: number; data: unknown }>();
 type ChinaProvinceFeedMode = 'policy' | 'news';
 type ChinaProvinceOfficialItem = {
@@ -9486,6 +9654,14 @@ type ChinaProvinceOfficialItem = {
 };
 const chinaProvinceFeedCache = new Map<string, { storedAt: number; data: any }>();
 const chinaProvinceFeedInFlight = new Map<string, Promise<any>>();
+const chinaProvincePageInFlight = new Map<string, Promise<Array<{ url: string; html: string }>>>();
+const chinaProvinceOfficialPageOverrides: Partial<Record<string, string[]>> = {
+  山东省: ['http://www.shandong.gov.cn/'],
+  湖北省: ['https://www.hubei.gov.cn/zwgk/hbyw/hbywqb/', 'https://www.hubei.gov.cn/szyw/'],
+  广西壮族自治区: ['http://www.gxzf.gov.cn/'],
+  甘肃省: ['https://zwfw.gansu.gov.cn/tsfw/ZCZD/zcwj/gzbf/index.html', 'https://ydyl.gansu.gov.cn/gsydyl/fzzc/gszc/'],
+  青海省: ['http://www.qinghai.gov.cn/', 'http://www.qinghai.gov.cn/zwgk/system/more/202090000000000/0001/202090000000000_00000129.shtml'],
+};
 
 function officialProvinceFallback(province: string, mode: ChinaProvinceFeedMode): ChinaProvinceOfficialItem {
   const profile = CHINA_PROVINCE_ECONOMY[province];
@@ -9498,23 +9674,27 @@ function officialProvinceFallback(province: string, mode: ChinaProvinceFeedMode)
   };
 }
 
-function parseProvinceOfficialItems(province: string, html: string, mode: ChinaProvinceFeedMode) {
+function parseProvinceOfficialItems(province: string, html: string, mode: ChinaProvinceFeedMode, baseUrl = CHINA_PROVINCE_ECONOMY[province].governmentUrl) {
   const profile = CHINA_PROVINCE_ECONOMY[province];
-  const policyPattern = /(政策|通知|意见|办法|方案|规划|条例|规章|决定|实施|措施|细则|公告|批复)/;
+  const profileHostParts = new URL(profile.governmentUrl).hostname.split('.');
+  const provinceDomain = profileHostParts.slice(-3).join('.');
+  const policyPattern = /(政策|通知|通告|意见|办法|方案|规划|条例|规章|决定|实施|措施|细则|公告|批复)/;
   const newsPattern = /(召开|会议|发布|调研|推进|部署|发展|建设|经济|民生|产业|项目|消费|就业|教育|医疗|交通|科技|农业|生态)/;
+  const navigationPattern = /^(?:[\p{Script=Han}]{0,12}省)?[\p{Script=Han}]{2,20}(?:委员会|办公厅|厅|局|院|中心|网站)$/u;
   const pattern = mode === 'policy' ? policyPattern : newsPattern;
   const seen = new Set<string>();
   return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].flatMap((match, index) => {
-    const title = decodeXml(stripTags(match[2])).replace(/\s+/g, ' ').trim();
-    if (title.length < 8 || title.length > 90 || !pattern.test(title)) return [];
+    const heading = match[2].match(/<h[1-4]\b[^>]*>([\s\S]*?)<\/h[1-4]>/i)?.[1];
+    const title = decodeXml(stripTags(heading || match[2])).replace(/\s+/g, ' ').trim();
+    if (title.length < 8 || title.length > 90 || !pattern.test(title) || navigationPattern.test(title)) return [];
     if (mode === 'news' && policyPattern.test(title) && !/(召开|会议|发布|调研|推进|部署)/.test(title)) return [];
     let url: URL;
     try {
-      url = new URL(decodeXml(match[1]), profile.governmentUrl);
+      url = new URL(decodeXml(match[1]), baseUrl);
     } catch {
       return [];
     }
-    if (!/^https?:$/.test(url.protocol) || !url.hostname.endsWith('.gov.cn')) return [];
+    if (!/^https?:$/.test(url.protocol) || !(url.hostname === provinceDomain || url.hostname.endsWith(`.${provinceDomain}`))) return [];
     const key = title.replace(/[\s\p{P}\p{S}]+/gu, '');
     if (!key || seen.has(key)) return [];
     seen.add(key);
@@ -9527,10 +9707,54 @@ function parseProvinceOfficialItems(province: string, html: string, mode: ChinaP
   }).slice(0, 8);
 }
 
+async function fetchProvinceOfficialPage(url: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 9_000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,*/*',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+      },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return { url, html: await response.text() };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchProvinceOfficialPages(province: string) {
+  const running = chinaProvincePageInFlight.get(province);
+  if (running) return running;
+  const profile = CHINA_PROVINCE_ECONOMY[province];
+  const urls = chinaProvinceOfficialPageOverrides[province] || [profile.governmentUrl];
+  const request = Promise.allSettled(urls.map(fetchProvinceOfficialPage)).then((results) => {
+    const pages = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+    if (!pages.length) {
+      const errors = results.flatMap((result) => result.status === 'rejected'
+        ? [result.reason instanceof Error ? result.reason.message : String(result.reason)]
+        : []);
+      throw new Error(errors.join('；') || '省级官方页面暂不可达');
+    }
+    return pages;
+  }).finally(() => chinaProvincePageInFlight.delete(province));
+  chinaProvincePageInFlight.set(province, request);
+  return request;
+}
+
 async function fetchProvinceOfficialItems(province: string, mode: ChinaProvinceFeedMode) {
   const profile = CHINA_PROVINCE_ECONOMY[province];
-  const html = await fetchRoutedText(profile.governmentUrl, 'direct', 7_000, 'text/html,application/xhtml+xml,*/*');
-  const items = parseProvinceOfficialItems(province, html, mode);
+  const pages = await fetchProvinceOfficialPages(province);
+  const seen = new Set<string>();
+  const items = pages.flatMap(({ url, html }) => parseProvinceOfficialItems(province, html, mode, url)).filter((item) => {
+    const key = item.title.replace(/[\s\p{P}\p{S}]+/gu, '');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 8);
   if (!items.length) throw new Error(`${profile.shortName}${mode === 'policy' ? '政策' : '新闻'}列表未匹配到有效官方链接`);
   return items;
 }
@@ -9576,19 +9800,15 @@ async function loadChinaRegionBoundary(adcode: string) {
 }
 
 async function getChinaCaixinPmiMetric() {
-  const sourceUrl = 'https://tradingeconomics.com/china/caixin-manufacturing-pmi';
+  const sourceUrl = 'https://www.metatrader.com/zh/economic-calendar/china/caixin-manufacturing-pmi';
   const html = await fetchExternalText(sourceUrl, 20000, 'text/html,application/xhtml+xml,*/*');
-  const description = decodeXml(html.match(/<meta[^>]+id=["']metaDesc["'][^>]+content=["']([^"']+)["']/i)?.[1] || '');
-  const changed = description.match(/(?:increased|decreased)\s+to\s+([\d.]+)\s+points\s+in\s+([A-Za-z]+).*?from\s+([\d.]+)\s+points/i);
-  const unchanged = description.match(/remained\s+unchanged\s+at\s+([\d.]+)\s+points\s+in\s+([A-Za-z]+)/i);
-  const value = asFiniteNumber(changed?.[1] || unchanged?.[1]);
-  const previous = asFiniteNumber(changed?.[3] || unchanged?.[1]);
-  const monthName = changed?.[2] || unchanged?.[2];
-  if (value === undefined || previous === undefined || !monthName) throw new Error('财新制造业 PMI 页面数据格式异常');
-  const updatedAt = pmiObservationTime(monthName);
-  if (Date.now() - new Date(updatedAt).getTime() > 120 * 24 * 60 * 60_000) {
-    throw new Error('财新制造业 PMI 上游页面不是最新统计期');
-  }
+  const text = stripTags(html).replace(/\s+/g, ' ');
+  const summary = text.match(/上次发布[^。]{0,100}?实际\s+([\d.]+)\s+预测值\s+(?:[\d.]+|—)\s+上一个\s+([\d.]+)/);
+  const periodMatch = text.match(/日期（GMT）\s*参考\s*实际\s*预测值\s*上一个\s+\d{1,2}\s+\d{1,2}\s+(20\d{2})\s+(\d{1,2})月\s+20\d{2}/);
+  const value = asFiniteNumber(summary?.[1]);
+  const previous = asFiniteNumber(summary?.[2]);
+  if (value === undefined || previous === undefined || !periodMatch) throw new Error('财新制造业 PMI 页面数据格式异常');
+  const updatedAt = cpiPeriodTime(Number(periodMatch[1]), Number(periodMatch[2]));
   return {
     id: 'caixin-pmi',
     label: '财新制造业 PMI',
@@ -9597,59 +9817,261 @@ async function getChinaCaixinPmiMetric() {
     change: value - previous,
     changeDisplay: `${value - previous > 0 ? '+' : ''}${(value - previous).toFixed(1)}`,
     period: updatedAt.slice(0, 7),
-    source: '财新 / S&P Global',
+    source: 'S&P Global / MetaTrader 日历',
     sourceUrl,
     status: 'delayed' as const,
     note: '民营与出口企业样本更敏感',
   };
 }
 
-async function getChinaDomesticMacroNews() {
-  const supplementalSources = newsSources.filter((source) => ['gov-cn', 'chinanews-finance'].includes(source.id));
-  const results = await Promise.allSettled([
-    getWallstreetCnDailyNews('apac'),
-    getEastmoneyMacroTickerCandidates('apac'),
-    getSinaFocusTickerCandidates('apac'),
-    ...supplementalSources.map((source) => fetchNewsSource(source)),
-  ]);
+type ChinaNewsCandidate = {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  publishedAt?: string;
+  summary?: string;
+};
+
+type ChinaNewsAggregate = {
+  items: Array<ChinaNewsCandidate & {
+    category: string;
+    importanceScore: number;
+    importance: 'critical' | 'high' | 'medium';
+    sourceCount: number;
+    sources: string[];
+    importanceReason: string;
+  }>;
+  meta: {
+    onlineSources: number;
+    totalSources: number;
+    candidates: number;
+    duplicatesRemoved: number;
+  };
+};
+
+const chinaEconomicNewsQuery = 'site:ce.cn (中国 OR 全国 OR 国务院 OR 国家统计局) (经济 OR 政策 OR 数据 OR 民生) when:4d';
+
+async function getIndexedChinaNewsCandidates(label: string, query: string): Promise<ChinaNewsCandidate[]> {
+  const url = googleNewsRssUrl(query);
+  const xml = await fetchRoutedText(url, 'proxy', 16000, 'application/rss+xml,application/xml,text/xml,*/*');
+  return parseGoogleNewsItems(xml, label).map((item) => ({
+    id: `china-indexed-${item.id}`,
+    title: item.title.replace(/\s+-\s+[^-]{2,30}$/u, '').trim(),
+    source: item.source,
+    url: item.url,
+    publishedAt: item.publishedAt,
+    summary: item.summary,
+  }));
+}
+
+function chinaNewsSourceAuthority(source: string) {
+  if (/(中国政府网|国家统计局)/.test(source)) return 100;
+  if (/中国经济网/.test(source)) return 95;
+  if (/华尔街见闻/.test(source)) return 87;
+  if (/(新浪财经|东方财富)/.test(source)) return 82;
+  return 0;
+}
+
+function normalizedChinaNewsTitle(title: string) {
+  return title
+    .replace(/^(?:突发|快讯|重磅|权威发布)[丨｜|：:\s]*/u, '')
+    .replace(/(?:最新|刚刚|现场|全文|解读)[丨｜|：:\s]*/gu, '')
+    .replace(/\s+-\s+[^-]{2,30}$/u, '')
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+    .toLowerCase();
+}
+
+function chinaNewsTokens(title: string) {
+  const normalized = normalizedChinaNewsTitle(title);
+  const tokens = new Set<string>();
+  const latin = normalized.match(/[a-z0-9]{2,}/g) || [];
+  latin.forEach((token) => tokens.add(token));
+  const chinese = (normalized.match(/[\p{Script=Han}]/gu) || []).join('');
+  for (let index = 0; index < chinese.length - 1; index += 1) tokens.add(chinese.slice(index, index + 2));
+  return tokens;
+}
+
+function chinaNewsSimilarity(left: Set<string>, right: Set<string>) {
+  if (!left.size || !right.size) return 0;
+  let overlap = 0;
+  left.forEach((token) => { if (right.has(token)) overlap += 1; });
+  return overlap / Math.min(left.size, right.size);
+}
+
+function chinaNewsEventKey(title: string) {
+  const anchors: Array<[string, RegExp]> = [
+    ['age-unemployment', /分年龄组失业率/],
+    ['county-consumption', /县域消费|下沉市场活力/],
+    ['housing-fund', /住房公积金管理条例/],
+    ['special-education', /特殊教育.*十五五/],
+    ['haixi-earthquake', /青海.{0,8}海西.{0,12}地震|海西.{0,12}地震/],
+    ['typhoon-shadeer', /台风.{0,6}沙德尔|沙德尔.{0,6}台风/],
+    ['rmb-midpoint', /人民币.{0,8}中间价/],
+    ['a-share-close', /A股.{0,24}(?:收盘|收跌|三大指数)|上证指数.{0,24}深证成指.{0,24}创业板/],
+  ];
+  return anchors.find(([, pattern]) => pattern.test(title))?.[0] || '';
+}
+
+function chinaNewsCategory(title: string) {
+  if (/(台风|暴雨|洪水|洪涝|地震|泥石流|山体滑坡|火灾|灾害|应急响应|河流超警)/i.test(title)) return '灾害';
+  if (/(战争|武装冲突|空袭|导弹|停火|重大事故|坠机|遇难|逝世|去世|牺牲|国葬)/i.test(title)) return '重大事件';
+  if (/(中共中央|中央政治局|国务院|国常会|政策|条例|办法|意见|规划|发文|部署|改革|监管|证监会)/i.test(title)) return '政策';
+  if (/(CPI|PPI|PMI|GDP|社融|M1|M2|LPR|降准|降息|财政|税收|进出口|消费|工业|投资|房地产|楼市|人民币|汇率)/i.test(title)) return '宏观';
+  if (/(A股|沪指|深证|创业板|科创板|北交所|港股|股市|资本市场|交易所|基金|债券|期货)/i.test(title)) return '股市';
+  if (/(就业|教育|医疗|医保|养老|社保|住房|生育|收入|食品安全|交通|县域消费|民生)/i.test(title)) return '民生';
+  return '经济';
+}
+
+async function getChinaDomesticMacroNews(): Promise<ChinaNewsAggregate> {
+  const governmentSource = newsSources.find((source) => source.id === 'gov-cn');
+  const statisticsSources = newsSources.filter((source) => ['stats-release', 'stats-interpretation'].includes(source.id));
+  if (!governmentSource || statisticsSources.length !== 2) throw new Error('中国官方新闻源配置不完整');
+  const jobs: Array<{ label: string; run: () => Promise<ChinaNewsCandidate[]> }> = [
+    { label: '中国政府网', run: () => fetchNewsSource(governmentSource) },
+    {
+      label: '国家统计局',
+      run: async () => {
+        const settled = await Promise.allSettled(statisticsSources.map((source) => fetchNewsSource(source)));
+        const items = settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+        if (!items.length) throw new Error('国家统计局最新发布与数据解读均不可用');
+        return items;
+      },
+    },
+    { label: '中国经济网', run: () => getIndexedChinaNewsCandidates('中国经济网', chinaEconomicNewsQuery) },
+    { label: '华尔街见闻', run: () => getWallstreetCnDailyNews('apac') },
+    { label: '新浪财经', run: () => getSinaFocusTickerCandidates('apac') },
+    { label: '东方财富', run: () => getEastmoneyMacroTickerCandidates('apac') },
+  ];
+  const results = await Promise.allSettled(jobs.map((job) => job.run()));
+  const rawItems = results.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
   const now = Date.now();
-  const chinaSubject = /(中国|我国|全国|国内|国务院|中共中央|中央政治局|人民银行|国家统计局|财政部|商务部|发改委|证监会|人民币|A股|内地|地方政府)/i;
-  const macroImpact = /(国务院|中共中央|中央政治局|央行|人民银行|国家统计局|财政部|商务部|发改委|证监会|CPI|PPI|PMI|GDP|社融|M1|M2|LPR|降准|降息|利率|国债|人民币|汇率|A股|房地产|楼市|出口|进口|关税|消费|工业|就业|财政政策|货币政策|经济数据|经济运行)/i;
-  const centralRelease = /(国务院|中共中央|中央政治局|人民银行|国家统计局|财政部|商务部|发改委|证监会)/i;
-  const used = new Set<string>();
-  const items = results.flatMap<any>((result) => result.status === 'fulfilled' ? result.value as any[] : [])
-    .flatMap((item: any) => {
-      const publishedTime = new Date(item.publishedAt || '').getTime();
-      const title = String(item.title || '');
-      const isOfficial = item.source === '中新财经' || item.source === '中国政府网';
-      const isFastFeed = item.source === '东方财富' || item.source === '新浪财经';
-      const domesticImpact = /(民生|就业|教育|医疗|养老|社保|住房|消费|灾害|暴雨|洪水|地震|台风|事故|政策|经济|金融|产业|科技|房地产|交通|能源|农业|生态|外交|国防)/i;
-      if (!chinaSubject.test(title) || (!macroImpact.test(title) && !domesticImpact.test(title)) || (isOfficial && !centralRelease.test(title) && !domesticImpact.test(title)) || !Number.isFinite(publishedTime) || now - publishedTime > 36 * 60 * 60_000) return [];
-      const key = String(item.title || '').replace(/[\s\p{P}\p{S}]+/gu, '').toLowerCase();
-      if (!key || used.has(key)) return [];
-      used.add(key);
-      const baseScore = Number(item.importanceScore ?? item.importance ?? item.weight ?? 50);
-      const centralPolicyBoost = /(国务院|中共中央|中央政治局|人民银行|国家统计局|财政部|发改委|证监会)/.test(item.title || '') ? 18 : 0;
-      const freshnessBoost = Math.max(0, 10 - Math.floor((now - publishedTime) / 3_600_000));
-      const sourceBoost = isOfficial ? 8 : isFastFeed ? 3 : 5;
-      const importanceScore = Math.min(100, baseScore + centralPolicyBoost + freshnessBoost + sourceBoost);
-      return [{
-        id: `china-domestic-${item.id}`,
-        title: item.title,
-        source: item.source,
-        url: item.url,
-        publishedAt: item.publishedAt,
-        category: item.categoryLabel || item.category || '经济',
-        importanceScore,
-        importance: importanceScore >= 86 ? 'critical' as const : importanceScore >= 68 ? 'high' as const : 'medium' as const,
-      }];
-    })
-    .sort((left, right) => {
-      const importanceDelta = right.importanceScore - left.importanceScore;
-      if (Math.abs(importanceDelta) >= 8) return importanceDelta;
-      return new Date(right.publishedAt || 0).getTime() - new Date(left.publishedAt || 0).getTime();
+  const chinaSubject = /(中国|我国|全国|国内|国务院|中共中央|中央政治局|人民银行|国家统计局|财政部|商务部|发改委|证监会|人民币|A股|沪深|内地|地方政府|国台办|水利部|应急管理部)/i;
+  const relevantTerms = /(政策|经济|金融|财政|货币|央行|统计|数据|CPI|PPI|PMI|GDP|社融|利率|国债|人民币|汇率|A股|股市|资本市场|证监会|房地产|楼市|出口|进口|关税|消费|工业|投资|就业|教育|医疗|养老|社保|住房|农业|能源|交通|民生|台风|暴雨|洪水|地震|灾害|事故|战争|冲突|逝世|去世)/i;
+  const majorEventTerms = /(战争爆发|大规模冲突|空袭|导弹袭击|停火协议|重大事故|坠机|地震|台风|特大暴雨|洪水|洪涝|重大伤亡|遇难|逝世|去世|牺牲)/i;
+  const globalSystemEvent = /(战争爆发|大规模冲突|空袭|导弹袭击|停火协议|核事故|国家元首.{0,8}(逝世|去世|遇袭))/i;
+  const chinaLocation = /(北京|天津|上海|重庆|河北|山西|辽宁|吉林|黑龙江|江苏|浙江|安徽|福建|江西|山东|河南|湖北|湖南|广东|海南|四川|贵州|云南|陕西|甘肃|青海|台湾|内蒙古|广西|西藏|宁夏|新疆|香港|澳门|南海|东海|黄海|渤海)/i;
+  const companyNoise = /(拟收购|拟增持|拟减持|回购股份|业绩预告|净利润|营收|订单|中标|产品获批|股票复牌|股票停牌|龙虎榜|特大单|个股|公司：|公司称|董秘|成交额超|涨停|跌停|IPO辅导|利润分派|实施公告|提示性公告|发行A股股票|股份有限公司|哪些A股公司|概念股)/i;
+  const commentaryOnly = /(解读|复盘|展望|前瞻|盘点|怎么看|如何看|专家称|机构认为|策略|或将|可能|预计)/i;
+  const officialRelease = /(发布|公布|印发|通过|决定|部署|启动|上调|下调|降准|降息|数据显示|同比|环比)/i;
+  const centralPolicy = /(中共中央|中央政治局|国务院|国常会|中国人民银行|国家统计局|财政部|国家发展改革委|商务部|中国证监会)/i;
+  const marketSystem = /(A股|沪深|资本市场|证监会|交易所|人民币|汇率|国债|LPR|降准|降息)/i;
+  const livelihood = /(就业|教育|医疗|医保|养老|社保|住房|生育|收入|食品安全|县域消费)/i;
+  const primaryPublisher = /(中国政府网|国家统计局|中国经济网)/;
+  const mediaPublisher = /(华尔街见闻|新浪财经|东方财富)/;
+  const nationalScope = /(中国|我国|全国|国家|中央|国务院|部委|人民银行|国家统计局|财政部|商务部|发改委|证监会)/i;
+  const officialDataHeadline = /((CPI|PPI|PMI|GDP|社融|M1|M2|LPR|失业率|就业|工业增加值|固定资产投资|社会消费品零售|进出口|财政收支).{0,24}(发布|公布|同比|环比|增长|下降|升至|降至|为\s*[-+]?\d)|国家统计局.{0,24}(发布|公布|数据))/i;
+  const systemicMarketHeadline = /(降准|降息|LPR|人民币.{0,12}(中间价|汇率)|证监会.{0,18}(发布|宣布|决定|监管)|A股.{0,24}(收盘|收跌|暴涨|暴跌|三大指数|成交额.{0,8}万亿)|上证指数.{0,24}深证成指.{0,24}创业板|资本市场.{0,18}(重大|改革|新规))/i;
+  const filtered = rawItems.flatMap((item) => {
+    const title = stripTags(String(item.title || '')).replace(/\s+/g, ' ').trim();
+    const publishedTime = new Date(item.publishedAt || '').getTime();
+    const ageMs = now - publishedTime;
+    const isPrimaryPublisher = primaryPublisher.test(item.source);
+    const isMediaPublisher = mediaPublisher.test(item.source);
+    if (!isPrimaryPublisher && !isMediaPublisher) return [];
+    const maxAgeMs = (isPrimaryPublisher ? 96 : 30) * 60 * 60_000;
+    if (title.length < 8 || title.length > 110 || !Number.isFinite(publishedTime) || ageMs < -10 * 60_000 || ageMs > maxAgeMs) return [];
+    const isDomesticSubject = chinaSubject.test(title) || chinaLocation.test(title);
+    if (!relevantTerms.test(title) || (!isDomesticSubject && !globalSystemEvent.test(title))) return [];
+    if (companyNoise.test(title) && !centralPolicy.test(title) && !majorEventTerms.test(title)) return [];
+    const isOfficialEconomicPolicy = (nationalScope.test(title) && relevantTerms.test(title))
+      && (centralPolicy.test(title) || officialRelease.test(title) || officialDataHeadline.test(title) || livelihood.test(title));
+    const isMediaHeadline = centralPolicy.test(title)
+      || officialDataHeadline.test(title)
+      || systemicMarketHeadline.test(title)
+      || majorEventTerms.test(title);
+    if (isPrimaryPublisher && !isOfficialEconomicPolicy) return [];
+    if (isMediaPublisher && !isMediaHeadline) return [];
+    return [{ ...item, title, publishedTime, tokens: chinaNewsTokens(title), isPrimaryPublisher }];
+  });
+
+  const orderedForClustering = filtered.sort((left, right) => (
+    chinaNewsSourceAuthority(right.source) - chinaNewsSourceAuthority(left.source)
+    || right.publishedTime - left.publishedTime
+  ));
+  const clusters: Array<{ representative: typeof orderedForClustering[number]; members: typeof orderedForClustering }> = [];
+  for (const item of orderedForClustering) {
+    const normalized = normalizedChinaNewsTitle(item.title);
+    const eventKey = chinaNewsEventKey(item.title);
+    const cluster = clusters.find(({ representative }) => {
+      const other = normalizedChinaNewsTitle(representative.title);
+      const otherEventKey = chinaNewsEventKey(representative.title);
+      return (eventKey && eventKey === otherEventKey)
+        || normalized === other
+        || (normalized.length >= 12 && (normalized.includes(other) || other.includes(normalized)))
+        || chinaNewsSimilarity(item.tokens, representative.tokens) >= 0.62;
     });
-  return items.slice(0, 20);
+    if (cluster) cluster.members.push(item);
+    else clusters.push({ representative: item, members: [item] });
+  }
+
+  const ranked = clusters.map(({ representative, members }) => {
+    const sources = [...new Set(members.map((item) => item.source))];
+    const sourceCount = sources.length;
+    const title = representative.title;
+    const ageHours = Math.max(0, (now - representative.publishedTime) / 3_600_000);
+    const authority = Math.max(...members.map((item) => chinaNewsSourceAuthority(item.source)));
+    const isCentralPolicy = centralPolicy.test(title);
+    const isOfficialRelease = officialRelease.test(title);
+    const isMajorEvent = majorEventTerms.test(title);
+    const isMarketSystem = marketSystem.test(title);
+    const isLivelihood = livelihood.test(title);
+    const isPrimaryPublisher = members.some((item) => item.isPrimaryPublisher);
+    const impactScore = isCentralPolicy ? 34 : isMajorEvent ? 32 : isMarketSystem ? 25 : isLivelihood ? 20 : 17;
+    const freshnessScore = Math.max(0, 12 - ageHours * 0.45);
+    const corroborationScore = Math.min(12, Math.max(0, sourceCount - 1) * 4);
+    const commentaryPenalty = commentaryOnly.test(title) && !isOfficialRelease ? 10 : 0;
+    const primarySourceBoost = isPrimaryPublisher ? 10 : 0;
+    const importanceScore = Math.round(Math.min(100, impactScore + authority * 0.42 + freshnessScore + corroborationScore + primarySourceBoost - commentaryPenalty));
+    const reason = sourceCount > 1
+      ? `${sourceCount} 家来源交叉报道`
+      : isCentralPolicy ? '中央或部委权威发布'
+        : isMajorEvent ? '重大公共事件'
+          : isMarketSystem ? '影响全国市场与金融条件'
+            : isLivelihood ? '涉及全国民生'
+              : '重要经济动态';
+    return {
+      id: `china-domestic-${createHash('sha1').update(normalizedChinaNewsTitle(title)).digest('hex').slice(0, 12)}`,
+      title,
+      source: representative.source,
+      url: representative.url,
+      publishedAt: representative.publishedAt,
+      summary: representative.summary,
+      category: chinaNewsCategory(title),
+      importanceScore,
+      importance: importanceScore >= 88 ? 'critical' as const : importanceScore >= 72 ? 'high' as const : 'medium' as const,
+      sourceCount,
+      sources,
+      importanceReason: reason,
+      publishedTime: representative.publishedTime,
+      isPrimaryPublisher,
+    };
+  }).filter((item) => item.importanceScore >= (item.isPrimaryPublisher ? 68 : 75))
+    .sort((left, right) => right.importanceScore - left.importanceScore || right.publishedTime - left.publishedTime);
+
+  const primaryItems = ranked.filter((item) => item.isPrimaryPublisher);
+  const mediaSourceCounts = new Map<string, number>();
+  const mediaItems = ranked.filter((item) => {
+    if (item.isPrimaryPublisher) return false;
+    const count = mediaSourceCounts.get(item.source) || 0;
+    if (count >= 2) return false;
+    mediaSourceCounts.set(item.source, count + 1);
+    return true;
+  });
+  const mediaLimit = primaryItems.length ? Math.min(3, primaryItems.length) : 3;
+  const selected = [...primaryItems, ...mediaItems.slice(0, mediaLimit)]
+    .sort((left, right) => right.importanceScore - left.importanceScore || right.publishedTime - left.publishedTime)
+    .slice(0, 12);
+
+  return {
+    items: selected.map(({ publishedTime: _publishedTime, isPrimaryPublisher: _isPrimaryPublisher, ...item }) => item),
+    meta: {
+      onlineSources: results.filter((result) => result.status === 'fulfilled' && result.value.length > 0).length,
+      totalSources: jobs.length,
+      candidates: filtered.length,
+      duplicatesRemoved: Math.max(0, filtered.length - clusters.length),
+    },
+  };
 }
 
 function nextChinaMacroRelease(now = new Date()) {
@@ -9669,16 +10091,12 @@ function nextChinaMacroRelease(now = new Date()) {
   return `${date} · ${next.label}（预计）`;
 }
 
-async function loadChinaMacroDashboard() {
-  if (chinaMacroDashboardCache && Date.now() - chinaMacroDashboardCache.storedAt < 60_000) return chinaMacroDashboardCache.data;
-  const [equityResult, goldenDragonResult, cpiResult, ppiResult, pmiResult, caixinPmiResult, newsResult] = await Promise.allSettled([
+const chinaMacroMethodology = '实时指数来自东方财富、腾讯证券与 Yahoo Finance；货币、信贷和银行间利率优先采用中国人民银行与中国外汇交易中心，债券估值采用中债估值中心，离岸人民币利率采用香港财资市场公会；省级经济数据采用国家统计局已发布年度口径；国内要闻仅聚合中国政府网、中国经济网、国家统计局、华尔街见闻、新浪财经与东方财富，其中官方政策和经济发布优先，财经媒体只保留头部重要新闻。';
+
+async function loadChinaMacroIndicesSection() {
+  const [equityResult, goldenDragonResult] = await Promise.allSettled([
     getEquityIndexSnapshots(),
     getYahooMacroQuote('^HXC', '1mo'),
-    getChinaCpiMetric(),
-    getChinaPpiMetric(),
-    getGlobalPmiMetric(globalPmiConfigs.find((item) => item.id === 'pmi-china')!),
-    getChinaCaixinPmiMetric(),
-    getChinaDomesticMacroNews(),
   ]);
   const indices = equityResult.status === 'fulfilled'
     ? equityResult.value.indices.filter((item) => item.market === 'china')
@@ -9691,37 +10109,67 @@ async function loadChinaMacroDashboard() {
       sourceUrl: quote.sourceUrl, validation: { status: 'single-source', source: 'Yahoo Finance' },
     });
   }
-  const metricById = new Map(chinaMacroReferenceMetrics.map((item) => [item.id, { ...item }]));
-  if (cpiResult.status === 'fulfilled') {
-    const item = cpiResult.value;
-    metricById.set('cpi', { id: 'cpi', label: 'CPI 同比', value: item.value, display: item.display, change: item.change, changeDisplay: item.change === null ? undefined : `${item.change > 0 ? '+' : ''}${item.change.toFixed(1)}% 环比`, period: item.period, source: item.source, sourceUrl: item.sourceUrl, status: item.status });
-  } else {
+  if (!indices.length) throw new Error('中国主要指数来源均不可用');
+  return { generatedAt: new Date().toISOString(), indices, methodology: chinaMacroMethodology };
+}
+
+async function loadChinaMacroMetricsSection() {
+  const bondJob = getChinaBondCurveMetrics();
+  const sourceJobs: Array<{ label: string; run: Promise<ChinaMacroMetric | ChinaMacroMetric[]> }> = [
+    { label: '中国人民银行金融统计', run: getPbcFinancialStatisticsMetrics() },
+    { label: '中国外汇交易中心 FDR', run: getChinaMoneyFdrMetric() },
+    { label: '中债收益率曲线', run: bondJob },
+    { label: '香港财资市场公会 CNH HIBOR', run: getCnhHiborMetric() },
+    { label: '中国人民银行金融市场报告', run: getChinaTermSpreadMetric() },
+    { label: '国家统计局 CPI', run: getChinaCpiMetric().then((item) => ({
+      id: 'cpi', label: 'CPI 同比', value: item.value, display: item.display, change: item.change,
+      changeDisplay: item.change === null ? undefined : `${item.change > 0 ? '+' : ''}${item.change.toFixed(1)}% 环比`,
+      period: item.period, source: item.source, sourceUrl: item.sourceUrl, status: item.status,
+    } satisfies ChinaMacroMetric)) },
+    { label: '国家统计局 PPI', run: getChinaPpiMetric().then((item) => item as ChinaMacroMetric) },
+    { label: '财新制造业 PMI', run: getChinaCaixinPmiMetric().then((item) => item as ChinaMacroMetric) },
+    { label: '中美十年期国债利差', run: bondJob.then((rows) => {
+      const china10y = rows.find((item) => item.id === 'cn10y');
+      if (!china10y) throw new Error('中债 10 年期国债值缺失');
+      return getChinaUsTenYearSpreadMetric(china10y);
+    }) },
+  ];
+  const results = await Promise.allSettled(sourceJobs.map((job) => job.run));
+  const metricById = mergeChinaMacroMetrics(results);
+  if (!metricById.has('cpi')) {
     metricById.set('cpi', { id: 'cpi', label: 'CPI 同比', value: null, display: '待更新', period: '最新发布', source: '国家统计局', sourceUrl: 'https://www.stats.gov.cn/sj/zxfb/', status: 'unavailable', note: '官方发布页暂不可达' });
   }
-  if (ppiResult.status === 'fulfilled') metricById.set('ppi', ppiResult.value);
   // The official release takes precedence over third-party calendars, whose cache can lag a month.
-  metricById.set('official-pmi', { id: 'official-pmi', label: '官方制造业 PMI', value: 49.2, display: '49.2', change: -1.1, changeDisplay: '-1.1', period: '2026-07', source: '国家统计局 / 新华社', sourceUrl: 'https://www.news.cn/20260731/405ce68a95384b15a6bc42f8cd54a031/c.html', status: 'delayed', note: pmiResult.status === 'fulfilled' ? '官方发布优先；第三方日历仅作交叉校验' : '官方已发布快照' });
-  if (caixinPmiResult.status === 'fulfilled') {
-    metricById.set('caixin-pmi', caixinPmiResult.value);
-  } else {
-    // Keep the dated primary-source snapshot instead of replacing it with an unverified live value.
-  }
-  const news = newsResult.status === 'fulfilled' ? newsResult.value : [];
+  metricById.set('official-pmi', { id: 'official-pmi', label: '官方制造业 PMI', value: 49.2, display: '49.2', change: -1.1, changeDisplay: '-1.1', period: '2026-07', source: '国家统计局 / 新华社', sourceUrl: 'https://www.news.cn/20260731/405ce68a95384b15a6bc42f8cd54a031/c.html', status: 'delayed', note: '官方发布快照' });
   const metrics = [...metricById.values()];
   const officialPmi = metricById.get('official-pmi')?.value;
   const cpi = metricById.get('cpi')?.value;
   const growthDirection = officialPmi === null || officialPmi === undefined ? 0 : officialPmi >= 50 ? 1 : -1;
   const inflationDirection = cpi === null || cpi === undefined ? 0 : cpi >= 2 ? 1 : -1;
   const quadrant = growthDirection > 0 && inflationDirection <= 0 ? '复苏' : growthDirection > 0 ? '过热' : inflationDirection > 0 ? '滞胀' : '衰退 / 通缩';
-  const data = {
+  return {
     generatedAt: new Date().toISOString(),
-    indices,
     metrics,
     quadrant: { current: quadrant, growthDirection, inflationDirection, explanation: '以制造业 PMI 相对 50 荣枯线判断增长方向，以 CPI 相对 2% 参考线判断通胀方向。四象限是状态识别，不是单独交易信号。' },
+    sourceStatus: {
+      ready: results.filter((result) => result.status === 'fulfilled').length,
+      total: results.length,
+      fallback: results.filter((result) => result.status === 'rejected').length,
+      errors: results.flatMap((result, index) => result.status === 'rejected'
+        ? [`${sourceJobs[index].label}：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`]
+        : []),
+    },
+    methodology: chinaMacroMethodology,
+  };
+}
+
+async function loadChinaMacroPolicySection() {
+  return {
+    generatedAt: new Date().toISOString(),
     policy: {
       stage: '稳增长与扩大内需并重',
       direction: '更加积极的财政政策 · 适度宽松的货币政策',
-      creditState: (metricById.get('tsf')?.value || 0) >= 9 ? '信用扩张' : '温和修复',
+      creditState: '温和修复',
       nextData: nextChinaMacroRelease(),
       nextDataUrl: 'https://www.stats.gov.cn/sj/',
       policies: [
@@ -9730,10 +10178,48 @@ async function loadChinaMacroDashboard() {
         { title: '财政收支与政策发布', source: '财政部', url: 'https://www.mof.gov.cn/zhengwuxinxi/caizhengxinwen/' },
       ],
     },
-    news,
-    methodology: '实时指数来自东方财富、腾讯证券与 Yahoo Finance；省级经济数据采用国家统计局已发布年度口径；宏观指标优先读取央行、国家统计局、财政部与海关总署的最新可核验发布，无法实时获取时明确标注统计期。',
+    methodology: chinaMacroMethodology,
   };
-  chinaMacroDashboardCache = { storedAt: Date.now(), data };
+}
+
+async function loadChinaMacroNewsSection() {
+  const newsAggregate = await getChinaDomesticMacroNews();
+  return {
+    generatedAt: new Date().toISOString(),
+    news: newsAggregate.items,
+    newsMeta: newsAggregate.meta,
+    methodology: chinaMacroMethodology,
+  };
+}
+
+async function loadChinaMacroSection(section: ChinaMacroSectionName) {
+  const cached = chinaMacroSectionCache.get(section);
+  if (cached && Date.now() - cached.storedAt < chinaMacroSectionTtl[section]) return cached.data;
+  const running = chinaMacroSectionInFlight.get(section);
+  if (running) return running;
+  const loader = section === 'indices'
+    ? loadChinaMacroIndicesSection
+    : section === 'metrics'
+      ? loadChinaMacroMetricsSection
+      : section === 'policy'
+        ? loadChinaMacroPolicySection
+        : loadChinaMacroNewsSection;
+  const request = loader().then((data) => {
+    chinaMacroSectionCache.set(section, { storedAt: Date.now(), data });
+    return data;
+  }).finally(() => chinaMacroSectionInFlight.delete(section));
+  chinaMacroSectionInFlight.set(section, request);
+  return request;
+}
+
+async function loadChinaMacroDashboard(section?: ChinaMacroSectionName) {
+  if (section) return loadChinaMacroSection(section);
+  const names: ChinaMacroSectionName[] = ['indices', 'metrics', 'policy', 'news'];
+  const results = await Promise.allSettled(names.map((name) => loadChinaMacroSection(name)));
+  const data = results.reduce<Record<string, unknown>>((combined, result) => (
+    result.status === 'fulfilled' ? { ...combined, ...result.value } : combined
+  ), { generatedAt: new Date().toISOString(), methodology: chinaMacroMethodology });
+  if (results.every((result) => result.status === 'rejected')) throw new Error('中国宏观数据分区均不可用');
   return data;
 }
 
@@ -9881,8 +10367,13 @@ function allWeatherApiPlugin() {
           }
 
           if (url.pathname === '/api/china-macro-dashboard') {
+            const section = String(url.searchParams.get('section') || '') as ChinaMacroSectionName | '';
+            if (section && !(['indices', 'metrics', 'policy', 'news'] as ChinaMacroSectionName[]).includes(section)) {
+              sendJson(res, 400, { error: '不支持的中国宏观数据分区' });
+              return;
+            }
             res.setHeader('Cache-Control', 'no-store');
-            sendJson(res, 200, await loadChinaMacroDashboard());
+            sendJson(res, 200, await loadChinaMacroDashboard(section || undefined));
             return;
           }
 
