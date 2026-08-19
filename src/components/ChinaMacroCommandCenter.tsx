@@ -25,7 +25,7 @@ import {
   Users,
   Waves,
 } from 'lucide-react';
-import { CHINA_PROVINCE_DATA_SOURCE, CHINA_PROVINCE_ECONOMY, type ChinaProvinceEconomy } from '../data/chinaProvinceEconomy';
+import { CHINA_PROVINCE_DATA_SOURCES, CHINA_PROVINCE_ECONOMY, type ChinaProvinceEconomy } from '../data/chinaProvinceEconomy';
 import './ChinaMacroCommandCenter.css';
 
 type ChinaMetric = {
@@ -89,6 +89,24 @@ type RegionCollection = FeatureCollection<Geometry, { name?: string; adcode?: nu
 type MapMetric = 'gdp' | 'population' | 'perCapita';
 type ProvincePanel = 'government' | 'economy' | 'fiscal' | 'population';
 
+type ProvinceOfficialItem = {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  publishedAt?: string;
+  fallback?: boolean;
+};
+
+type ProvinceOfficialFeed = {
+  province: string;
+  generatedAt: string;
+  policies: ProvinceOfficialItem[];
+  news: ProvinceOfficialItem[];
+  sourceStatus: 'live' | 'fallback';
+  errors: string[];
+};
+
 type MapTrailItem = {
   label: string;
   adcode?: string;
@@ -124,6 +142,10 @@ const TACTICAL_IDS = ['cn-us-spread', 'cnh-hibor', 'credit-spread', 'bill-rate',
 
 function formatNumber(value: number, digits = 2) {
   return new Intl.NumberFormat('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
+}
+
+function signedNumber(value: number, digits = 2) {
+  return `${value > 0 ? '+' : ''}${formatNumber(value, digits)}`;
 }
 
 function provinceValue(item: ChinaProvinceEconomy | undefined, metric: MapMetric) {
@@ -216,12 +238,15 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
   const [hoveredProvince, setHoveredProvince] = useState('');
   const [mapMetric, setMapMetric] = useState<MapMetric>('gdp');
   const [provincePanel, setProvincePanel] = useState<ProvincePanel>('economy');
+  const [provinceFeed, setProvinceFeed] = useState<ProvinceOfficialFeed | null>(null);
+  const [provinceFeedState, setProvinceFeedState] = useState<'loading' | 'ready' | 'fallback'>('loading');
   const [mapView, setMapView] = useState({ scale: 1, x: 0, y: 0 });
   const [tooltip, setTooltip] = useState({ x: 0, y: 0, visible: false });
   const mapRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const dashboardRequestRef = useRef<AbortController | null>(null);
   const regionRequestRef = useRef<AbortController | null>(null);
+  const provinceFeedRequestRef = useRef<AbortController | null>(null);
 
   const loadRootMap = async (signal: AbortSignal) => {
     try {
@@ -276,8 +301,35 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
       dashboardRequestRef.current = null;
       regionRequestRef.current?.abort();
       regionRequestRef.current = null;
+      provinceFeedRequestRef.current?.abort();
+      provinceFeedRequestRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    provinceFeedRequestRef.current?.abort();
+    const controller = new AbortController();
+    provinceFeedRequestRef.current = controller;
+    setProvinceFeedState('loading');
+    void fetch(`/api/china-province-official-feed?province=${encodeURIComponent(selectedProvince)}`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok) throw new Error(`地方政务数据请求失败 (${response.status})`);
+      return response.json() as Promise<ProvinceOfficialFeed>;
+    }).then((feed) => {
+      if (controller.signal.aborted) return;
+      setProvinceFeed(feed);
+      setProvinceFeedState(feed.sourceStatus === 'live' ? 'ready' : 'fallback');
+    }).catch(() => {
+      if (controller.signal.aborted) return;
+      setProvinceFeed(null);
+      setProvinceFeedState('fallback');
+    }).finally(() => {
+      if (provinceFeedRequestRef.current === controller) provinceFeedRequestRef.current = null;
+    });
+    return () => controller.abort();
+  }, [selectedProvince]);
 
   const metrics = useMemo(() => new Map((data?.metrics || []).map((item) => [item.id, item])), [data]);
   const mapModel = useMemo(() => {
@@ -294,6 +346,15 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
 
   const activeProvinceName = hoveredProvince || selectedProvince;
   const activeProvince = CHINA_PROVINCE_ECONOMY[activeProvinceName] || CHINA_PROVINCE_ECONOMY[selectedProvince];
+  const provinceRanking = useMemo(() => {
+    const rows = Object.values(CHINA_PROVINCE_ECONOMY);
+    const gdp = [...rows].sort((left, right) => right.gdpMillionCny - left.gdpMillionCny);
+    const perCapita = [...rows].sort((left, right) => right.gdpPerCapitaCny - left.gdpPerCapitaCny);
+    return {
+      gdp: gdp.findIndex((item) => item.name === selectedProvince) + 1,
+      perCapita: perCapita.findIndex((item) => item.name === selectedProvince) + 1,
+    };
+  }, [selectedProvince]);
   const mapDepth = Math.max(0, mapTrail.length - 1);
   const structural = STRUCTURAL_IDS.map((id) => metrics.get(id));
   const tactical = TACTICAL_IDS.map((id) => metrics.get(id));
@@ -547,33 +608,45 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
             {activeProvince ? (
               <div className="china-province-panel">
                 {provincePanel === 'government' ? <>
-                  <div><span>领导班子</span><strong>省级官网实时核验</strong><small>不缓存人名，避免换届后继续显示旧名单</small></div>
-                  <div><span>主政履历与风格</span><strong>权威履历待结构化</strong><small>仅纳入政府官网与组织部门公开信息</small></div>
-                  <div><span>近期重大政策</span><strong>政策文件持续更新</strong><small>按发布时间与省级重要性排序</small></div>
-                  <a href="https://www.gov.cn/home/2023-03/29/content_5748953.htm" target="_blank" rel="noreferrer">全国省级政府门户<ArrowUpRight size={12} /></a>
+                  <div><span>省级政府门户</span><strong>{activeProvince.shortName}省级政务官网</strong><small>领导、机构与政府信息以本省官网实时页面为准</small></div>
+                  <div><span>政务数据状态</span><strong>{provinceFeedState === 'loading' ? '并行获取中' : provinceFeedState === 'ready' ? '官方页面已连接' : '官方入口可用'}</strong><small>抓取失败不会影响经济、财政与人口数据</small></div>
+                  <div><span>地方政策</span><strong>{provinceFeed?.policies.length || 0} 条可访问</strong><small>仅展示省级政府及政务公开页面</small></div>
+                  <a href={activeProvince.governmentUrl} target="_blank" rel="noreferrer">打开官方门户<ArrowUpRight size={12} /></a>
                 </> : null}
                 {provincePanel === 'economy' ? <>
-                  <div><span>地区生产总值</span><strong>{formatNumber(activeProvince.gdpMillionCny / 10_000, 2)} 亿元</strong><small>{activeProvince.period} 年官方年度口径</small></div>
-                  <div><span>人均 GDP</span><strong>¥{formatNumber(activeProvince.gdpPerCapitaCny, 0)}</strong><small>用于观察生产率与经济密度</small></div>
-                  <div><span>支柱产业</span><strong>{PROVINCE_PILLARS[selectedProvince] || '制造业、现代服务与区域特色产业'}</strong><small>产业观察，后续接省级统计公报逐项核验</small></div>
-                  <div><span>三产 / 高新企业 / 上市公司</span><strong>待统一统计口径</strong><small>不混用不同年份和不同机构口径</small></div>
+                  <div><span>地区生产总值</span><strong>{formatNumber(activeProvince.gdpMillionCny / 100, 1)} 亿元</strong><small>{activeProvince.period} 年国家统计局统一核算口径</small></div>
+                  <div><span>人均 GDP</span><strong>¥{formatNumber(activeProvince.gdpPerCapitaCny, 0)}</strong><small>31 地区第 {provinceRanking.perCapita} 位</small></div>
+                  <div><span>经济总量位次</span><strong>第 {provinceRanking.gdp} 位</strong><small>按 31 个省、自治区、直辖市比较</small></div>
+                  <div><span>经济与产业入口</span><strong>{PROVINCE_PILLARS[selectedProvince] || '省级统计公报与政府工作报告'}</strong><small>产业信息不与其他省份或其他年份串用</small></div>
                 </> : null}
                 {provincePanel === 'fiscal' ? <>
-                  <div><span>财政自给率</span><strong>待决算数据接入</strong><small>一般公共预算收入 ÷ 一般公共预算支出</small></div>
-                  <div><span>地方政府债务</span><strong>省、市两级拆分</strong><small>显性债务余额、限额、到期结构</small></div>
-                  <div><span>城投与隐性债务</span><strong>待风控口径核验</strong><small>余额、信用利差与未来三年到期压力</small></div>
-                  <div><span>本外币存款余额</span><strong>待金融运行报告</strong><small>地区经济资金池与财富聚集能力</small></div>
+                  <div><span>一般公共预算收入</span><strong>{formatNumber(activeProvince.fiscalRevenue100mCny, 2)} 亿元</strong><small>{activeProvince.period} 年国家统计局年鉴口径</small></div>
+                  <div><span>一般公共预算支出</span><strong>{formatNumber(activeProvince.fiscalExpenditure100mCny, 2)} 亿元</strong><small>{activeProvince.period} 年国家统计局年鉴口径</small></div>
+                  <div><span>财政自给率</span><strong>{formatNumber(activeProvince.fiscalSelfSufficiencyPercent, 1)}%</strong><small>一般公共预算收入 ÷ 一般公共预算支出</small></div>
+                  <div><span>收支缺口</span><strong>{formatNumber(activeProvince.fiscalExpenditure100mCny - activeProvince.fiscalRevenue100mCny, 2)} 亿元</strong><small>仅为预算收支差额，不等同于地方债务余额</small></div>
                 </> : null}
                 {provincePanel === 'population' ? <>
-                  <div><span>常住人口</span><strong>{formatNumber(activeProvince.populationMillion, 2)} 百万人</strong><small>由 GDP 与人均 GDP 同口径推算</small></div>
-                  <div><span>户籍人口 / 净流入</span><strong>待人口公报接入</strong><small>比较常住与户籍人口，识别吸引力</small></div>
-                  <div><span>年龄结构</span><strong>老龄化与少子化</strong><small>65 岁以上占比、出生人口与抚养压力</small></div>
-                  <div><span>高校与科研资源</span><strong>高校 / 双一流 / 留存率</strong><small>人才供给与毕业生留存能力</small></div>
+                  <div><span>年末常住人口</span><strong>{formatNumber(activeProvince.populationMillion, 2)} 百万人</strong><small>{activeProvince.period} 年国家统计局人口变动抽样调查</small></div>
+                  <div><span>常住人口城镇化率</span><strong>{formatNumber(activeProvince.urbanizationPercent, 2)}%</strong><small>城镇人口占年末常住人口比重</small></div>
+                  <div><span>出生 / 自然增长率</span><strong>{formatNumber(activeProvince.birthRatePermille, 2)}‰ · {signedNumber(activeProvince.naturalGrowthRatePermille)}‰</strong><small>同年、同一人口调查口径</small></div>
+                  <div><span>老年人口抚养比</span><strong>{formatNumber(activeProvince.elderlyDependencyPercent, 2)}%</strong><small>65 岁及以上人口相对 15—64 岁人口</small></div>
                   <GraduationCap className="china-panel-watermark" size={52} />
                 </> : null}
               </div>
             ) : <p className="china-province-unavailable">该行政区暂未纳入同一统计口径，页面不会用其他年份数据补位。</p>}
-            <a href={CHINA_PROVINCE_DATA_SOURCE.url} target="_blank" rel="noreferrer">{CHINA_PROVINCE_DATA_SOURCE.label}<ArrowUpRight size={13} /></a>
+            <div className="china-local-intel">
+              <section>
+                <header><Landmark size={13} /><strong>地方政策</strong><span>{provinceFeedState === 'loading' ? '获取中' : provinceFeedState === 'ready' ? '官方实时页' : '官方入口'}</span></header>
+                {(provinceFeed?.policies || []).slice(0, 3).map((item) => <a key={item.id} href={item.url} target="_blank" rel="noreferrer"><span>{item.title}</span><ArrowUpRight size={11} /></a>)}
+              </section>
+              <section>
+                <header><Database size={13} /><strong>地方新闻</strong><span>{provinceFeedState === 'loading' ? '获取中' : provinceFeedState === 'ready' ? '官方实时页' : '官方入口'}</span></header>
+                {(provinceFeed?.news || []).slice(0, 3).map((item) => <a key={item.id} href={item.url} target="_blank" rel="noreferrer"><span>{item.title}</span><ArrowUpRight size={11} /></a>)}
+              </section>
+            </div>
+            <a href={(provincePanel === 'fiscal' ? CHINA_PROVINCE_DATA_SOURCES.fiscal : provincePanel === 'population' ? CHINA_PROVINCE_DATA_SOURCES.population : CHINA_PROVINCE_DATA_SOURCES.economy).url} target="_blank" rel="noreferrer">
+              {(provincePanel === 'fiscal' ? CHINA_PROVINCE_DATA_SOURCES.fiscal : provincePanel === 'population' ? CHINA_PROVINCE_DATA_SOURCES.population : CHINA_PROVINCE_DATA_SOURCES.economy).label}<ArrowUpRight size={13} />
+            </a>
           </section>
         </main>
 

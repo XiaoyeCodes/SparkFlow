@@ -178,6 +178,15 @@
 .china-province-panel strong { overflow: hidden; color: var(--china-text); font-size: 11px; line-height: 1.35; text-overflow: ellipsis; }
 .china-province-panel small { display: -webkit-box; overflow: hidden; color: #526963; font-size: 8px; line-height: 1.35; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .china-province-panel > a { align-self: center; margin: 0 10px; color: var(--china-green); font-size: 9px; text-decoration: none; }
+.china-local-intel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.china-local-intel > section { min-width: 0; border: 1px solid var(--china-border); border-radius: 4px; background: rgba(4, 14, 12, 0.54); }
+.china-local-intel header { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px; border-bottom: 1px solid var(--china-border); color: var(--china-green); }
+.china-local-intel header strong { color: var(--china-text); font-size: 9px; }
+.china-local-intel header span { margin-left: auto; color: var(--china-muted); font: 8px "JetBrains Mono", monospace; }
+.china-local-intel a { display: flex; align-items: center; gap: 6px; min-height: 24px; padding: 4px 8px; border-bottom: 1px solid rgba(113, 174, 153, 0.08); color: #8da69f; font-size: 8px; line-height: 1.35; text-decoration: none; }
+.china-local-intel a:last-child { border-bottom: 0; }
+.china-local-intel a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.china-local-intel a svg { flex: 0 0 auto; margin-left: auto; color: var(--china-green); }
 .china-panel-watermark { position: absolute; right: 10px; bottom: 4px; color: rgba(102, 223, 183, 0.06); pointer-events: none; }
 
 .china-policy-board,

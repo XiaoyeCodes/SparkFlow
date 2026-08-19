@@ -12,5 +12,12 @@
     "strict": true,
     "noEmit": true
   },
-  "include": ["vite.config.ts", "tailwind.config.ts", "src/data/marketCalendars.ts", "server/**/*.ts", "server/**/*.d.ts"]
+  "include": [
+    "vite.config.ts",
+    "tailwind.config.ts",
+    "src/data/marketCalendars.ts",
+    "src/data/chinaProvinceEconomy.ts",
+    "server/**/*.ts",
+    "server/**/*.d.ts"
+  ]
 }

@@ -14,6 +14,7 @@ import {
   getMarketHolidayName,
   type MarketCalendarId,
 } from './src/data/marketCalendars';
+import { CHINA_PROVINCE_ECONOMY } from './src/data/chinaProvinceEconomy';
 import { CozeReportTaskService } from './server/cozeReportTasks';
 
 const rootDir = process.cwd();
@@ -9475,6 +9476,95 @@ const chinaMacroReferenceMetrics: ChinaMacroMetric[] = [
 
 let chinaMacroDashboardCache: { storedAt: number; data: any } | undefined;
 const chinaRegionBoundaryCache = new Map<string, { storedAt: number; data: unknown }>();
+type ChinaProvinceFeedMode = 'policy' | 'news';
+type ChinaProvinceOfficialItem = {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  fallback?: boolean;
+};
+const chinaProvinceFeedCache = new Map<string, { storedAt: number; data: any }>();
+const chinaProvinceFeedInFlight = new Map<string, Promise<any>>();
+
+function officialProvinceFallback(province: string, mode: ChinaProvinceFeedMode): ChinaProvinceOfficialItem {
+  const profile = CHINA_PROVINCE_ECONOMY[province];
+  return {
+    id: `${province}-${mode}-official-portal`,
+    title: `前往${profile.shortName}省级政府门户查看最新${mode === 'policy' ? '政策文件' : '政务新闻'}`,
+    source: `${profile.shortName}省级政府门户`,
+    url: profile.governmentUrl,
+    fallback: true,
+  };
+}
+
+function parseProvinceOfficialItems(province: string, html: string, mode: ChinaProvinceFeedMode) {
+  const profile = CHINA_PROVINCE_ECONOMY[province];
+  const policyPattern = /(政策|通知|意见|办法|方案|规划|条例|规章|决定|实施|措施|细则|公告|批复)/;
+  const newsPattern = /(召开|会议|发布|调研|推进|部署|发展|建设|经济|民生|产业|项目|消费|就业|教育|医疗|交通|科技|农业|生态)/;
+  const pattern = mode === 'policy' ? policyPattern : newsPattern;
+  const seen = new Set<string>();
+  return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].flatMap((match, index) => {
+    const title = decodeXml(stripTags(match[2])).replace(/\s+/g, ' ').trim();
+    if (title.length < 8 || title.length > 90 || !pattern.test(title)) return [];
+    if (mode === 'news' && policyPattern.test(title) && !/(召开|会议|发布|调研|推进|部署)/.test(title)) return [];
+    let url: URL;
+    try {
+      url = new URL(decodeXml(match[1]), profile.governmentUrl);
+    } catch {
+      return [];
+    }
+    if (!/^https?:$/.test(url.protocol) || !url.hostname.endsWith('.gov.cn')) return [];
+    const key = title.replace(/[\s\p{P}\p{S}]+/gu, '');
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [{
+      id: `${province}-${mode}-${index}-${createHash('sha1').update(key).digest('hex').slice(0, 8)}`,
+      title,
+      source: `${profile.shortName}省级政府门户`,
+      url: url.toString(),
+    } satisfies ChinaProvinceOfficialItem];
+  }).slice(0, 8);
+}
+
+async function fetchProvinceOfficialItems(province: string, mode: ChinaProvinceFeedMode) {
+  const profile = CHINA_PROVINCE_ECONOMY[province];
+  const html = await fetchRoutedText(profile.governmentUrl, 'direct', 7_000, 'text/html,application/xhtml+xml,*/*');
+  const items = parseProvinceOfficialItems(province, html, mode);
+  if (!items.length) throw new Error(`${profile.shortName}${mode === 'policy' ? '政策' : '新闻'}列表未匹配到有效官方链接`);
+  return items;
+}
+
+async function loadChinaProvinceOfficialFeed(province: string) {
+  const profile = CHINA_PROVINCE_ECONOMY[province];
+  if (!profile) throw new Error('不支持的中国省级地区');
+  const cached = chinaProvinceFeedCache.get(province);
+  if (cached && Date.now() - cached.storedAt < 10 * 60_000) return cached.data;
+  const running = chinaProvinceFeedInFlight.get(province);
+  if (running) return running;
+  const request = Promise.allSettled([
+    fetchProvinceOfficialItems(province, 'policy'),
+    fetchProvinceOfficialItems(province, 'news'),
+  ]).then(([policyResult, newsResult]) => {
+    const errors: string[] = [];
+    const policies = policyResult.status === 'fulfilled' ? policyResult.value : [officialProvinceFallback(province, 'policy')];
+    const news = newsResult.status === 'fulfilled' ? newsResult.value : [officialProvinceFallback(province, 'news')];
+    if (policyResult.status === 'rejected') errors.push(`政策：${policyResult.reason instanceof Error ? policyResult.reason.message : String(policyResult.reason)}`);
+    if (newsResult.status === 'rejected') errors.push(`新闻：${newsResult.reason instanceof Error ? newsResult.reason.message : String(newsResult.reason)}`);
+    const data = {
+      province,
+      generatedAt: new Date().toISOString(),
+      policies,
+      news,
+      sourceStatus: errors.length ? 'fallback' : 'live',
+      errors,
+    };
+    chinaProvinceFeedCache.set(province, { storedAt: Date.now(), data });
+    return data;
+  }).finally(() => chinaProvinceFeedInFlight.delete(province));
+  chinaProvinceFeedInFlight.set(province, request);
+  return request;
+}
 
 async function loadChinaRegionBoundary(adcode: string) {
   if (!/^\d{6}$/.test(adcode)) throw new Error('无效的中国行政区划代码');
@@ -9800,6 +9890,13 @@ function allWeatherApiPlugin() {
             const adcode = String(url.searchParams.get('adcode') || '');
             res.setHeader('Cache-Control', 'public, max-age=86400');
             sendJson(res, 200, await loadChinaRegionBoundary(adcode));
+            return;
+          }
+
+          if (url.pathname === '/api/china-province-official-feed') {
+            const province = String(url.searchParams.get('province') || '');
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await loadChinaProvinceOfficialFeed(province));
             return;
           }
 
