@@ -109,11 +109,15 @@ function gatewayPath(points: readonly GatewayPoint[], mirrored = false) {
     .join(' ');
 }
 
+function removeLegacyLlmPrefix(value: string) {
+  return value.replace(/基于\s*LLM\s*的/g, '');
+}
+
 function extractReportTitle(markdown: string) {
   const heading = markdown.match(/^#\s+(.+)$/m)?.[1]
     || markdown.match(/^##\s+(.+)$/m)?.[1]
     || '全球宏观市场快照简报';
-  return heading.replace(/[*_`#]/g, '').trim().slice(0, 42) || '全球宏观市场快照简报';
+  return removeLegacyLlmPrefix(heading).replace(/[*_`#]/g, '').trim().slice(0, 42) || '全球宏观市场快照简报';
 }
 
 function runningReportTitle(scope: AiResearchScope, query = '') {
@@ -133,7 +137,7 @@ function normalizeStoredReport(value: unknown): StoredReport | null {
   const candidate = value as Partial<StoredReport>;
   if (typeof candidate.generatedAt !== 'string') return null;
   const status = candidate.status === 'running' ? 'running' : candidate.status === 'failed' ? 'failed' : 'completed';
-  const markdown = typeof candidate.markdown === 'string' ? candidate.markdown : '';
+  const markdown = typeof candidate.markdown === 'string' ? removeLegacyLlmPrefix(candidate.markdown) : '';
   if (status === 'completed' && !markdown.trim()) return null;
   const scope: AiResearchScope = candidate.scope === 'country' || candidate.scope === 'equity' ? candidate.scope : 'global';
   const query = typeof candidate.query === 'string' ? candidate.query.trim() : '';
@@ -144,9 +148,9 @@ function normalizeStoredReport(value: unknown): StoredReport | null {
     title: status === 'running'
       ? runningReportTitle(scope, query)
       : status === 'failed'
-      ? (typeof candidate.title === 'string' && candidate.title.trim() ? candidate.title.trim() : `${scopeLabel(scope, query)}分析未完成`)
+      ? (typeof candidate.title === 'string' && candidate.title.trim() ? removeLegacyLlmPrefix(candidate.title.trim()) : `${scopeLabel(scope, query)}分析未完成`)
       : typeof candidate.title === 'string' && candidate.title.trim()
-      ? candidate.title.trim()
+      ? removeLegacyLlmPrefix(candidate.title.trim())
       : extractReportTitle(markdown),
     status,
     sessionId: typeof candidate.sessionId === 'string' ? candidate.sessionId : undefined,
@@ -226,7 +230,7 @@ function parseEvent(event: Event) {
 }
 
 function normalizeMarkdown(value: string) {
-  return value.trim()
+  return removeLegacyLlmPrefix(value).trim()
     .replace(/^```(?:markdown|md)?\s*/i, '')
     .replace(/\s*```$/, '')
     .trim();
