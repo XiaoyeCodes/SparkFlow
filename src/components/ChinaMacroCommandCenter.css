@@ -102,15 +102,26 @@
 .china-anchor-card > header small { color: var(--china-muted); font: 500 8px "JetBrains Mono", monospace; letter-spacing: 0.13em; }
 .china-anchor-card > header strong { color: var(--china-text); font-size: 13px; }
 .china-anchor-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.china-anchor-card:last-child .china-anchor-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.china-anchor-card:last-child .china-anchor-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.china-anchor-card:last-child .china-metric-cell:last-child { grid-column: 1 / -1; border-top: 1px solid rgba(116, 177, 158, 0.1); }
 
-.china-metric-cell { position: relative; display: grid; min-width: 0; min-height: 82px; align-content: center; gap: 3px; padding: 9px 10px; border-right: 1px solid rgba(116, 177, 158, 0.1); color: var(--china-text); text-decoration: none; overflow: hidden; }
+.china-metric-cell { position: relative; display: grid; min-width: 0; min-height: 94px; align-content: space-between; gap: 7px; padding: 10px 11px 9px; border-right: 1px solid rgba(116, 177, 158, 0.1); color: var(--china-text); text-decoration: none; overflow: hidden; isolation: isolate; }
+.china-metric-cell::before { position: absolute; z-index: -1; right: -24px; bottom: -32px; width: 72px; height: 72px; border: 1px solid rgba(102, 223, 183, 0.07); border-radius: 50%; content: ""; transition: border-color 160ms ease, transform 160ms ease; }
 .china-metric-cell:last-child { border-right: 0; }
-.china-metric-cell:hover { background: rgba(102, 223, 183, 0.045); }
-.china-metric-cell > span { color: #8ea29d; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.china-metric-cell > strong { font: 600 17px "JetBrains Mono", monospace; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.china-metric-cell > b { font: 500 9px "JetBrains Mono", monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.china-metric-cell > small { color: #526963; font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.china-metric-cell:hover { background: linear-gradient(145deg, rgba(102, 223, 183, 0.07), rgba(102, 223, 183, 0.015)); }
+.china-metric-cell:hover::before { border-color: rgba(102, 223, 183, 0.16); transform: scale(1.08); }
+.china-metric-head { display: flex; min-width: 0; align-items: center; gap: 7px; }
+.china-metric-head > i { display: grid; width: 23px; height: 23px; flex: 0 0 23px; place-items: center; border: 1px solid rgba(102, 223, 183, 0.25); border-radius: 4px; color: var(--china-green); background: rgba(102, 223, 183, 0.055); font-style: normal; }
+.china-metric-name { min-width: 0; flex: 1; overflow: hidden; color: #9eb3ad; font-size: 10px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.china-metric-head > em { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: #5c716c; }
+.china-metric-head > em.is-live { background: var(--china-green); box-shadow: 0 0 7px rgba(102, 223, 183, 0.52); }
+.china-metric-head > em.is-delayed { background: var(--china-gold); }
+.china-metric-value { display: flex; min-width: 0; align-items: end; justify-content: space-between; gap: 7px; }
+.china-metric-value > strong { min-width: 0; overflow: hidden; color: #edf5f2; font: 650 17px/1.05 "JetBrains Mono", monospace; letter-spacing: -0.035em; text-overflow: ellipsis; white-space: nowrap; }
+.china-metric-value > svg { flex: 0 0 auto; color: rgba(102, 223, 183, 0.34); }
+.china-metric-foot { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 7px; border-top: 1px solid rgba(116, 177, 158, 0.1); padding-top: 6px; }
+.china-metric-foot > b { min-width: 0; overflow: hidden; font: 600 8px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.china-metric-foot > small { flex: 0 0 auto; color: #526963; font: 500 7px "JetBrains Mono", monospace; white-space: nowrap; }
 .china-metric-cell.is-empty { color: var(--china-muted); }
 .is-up { color: var(--china-red) !important; }
 .is-down { color: var(--china-green) !important; }
@@ -121,7 +132,8 @@
 .china-compact-grid .china-metric-cell:nth-child(odd):last-child { grid-column: 1 / -1; }
 .china-compact-grid .china-metric-cell:nth-last-child(-n + 2) { border-bottom: 0; }
 
-.china-map-stage { display: grid; grid-template-rows: 70px minmax(300px, 1fr) 226px; padding: 16px 18px 18px; overflow: hidden; }
+.china-map-stage { display: grid; grid-template-rows: 70px minmax(300px, 1fr); padding: 16px 18px 18px; overflow: hidden; }
+.china-map-stage.has-selection { grid-template-rows: 70px minmax(300px, 1fr) minmax(270px, 34vh); }
 .china-map-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .china-map-title-row span { color: var(--china-green); font: 600 9px "JetBrains Mono", monospace; letter-spacing: 0.18em; }
 .china-map-title-row h2 { margin: 5px 0 0; color: #edf5f2; font-size: 25px; font-weight: 600; letter-spacing: 0; }
@@ -134,6 +146,8 @@
 .china-map-canvas:active { cursor: grabbing; }
 .china-map-canvas > svg { display: block; width: 100%; height: 100%; min-height: 300px; user-select: none; }
 .china-province { --province-intensity: 0.2; stroke: rgba(173, 230, 210, 0.58); stroke-width: 0.95; vector-effect: non-scaling-stroke; cursor: pointer; transition: fill 160ms ease, stroke 160ms ease, filter 160ms ease; }
+.china-province:focus { outline: none; }
+.china-province:focus-visible { outline: none; stroke: #9ef2d2; stroke-width: 1.6; filter: url(#province-glow); }
 .china-province:hover,
 .china-province.is-active { fill: #3e9b7e; stroke: #9ef2d2; stroke-width: 1.6; filter: url(#province-glow); }
 .china-province.has-no-data { fill: #111b19; stroke-dasharray: 2 2; }
@@ -159,12 +173,14 @@
 .china-map-status { position: absolute; z-index: 4; left: 12px; bottom: 10px; color: #526963; font: 8px "JetBrains Mono", monospace; }
 .china-region-label { pointer-events: none; fill: #dceae5; paint-order: stroke; stroke: rgba(2, 9, 8, 0.9); stroke-width: 2px; text-anchor: middle; dominant-baseline: middle; font: 600 9px "Microsoft YaHei UI", sans-serif; }
 
-.china-province-inspector { min-height: 0; margin-top: 12px; padding: 10px 12px; overflow: hidden; }
+.china-province-inspector { min-height: 0; margin-top: 12px; padding: 10px 12px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(102, 223, 183, 0.42) transparent; }
 .china-province-inspector > header { display: flex; align-items: center; gap: 10px; color: var(--china-green); }
 .china-province-inspector > header div { display: grid; gap: 1px; }
 .china-province-inspector > header small { color: var(--china-muted); font: 500 8px "JetBrains Mono", monospace; letter-spacing: 0.12em; }
 .china-province-inspector > header strong { color: var(--china-text); font-size: 16px; }
 .china-province-inspector > header > span { margin-left: auto; color: var(--china-muted); font: 10px "JetBrains Mono", monospace; }
+.china-inspector-close { display: grid; flex: 0 0 auto; place-items: center; width: 25px; height: 25px; border: 1px solid var(--china-border); border-radius: 4px; color: var(--china-muted); background: rgba(5, 15, 13, 0.72); cursor: pointer; }
+.china-inspector-close:hover { color: var(--china-green); border-color: var(--china-border-strong); background: rgba(102, 223, 183, 0.08); }
 .china-province-inspector > a { display: flex; align-items: center; gap: 5px; margin-top: 9px; color: #718b84; font-size: 8px; text-decoration: none; }
 .china-province-unavailable { color: var(--china-muted); font-size: 11px; }
 .china-province-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 8px; border: 1px solid var(--china-border); border-radius: 4px; overflow: hidden; }
@@ -178,15 +194,22 @@
 .china-province-panel strong { overflow: hidden; color: var(--china-text); font-size: 11px; line-height: 1.35; text-overflow: ellipsis; }
 .china-province-panel small { display: -webkit-box; overflow: hidden; color: #526963; font-size: 8px; line-height: 1.35; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .china-province-panel > a { align-self: center; margin: 0 10px; color: var(--china-green); font-size: 9px; text-decoration: none; }
+.china-region-data-empty { display: flex; align-items: center; gap: 10px; min-height: 64px; margin-top: 8px; border: 1px dashed rgba(113, 174, 153, 0.22); border-radius: 4px; padding: 10px 12px; color: var(--china-muted); background: rgba(4, 14, 12, 0.42); }
+.china-region-data-empty > svg { flex: 0 0 auto; color: #547b6f; }
+.china-region-data-empty > div { display: grid; gap: 4px; }
+.china-region-data-empty strong { color: #aebfba; font-size: 11px; }
+.china-region-data-empty span { color: #5f7770; font-size: 9px; line-height: 1.45; }
 .china-local-intel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
 .china-local-intel > section { min-width: 0; border: 1px solid var(--china-border); border-radius: 4px; background: rgba(4, 14, 12, 0.54); }
 .china-local-intel header { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px; border-bottom: 1px solid var(--china-border); color: var(--china-green); }
 .china-local-intel header strong { color: var(--china-text); font-size: 9px; }
 .china-local-intel header span { margin-left: auto; color: var(--china-muted); font: 8px "JetBrains Mono", monospace; }
-.china-local-intel a { display: flex; align-items: center; gap: 6px; min-height: 24px; padding: 4px 8px; border-bottom: 1px solid rgba(113, 174, 153, 0.08); color: #8da69f; font-size: 8px; line-height: 1.35; text-decoration: none; }
+.china-local-intel-list { max-height: 112px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(102, 223, 183, 0.32) transparent; }
+.china-local-intel-list > p { margin: 0; padding: 10px 8px; color: #526963; font-size: 8px; }
+.china-local-intel a { display: flex; align-items: flex-start; gap: 6px; min-height: 28px; padding: 5px 8px; border-bottom: 1px solid rgba(113, 174, 153, 0.08); color: #8da69f; font-size: 8px; line-height: 1.4; text-decoration: none; }
 .china-local-intel a:last-child { border-bottom: 0; }
-.china-local-intel a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.china-local-intel a svg { flex: 0 0 auto; margin-left: auto; color: var(--china-green); }
+.china-local-intel a span { display: -webkit-box; overflow: hidden; white-space: normal; overflow-wrap: anywhere; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.china-local-intel a svg { flex: 0 0 auto; margin-top: 1px; margin-left: auto; color: var(--china-green); }
 .china-panel-watermark { position: absolute; right: 10px; bottom: 4px; color: rgba(102, 223, 183, 0.06); pointer-events: none; }
 
 .china-policy-board,

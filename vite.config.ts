@@ -9662,17 +9662,16 @@ const chinaProvinceOfficialPageOverrides: Partial<Record<string, string[]>> = {
   甘肃省: ['https://zwfw.gansu.gov.cn/tsfw/ZCZD/zcwj/gzbf/index.html', 'https://ydyl.gansu.gov.cn/gsydyl/fzzc/gszc/'],
   青海省: ['http://www.qinghai.gov.cn/', 'http://www.qinghai.gov.cn/zwgk/system/more/202090000000000/0001/202090000000000_00000129.shtml'],
 };
-
-function officialProvinceFallback(province: string, mode: ChinaProvinceFeedMode): ChinaProvinceOfficialItem {
-  const profile = CHINA_PROVINCE_ECONOMY[province];
-  return {
-    id: `${province}-${mode}-official-portal`,
-    title: `前往${profile.shortName}省级政府门户查看最新${mode === 'policy' ? '政策文件' : '政务新闻'}`,
-    source: `${profile.shortName}省级政府门户`,
-    url: profile.governmentUrl,
-    fallback: true,
-  };
-}
+const chinaRegionOfficialPortalOverrides: Partial<Record<string, string>> = {
+  安阳市: 'https://www.anyang.gov.cn/',
+  滑县: 'https://www.hnhx.gov.cn/',
+};
+const chinaRegionOfficialPageOverrides: Partial<Record<string, string[]>> = {
+  滑县: [
+    'https://www.hnhx.gov.cn/portal/zwgk/A0002index_1.htm',
+    'https://www.hnhx.gov.cn/portal/index.htm',
+  ],
+};
 
 function parseProvinceOfficialItems(province: string, html: string, mode: ChinaProvinceFeedMode, baseUrl = CHINA_PROVINCE_ECONOMY[province].governmentUrl) {
   const profile = CHINA_PROVINCE_ECONOMY[province];
@@ -9707,9 +9706,9 @@ function parseProvinceOfficialItems(province: string, html: string, mode: ChinaP
   }).slice(0, 8);
 }
 
-async function fetchProvinceOfficialPage(url: string) {
+async function fetchProvinceOfficialPage(url: string, timeoutMs = 9_000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
       signal: controller.signal,
@@ -9771,8 +9770,8 @@ async function loadChinaProvinceOfficialFeed(province: string) {
     fetchProvinceOfficialItems(province, 'news'),
   ]).then(([policyResult, newsResult]) => {
     const errors: string[] = [];
-    const policies = policyResult.status === 'fulfilled' ? policyResult.value : [officialProvinceFallback(province, 'policy')];
-    const news = newsResult.status === 'fulfilled' ? newsResult.value : [officialProvinceFallback(province, 'news')];
+    const policies = policyResult.status === 'fulfilled' ? policyResult.value : [];
+    const news = newsResult.status === 'fulfilled' ? newsResult.value : [];
     if (policyResult.status === 'rejected') errors.push(`政策：${policyResult.reason instanceof Error ? policyResult.reason.message : String(policyResult.reason)}`);
     if (newsResult.status === 'rejected') errors.push(`新闻：${newsResult.reason instanceof Error ? newsResult.reason.message : String(newsResult.reason)}`);
     const data = {
@@ -9780,13 +9779,133 @@ async function loadChinaProvinceOfficialFeed(province: string) {
       generatedAt: new Date().toISOString(),
       policies,
       news,
-      sourceStatus: errors.length ? 'fallback' : 'live',
+      sourceStatus: policies.length || news.length ? 'live' : 'unavailable',
       errors,
     };
     chinaProvinceFeedCache.set(province, { storedAt: Date.now(), data });
     return data;
   }).finally(() => chinaProvinceFeedInFlight.delete(province));
   chinaProvinceFeedInFlight.set(province, request);
+  return request;
+}
+
+function parseRegionOfficialItems(region: string, html: string, mode: ChinaProvinceFeedMode, baseUrl: string) {
+  const hostParts = new URL(baseUrl).hostname.split('.');
+  const officialDomain = hostParts.slice(-3).join('.');
+  const policyPattern = /(政策|通知|通告|意见|办法|方案|规划|条例|规章|决定|实施|措施|细则|公告|批复)/;
+  const newsPattern = /(召开|会议|发布|调研|推进|部署|发展|建设|经济|民生|产业|项目|消费|就业|教育|医疗|交通|科技|农业|生态)/;
+  const pattern = mode === 'policy' ? policyPattern : newsPattern;
+  const seen = new Set<string>();
+  return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].flatMap((match, index) => {
+    const heading = match[2].match(/<h[1-4]\b[^>]*>([\s\S]*?)<\/h[1-4]>/i)?.[1];
+    const title = decodeXml(stripTags(heading || match[2])).replace(/\s+/g, ' ').trim();
+    if (title.length < 8 || title.length > 90 || !pattern.test(title)) return [];
+    if (mode === 'news' && policyPattern.test(title) && !/(召开|会议|发布|调研|推进|部署)/.test(title)) return [];
+    let url: URL;
+    try {
+      url = new URL(decodeXml(match[1]), baseUrl);
+    } catch {
+      return [];
+    }
+    if (!/^https?:$/.test(url.protocol) || !(url.hostname === officialDomain || url.hostname.endsWith(`.${officialDomain}`))) return [];
+    const key = title.replace(/[\s\p{P}\p{S}]+/gu, '');
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [{
+      id: `${region}-${mode}-${index}-${createHash('sha1').update(key).digest('hex').slice(0, 8)}`,
+      title,
+      source: `${region}人民政府门户`,
+      url: url.toString(),
+    } satisfies ChinaProvinceOfficialItem];
+  }).slice(0, 8);
+}
+
+async function discoverChinaRegionGovernmentPortal(region: string, province: string, adcode: string) {
+  const override = chinaRegionOfficialPortalOverrides[adcode] || chinaRegionOfficialPortalOverrides[region];
+  if (override) return override;
+  const query = encodeURIComponent(`${province} ${region} 人民政府 官网 ${adcode}`);
+  const html = await fetchExternalText(`https://cn.bing.com/search?q=${query}`, 16_000, 'text/html,application/xhtml+xml,*/*');
+  const candidates = [...html.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi)].flatMap((match) => {
+    try {
+      const url = new URL(decodeXml(match[1]));
+      if (!url.hostname.endsWith('.gov.cn') && url.hostname !== 'gov.cn') return [];
+      if (url.hostname.includes('bing.') || url.hostname.includes('microsoft.')) return [];
+      return [url];
+    } catch {
+      return [];
+    }
+  });
+  const unique = [...new Map(candidates.map((url) => [`${url.protocol}//${url.hostname}`, url])).values()]
+    .sort((left, right) => Number(!left.hostname.startsWith('www.')) - Number(!right.hostname.startsWith('www.')) || left.pathname.length - right.pathname.length);
+  if (!unique.length) throw new Error(`${region}官方门户未发现`);
+  return `${unique[0].protocol}//${unique[0].hostname}/`;
+}
+
+async function fetchRegionOfficialPage(portalUrl: string) {
+  const first = await fetchProvinceOfficialPage(portalUrl, 60_000);
+  const redirect = first.html.match(/(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']/i)?.[1]
+    || first.html.match(/http-equiv=["']refresh["'][^>]*content=["'][^;]+;\s*url=([^"']+)/i)?.[1];
+  if (!redirect) return first;
+  const redirectUrl = new URL(decodeXml(redirect.trim()), first.url).toString();
+  return fetchProvinceOfficialPage(redirectUrl, 60_000);
+}
+
+async function loadChinaRegionOfficialFeed(region: string, level: string, province: string, adcode: string) {
+  if (!region || !['province', 'city', 'county'].includes(level)) throw new Error('无效的行政区域参数');
+  if (level === 'province') return loadChinaProvinceOfficialFeed(province || region);
+  const cacheKey = `${province}:${level}:${adcode || region}`;
+  const cached = chinaProvinceFeedCache.get(cacheKey);
+  if (cached && Date.now() - cached.storedAt < 10 * 60_000) return cached.data;
+  const running = chinaProvinceFeedInFlight.get(cacheKey);
+  if (running) return running;
+  const request = (async () => {
+    const portalUrl = await discoverChinaRegionGovernmentPortal(region, province, adcode);
+    const pageUrls = chinaRegionOfficialPageOverrides[region] || [portalUrl];
+    const pageResults = await Promise.allSettled(pageUrls.map(fetchRegionOfficialPage));
+    const pages = pageResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+    if (!pages.length) throw new Error(`${region}官方页面暂不可达`);
+    const uniqueItems = (items: ChinaProvinceOfficialItem[]) => {
+      const seen = new Set<string>();
+      return items.filter((item) => {
+        const key = item.title.replace(/[\s\p{P}\p{S}]+/gu, '');
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).slice(0, 8);
+    };
+    const policies = uniqueItems(pages.flatMap((page) => parseRegionOfficialItems(region, page.html, 'policy', page.url)));
+    const news = uniqueItems(pages.flatMap((page) => parseRegionOfficialItems(region, page.html, 'news', page.url)));
+    const errors: string[] = [];
+    if (!policies.length) errors.push('政策：首页未解析到可核验条目');
+    if (!news.length) errors.push('新闻：首页未解析到可核验条目');
+    const data = {
+      province: region,
+      region,
+      level,
+      portalUrl,
+      generatedAt: new Date().toISOString(),
+      policies,
+      news,
+      sourceStatus: policies.length || news.length ? 'live' : 'unavailable',
+      errors,
+    };
+    chinaProvinceFeedCache.set(cacheKey, { storedAt: Date.now(), data });
+    return data;
+  })().catch((error) => {
+    const data = {
+      province: region,
+      region,
+      level,
+      generatedAt: new Date().toISOString(),
+      policies: [],
+      news: [],
+      sourceStatus: 'unavailable',
+      errors: [error instanceof Error ? error.message : String(error)],
+    };
+    chinaProvinceFeedCache.set(cacheKey, { storedAt: Date.now(), data });
+    return data;
+  }).finally(() => chinaProvinceFeedInFlight.delete(cacheKey));
+  chinaProvinceFeedInFlight.set(cacheKey, request);
   return request;
 }
 
@@ -10388,6 +10507,16 @@ function allWeatherApiPlugin() {
             const province = String(url.searchParams.get('province') || '');
             res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 200, await loadChinaProvinceOfficialFeed(province));
+            return;
+          }
+
+          if (url.pathname === '/api/china-region-official-feed') {
+            const region = String(url.searchParams.get('region') || '');
+            const level = String(url.searchParams.get('level') || '');
+            const province = String(url.searchParams.get('province') || '');
+            const adcode = String(url.searchParams.get('adcode') || '');
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await loadChinaRegionOfficialFeed(region, level, province, adcode));
             return;
           }
 
