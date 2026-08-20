@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { geoMercator, geoPath } from 'd3-geo';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import {
@@ -415,17 +415,91 @@ function metricSignal(item: ChinaMetric) {
   return '数据待核验';
 }
 
+function metricPeriodLabel(period: string) {
+  const cumulative = period.match(/^(\d{4})-01[—–-]07$/);
+  if (cumulative) return `${cumulative[1]}年1—7月累计`;
+  const halfYear = period.match(/^(\d{4})\s*H1$/i);
+  if (halfYear) return `${halfYear[1]}年上半年`;
+  const month = period.match(/^(\d{4})-(\d{2})$/);
+  if (month) return `${month[1]}年${Number(month[2])}月`;
+  const day = period.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (day) return `截至${Number(day[2])}月${Number(day[3])}日`;
+  return period;
+}
+
+function metricJudgement(item: ChinaMetric): { label: string; detail: string; tone: 'support' | 'risk' | 'watch' | 'neutral' } {
+  const value = metricValue(item);
+  const change = item.change ?? 0;
+  const judgements: Record<string, { label: string; detail: string; tone: 'support' | 'risk' | 'watch' | 'neutral' }> = {
+    tsf: value >= 7
+      ? { label: '信用总量扩张', detail: '融资存量仍在增长，对需求形成支撑', tone: 'support' }
+      : { label: '信用脉冲偏弱', detail: '融资扩张速度不足，内需修复承压', tone: 'watch' },
+    m1m2: value < 0
+      ? { label: '资金活性偏弱', detail: 'M1弱于M2，企业活期资金与交易意愿不足', tone: 'watch' }
+      : { label: '资金活性改善', detail: '活期资金增速改善，经济交易活跃度回升', tone: 'support' },
+    'official-pmi': value < 50
+      ? { label: '制造业收缩', detail: '低于50荣枯线，制造业景气度偏弱', tone: 'risk' }
+      : { label: '制造业扩张', detail: '高于50荣枯线，制造业活动扩张', tone: 'support' },
+    'caixin-pmi': value < 50
+      ? { label: '民企景气收缩', detail: '财新样本低于荣枯线，民企和出口链偏弱', tone: 'risk' }
+      : { label: '民企景气扩张', detail: '财新样本高于荣枯线，民企景气相对较强', tone: 'support' },
+    cpi: change < 0
+      ? { label: '消费价格降温', detail: '环比回落，居民端价格压力下降', tone: 'watch' }
+      : { label: '消费价格走强', detail: '环比回升，居民端价格压力抬升', tone: 'risk' },
+    ppi: change < 0
+      ? { label: '工业价格降温', detail: '环比回落，上游价格向下游传导减弱', tone: 'watch' }
+      : { label: '工业价格走强', detail: '环比回升，上游成本压力增强', tone: 'risk' },
+    dr007: value < 1.6
+      ? { label: '资金面偏松', detail: '银行间短端资金价格处于偏低水平', tone: 'support' }
+      : { label: '资金面偏紧', detail: '银行间短端融资成本偏高', tone: 'watch' },
+    cn10y: { label: '长端利率低位', detail: '长期增长与通胀预期仍偏谨慎', tone: 'neutral' },
+    lpr: change === 0
+      ? { label: '贷款利率维持', detail: '企业与居民贷款定价暂未进一步调整', tone: 'neutral' }
+      : { label: '贷款利率调整', detail: '实体融资成本发生变化', tone: change < 0 ? 'support' : 'risk' },
+    'household-loans': { label: '居民信用偏弱', detail: '中长期贷款增量偏低，购房与耐用品需求修复有限', tone: 'watch' },
+    'corporate-loans': { label: '企业融资较强', detail: '企业中长期融资形成信用扩张支撑', tone: 'support' },
+    fiscal: value > 0
+      ? { label: '财政温和发力', detail: '公共预算支出增长，对总需求形成支撑', tone: 'support' }
+      : { label: '财政支出收缩', detail: '财政支出对需求的拉动减弱', tone: 'risk' },
+    property: value < 0
+      ? { label: '地产拖累扩大', detail: '商品房销售收缩，地产链需求继续承压', tone: 'risk' }
+      : { label: '地产销售修复', detail: '商品房销售改善，地产链拖累减轻', tone: 'support' },
+    'land-sales': value < 0
+      ? { label: '地方财力承压', detail: '土地收入下降，地方政府可用财力受到约束', tone: 'risk' }
+      : { label: '土地收入改善', detail: '土地收入回升，地方财力约束缓解', tone: 'support' },
+    exports: value > 0
+      ? { label: '外需形成支撑', detail: '出口增长为工业生产与就业提供支撑', tone: 'support' }
+      : { label: '外需转弱', detail: '出口收缩，对制造业形成拖累', tone: 'risk' },
+    'cn-us-spread': value < 0
+      ? { label: '人民币利差承压', detail: '中美利差倒挂，跨境资金与汇率仍有压力', tone: 'watch' }
+      : { label: '人民币利差改善', detail: '中美利差改善，外部资金压力缓解', tone: 'support' },
+    'cnh-hibor': { label: '离岸流动性平稳', detail: '离岸人民币短端资金面保持平稳', tone: 'neutral' },
+    'credit-spread': value < 60
+      ? { label: '信用风险可控', detail: '高等级信用利差较窄，风险溢价温和', tone: 'support' }
+      : { label: '信用风险升温', detail: '信用利差走阔，市场风险补偿上升', tone: 'risk' },
+    'bill-financing': { label: '短期融资偏多', detail: '票据融资增加，需观察真实投资需求承接', tone: 'watch' },
+    'interbank-repo': change <= 0
+      ? { label: '短端资金偏松', detail: '回购利率较上月下降，流动性相对充裕', tone: 'support' }
+      : { label: '短端资金趋紧', detail: '回购利率上升，流动性边际收紧', tone: 'watch' },
+    'term-spread': value > 0
+      ? { label: '曲线正斜率', detail: '长端利率高于短端，暂未出现期限倒挂', tone: 'neutral' }
+      : { label: '期限曲线倒挂', detail: '长端利率低于短端，衰退预期升温', tone: 'risk' },
+  };
+  return judgements[item.id] || { label: metricSignal(item), detail: item.note || '请结合历史区间与市场预期综合判断', tone: 'neutral' };
+}
+
 function MetricCell({ item }: { item?: ChinaMetric }) {
   if (!item) return <div className="china-metric-cell is-empty"><span className="china-metric-name">等待数据</span></div>;
   const visual = METRIC_VISUALS[item.id as keyof typeof METRIC_VISUALS];
   const Icon = visual?.icon || CircleGauge;
+  const judgement = metricJudgement(item);
   return (
     <a
-      className="china-metric-cell"
+      className={`china-metric-cell china-metric-${item.id}`}
       href={item.sourceUrl}
       target="_blank"
       rel="noreferrer"
-      title={`${item.label}\n${item.note || ''}\n${item.period} · ${item.source}`}
+      title={`${item.label}\n${judgement.detail}\n${item.note || ''}\n${metricPeriodLabel(item.period)} · ${item.source}`}
     >
       <span className="china-metric-head">
         <i><Icon size={12} /></i>
@@ -434,10 +508,190 @@ function MetricCell({ item }: { item?: ChinaMetric }) {
       </span>
       <span className="china-metric-value"><strong>{item.display}</strong><ArrowUpRight size={11} /></span>
       <span className="china-metric-foot">
-        <b className={`is-${metricTone(item.change)}`}>{metricSignal(item)}</b>
-        <small>{item.period}</small>
+        <b className={`is-impact-${judgement.tone}`}>{judgement.label}</b>
+        <small>{metricPeriodLabel(item.period)}</small>
       </span>
     </a>
+  );
+}
+
+type MacroAnchor = (typeof ANCHORS)[number];
+
+function metricValue(item?: ChinaMetric) {
+  return item?.value != null && Number.isFinite(item.value) ? item.value : 0;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function anchorVerdict(anchorId: MacroAnchor['id'], items: ChinaMetric[]) {
+  const values = new Map(items.map((item) => [item.id, item]));
+  if (anchorId === 'credit') {
+    const credit = metricValue(values.get('tsf'));
+    const moneyGap = metricValue(values.get('m1m2'));
+    if (credit > 7 && moneyGap < 0) return '总量扩张 · 活性偏弱';
+    if (credit <= 7 && moneyGap < 0) return '信用脉冲偏弱';
+    return '融资与货币活性改善';
+  }
+  if (anchorId === 'growth') {
+    const official = metricValue(values.get('official-pmi'));
+    const caixin = metricValue(values.get('caixin-pmi'));
+    if (official < 50 && caixin >= 50) return '景气分化';
+    if (official < 50 && caixin < 50) return '制造业收缩';
+    return '扩张区间';
+  }
+  if (anchorId === 'inflation') {
+    const changes = items.map((item) => item.change).filter((value): value is number => value != null);
+    if (changes.length && changes.every((value) => value < 0)) return '价格压力边际降温';
+    if (changes.some((value) => value < 0) && changes.some((value) => value > 0)) return '通胀信号分化';
+    return '再通胀压力抬升';
+  }
+  const dr007 = metricValue(values.get('dr007'));
+  const cn10y = metricValue(values.get('cn10y'));
+  return cn10y > dr007 ? '资金面平稳 · 曲线正斜率' : '期限曲线承压';
+}
+
+function metricPhenomenon(item: ChinaMetric) {
+  if (item.id === 'tsf') return metricValue(item) >= 7 ? '融资总量仍在扩张' : '信用扩张速度偏弱';
+  if (item.id === 'm1m2') return metricValue(item) < 0 ? '资金活化程度偏弱' : '活期资金改善';
+  if (item.id === 'official-pmi' || item.id === 'caixin-pmi') return metricValue(item) >= 50 ? '位于扩张区间' : '位于收缩区间';
+  if (item.id === 'cpi') return (item.change ?? 0) < 0 ? '消费价格边际降温' : '消费价格压力回升';
+  if (item.id === 'ppi') return (item.change ?? 0) < 0 ? '工业品价格环比回落' : '工业品价格环比走强';
+  if (item.id === 'dr007') return metricValue(item) < 1.6 ? '银行间资金偏宽' : '资金价格偏紧';
+  if (item.id === 'cn10y') return '长端利率定价增长预期';
+  if (item.id === 'lpr') return (item.change ?? 0) === 0 ? '贷款报价利率维持' : '贷款报价利率调整';
+  return metricSignal(item);
+}
+
+function MacroMetricLink({ item, className, children, style }: { item: ChinaMetric; className: string; children: ReactNode; style?: CSSProperties }) {
+  return (
+    <a
+      className={className}
+      href={item.sourceUrl}
+      target="_blank"
+      rel="noreferrer"
+      style={style}
+      title={`${item.label}\n${item.note || ''}\n${item.period} · ${item.source}`}
+    >
+      {children}
+    </a>
+  );
+}
+
+function MacroAnchorVisual({ anchor, items }: { anchor: MacroAnchor; items: ChinaMetric[] }) {
+  if (anchor.id === 'credit') {
+    return (
+      <div className="china-credit-pulse">
+        {items.map((item) => {
+          const fill = item.id === 'tsf'
+            ? clamp(metricValue(item) / 12 * 100, 8, 100)
+            : clamp(Math.abs(metricValue(item)) / 8 * 100, 8, 100);
+          return (
+            <MacroMetricLink key={item.id} item={item} className="china-credit-metric" style={{ '--signal-fill': `${fill}%` } as CSSProperties}>
+              <span><b>{METRIC_VISUALS[item.id as keyof typeof METRIC_VISUALS]?.label || item.label}</b><em className={`is-${item.status}`} /></span>
+              <strong>{item.display}</strong>
+              <small>{metricPhenomenon(item)} · {metricPeriodLabel(item.period)}</small>
+              <i><u /></i>
+            </MacroMetricLink>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (anchor.id === 'growth') {
+    return (
+      <div className="china-pmi-board">
+        <div className="china-pmi-axis"><span>45</span><b>50 · 荣枯线</b><span>55</span></div>
+        {items.map((item) => {
+          const position = clamp((metricValue(item) - 45) / 10 * 100, 2, 98);
+          const bandStart = Math.min(50, position);
+          const bandWidth = Math.abs(position - 50);
+          const distance = Math.abs(metricValue(item) - 50).toFixed(1);
+          const expanding = metricValue(item) >= 50;
+          return (
+            <MacroMetricLink
+              key={item.id}
+              item={item}
+              className={`china-pmi-row ${expanding ? 'is-expansion' : 'is-contraction'}`}
+              style={{ '--pmi-position': `${position}%`, '--pmi-band-start': `${bandStart}%`, '--pmi-band-width': `${bandWidth}%` } as CSSProperties}
+            >
+              <span className="china-pmi-row-head">
+                <b>{item.id === 'official-pmi' ? '官方 PMI' : '财新 PMI'}</b>
+                <em className={expanding ? 'is-expansion' : 'is-contraction'}>{expanding ? '扩张' : '收缩'}</em>
+                <strong>{item.display}</strong>
+              </span>
+              <div className="china-pmi-track"><i /><em /></div>
+              <span className="china-pmi-row-foot">
+                <b>{expanding ? '高于' : '低于'}荣枯线 {distance} 点</b>
+                <small>较前值 {metricSignal(item)} · {metricPeriodLabel(item.period)}</small>
+              </span>
+            </MacroMetricLink>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (anchor.id === 'inflation') {
+    return (
+      <div className="china-inflation-radar">
+        {items.map((item) => {
+          const pressure = clamp(Math.abs(metricValue(item)) / 5 * 100, 6, 100);
+          return (
+            <MacroMetricLink key={item.id} item={item} className={`china-inflation-metric is-${item.id}`} style={{ '--inflation-pressure': `${pressure * 3.6}deg` } as CSSProperties}>
+              <span className="china-inflation-ring"><i><strong>{item.display}</strong><small>同比</small></i></span>
+              <span className="china-inflation-copy"><b>{item.id.toUpperCase()}</b><strong>{metricPhenomenon(item)}</strong><small>{metricSignal(item)} · {metricPeriodLabel(item.period)}</small></span>
+            </MacroMetricLink>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const rateItems = items.filter((item) => ['dr007', 'cn10y', 'lpr'].includes(item.id));
+  const points = rateItems.map((item, index) => {
+    const x = 18 + index * 82;
+    const y = 57 - clamp(metricValue(item), 0, 4) / 4 * 38;
+    return `${x},${y}`;
+  }).join(' ');
+  return (
+    <div className="china-rate-curve">
+      <div className="china-rate-chart" aria-label="当期资金价格横截面">
+        <svg viewBox="0 0 200 66" preserveAspectRatio="none" aria-hidden="true">
+          <line x1="0" y1="57" x2="200" y2="57" />
+          <line x1="0" y1="28" x2="200" y2="28" />
+          <polyline points={points} />
+          {rateItems.map((item, index) => <circle key={item.id} cx={18 + index * 82} cy={57 - clamp(metricValue(item), 0, 4) / 4 * 38} r="3" />)}
+        </svg>
+        <span>当期资金价格曲线</span>
+      </div>
+      <div className="china-rate-points">
+        {rateItems.map((item) => (
+          <MacroMetricLink key={item.id} item={item} className={`china-rate-point is-${item.id}`}>
+            <span>{item.id === 'cn10y' ? '10Y 国债' : item.id.toUpperCase()}</span>
+            <strong>{item.display}</strong>
+            <small>{metricPhenomenon(item)}</small>
+          </MacroMetricLink>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MacroAnchorCard({ anchor, metrics }: { anchor: MacroAnchor; metrics: Map<string, ChinaMetric> }) {
+  const Icon = anchor.icon;
+  const items = anchor.metricIds.map((id) => metrics.get(id)).filter((item): item is ChinaMetric => Boolean(item));
+  return (
+    <section className={`china-anchor-card is-${anchor.id}`}>
+      <header>
+        <Icon size={16} />
+        <div><small>{anchor.eyebrow}</small><strong>{anchor.title}</strong></div>
+        <span className="china-anchor-verdict">{anchorVerdict(anchor.id, items)}</span>
+      </header>
+      <MacroAnchorVisual anchor={anchor} items={items} />
+    </section>
   );
 }
 
@@ -751,15 +1005,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
         <aside className="china-command-left">
           <div className="china-section-heading"><CircleGauge size={15} /><span>TIER 1 · 四大宏观锚点</span></div>
           <div className="china-anchor-list">
-            {ANCHORS.map((anchor) => {
-              const Icon = anchor.icon;
-              return (
-                <section className="china-anchor-card" key={anchor.id}>
-                  <header><Icon size={16} /><div><small>{anchor.eyebrow}</small><strong>{anchor.title}</strong></div></header>
-                  <div className="china-anchor-metrics">{anchor.metricIds.map((id) => <MetricCell key={id} item={metrics.get(id)} />)}</div>
-                </section>
-              );
-            })}
+            {ANCHORS.map((anchor) => <MacroAnchorCard key={anchor.id} anchor={anchor} metrics={metrics} />)}
           </div>
           <div className="china-tier-block">
             <div className="china-section-heading"><Building2 size={15} /><span>TIER 2 · 结构与传导</span></div>

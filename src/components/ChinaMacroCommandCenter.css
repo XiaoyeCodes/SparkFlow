@@ -97,13 +97,87 @@
 .china-quadrant-board,
 .china-news-board,
 .china-province-inspector { border: 1px solid var(--china-border); border-radius: 6px; background: linear-gradient(145deg, rgba(15, 31, 27, 0.96), rgba(7, 18, 16, 0.98)); box-shadow: inset 0 1px 0 rgba(220, 255, 242, 0.025); }
-.china-anchor-card > header { display: flex; align-items: center; gap: 10px; padding: 10px 11px 8px; border-bottom: 1px solid rgba(116, 177, 158, 0.12); color: var(--china-green); }
+.china-anchor-card { position: relative; overflow: hidden; isolation: isolate; }
+.china-anchor-card::after { position: absolute; z-index: -1; inset: 0; pointer-events: none; content: ""; opacity: 0.35; }
+.china-anchor-card > header { display: flex; align-items: center; gap: 9px; min-height: 49px; padding: 9px 10px 8px; border-bottom: 1px solid rgba(116, 177, 158, 0.12); color: var(--china-green); }
 .china-anchor-card > header div { display: grid; gap: 2px; }
 .china-anchor-card > header small { color: var(--china-muted); font: 500 8px "JetBrains Mono", monospace; letter-spacing: 0.13em; }
 .china-anchor-card > header strong { color: var(--china-text); font-size: 13px; }
-.china-anchor-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.china-anchor-card:last-child .china-anchor-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.china-anchor-card:last-child .china-metric-cell:last-child { grid-column: 1 / -1; border-top: 1px solid rgba(116, 177, 158, 0.1); }
+.china-anchor-verdict { min-width: 0; margin-left: auto; border: 1px solid currentColor; border-radius: 2px; padding: 3px 5px; color: #7fd8bb; background: rgba(8, 30, 25, 0.7); font: 600 7px "JetBrains Mono", monospace; letter-spacing: 0.02em; text-align: center; white-space: nowrap; }
+.china-anchor-card.is-credit { border-left: 2px solid #5be1c1; border-radius: 2px 10px 2px 2px; }
+.china-anchor-card.is-credit::after { background: linear-gradient(115deg, rgba(45, 206, 174, 0.1), transparent 52%), repeating-linear-gradient(90deg, transparent 0 26px, rgba(81, 194, 169, 0.035) 27px); }
+.china-anchor-card.is-growth { border-radius: 2px; border-color: rgba(137, 182, 152, 0.3); }
+.china-anchor-card.is-growth::after { background: linear-gradient(rgba(85, 137, 120, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(85, 137, 120, 0.045) 1px, transparent 1px); background-size: 16px 16px; }
+.china-anchor-card.is-inflation { border-color: rgba(229, 159, 101, 0.25); border-radius: 9px 2px 9px 2px; }
+.china-anchor-card.is-inflation > header { color: #f0a76b; }
+.china-anchor-card.is-inflation .china-anchor-verdict { color: #e9a06b; background: rgba(47, 23, 15, 0.62); }
+.china-anchor-card.is-inflation::after { background: radial-gradient(circle at 50% 112%, rgba(239, 136, 73, 0.16), transparent 52%); }
+.china-anchor-card.is-policy { border-top: 2px solid rgba(99, 170, 231, 0.68); border-radius: 2px 2px 7px 7px; }
+.china-anchor-card.is-policy > header { color: #78b9ef; }
+.china-anchor-card.is-policy .china-anchor-verdict { color: #86c4f3; background: rgba(9, 25, 42, 0.72); }
+.china-anchor-card.is-policy::after { background: linear-gradient(180deg, rgba(47, 120, 179, 0.08), transparent 70%); }
+
+.china-credit-pulse { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.china-credit-metric { display: grid; min-width: 0; min-height: 112px; align-content: space-between; gap: 5px; padding: 10px 11px; border-right: 1px solid rgba(105, 202, 178, 0.12); color: var(--china-text); text-decoration: none; }
+.china-credit-metric:last-child { border-right: 0; }
+.china-credit-metric:hover { background: rgba(74, 205, 174, 0.055); }
+.china-credit-metric > span { display: flex; min-width: 0; align-items: center; gap: 6px; }
+.china-credit-metric > span b { min-width: 0; overflow: hidden; color: #a9bbb6; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.china-credit-metric > span em { width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: var(--china-gold); }
+.china-credit-metric > span em.is-live { background: var(--china-green); box-shadow: 0 0 7px rgba(102, 223, 183, 0.5); }
+.china-credit-metric > strong { color: #f2f8f5; font: 650 20px/1 "JetBrains Mono", monospace; letter-spacing: -0.045em; }
+.china-credit-metric > small { overflow: hidden; color: #79cdb5; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.china-credit-metric > i { position: relative; display: block; height: 5px; overflow: hidden; background: repeating-linear-gradient(90deg, rgba(75, 131, 116, 0.24) 0 7px, transparent 7px 10px); }
+.china-credit-metric > i::after { position: absolute; top: 2px; left: 0; width: 100%; height: 1px; background: rgba(75, 131, 116, 0.35); content: ""; }
+.china-credit-metric > i u { position: absolute; z-index: 1; top: 0; left: 0; width: var(--signal-fill); height: 100%; background: linear-gradient(90deg, #2c8e78, #6ce3c3); box-shadow: 0 0 9px rgba(77, 224, 188, 0.25); text-decoration: none; }
+
+.china-pmi-board { position: relative; display: grid; gap: 7px; padding: 8px 10px 10px; }
+.china-pmi-axis { display: flex; align-items: center; justify-content: space-between; color: #526b64; font: 7px "JetBrains Mono", monospace; }
+.china-pmi-axis b { color: #c6a267; font-weight: 600; }
+.china-pmi-row { display: grid; gap: 5px; min-width: 0; border: 1px solid rgba(102, 161, 143, 0.11); border-radius: 3px; padding: 7px 8px 6px; color: var(--china-text); background: rgba(8, 22, 18, 0.72); text-decoration: none; }
+.china-pmi-row:hover { border-color: rgba(102, 223, 183, 0.28); background: rgba(14, 35, 29, 0.82); }
+.china-pmi-row-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.china-pmi-row-head > b { overflow: hidden; color: #a7bab4; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.china-pmi-row-head > em { border: 1px solid currentColor; border-radius: 2px; padding: 2px 4px; font: 700 7px "JetBrains Mono", monospace; font-style: normal; }
+.china-pmi-row-head > em.is-expansion { color: #67dcbc; background: rgba(63, 174, 144, 0.08); }
+.china-pmi-row-head > em.is-contraction { color: #e1a15f; background: rgba(176, 101, 45, 0.08); }
+.china-pmi-row-head > strong { margin-left: auto; color: #edf5f2; font: 650 18px "JetBrains Mono", monospace; }
+.china-pmi-track { position: relative; height: 9px; overflow: hidden; border: 1px solid rgba(100, 157, 139, 0.16); border-radius: 1px; background: linear-gradient(90deg, rgba(188, 112, 61, 0.16) 0 50%, rgba(55, 151, 125, 0.15) 50%); }
+.china-pmi-track::after { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(222, 180, 108, 0.82); content: ""; }
+.china-pmi-track > i { position: absolute; z-index: 2; top: -2px; left: var(--pmi-position); width: 2px; height: 13px; background: #e8fff7; box-shadow: 0 0 7px rgba(105, 226, 193, 0.72); transform: translateX(-50%); }
+.china-pmi-track > em { position: absolute; top: 2px; left: var(--pmi-band-start); width: max(var(--pmi-band-width), 1%); height: 3px; background: #61dabb; box-shadow: 0 0 7px rgba(97, 218, 187, 0.45); }
+.china-pmi-row-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.china-pmi-row-foot > b { color: #d8ad6f; font-size: 7px; font-weight: 600; }
+.china-pmi-row.is-expansion .china-pmi-row-foot > b { color: #6fd4b8; }
+.china-pmi-row-foot > small { min-width: 0; overflow: hidden; color: #5e766f; font: 6px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+
+.china-inflation-radar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px 7px 11px; }
+.china-inflation-metric { display: grid; grid-template-columns: 57px minmax(0, 1fr); align-items: center; gap: 7px; min-width: 0; padding: 2px 7px; color: var(--china-text); text-decoration: none; }
+.china-inflation-metric:first-child { border-right: 1px solid rgba(229, 159, 101, 0.14); }
+.china-inflation-ring { display: grid; width: 55px; height: 55px; place-items: center; border-radius: 50%; background: conic-gradient(#eaa069 0 var(--inflation-pressure), rgba(173, 96, 60, 0.12) var(--inflation-pressure)); box-shadow: 0 0 16px rgba(207, 106, 65, 0.08); }
+.china-inflation-metric.is-cpi .china-inflation-ring { background: conic-gradient(#61d9b9 0 var(--inflation-pressure), rgba(58, 142, 120, 0.12) var(--inflation-pressure)); }
+.china-inflation-ring > i { display: grid; width: 45px; height: 45px; place-content: center; border-radius: 50%; background: #0a1714; font-style: normal; text-align: center; }
+.china-inflation-ring strong { font: 650 12px "JetBrains Mono", monospace; }
+.china-inflation-ring small { color: #657c76; font: 6px "JetBrains Mono", monospace; }
+.china-inflation-copy { display: grid; gap: 3px; min-width: 0; }
+.china-inflation-copy > b { color: #e6a06d; font: 700 8px "JetBrains Mono", monospace; letter-spacing: 0.12em; }
+.china-inflation-metric.is-cpi .china-inflation-copy > b { color: #68d9ba; }
+.china-inflation-copy > strong { color: #b9c7c2; font-size: 8px; line-height: 1.25; }
+.china-inflation-copy > small { overflow: hidden; color: #617771; font: 6px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+
+.china-rate-curve { padding: 7px 9px 10px; }
+.china-rate-chart { position: relative; height: 60px; overflow: hidden; border-bottom: 1px solid rgba(94, 160, 209, 0.15); background: linear-gradient(180deg, rgba(31, 91, 134, 0.09), transparent); }
+.china-rate-chart svg { width: 100%; height: 58px; overflow: visible; }
+.china-rate-chart line { stroke: rgba(99, 155, 197, 0.12); stroke-width: 1; }
+.china-rate-chart polyline { fill: none; stroke: #68b8ee; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.china-rate-chart circle { fill: #93d4ff; stroke: #0b1c27; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.china-rate-chart > span { position: absolute; top: 4px; left: 5px; color: #5f7c8d; font: 7px "JetBrains Mono", monospace; letter-spacing: 0.08em; }
+.china-rate-points { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.china-rate-point { display: grid; min-width: 0; gap: 3px; padding: 7px 5px 2px; border-right: 1px solid rgba(94, 160, 209, 0.12); color: var(--china-text); text-decoration: none; }
+.china-rate-point:last-child { border-right: 0; }
+.china-rate-point > span { color: #6d8da0; font: 7px "JetBrains Mono", monospace; }
+.china-rate-point > strong { overflow: hidden; color: #eaf3f8; font: 650 10px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.china-rate-point > small { overflow: hidden; color: #75afd1; font-size: 6px; text-overflow: ellipsis; white-space: nowrap; }
 
 .china-metric-cell { position: relative; display: grid; min-width: 0; min-height: 94px; align-content: space-between; gap: 7px; padding: 10px 11px 9px; border-right: 1px solid rgba(116, 177, 158, 0.1); color: var(--china-text); text-decoration: none; overflow: hidden; isolation: isolate; }
 .china-metric-cell::before { position: absolute; z-index: -1; right: -24px; bottom: -32px; width: 72px; height: 72px; border: 1px solid rgba(102, 223, 183, 0.07); border-radius: 50%; content: ""; transition: border-color 160ms ease, transform 160ms ease; }
@@ -121,16 +195,29 @@
 .china-metric-value > svg { flex: 0 0 auto; color: rgba(102, 223, 183, 0.34); }
 .china-metric-foot { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 7px; border-top: 1px solid rgba(116, 177, 158, 0.1); padding-top: 6px; }
 .china-metric-foot > b { min-width: 0; overflow: hidden; font: 600 8px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
-.china-metric-foot > small { flex: 0 0 auto; color: #526963; font: 500 7px "JetBrains Mono", monospace; white-space: nowrap; }
+.china-metric-foot > small { min-width: 0; overflow: hidden; color: #526963; font: 500 7px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
 .china-metric-cell.is-empty { color: var(--china-muted); }
 .is-up { color: var(--china-red) !important; }
 .is-down { color: var(--china-green) !important; }
 .is-flat { color: #a7b3ae !important; }
+.is-impact-support { color: #68d9b9 !important; }
+.is-impact-risk { color: #ef836e !important; }
+.is-impact-watch { color: #dcb06b !important; }
+.is-impact-neutral { color: #79a9c4 !important; }
 .china-tier-block { margin-top: 18px; }
 .china-compact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--china-border); border-radius: 6px; background: var(--china-card); }
 .china-compact-grid .china-metric-cell { border-bottom: 1px solid rgba(116, 177, 158, 0.1); }
 .china-compact-grid .china-metric-cell:nth-child(odd):last-child { grid-column: 1 / -1; }
 .china-compact-grid .china-metric-cell:nth-last-child(-n + 2) { border-bottom: 0; }
+.china-compact-grid .china-metric-value > strong { font-size: 15px; }
+.china-compact-grid .china-metric-value > svg { display: none; }
+.china-compact-grid .china-metric-household-loans .china-metric-head > i,
+.china-compact-grid .china-metric-corporate-loans .china-metric-head > i { color: #74b9f0; border-color: rgba(92, 163, 219, 0.35); background: rgba(50, 112, 159, 0.09); }
+.china-compact-grid .china-metric-fiscal .china-metric-head > i,
+.china-compact-grid .china-metric-bill-financing .china-metric-head > i { color: #e1b76b; border-color: rgba(221, 177, 99, 0.32); background: rgba(153, 108, 40, 0.08); }
+.china-compact-grid .china-metric-property .china-metric-head > i,
+.china-compact-grid .china-metric-land-sales .china-metric-head > i { color: #e3836f; border-color: rgba(220, 111, 91, 0.3); background: rgba(149, 62, 47, 0.09); }
+.china-compact-grid .china-metric-exports .china-metric-head > i { color: #69d8b9; }
 
 .china-map-stage { display: grid; grid-template-rows: 70px minmax(300px, 1fr); padding: 16px 18px 18px; overflow: hidden; }
 .china-map-stage.has-selection { grid-template-rows: 70px minmax(300px, 1fr) minmax(270px, 34vh); }
