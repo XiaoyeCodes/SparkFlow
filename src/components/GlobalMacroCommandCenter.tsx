@@ -49,7 +49,12 @@ const PHONE_DESKTOP_CANVAS_HEIGHT = 1080;
 
 function detectPhoneDevice() {
   if (typeof navigator === 'undefined') return false;
-  return /Android.*Mobile|iPhone|iPod|Windows Phone|Mobile Safari/i.test(navigator.userAgent);
+  const mobileUserAgent = /Android.*Mobile|iPhone|iPod|Windows Phone|Mobile Safari/i.test(navigator.userAgent);
+  const compactViewport = typeof window !== 'undefined' && window.innerWidth <= 600;
+  const compactTouchScreen = typeof screen !== 'undefined'
+    && navigator.maxTouchPoints > 0
+    && Math.min(screen.width, screen.height) <= 600;
+  return mobileUserAgent || compactViewport || compactTouchScreen;
 }
 const INTERNATIONAL_MARKET_IDS = new Set<GlobalMarketMode>(['japan', 'korea', 'india', 'germany', 'france', 'uk']);
 type RegionId = 'global' | 'apac' | 'middleEast' | 'europe' | 'americas';
@@ -1134,6 +1139,7 @@ function HologramGlobe({
   markets,
   selectedId,
   focusCountry,
+  localCoordinateSpace = false,
   onSelect,
   onPrefetch,
   onUnlockFocus,
@@ -1141,6 +1147,7 @@ function HologramGlobe({
   markets: Quote[];
   selectedId?: string;
   focusCountry: GlobeCountryFocus;
+  localCoordinateSpace?: boolean;
   onSelect: (quote: Quote) => void;
   onPrefetch: (quote: Quote) => void;
   onUnlockFocus: () => void;
@@ -1332,32 +1339,54 @@ function HologramGlobe({
     focusControllerRef.current = applyCountryFocus;
     applyCountryFocus(focusCountryRef.current);
 
-    const resize = () => {
+    const viewportSize = () => {
+      if (localCoordinateSpace) {
+        return {
+          width: Math.max(1, host.clientWidth),
+          height: Math.max(1, host.clientHeight),
+        };
+      }
       const rect = host.getBoundingClientRect();
-      const aspect = rect.width / Math.max(rect.height, 1);
-      const cssPixels = Math.max(1, rect.width * rect.height);
+      return {
+        width: Math.max(1, rect.width),
+        height: Math.max(1, rect.height),
+      };
+    };
+    const pointerPosition = (event: PointerEvent) => {
+      if (localCoordinateSpace) {
+        return { x: event.offsetX, y: event.offsetY };
+      }
+      const rect = host.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+    const resize = () => {
+      const size = viewportSize();
+      const aspect = size.width / size.height;
+      const cssPixels = Math.max(1, size.width * size.height);
       const adaptivePixelRatio = Math.sqrt(4_000_000 / cssPixels);
       renderer.setPixelRatio(Math.max(1, Math.min(window.devicePixelRatio || 1, 1.75, adaptivePixelRatio)));
       camera.aspect = aspect;
       baseCameraZ = 6.7 * Math.max(1, aspect < 1 ? 1.08 / aspect : 1);
       camera.position.z = baseCameraZ / zoom.current;
       camera.updateProjectionMatrix();
-      renderer.setSize(rect.width, rect.height, false);
+      renderer.setSize(size.width, size.height, false);
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
 
     const handleDown = (event: PointerEvent) => {
+      const point = pointerPosition(event);
       drag.active = true;
       drag.moved = false;
-      drag.x = event.clientX;
-      drag.y = event.clientY;
+      drag.x = point.x;
+      drag.y = point.y;
       host.setPointerCapture(event.pointerId);
     };
     const handleMove = (event: PointerEvent) => {
       if (!drag.active) return;
-      const dx = event.clientX - drag.x;
-      const dy = event.clientY - drag.y;
+      const point = pointerPosition(event);
+      const dx = point.x - drag.x;
+      const dy = point.y - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 2) {
         drag.moved = true;
         if (lockedCountry) {
@@ -1368,17 +1397,18 @@ function HologramGlobe({
       }
       target.y += dx * 0.008;
       target.x = THREE.MathUtils.clamp(target.x + dy * 0.006, -0.78, 0.78);
-      drag.x = event.clientX;
-      drag.y = event.clientY;
+      drag.x = point.x;
+      drag.y = point.y;
     };
     const handleUp = (event: PointerEvent) => {
       drag.active = false;
       if (host.hasPointerCapture(event.pointerId)) host.releasePointerCapture(event.pointerId);
       if (drag.moved) return;
-      const rect = host.getBoundingClientRect();
+      const size = viewportSize();
+      const point = pointerPosition(event);
       pointer.set(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -(((event.clientY - rect.top) / rect.height) * 2 - 1),
+        (point.x / size.width) * 2 - 1,
+        -((point.y / size.height) * 2 - 1),
       );
       raycaster.setFromCamera(pointer, camera);
       const hit = raycaster.intersectObjects(nodes.map((item) => item.group.children[0]))[0];
@@ -1435,19 +1465,19 @@ function HologramGlobe({
         pulseMaterial.opacity = active ? 0.9 : 0.42;
       });
       if (tick++ % 3 === 0) {
-        const rect = host.getBoundingClientRect();
+        const size = viewportSize();
         const projectedLabels = nodes.flatMap(({ quoteIds, group }) => {
           const world = group.getWorldPosition(new THREE.Vector3());
           const facing = world.clone().normalize().dot(camera.position.clone().sub(world).normalize());
           const projected = world.clone().project(camera);
-          const rawX = (projected.x * 0.5 + 0.5) * rect.width;
-          const rawY = (-projected.y * 0.5 + 0.5) * rect.height;
+          const rawX = (projected.x * 0.5 + 0.5) * size.width;
+          const rawY = (-projected.y * 0.5 + 0.5) * size.height;
           const visible = facing > 0.18
             && projected.z < 1
             && rawX > 68
-            && rawX < rect.width - 68
+            && rawX < size.width - 68
             && rawY > 34
-            && rawY < rect.height - 42;
+            && rawY < size.height - 42;
           return quoteIds.flatMap((quoteId, index) => {
             const quote = quoteMap.get(quoteId);
             return quote ? [{
@@ -1487,7 +1517,7 @@ function HologramGlobe({
       nodes.forEach(disposeMarkerNode);
       renderer.dispose();
     };
-  }, []);
+  }, [localCoordinateSpace]);
 
   return (
     <div ref={mount} className="macro-holo" aria-label="可旋转全球市场地球">
@@ -1990,6 +2020,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [globeFocus, setGlobeFocus] = useState<GlobeCountryFocus>(null);
   const [phoneDevice, setPhoneDevice] = useState(false);
   const [phoneDesktopMode, setPhoneDesktopMode] = useState(false);
+  const [phoneDesktopPortrait, setPhoneDesktopPortrait] = useState(false);
   const [phoneDesktopScale, setPhoneDesktopScale] = useState(1);
   const [phoneToggleVisible, setPhoneToggleVisible] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
@@ -2048,12 +2079,23 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
 
   useEffect(() => {
     if (!phoneDevice || !phoneDesktopMode) return;
-    const updateScale = () => setPhoneDesktopScale(Math.min(1, window.innerWidth / PHONE_DESKTOP_CANVAS_WIDTH));
+    const updateScale = () => {
+      const viewportWidth = Math.max(1, window.visualViewport?.width ?? window.innerWidth);
+      const viewportHeight = Math.max(1, window.visualViewport?.height ?? window.innerHeight);
+      const portrait = viewportHeight > viewportWidth;
+      const displayWidth = portrait ? PHONE_DESKTOP_CANVAS_HEIGHT : PHONE_DESKTOP_CANVAS_WIDTH;
+      const displayHeight = portrait ? PHONE_DESKTOP_CANVAS_WIDTH : PHONE_DESKTOP_CANVAS_HEIGHT;
+
+      setPhoneDesktopPortrait(portrait);
+      setPhoneDesktopScale(Math.min(1, viewportWidth / displayWidth, viewportHeight / displayHeight));
+    };
     updateScale();
     window.addEventListener('resize', updateScale);
+    window.addEventListener('orientationchange', updateScale);
     window.visualViewport?.addEventListener('resize', updateScale);
     return () => {
       window.removeEventListener('resize', updateScale);
+      window.removeEventListener('orientationchange', updateScale);
       window.visualViewport?.removeEventListener('resize', updateScale);
     };
   }, [phoneDesktopMode, phoneDevice]);
@@ -2072,8 +2114,8 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   }, [revealPhoneToggle]);
 
   const phoneDesktopStageStyle = phoneDesktopMode ? {
-    width: `${PHONE_DESKTOP_CANVAS_WIDTH * phoneDesktopScale}px`,
-    height: `${PHONE_DESKTOP_CANVAS_HEIGHT * phoneDesktopScale}px`,
+    width: `${(phoneDesktopPortrait ? PHONE_DESKTOP_CANVAS_HEIGHT : PHONE_DESKTOP_CANVAS_WIDTH) * phoneDesktopScale}px`,
+    height: `${(phoneDesktopPortrait ? PHONE_DESKTOP_CANVAS_WIDTH : PHONE_DESKTOP_CANVAS_HEIGHT) * phoneDesktopScale}px`,
     '--macro-phone-desktop-scale': phoneDesktopScale,
   } as CSSProperties : undefined;
 
@@ -2518,7 +2560,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   }, [markets.length]);
 
   return (
-    <section className={`global-macro-shell${phoneDesktopMode ? ' macro-phone-desktop-mode' : ''}`}>
+    <section className={`global-macro-shell${phoneDesktopMode ? ' macro-phone-desktop-mode' : ''}${phoneDesktopMode && phoneDesktopPortrait ? ' macro-phone-desktop-portrait' : ''}`}>
       {phoneDevice ? (
         <>
           <button
@@ -2614,7 +2656,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             {error ? <button type="button" className="macro-error" onClick={() => void load()}>{error} · 点击重试</button> : null}
             <div className={`macro-globe-wrap ${view === 'map' ? 'flat' : ''}`}>
               {view === 'globe' ? (
-                markets.length ? <HologramGlobe markets={markets} selectedId={selected?.id} focusCountry={globeFocus} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} onUnlockFocus={() => setGlobeFocus(null)} /> : null
+                markets.length ? <HologramGlobe markets={markets} selectedId={selected?.id} focusCountry={globeFocus} localCoordinateSpace={phoneDesktopMode} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} onUnlockFocus={() => setGlobeFocus(null)} /> : null
               ) : (
                 <InteractiveFlatMap markets={markets} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} />
               )}

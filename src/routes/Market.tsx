@@ -1132,7 +1132,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
   if (dashboardView === 'global') {
     return (
       <PageTransition>
-      <section className="h-[calc(100vh-var(--nav-height))] min-h-[640px] overflow-hidden bg-[#030405] text-white">
+      <section className="h-[calc(100dvh-var(--nav-height))] min-h-0 overflow-hidden bg-[#030405] text-white">
           <Suspense fallback={<DashboardViewFallback label="全球宏观经济终端" />}>
             <GlobalMacroCommandCenter onOpenMarket={(mode) => navigate(`/market?market=${encodeURIComponent(mode)}`)} />
           </Suspense>

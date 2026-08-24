@@ -67,14 +67,25 @@
   background: transparent;
   touch-action: manipulation;
 }
-.global-macro-shell.macro-phone-desktop-mode { overflow: auto; overscroll-behavior: contain; }
+.global-macro-shell.macro-phone-desktop-mode {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
 .macro-phone-desktop-mode .macro-phone-desktop-stage { position: relative; display: block; flex: none; }
 .macro-phone-desktop-mode .macro-app {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 1920px;
   height: 1080px;
   min-height: 1080px;
   transform: scale(var(--macro-phone-desktop-scale, 1));
   transform-origin: left top;
+}
+.macro-phone-desktop-mode.macro-phone-desktop-portrait .macro-app {
+  transform: scale(var(--macro-phone-desktop-scale, 1)) rotate(90deg) translateY(-100%);
 }
 
 .macro-app {
