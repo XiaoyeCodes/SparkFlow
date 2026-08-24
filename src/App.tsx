@@ -13,6 +13,7 @@ import { Starmap } from './routes/Starmap';
 import { GalaxyRoute } from './routes/GalaxyRoute';
 import { Assistant } from './routes/Assistant';
 import { HyperspeedRoute } from './routes/HyperspeedRoute';
+import { IbkrAccount } from './routes/IbkrAccount';
 
 export default function App() {
   const location = useLocation();
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/starmap" element={<Starmap />} />
           <Route path="/galaxy" element={<GalaxyRoute />} />
           <Route path="/hyperspeed" element={<HyperspeedRoute />} />
+          <Route path="/ibkr" element={<IbkrAccount />} />
           <Route path="/stack" element={<Stack />} />
           <Route path="/artifacts" element={<Artifacts />} />
           <Route path="/logs" element={<Logs />} />

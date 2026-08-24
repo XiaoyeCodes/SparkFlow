@@ -4,6 +4,17 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Get-Sha256Hex([string]$Path) {
+  $stream = [System.IO.File]::OpenRead($Path)
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '')
+  } finally {
+    $sha256.Dispose()
+    $stream.Dispose()
+  }
+}
+
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $serviceRoot = Join-Path $rootPath 'services\vibe-trading'
 $pyprojectPath = Join-Path $serviceRoot 'pyproject.toml'
@@ -21,8 +32,8 @@ if (-not (Test-Path -LiteralPath $pyprojectPath) -or -not (Test-Path -LiteralPat
 }
 
 $sourceHash = '{0}:{1}' -f `
-  (Get-FileHash -LiteralPath $pyprojectPath -Algorithm SHA256).Hash,
-  (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash
+  (Get-Sha256Hex $pyprojectPath),
+  (Get-Sha256Hex $lockPath)
 if ((Test-Path -LiteralPath $venvPython) -and (Test-Path -LiteralPath $markerPath)) {
   $installedHash = [string](Get-Content -LiteralPath $markerPath -ErrorAction SilentlyContinue | Select-Object -First 1)
   if ($installedHash.Trim() -eq $sourceHash) {

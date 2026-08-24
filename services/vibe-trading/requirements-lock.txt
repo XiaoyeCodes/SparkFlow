@@ -1,15 +1,17 @@
-# Fully-pinned, hash-verified lock of the CORE runtime dependencies (the set
-# the Docker image installs from agent/requirements.txt). Optional IM-channel
-# extras are intentionally excluded — one of them (slackify-markdown>=4.4.0)
-# is unresolvable on PyPI, which is why a project-wide `uv lock` cannot run.
+# Fully-pinned, hash-verified lock of the core runtime dependencies, including
+# the local read-only IB Gateway client used by SparkFlow. Optional IM-channel
+# extras remain excluded because the project-wide optional set is not fully
+# resolvable on PyPI.
 #
-# Universal (multi-platform) resolution bounded to Python 3.11 (matching the
-# Docker image's python:3.11-slim) so environment markers pick the right wheel
-# per-platform (e.g. numpy is marked python_full_version < '3.12') while still
-# covering both x86_64 and aarch64 runtime/build hosts.
+# Universal resolution is bounded to Python 3.11 so it covers both x86_64 and
+# aarch64 runtime hosts.
 #
 # Regenerate after editing agent/requirements.txt:
 #    uv pip compile agent/requirements.txt --generate-hashes --universal --python-version 3.11 -o requirements-lock.txt
+aeventkit==2.1.0 \
+    --hash=sha256:4e7d81bb0a67227121da50a23e19e5bbf13eded541a9f4857eeb6b7b857b738a \
+    --hash=sha256:962d43f79e731ac43527f2d0defeed118e6dbaa85f1487f5667540ebb8f00729
+    # via ib-async
 aiodns==4.0.4 \
     --hash=sha256:c24dd605bac70a1676ce503f967a98483ff163507198557d8e9db16267e6cfd2 \
     --hash=sha256:cb10e0c0d2591636716ad2fe402e977c16d71bdaf76bb8cb49e8a6633596f736
@@ -624,7 +626,9 @@ charset-normalizer==3.4.9 \
     --hash=sha256:f86c6358749bd4fda175388691e3ba8c46e24c5347d0afd20f9b7edfc9faf07d \
     --hash=sha256:fa36ec09ef71d158186bc79e359ff5fdd6e7996fe8ab638f00d6b93139ba4fcf \
     --hash=sha256:fe2c7201c642b7c308f1675355ad7ff7b66acfe3541625efe5a3ad38f29d6115
-    # via requests
+    # via
+    #   reportlab
+    #   requests
 click==8.4.2 \
     --hash=sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6 \
     --hash=sha256:e6f9f66136c816745b9d65817da91d61d957fb16e02e4dcd0552553c5a197b76
@@ -1231,6 +1235,10 @@ hyperframe==6.1.0 \
     --hash=sha256:b03380493a519fce58ea5af42e4a42317bf9bd425596f7a0835ffce80f1a42e5 \
     --hash=sha256:f630908a00854a7adeabd6382b43923a4c4cd4b821fcb527e6ab9e15382a3b08
     # via h2
+ib-async==2.1.0 \
+    --hash=sha256:6a03a87d6c06acacb0217a5bea60a8a168ecd5b5a7e86e1c73678d5b48cbc796 \
+    --hash=sha256:f6d8b991bdbd6dd38e700c61b3dced06ebe0f14be4e5263e2ef10ba10b88d434
+    # via -r agent/requirements.txt
 idna==3.18 \
     --hash=sha256:7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2 \
     --hash=sha256:ffb385a7e039654cef1ab9ef32c6fafe283c0c0467bba1d9029738ce4a14a848
@@ -2079,6 +2087,10 @@ narwhals==2.23.0 \
     --hash=sha256:13e7ff5b4bb4a2f77b907c2e4d8a76e273dfc1323a3c997440a2f9fd26aed408 \
     --hash=sha256:769e7b9ab102c93d8fa019f6b4cd1a657909b04a20bf6210e5a35aae06814ae9
     # via scikit-learn
+nest-asyncio==1.6.0 \
+    --hash=sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe \
+    --hash=sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c
+    # via ib-async
 numba==0.66.0 \
     --hash=sha256:0999e3ee1b18c48e1fb51d11af35ef59852c7f4f50569c9550c25faef0616ad1 \
     --hash=sha256:2338cc0d43609fe448930848fd35a5bc688761b986f81b597a6f45cc0f8c9577 \
@@ -2181,6 +2193,7 @@ numpy==2.4.6 \
     --hash=sha256:f74a575920ab21fe304421a3fc28793d82e299cae9eccb37084e9fc7f3617c20
     # via
     #   -r agent/requirements.txt
+    #   aeventkit
     #   bottleneck
     #   contourpy
     #   matplotlib
@@ -2511,6 +2524,7 @@ pillow==12.3.0 \
     #   -r agent/requirements.txt
     #   matplotlib
     #   python-pptx
+    #   reportlab
     #   weasyprint
 platformdirs==4.10.0 \
     --hash=sha256:31e761a6a0ca04faf7353ea759bdba55652be214725111e5aac52dfa29d4bef7 \
@@ -3816,10 +3830,12 @@ typing-inspection==0.4.2 \
     #   mcp
     #   pydantic
     #   pydantic-settings
-tzdata==2026.3 \
-    --hash=sha256:4a1518b8993086a7982523e071643f3c0e5f213e75b21318e78bcabfff9d1415 \
-    --hash=sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931
-    # via pandas
+tzdata==2025.3 \
+    --hash=sha256:06a47e5700f3081aab02b2e513160914ff0694bce9947d6b76ebd6bf57cfc5d1 \
+    --hash=sha256:de39c2ca5dc7b0344f2eba86f49d614019d29f060fc4ebc8a417896a620b56a7
+    # via
+    #   ib-async
+    #   pandas
 uncalled-for==0.3.2 \
     --hash=sha256:0ff60b142c7d1f8070bde9d42afaa70aedc77dcc10998c227687e9c15713418e \
     --hash=sha256:89f5dbcd71e2b8f47c030b1fa302e6cce2ec795d1ac565eeb6525c5fe55cb8a2

@@ -6,6 +6,17 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Get-Sha256Hex([string]$Path) {
+  $stream = [System.IO.File]::OpenRead($Path)
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '')
+  } finally {
+    $sha256.Dispose()
+    $stream.Dispose()
+  }
+}
+
 $rootPath = (Resolve-Path -LiteralPath $Root).Path
 $stateDir = Join-Path $rootPath '.sparkflow'
 $pidFile = Join-Path $stateDir 'vite.pid'
@@ -83,7 +94,7 @@ if (-not (Test-Path -LiteralPath $packageLockPath)) {
   throw "Missing package-lock.json: $packageLockPath"
 }
 
-$packageLockHash = (Get-FileHash -LiteralPath $packageLockPath -Algorithm SHA256).Hash
+$packageLockHash = Get-Sha256Hex $packageLockPath
 $installedNodeHash = if (Test-Path -LiteralPath $nodeMarkerPath) {
   [string](Get-Content -LiteralPath $nodeMarkerPath -ErrorAction SilentlyContinue | Select-Object -First 1)
 } else {

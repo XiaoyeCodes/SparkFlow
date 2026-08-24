@@ -29,8 +29,10 @@ const vibePortRange = Array.from({ length: 101 }, (_, index) => 8899 + index);
 const cozeReportDefaultUrl = 'https://274d0c8f-47e6-46aa-b386-e1e79a1f8425.dev.coze.site';
 const cozeReportDefaultProjectId = '7610987478518071337';
 const cozeReportMaxBytes = 24 * 1024 * 1024;
+const ibkrBridgeScript = path.join(rootDir, 'scripts', 'ibkr-readonly-snapshot.py');
 let cachedVibeBaseUrl = '';
 let vibeStartupPromise: Promise<string> | null = null;
+const ibkrBridgePromises = new Map<'status' | 'snapshot', Promise<unknown>>();
 
 type MarketSource = {
   label: string;
@@ -8915,6 +8917,68 @@ async function requestVibeJson<T>(baseUrl: string, pathname: string, init: Reque
   return (await response.json()) as T;
 }
 
+function runIbkrReadOnlyBridge(action: 'status' | 'snapshot') {
+  const running = ibkrBridgePromises.get(action);
+  if (running) return running;
+
+  const request = new Promise<unknown>((resolve, reject) => {
+    const executable = process.platform === 'win32'
+      ? path.join(vibeTradingRoot, '.venv', 'Scripts', 'python.exe')
+      : path.join(vibeTradingRoot, '.venv', 'bin', 'python');
+    if (!existsSync(executable)) {
+      reject(new Error('Vibe-Trading Python 环境尚未准备，请重新运行 start-sparkflow.bat'));
+      return;
+    }
+    if (!existsSync(ibkrBridgeScript)) {
+      reject(new Error('IBKR 只读桥接脚本缺失'));
+      return;
+    }
+
+    const child = spawn(executable, [ibkrBridgeScript, action], {
+      cwd: rootDir,
+      windowsHide: true,
+      env: {
+        ...process.env,
+        NO_PROXY: 'localhost,127.0.0.1,::1',
+      },
+    });
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error('连接 IB Gateway 超时，请检查模拟盘登录状态与 4002 端口'));
+    }, 20_000);
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.on('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `IBKR 只读桥接执行失败（${code ?? 'unknown'}）`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout.trim()));
+      } catch {
+        reject(new Error(stderr.trim() || 'IBKR 只读桥接返回了无效数据'));
+      }
+    });
+  }).finally(() => {
+    ibkrBridgePromises.delete(action);
+  });
+
+  ibkrBridgePromises.set(action, request);
+  return request;
+}
+
 function validateVibeSessionId(value: unknown) {
   const sessionId = String(value || '');
   if (!/^[a-zA-Z0-9_-]{8,100}$/.test(sessionId)) {
@@ -10700,6 +10764,18 @@ function allWeatherApiPlugin() {
             const payload = JSON.parse(await getRequestBody(req)) as { query?: string };
             res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 202, await cozeReportTasks.createTask(String(payload.query || '')));
+            return;
+          }
+
+          if (url.pathname === '/api/ibkr/status' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await runIbkrReadOnlyBridge('status'));
+            return;
+          }
+
+          if (url.pathname === '/api/ibkr/sync' && req.method === 'POST') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await runIbkrReadOnlyBridge('snapshot'));
             return;
           }
 

@@ -13,7 +13,7 @@ const tabs: Array<[UserMenuTab, string]> = [
   ['about', '关于']
 ];
 
-const personalSpacePaths = ['/galaxy', '/hyperspeed', '/stack', '/artifacts', '/logs'];
+const personalSpacePaths = ['/ibkr', '/galaxy', '/hyperspeed', '/stack', '/artifacts', '/logs'];
 const personalSpaceItems = personalSpacePaths
   .map((path) => gateways.find((item) => item.path === path))
   .filter((item): item is (typeof gateways)[number] => Boolean(item));
