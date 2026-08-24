@@ -25,7 +25,8 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/signals" element={<Signals />} />
           <Route path="/trader" element={<Trader />} />
-          <Route path="/market" element={<Market />} />
+          <Route path="/terminal" element={<Market initialDashboardView="global" />} />
+          <Route path="/market" element={<Market initialDashboardView="markets" />} />
           <Route path="/assistant" element={<Assistant />} />
           <Route path="/starmap" element={<Starmap />} />
           <Route path="/galaxy" element={<GalaxyRoute />} />

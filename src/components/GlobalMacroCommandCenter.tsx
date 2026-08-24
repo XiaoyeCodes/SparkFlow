@@ -1408,7 +1408,7 @@ function HologramGlobe({
     const markerToCamera = new THREE.Vector3();
     const animate = () => {
       const delta = Math.min(clock.getDelta(), 0.05);
-      if (!drag.active && !lockedCountry) target.y += delta * 0.018;
+      if (!drag.active && !lockedCountry) target.y += delta * 0.024;
       const rotationBlend = 1 - Math.exp(-delta * 4.35);
       const zoomBlend = 1 - Math.exp(-delta * 7);
       root.rotation.x += (target.x - root.rotation.x) * rotationBlend;
@@ -2570,8 +2570,8 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
           <div className="macro-stage">
             <div className="macro-stage-head">
               <div className="macro-stage-title">
-                <span>GLOBAL EXCHANGE NETWORK</span>
-                <h1>全球资本市场主控台</h1>
+                <span>GLOBAL MACRO TERMINAL</span>
+                <h1>全球宏观经济终端</h1>
                 {view === 'globe' ? (
                   <div className="macro-country-focus" role="group" aria-label="地球国家定位">
                     {([

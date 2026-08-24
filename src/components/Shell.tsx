@@ -5,7 +5,7 @@ import { UserMenu } from './UserMenu';
 
 export function Shell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
-  const autoHideNavigation = pathname === '/market';
+  const autoHideNavigation = pathname === '/terminal';
   const [touchNavigation, setTouchNavigation] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(hover: none), (pointer: coarse)').matches || navigator.maxTouchPoints > 0;
@@ -80,6 +80,17 @@ export function Shell({ children }: { children: ReactNode }) {
             <span className="text-sm font-semibold">SparkFlow</span>
           </Link>
           <div className="hidden items-center gap-1 md:flex">
+            <NavLink
+              to="/terminal"
+              className={({ isActive }) =>
+                [
+                  'rounded-full px-3 py-2 text-xs font-medium text-white/52 transition hover:text-white',
+                  isActive ? 'bg-white/10 text-white' : ''
+                ].join(' ')
+              }
+            >
+              终端大屏
+            </NavLink>
             <NavLink
               to="/market"
               className={({ isActive }) =>

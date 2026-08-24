@@ -466,12 +466,12 @@ function DashboardViewFallback({ label }: { label: string }) {
   );
 }
 
-export function Market() {
+export function Market({ initialDashboardView = 'markets' }: { initialDashboardView?: Extract<MarketDashboardView, 'global' | 'markets'> }) {
   const navigate = useNavigate();
   const [activeMarket, setActiveMarket] = useState<MarketChartMode>(() => initialMarketSelection() || 'china');
   const [dashboardView, setDashboardView] = useState<MarketDashboardView>(() => {
     if (window.location.hash === '#china-macro') return 'china-macro';
-    return initialMarketSelection() ? 'markets' : 'global';
+    return initialDashboardView;
   });
   const [data, setData] = useState<MarketIntelligence | null>(null);
   const [valuationSnapshots, setValuationSnapshots] = useState<Partial<Record<Exclude<MarketChartMode, 'crypto'>, AShareValuationSnapshot>>>({});
@@ -1133,8 +1133,8 @@ export function Market() {
     return (
       <PageTransition>
       <section className="h-[calc(100vh-var(--nav-height))] min-h-[640px] overflow-hidden bg-[#030405] text-white">
-          <Suspense fallback={<DashboardViewFallback label="全球资本市场主控台" />}>
-            <GlobalMacroCommandCenter onOpenMarket={(mode) => { setActiveMarket(mode); setDashboardView('markets'); }} />
+          <Suspense fallback={<DashboardViewFallback label="全球宏观经济终端" />}>
+            <GlobalMacroCommandCenter onOpenMarket={(mode) => navigate(`/market?market=${encodeURIComponent(mode)}`)} />
           </Suspense>
         </section>
       </PageTransition>
@@ -1196,7 +1196,7 @@ export function Market() {
             <div className="flex w-full overflow-x-auto border border-white/10 bg-white/[0.035] p-1 [scrollbar-width:thin] lg:max-w-[1120px]">
               <button
                 type="button"
-                onClick={() => setDashboardView('global')}
+                onClick={() => navigate('/terminal')}
                 className="flex min-h-11 min-w-[88px] flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold text-white/52 transition hover:bg-[#69d5ff]/12 hover:text-[#9deaff]"
               >
                 <Radar size={15} /> 全球
