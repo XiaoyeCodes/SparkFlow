@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { gateways } from '../data/content';
 import { UserMenu } from './UserMenu';
+
+const primaryNavigation = [
+  { label: '终端大屏', path: '/terminal' },
+  { label: '股票市场', path: '/market' },
+  { label: '今日新闻', path: '/signals' },
+  { label: 'AI助手', path: '/assistant' },
+  { label: '股票ETF定投软件', path: '/trader' }
+];
 
 export function Shell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
@@ -79,41 +86,34 @@ export function Shell({ children }: { children: ReactNode }) {
             </span>
             <span className="text-sm font-semibold">SparkFlow</span>
           </Link>
-          <div className="hidden items-center gap-1 md:flex">
-            <NavLink
-              to="/terminal"
-              className={({ isActive }) =>
-                [
-                  'rounded-full px-3 py-2 text-xs font-medium text-white/52 transition hover:text-white',
-                  isActive ? 'bg-white/10 text-white' : ''
-                ].join(' ')
-              }
-            >
-              终端大屏
-            </NavLink>
-            <NavLink
-              to="/market"
-              className={({ isActive }) =>
-                [
-                  'rounded-full px-3 py-2 text-xs font-medium text-white/52 transition hover:text-white',
-                  isActive ? 'bg-white/10 text-white' : ''
-                ].join(' ')
-              }
-            >
-              股票市场
-            </NavLink>
-            {gateways.map((item) => (
+          <div className="hidden items-center gap-2 md:flex lg:gap-3">
+            {primaryNavigation.map((item) => (
               <NavLink
                 key={item.path}
                 to={item.path}
                 className={({ isActive }) =>
                   [
-                    'rounded-full px-3 py-2 text-xs font-medium text-white/52 transition hover:text-white',
-                    isActive ? 'bg-white/10 text-white' : ''
+                    'group relative flex h-9 min-w-[58px] items-center justify-center gap-2 overflow-hidden rounded-[6px] border px-3 text-center text-xs font-medium transition duration-200',
+                    isActive
+                      ? 'border-[#69d8ff]/38 bg-[#09151a] text-white shadow-[inset_0_0_22px_rgba(105,216,255,0.07),0_8px_24px_rgba(0,0,0,0.28),0_0_16px_rgba(105,216,255,0.06)] after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-[#69d8ff] after:shadow-[0_0_8px_rgba(105,216,255,0.85)]'
+                      : 'border-white/[0.09] bg-[#06080b]/80 text-white/54 shadow-[inset_0_1px_0_rgba(255,255,255,0.025),0_6px_20px_rgba(0,0,0,0.2)] hover:border-white/18 hover:bg-white/[0.045] hover:text-white'
                   ].join(' ')
                 }
               >
-                {item.title}
+                {({ isActive }) => (
+                  <>
+                    <span
+                      aria-hidden="true"
+                      className={[
+                        'h-1.5 w-1.5 shrink-0 rounded-full transition duration-200',
+                        isActive
+                          ? 'bg-[#69d8ff] shadow-[0_0_8px_rgba(105,216,255,0.9)]'
+                          : 'bg-white/18 group-hover:bg-white/42'
+                      ].join(' ')}
+                    />
+                    <span className="whitespace-nowrap">{item.label}</span>
+                  </>
+                )}
               </NavLink>
             ))}
           </div>

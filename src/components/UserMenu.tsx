@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Info, Settings, UserRound } from 'lucide-react';
+import { ArrowUpRight, Bot, Info, Settings, UserRound } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { gateways } from '../data/content';
 import { IntegrationSettingsPanel } from './IntegrationSettings';
 
-type UserMenuTab = 'profile' | 'settings' | 'about';
+type UserMenuTab = 'profile' | 'more' | 'settings' | 'about';
 
 const tabs: Array<[UserMenuTab, string]> = [
   ['profile', '个人信息'],
+  ['more', '更多'],
   ['settings', '设置'],
   ['about', '关于']
 ];
+
+const personalSpacePaths = ['/galaxy', '/hyperspeed', '/stack', '/artifacts', '/logs'];
+const personalSpaceItems = personalSpacePaths
+  .map((path) => gateways.find((item) => item.path === path))
+  .filter((item): item is (typeof gateways)[number] => Boolean(item));
 
 export function UserMenu() {
   const [open, setOpen] = useState(false);
@@ -47,7 +55,7 @@ export function UserMenu() {
             </div>
           </div>
 
-          <div className="mb-3 grid grid-cols-3 gap-2">
+          <div className="mb-3 grid grid-cols-4 gap-2">
             {tabs.map(([id, label]) => (
               <button
                 key={id}
@@ -72,6 +80,28 @@ export function UserMenu() {
               <p className="text-sm leading-6 text-white/56">
                 新闻源分流、AI 模型配置、Obsidian 写入都会使用这里的本地设置。API Key 仅保存在你的浏览器 localStorage。
               </p>
+            </div>
+          ) : null}
+
+          {tab === 'more' ? (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {personalSpaceItems.map(({ path, title, eyebrow, Icon }) => (
+                <Link
+                  key={path}
+                  to={path}
+                  onClick={() => setOpen(false)}
+                  className="group flex min-h-16 items-center gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-4 py-3 transition hover:border-[#8ad7ff]/32 hover:bg-[#8ad7ff]/[0.075]"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-[#8ad7ff]/18 bg-[#8ad7ff]/8 text-[#8ad7ff]">
+                    <Icon size={17} strokeWidth={1.7} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-white/86">{title}</span>
+                    <span className="mt-1 block text-[10px] font-medium tracking-[0.16em] text-white/32">{eyebrow}</span>
+                  </span>
+                  <ArrowUpRight size={15} className="shrink-0 text-white/24 transition group-hover:text-[#8ad7ff]" />
+                </Link>
+              ))}
             </div>
           ) : null}
 

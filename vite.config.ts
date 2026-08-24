@@ -10709,6 +10709,7 @@ function allWeatherApiPlugin() {
               provider: string;
               model_name: string;
               api_key_configured: boolean;
+              api_key_required: boolean;
             }>(baseUrl, '/settings/llm');
             sendJson(res, 200, {
               status: 'ready',
@@ -10716,6 +10717,7 @@ function allWeatherApiPlugin() {
               provider: settings.provider,
               model: settings.model_name,
               apiKeyConfigured: settings.api_key_configured,
+              apiKeyRequired: settings.api_key_required,
             });
             return;
           }

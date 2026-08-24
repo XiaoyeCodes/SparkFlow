@@ -1066,10 +1066,52 @@ JSON 后紧接着输出：
         }
       }
 
-      function updateAiConfigSummary(settings = readAiSettings()) {
-        aiConfigSummary.textContent = settings.model
-          ? `Vibe-Trading 将使用全局 AI：${settings.providerLabel} · ${settings.model}。本页只提交当前持仓和目标比例，行情、新闻、研报与回测由它自行研究。`
-          : "尚未配置全局 AI。请从右上角头像进入“设置”，填写 API Key 和模型后再启动 Vibe-Trading 研究。";
+      async function resolveAiRuntime(settings = readAiSettings()) {
+        const browserReady = Boolean(settings.baseUrl && settings.apiKey && settings.model);
+        if (browserReady) {
+          return {
+            ready: true,
+            requestSettings: settings,
+            providerLabel: settings.providerLabel,
+            model: settings.model,
+            source: "browser",
+          };
+        }
+
+        try {
+          const status = await requestJson("/api/vibe/status");
+          const serverReady = Boolean(
+            status?.model && (!status.apiKeyRequired || status.apiKeyConfigured)
+          );
+          return {
+            ready: serverReady,
+            requestSettings: {},
+            providerLabel: String(status?.provider || "Vibe-Trading"),
+            model: String(status?.model || ""),
+            source: "server",
+          };
+        } catch (error) {
+          return {
+            ready: false,
+            requestSettings: {},
+            providerLabel: "Vibe-Trading",
+            model: "",
+            source: "server",
+            error,
+          };
+        }
+      }
+
+      async function updateAiConfigSummary(settings = readAiSettings()) {
+        aiConfigSummary.textContent = "正在读取全局 AI 配置...";
+        const runtime = await resolveAiRuntime(settings);
+        if (runtime.ready) {
+          const sourceLabel = runtime.source === "browser" ? "浏览器全局设置" : "研究引擎全局设置";
+          aiConfigSummary.textContent = `Vibe-Trading 将使用${sourceLabel}：${runtime.providerLabel} · ${runtime.model}。本页只提交当前持仓和目标比例，行情、新闻、研报与回测由它自行研究。`;
+          return runtime;
+        }
+        aiConfigSummary.textContent = "尚未配置全局 AI。请从右上角头像进入“设置”，填写 API Key 和模型后再启动 Vibe-Trading 研究。";
+        return runtime;
       }
 
       function cloneTargets(targets) {
@@ -1581,10 +1623,12 @@ ${holdingTable}
 
       async function runAiAnalysis() {
         const settings = readAiSettings();
-        if (!settings.baseUrl || !settings.apiKey || !settings.model) {
-          updateAiConfigSummary(settings);
+        const runtime = await updateAiConfigSummary(settings);
+        if (!runtime.ready) {
           aiOutput.classList.remove("hidden");
-          aiOutput.innerHTML = '<p class="text-amber-200">请先从右上角头像进入“设置”，填写 AI API Key 和模型后再启动 Vibe-Trading 研究。</p>';
+          aiOutput.innerHTML = `<p class="text-amber-200">${escapeHtml(
+            runtime.error?.message || "请先从右上角头像进入“设置”，填写 AI API Key 和模型后再启动 Vibe-Trading 研究。"
+          )}</p>`;
           return;
         }
 
@@ -1599,7 +1643,7 @@ ${holdingTable}
           aiOutput.innerHTML = '<p class="text-gray-400">当前持仓已整理，正在创建 Vibe-Trading 深度研究会话...</p>';
           aiRunButton.textContent = "Vibe-Trading 研究中";
 
-          const answer = await startVibeResearch(settings, buildAiPrompt());
+          const answer = await startVibeResearch(runtime.requestSettings, buildAiPrompt());
           presentVibeAnswer(answer);
         } catch (error) {
           aiOutput.innerHTML = `<p class="text-red-300">${escapeHtml(error.message)}</p>`;
