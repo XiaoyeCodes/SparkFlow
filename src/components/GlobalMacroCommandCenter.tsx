@@ -276,6 +276,20 @@ type IsolatedCoreIndexPayload = { generatedAt: string; index: CoreIndex };
 type IsolatedFxRatePayload = { generatedAt: string; rate: Metric };
 type IsolatedMarketAssetPayload = { generatedAt: string; asset: Metric };
 type IsolatedFedRatePayload = { generatedAt: string; expectation: FedRateExpectation };
+type RiskSentimentId = 'vix' | 'vxn' | 'fear-greed';
+type RiskSentimentMetric = Omit<Metric, 'id'> & {
+  id: RiskSentimentId;
+  rating?: string;
+  provider: 'Yahoo Finance' | 'CNN';
+};
+type RiskSentimentPayload = {
+  generatedAt: string;
+  metrics: {
+    vix: RiskSentimentMetric;
+    vxn: RiskSentimentMetric;
+    fearGreed: RiskSentimentMetric;
+  };
+};
 type FastQuotePayload = DashboardSectionPayload & {
   cadenceMs: number;
   coverage: {
@@ -791,6 +805,29 @@ function vixTemperature(value?: number | null): { tone: VixTone; label: string; 
   return { tone: 'stress', label: '高压波动', summary: '市场压力显著，优先关注尾部风险', percent };
 }
 
+function vxnTemperature(value?: number | null): { tone: VixTone; label: string; summary: string; percent: number } {
+  if (value === undefined || value === null || !Number.isFinite(value)) {
+    return { tone: 'unavailable', label: '等待数据', summary: 'VXN 最近收盘值暂未更新', percent: 0 };
+  }
+  const percent = Math.max(2, Math.min(98, (value / 50) * 100));
+  if (value < 15) return { tone: 'calm', label: '科技平静', summary: '纳指期权隐含波动处于低位区间', percent };
+  if (value < 25) return { tone: 'normal', label: '科技常态', summary: '成长资产风险定价处于常态区间', percent };
+  if (value < 35) return { tone: 'elevated', label: '科技升温', summary: '纳指避险需求上升，注意高估值波动', percent };
+  return { tone: 'stress', label: '科技高压', summary: '科技股尾部风险溢价显著抬升', percent };
+}
+
+function fearGreedTemperature(value?: number | null, rating?: string) {
+  if (value === undefined || value === null || !Number.isFinite(value)) {
+    return { tone: 'unavailable' as const, label: '等待数据', summary: 'CNN 市场情绪值暂未更新', percent: 0 };
+  }
+  const percent = Math.max(1, Math.min(99, value));
+  if (value < 25) return { tone: 'extreme-fear' as const, label: rating || '极度恐惧', summary: '防御情绪占优，市场可能出现非理性抛售', percent };
+  if (value < 45) return { tone: 'fear' as const, label: rating || '恐惧', summary: '风险偏好偏弱，资金更重视防御与流动性', percent };
+  if (value < 55) return { tone: 'neutral' as const, label: rating || '中性', summary: '多空情绪接近平衡，等待新的定价催化', percent };
+  if (value < 75) return { tone: 'greed' as const, label: rating || '贪婪', summary: '风险偏好升温，注意拥挤交易逐步累积', percent };
+  return { tone: 'extreme-greed' as const, label: rating || '极度贪婪', summary: '追涨情绪过热，需防范风险收益比恶化', percent };
+}
+
 function pointChange(value?: number | null) {
   if (value === undefined || value === null || !Number.isFinite(value)) return '待更新';
   return `${value > 0 ? '+' : ''}${value.toFixed(2)} pts`;
@@ -914,12 +951,112 @@ function buildMacroAiSnapshot({
   return lines.join('\n');
 }
 
+const RISK_SENTIMENT_ORDER: RiskSentimentId[] = ['vix', 'vxn', 'fear-greed'];
+
+function RiskSentimentSwitcher({
+  metrics,
+  fallbackVix,
+}: {
+  metrics: RiskSentimentPayload['metrics'] | null;
+  fallbackVix: {
+    value?: number | null;
+    display: string;
+    change?: number | null;
+    sourceUrl?: string;
+    sourceStatus: string;
+  };
+}) {
+  const [activeId, setActiveId] = useState<RiskSentimentId>('vix');
+  const metric = activeId === 'fear-greed' ? metrics?.fearGreed : metrics?.[activeId];
+  const nextId = RISK_SENTIMENT_ORDER[(RISK_SENTIMENT_ORDER.indexOf(activeId) + 1) % RISK_SENTIMENT_ORDER.length];
+  const nextLabel = nextId === 'vix' ? 'VIX' : nextId === 'vxn' ? 'VXN' : 'CNN 恐惧贪婪指数';
+  const value = metric?.value ?? (activeId === 'vix' ? fallbackVix.value : null);
+  const display = metric?.display || (activeId === 'vix' ? fallbackVix.display : '待更新');
+  const change = metric?.change ?? (activeId === 'vix' ? fallbackVix.change : null);
+  const sourceUrl = metric?.sourceUrl || (activeId === 'vix' ? fallbackVix.sourceUrl : undefined);
+  const sourceStatus = metric
+    ? metric.status === 'live' ? '实时' : metric.status === 'unavailable' ? '待更新' : '最近收盘'
+    : activeId === 'vix' ? fallbackVix.sourceStatus : '待更新';
+  const provider = metric?.provider || (activeId === 'fear-greed' ? 'CNN' : 'Yahoo Finance');
+  const temperature = activeId === 'vix'
+    ? vixTemperature(value)
+    : activeId === 'vxn'
+      ? vxnTemperature(value)
+      : fearGreedTemperature(value, metric?.rating);
+  const max = activeId === 'fear-greed' ? 100 : activeId === 'vxn' ? 50 : 40;
+
+  const cycleRiskSentiment = () => {
+    setActiveId(nextId);
+  };
+
+  return (
+    <section
+      className={`macro-vix-card macro-risk-switcher ${temperature.tone}`}
+      data-risk-mode={activeId}
+      aria-label={`${activeId === 'vix' ? 'VIX 市场波动率' : activeId === 'vxn' ? 'VXN 纳斯达克波动率' : 'CNN 恐惧贪婪指数'}，${display}，${temperature.label}`}
+    >
+      <span className="macro-risk-meter-sr" role="meter" aria-valuemin={0} aria-valuemax={max} aria-valuenow={value ?? undefined} aria-valuetext={`${display}，${temperature.label}`} />
+      <div key={activeId} className="macro-risk-slide">
+        {activeId === 'vix' ? (
+          <>
+            <div className="macro-vix-thermometer">
+              <button type="button" className="macro-vix-bulb" onClick={cycleRiskSentiment} aria-label={`切换至${nextLabel}`} title={`切换至 ${nextLabel}`}><i /></button>
+              <div className="macro-vix-tube" aria-hidden="true">
+                <i style={{ '--vix-percent': `${temperature.percent}%` } as CSSProperties} />
+                <em style={{ left: `${temperature.percent}%` }} />
+                <span className="macro-vix-identity"><small>VIX</small><b>市场温度</b></span>
+                <span className="macro-vix-reading"><small>{temperature.label}</small><strong>{display}</strong></span>
+              </div>
+            </div>
+            <div className="macro-vix-scale" aria-hidden="true">
+              <span><i />平静 &lt;12</span><span><i />常态 12–20</span><span><i />升温 20–30</span><span><i />高压 30+</span>
+            </div>
+          </>
+        ) : activeId === 'vxn' ? (
+          <>
+            <div className="macro-vxn-console">
+              <button type="button" className="macro-vix-bulb macro-vxn-bulb" onClick={cycleRiskSentiment} aria-label={`切换至${nextLabel}`} title={`切换至 ${nextLabel}`}><i /><span /></button>
+              <div className="macro-vxn-screen" aria-hidden="true">
+                <span className="macro-vxn-grid" />
+                <span className="macro-vxn-wave">
+                  {[18, 34, 24, 45, 29, 62, 37, 71, 43, 55, 31, 66].map((height, index) => <i key={index} style={{ height: `${height}%` }} />)}
+                </span>
+                <span className="macro-vix-identity macro-vxn-identity"><small>VXN</small><b>纳指波动</b></span>
+                <span className="macro-vix-reading macro-vxn-reading"><small>{temperature.label}</small><strong>{display}</strong></span>
+              </div>
+            </div>
+            <div className="macro-vxn-scale" aria-hidden="true"><span>科技平静 &lt;15</span><span>常态 15–25</span><span>升温 25–35</span><span>高压 35+</span></div>
+          </>
+        ) : (
+          <>
+            <div className={`macro-fg-console ${temperature.tone}`}>
+              <button type="button" className="macro-vix-bulb macro-fg-bulb" onClick={cycleRiskSentiment} aria-label={`切换至${nextLabel}`} title={`切换至 ${nextLabel}`}><i /><span>{Math.round(value ?? 0)}</span></button>
+              <div className="macro-fg-screen" aria-hidden="true">
+                <span className="macro-vix-identity macro-fg-identity"><small>CNN F&amp;G</small><b>风险情绪</b></span>
+                <div className="macro-fg-spectrum"><i style={{ left: `${temperature.percent}%` }} /></div>
+                <span className="macro-vix-reading macro-fg-reading"><small>{temperature.label}</small><strong>{display}</strong></span>
+              </div>
+            </div>
+            <div className="macro-fg-scale" aria-hidden="true"><span>极恐</span><span>恐惧</span><span>中性</span><span>贪婪</span><span>极贪</span></div>
+          </>
+        )}
+      </div>
+      <div className="macro-vix-status">
+        <small>{temperature.summary}</small>
+        <span className={trendClass(change)}>较前值 {pointChange(change)}</span>
+        {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noreferrer">{provider} · {sourceStatus}<ExternalLink size={9} /></a> : <i>{sourceStatus}</i>}
+      </div>
+    </section>
+  );
+}
+
 function MacroPulsePanel({
   data,
   loading,
   marketSignals,
   exchangeRates,
   crypto,
+  riskSentiment,
   onOpenCrypto,
 }: {
   data: Dashboard | null;
@@ -927,6 +1064,7 @@ function MacroPulsePanel({
   marketSignals: KeySignal[];
   exchangeRates: Metric[];
   crypto: Metric[];
+  riskSentiment: RiskSentimentPayload['metrics'] | null;
   onOpenCrypto: () => void;
 }) {
   const pulse = useMemo(() => {
@@ -970,33 +1108,7 @@ function MacroPulsePanel({
 
   return (
     <aside className="macro-left macro-panel" aria-label="全球宏观脉搏">
-      <section
-        className={`macro-vix-card ${pulse.vix.tone}`}
-        role="meter"
-        aria-label="VIX 市场波动温度计"
-        aria-valuemin={0}
-        aria-valuemax={40}
-        aria-valuenow={pulse.vix.value ?? undefined}
-        aria-valuetext={`${pulse.vix.display}，${pulse.vix.label}`}
-      >
-        <div className="macro-vix-thermometer" aria-hidden="true">
-          <div className="macro-vix-bulb"><i /></div>
-          <div className="macro-vix-tube">
-            <i style={{ '--vix-percent': `${pulse.vix.percent}%` } as CSSProperties} />
-            <em style={{ left: `${pulse.vix.percent}%` }} />
-            <span className="macro-vix-identity"><small>VIX</small><b>市场温度</b></span>
-            <span className="macro-vix-reading"><small>{pulse.vix.label}</small><strong>{pulse.vix.display}</strong></span>
-          </div>
-        </div>
-        <div className="macro-vix-scale" aria-hidden="true">
-          <span><i />平静 &lt;12</span><span><i />常态 12–20</span><span><i />升温 20–30</span><span><i />高压 30+</span>
-        </div>
-        <div className="macro-vix-status">
-          <small>{pulse.vix.summary}</small>
-          <span className={trendClass(pulse.vix.change)}>较前值 {pointChange(pulse.vix.change)}</span>
-          {pulse.vix.sourceUrl ? <a href={pulse.vix.sourceUrl} target="_blank" rel="noreferrer">行情 · {pulse.vix.sourceStatus}<ExternalLink size={9} /></a> : <i>{pulse.vix.sourceStatus}</i>}
-        </div>
-      </section>
+      <RiskSentimentSwitcher metrics={riskSentiment} fallbackVix={pulse.vix} />
 
       <section className="macro-terminal-section macro-key-change-section">
         <p className="macro-section-title">关键变化 · 24H</p>
@@ -1012,6 +1124,11 @@ function MacroPulsePanel({
         </div>
       </section>
 
+      <section className="macro-terminal-section macro-crypto-section">
+        <p className="macro-section-title">加密市场</p>
+        <div className="macro-crypto-list">{crypto.map((item) => <CryptoRow key={item.id} item={item} onOpen={onOpenCrypto} />)}</div>
+      </section>
+
       <section className="macro-terminal-section macro-fx-section">
         <p className="macro-section-title">主要汇率 · 24H</p>
         <div className="macro-fx-grid">
@@ -1023,11 +1140,6 @@ function MacroPulsePanel({
             />
           ))}
         </div>
-      </section>
-
-      <section className="macro-terminal-section macro-crypto-section">
-        <p className="macro-section-title">加密市场</p>
-        <div className="macro-crypto-list">{crypto.map((item) => <CryptoRow key={item.id} item={item} onOpen={onOpenCrypto} />)}</div>
       </section>
 
       <section className="macro-pulse-section macro-driver-section">
@@ -2036,6 +2148,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [isolatedMarketAssets, setIsolatedMarketAssets] = useState<Partial<Record<IsolatedMarketAssetId, Metric>>>({});
   const [isolatedFedRateExpectation, setIsolatedFedRateExpectation] = useState<FedRateExpectation | null>(null);
   const [fedNetLiquidity, setFedNetLiquidity] = useState<FedNetLiquidity | null>(null);
+  const [riskSentiment, setRiskSentiment] = useState<RiskSentimentPayload['metrics'] | null>(null);
   const lastFastQuoteFrameRef = useRef('');
   const worldHeatmapWarmupStartedRef = useRef(false);
   const phoneToggleHideTimerRef = useRef<number | null>(null);
@@ -2313,6 +2426,22 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       }
     };
     void refreshFedRate();
+
+    const refreshRiskSentiment = async () => {
+      try {
+        const payload = await requestIsolatedJson<RiskSentimentPayload>(
+          '/api/global-risk-sentiment',
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+        setRiskSentiment(payload.metrics);
+        schedule(() => void refreshRiskSentiment(), 15_000);
+      } catch {
+        // Keep the last complete three-metric frame; the UI switch never triggers a request.
+        schedule(() => void refreshRiskSentiment(), 60_000);
+      }
+    };
+    void refreshRiskSentiment();
 
     return () => {
       controller.abort();
@@ -2605,6 +2734,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
           marketSignals={rightMarketSignals}
           exchangeRates={exchangeRates}
           crypto={crypto}
+          riskSentiment={riskSentiment}
           onOpenCrypto={() => { setSelected(null); setModalMode('crypto'); }}
         />
 

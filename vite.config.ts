@@ -341,6 +341,7 @@ const fastMarketRoutePreference = new Map<string, FetchRoute>([
 
 async function fetchFastMarketText(url: string, timeoutMs = 5_000) {
   const host = new URL(url).host;
+  const isCnnFearGreed = host === 'production.dataviz.cnn.io';
   const preferredRoute = fastMarketRoutePreference.get(host) || 'direct';
   const routes: FetchRoute[] = preferredRoute === 'direct' ? ['direct', 'proxy'] : ['proxy', 'direct'];
   let lastError: unknown;
@@ -353,11 +354,14 @@ async function fetchFastMarketText(url: string, timeoutMs = 5_000) {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0 Safari/537.36',
           Accept: 'application/json,text/plain,*/*',
-          Referer: url.includes('yahoo.com')
+          Referer: isCnnFearGreed
+            ? 'https://www.cnn.com/markets/fear-and-greed'
+            : url.includes('yahoo.com')
             ? 'https://finance.yahoo.com/'
             : url.includes('sina.com.cn')
               ? 'https://finance.sina.com.cn/'
               : `https://${host}/`,
+          ...(isCnnFearGreed ? { Origin: 'https://www.cnn.com' } : {}),
         },
       };
       if (route === 'proxy') init.dispatcher = foreignProxyAgent;
@@ -7225,6 +7229,152 @@ async function loadIsolatedGlobalMacroAsset(id: IsolatedGlobalMacroAssetId) {
   }
 }
 
+type GlobalRiskSentimentId = 'vix' | 'vxn' | 'fear-greed';
+type GlobalRiskSentimentMetric = {
+  id: GlobalRiskSentimentId;
+  label: string;
+  value: number | null;
+  display: string;
+  change: number | null;
+  updatedAt?: string;
+  sourceUrl: string;
+  status: 'live' | 'delayed' | 'unavailable';
+  history: Array<{ time: string; value: number }>;
+  rating?: string;
+  provider: 'Yahoo Finance' | 'CNN';
+};
+
+const globalRiskSentimentLastGood = new Map<GlobalRiskSentimentId, GlobalRiskSentimentMetric>();
+
+function unavailableRiskSentimentMetric(
+  id: GlobalRiskSentimentId,
+  label: string,
+  sourceUrl: string,
+  provider: GlobalRiskSentimentMetric['provider'],
+): GlobalRiskSentimentMetric {
+  return {
+    id,
+    label,
+    value: null,
+    display: '待更新',
+    change: null,
+    sourceUrl,
+    status: 'unavailable',
+    history: [],
+    provider,
+  };
+}
+
+async function getYahooRiskSentimentMetric(
+  id: Extract<GlobalRiskSentimentId, 'vix' | 'vxn'>,
+  symbol: '^VIX' | '^VXN',
+  label: string,
+): Promise<GlobalRiskSentimentMetric> {
+  const quote = await getYahooMacroQuote(symbol, '1mo');
+  return {
+    id,
+    label,
+    value: quote.price,
+    display: quote.price.toFixed(2),
+    change: quote.change,
+    updatedAt: quote.updatedAt,
+    sourceUrl: quote.sourceUrl,
+    status: fastQuoteStatus(quote.updatedAt),
+    history: quote.history.slice(-30),
+    provider: 'Yahoo Finance',
+  };
+}
+
+function cnnFearGreedRating(value: unknown, score: number) {
+  const normalized = String(value || '').trim().toLowerCase();
+  const labels: Record<string, string> = {
+    'extreme fear': '极度恐惧',
+    fear: '恐惧',
+    neutral: '中性',
+    greed: '贪婪',
+    'extreme greed': '极度贪婪',
+  };
+  if (labels[normalized]) return labels[normalized];
+  if (score < 25) return '极度恐惧';
+  if (score < 45) return '恐惧';
+  if (score < 55) return '中性';
+  if (score < 75) return '贪婪';
+  return '极度贪婪';
+}
+
+async function getCnnFearGreedMetric(): Promise<GlobalRiskSentimentMetric> {
+  const requestUrl = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
+  const payload = JSON.parse(await fetchFastMarketText(requestUrl, 15_000)) as Record<string, any>;
+  const current = payload?.fear_and_greed;
+  const score = asFiniteNumber(current?.score);
+  if (score === undefined) throw new Error('CNN 恐惧贪婪指数暂无可用值');
+  const previousClose = asFiniteNumber(current?.previous_close);
+  const historyRows = Array.isArray(payload?.fear_and_greed_historical?.data)
+    ? payload.fear_and_greed_historical.data as Array<Record<string, unknown>>
+    : [];
+  const history = historyRows.flatMap((item) => {
+    const timestamp = asFiniteNumber(item.x);
+    const value = asFiniteNumber(item.y);
+    if (timestamp === undefined || value === undefined) return [];
+    return [{ time: new Date(timestamp).toISOString(), value }];
+  }).slice(-90);
+  const updatedAt = current?.timestamp
+    ? new Date(String(current.timestamp)).toISOString()
+    : history.at(-1)?.time;
+
+  return {
+    id: 'fear-greed',
+    label: 'CNN 恐惧贪婪指数',
+    value: score,
+    display: Math.round(score).toString(),
+    change: previousClose === undefined ? null : score - previousClose,
+    updatedAt,
+    sourceUrl: 'https://www.cnn.com/markets/fear-and-greed',
+    status: 'live',
+    history,
+    rating: cnnFearGreedRating(current?.rating, score),
+    provider: 'CNN',
+  };
+}
+
+async function loadRiskSentimentMetric(
+  id: GlobalRiskSentimentId,
+  loader: () => Promise<GlobalRiskSentimentMetric>,
+  fallback: GlobalRiskSentimentMetric,
+) {
+  try {
+    const metric = await loader();
+    globalRiskSentimentLastGood.set(id, metric);
+    return metric;
+  } catch {
+    return globalRiskSentimentLastGood.get(id) || fallback;
+  }
+}
+
+async function loadGlobalRiskSentiment() {
+  const [vix, vxn, fearGreed] = await Promise.all([
+    loadRiskSentimentMetric(
+      'vix',
+      () => getYahooRiskSentimentMetric('vix', '^VIX', 'VIX 标普波动率指数'),
+      unavailableRiskSentimentMetric('vix', 'VIX 标普波动率指数', 'https://finance.yahoo.com/quote/%5EVIX', 'Yahoo Finance'),
+    ),
+    loadRiskSentimentMetric(
+      'vxn',
+      () => getYahooRiskSentimentMetric('vxn', '^VXN', 'VXN 纳斯达克100波动率指数'),
+      unavailableRiskSentimentMetric('vxn', 'VXN 纳斯达克100波动率指数', 'https://finance.yahoo.com/quote/%5EVXN', 'Yahoo Finance'),
+    ),
+    loadRiskSentimentMetric(
+      'fear-greed',
+      getCnnFearGreedMetric,
+      unavailableRiskSentimentMetric('fear-greed', 'CNN 恐惧贪婪指数', 'https://www.cnn.com/markets/fear-and-greed', 'CNN'),
+    ),
+  ]);
+  return {
+    generatedAt: new Date().toISOString(),
+    metrics: { vix, vxn, fearGreed },
+  };
+}
+
 const globalMacroMetricLastGood = new Map<string, any>();
 const globalPmiMetricLastGood = new Map<string, Awaited<ReturnType<typeof getGlobalPmiMetric>>>();
 const globalCpiMetricLastGood = new Map<GlobalCpiMetric['id'], GlobalCpiMetric>();
@@ -10458,6 +10608,12 @@ function allWeatherApiPlugin() {
               generatedAt: new Date().toISOString(),
               rate: await loadIsolatedGlobalMacroFxRate(id),
             });
+            return;
+          }
+
+          if (url.pathname === '/api/global-risk-sentiment') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await loadGlobalRiskSentiment());
             return;
           }
 
