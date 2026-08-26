@@ -813,7 +813,7 @@ function vxnTemperature(value?: number | null): { tone: VixTone; label: string; 
   if (value < 15) return { tone: 'calm', label: '科技平静', summary: '纳指期权隐含波动处于低位区间', percent };
   if (value < 25) return { tone: 'normal', label: '科技常态', summary: '成长资产风险定价处于常态区间', percent };
   if (value < 35) return { tone: 'elevated', label: '科技升温', summary: '纳指避险需求上升，注意高估值波动', percent };
-  return { tone: 'stress', label: '科技高压', summary: '科技股尾部风险溢价显著抬升', percent };
+  return { tone: 'stress', label: '科技过温', summary: '科技股尾部风险溢价显著抬升', percent };
 }
 
 function fearGreedTemperature(value?: number | null, rating?: string) {
@@ -1018,14 +1018,12 @@ function RiskSentimentSwitcher({
               <button type="button" className="macro-vix-bulb macro-vxn-bulb" onClick={cycleRiskSentiment} aria-label={`切换至${nextLabel}`} title={`切换至 ${nextLabel}`}><i /><span /></button>
               <div className="macro-vxn-screen" aria-hidden="true">
                 <span className="macro-vxn-grid" />
-                <span className="macro-vxn-wave">
-                  {[18, 34, 24, 45, 29, 62, 37, 71, 43, 55, 31, 66].map((height, index) => <i key={index} style={{ height: `${height}%` }} />)}
-                </span>
+                <span className="macro-vxn-liquid" style={{ '--vxn-fill': `${temperature.percent}%` } as CSSProperties}><i /><i /><i /></span>
                 <span className="macro-vix-identity macro-vxn-identity"><small>VXN</small><b>纳指波动</b></span>
                 <span className="macro-vix-reading macro-vxn-reading"><small>{temperature.label}</small><strong>{display}</strong></span>
               </div>
             </div>
-            <div className="macro-vxn-scale" aria-hidden="true"><span>科技平静 &lt;15</span><span>常态 15–25</span><span>升温 25–35</span><span>高压 35+</span></div>
+            <div className="macro-vxn-temperature" style={{ '--vxn-temp': `${temperature.percent}%` } as CSSProperties} aria-hidden="true"><i /><span>平静 &lt;15</span><span>常态 15–25</span><span>升温 25–35</span><span>过温 35+</span></div>
           </>
         ) : (
           <>

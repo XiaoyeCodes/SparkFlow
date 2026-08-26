@@ -1,12 +1,13 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, BrainCircuit, Building2, CalendarDays, Check, ChevronRight, Clock3, Copy, Download, FileArchive, Globe2, History, Landmark, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Children, isValidElement, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { buildAiPayload, loadIntegrationSettings } from '../lib/integrations';
 import { buildMacroAiPrompt } from '../lib/macroAiPrompt';
-import { buildCountryMarketPrompt, buildEquityResearchPrompt, type AiResearchScope } from '../lib/marketResearchPrompts';
+import { buildCountryMarketPrompt, buildEquityResearchPrompt, buildTradingTeamV2Prompt, type AiResearchScope } from '../lib/marketResearchPrompts';
 import { readableError } from '../lib/readableError';
+import { EquityReportVisualization } from './EquityReportVisualization';
 import './MacroAiAnalyst.css';
 
 export type MacroAiRunState = 'idle' | 'connecting' | 'analyzing' | 'completed' | 'error';
@@ -16,6 +17,8 @@ type StoredMessage = {
   content: string;
   linked_attempt_id?: string;
 };
+
+type ResearchProvider = 'vibe' | 'coze' | 'trading-team';
 
 type StoredReport = {
   id: string;
@@ -28,7 +31,7 @@ type StoredReport = {
   scope: AiResearchScope;
   query?: string;
   error?: string;
-  provider?: 'vibe' | 'coze';
+  provider?: ResearchProvider;
   taskId?: string;
   artifacts?: CozeTaskArtifact[];
 };
@@ -59,11 +62,22 @@ type CozeTaskSnapshot = {
   artifacts: CozeTaskArtifact[];
 };
 
+type TradingTeamReportSnapshot = {
+  status: 'pending' | 'completed' | 'failed';
+  runId?: string;
+  sessionId?: string;
+  report?: string;
+  error?: string;
+};
+
 type AnalystView = 'home' | 'report';
 
 const LEGACY_REPORT_STORAGE_KEY = 'sparkflow.macro-ai-report.v1';
 const REPORT_HISTORY_STORAGE_KEY = 'sparkflow.macro-ai-history.v2';
 const MAX_REPORT_HISTORY = 20;
+const TRADING_TEAM_MAX_WAIT_MS = 45 * 60_000;
+const STANDARD_REPORT_MAX_WAIT_MS = 10 * 60_000;
+const TRADING_TEAM_V2_SUFFIX = /(?:\s|　)*v2$/i;
 const ANALYSIS_STAGES = [
   '正在导入全球宏观经济数据',
   '正在引入神经网络引擎分析',
@@ -71,6 +85,14 @@ const ANALYSIS_STAGES = [
   '市场风险传导路径推演中',
   '正在执行多资产量化演算',
   '宏观经济情报生成中',
+] as const;
+const TRADING_TEAM_STAGES = [
+  '正在启动 13 席交易分析委员会',
+  '行情、财务、事件与情绪并行取证中',
+  '多头与空头研究员正在交叉质询',
+  '研究主管正在裁决证据与分歧',
+  '交易员正在编制执行与复盘方案',
+  '三派风控并行评审 · 首席风险主管终审中',
 ] as const;
 const COZE_STAGE_LABELS: Record<CozeTaskSnapshot['stage'], string> = {
   queued: '外部研报任务已进入后台队列',
@@ -158,7 +180,13 @@ function normalizeStoredReport(value: unknown): StoredReport | null {
     scope,
     query: query || undefined,
     error: typeof candidate.error === 'string' ? candidate.error : undefined,
-    provider: candidate.provider === 'coze' ? 'coze' : candidate.provider === 'vibe' ? 'vibe' : undefined,
+    provider: candidate.provider === 'coze'
+      ? 'coze'
+      : candidate.provider === 'trading-team'
+      ? 'trading-team'
+      : candidate.provider === 'vibe'
+      ? 'vibe'
+      : undefined,
     taskId: typeof candidate.taskId === 'string' ? candidate.taskId : undefined,
     artifacts: Array.isArray(candidate.artifacts)
       ? candidate.artifacts.filter((artifact): artifact is CozeTaskArtifact => Boolean(
@@ -221,6 +249,25 @@ function requestJson<T>(url: string, init?: RequestInit) {
   });
 }
 
+function requestJsonWithTimeout<T>(url: string, timeoutMs: number, init?: RequestInit) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  const externalSignal = init?.signal;
+  const forwardAbort = () => controller.abort();
+  externalSignal?.addEventListener('abort', forwardAbort, { once: true });
+  return requestJson<T>(url, { ...init, signal: controller.signal })
+    .catch((reason) => {
+      if (controller.signal.aborted && !externalSignal?.aborted) {
+        throw new Error(`后台刷新等待超过 ${Math.ceil(timeoutMs / 1000)} 秒`);
+      }
+      throw reason;
+    })
+    .finally(() => {
+      window.clearTimeout(timeout);
+      externalSignal?.removeEventListener('abort', forwardAbort);
+    });
+}
+
 function parseEvent(event: Event) {
   try {
     return JSON.parse((event as MessageEvent<string>).data || '{}') as Record<string, unknown>;
@@ -230,10 +277,9 @@ function parseEvent(event: Event) {
 }
 
 function normalizeMarkdown(value: string) {
-  return removeLegacyLlmPrefix(value).trim()
-    .replace(/^```(?:markdown|md)?\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
+  const normalized = removeLegacyLlmPrefix(value).trim();
+  const wrapped = normalized.match(/^```(?:markdown|md)?[ \t]*\r?\n([\s\S]*)\r?\n```$/i);
+  return (wrapped?.[1] || normalized).trim();
 }
 
 function formatReportDate(value: string) {
@@ -395,8 +441,8 @@ function normalizeEquityMarkdown(content: string) {
   }).join('\n');
 }
 
-function parseEquityReportDocument(content: string) {
-  const normalized = normalizeEquityMarkdown(content);
+function parseEquityReportDocument(content: string, preserveSectionHeadings = false) {
+  const normalized = preserveSectionHeadings ? content.replace(/\r\n?/g, '\n') : normalizeEquityMarkdown(content);
   const lines = normalized.split('\n');
   const titleIndex = lines.findIndex((line) => /^#\s+/.test(line.trim()));
   if (titleIndex < 0) return null;
@@ -424,10 +470,21 @@ function parseEquityReportDocument(content: string) {
   return { title, metadata, body };
 }
 
-function EquityReportCover({ title, metadata }: { title: string; metadata: Map<EquityReportMetaLabel, string> }) {
+function EquityReportCover({
+  title,
+  metadata,
+  teamReport = false,
+}: {
+  title: string;
+  metadata: Map<EquityReportMetaLabel, string>;
+  teamReport?: boolean;
+}) {
   return (
-    <header className="macro-ai-equity-cover">
-      <div className="macro-ai-equity-brand"><strong>Goldman Sachs</strong><span>Global Investment Research</span></div>
+    <header className={`macro-ai-equity-cover${teamReport ? ' is-team-report' : ''}`}>
+      <div className="macro-ai-equity-brand">
+        <strong>{teamReport ? 'SparkFlow Research' : 'Goldman Sachs'}</strong>
+        <span>{teamReport ? '多智能体股票研究 · 决策支持报告' : 'Global Investment Research'}</span>
+      </div>
       <div className="macro-ai-equity-title"><h1>{title}</h1><i /></div>
       <dl className="macro-ai-equity-meta">
         {EQUITY_META_LABELS.map((label) => (
@@ -438,18 +495,36 @@ function EquityReportCover({ title, metadata }: { title: string; metadata: Map<E
   );
 }
 
-function MacroAiMarkdown({ content, equityLayout = false }: { content: string; equityLayout?: boolean }) {
-  const equityDocument = equityLayout ? parseEquityReportDocument(content) : null;
-  const markdown = equityDocument?.body || (equityLayout ? normalizeEquityMarkdown(content) : content);
+function MacroAiMarkdown({
+  content,
+  equityLayout = false,
+  teamReport = false,
+}: {
+  content: string;
+  equityLayout?: boolean;
+  teamReport?: boolean;
+}) {
+  const equityDocument = equityLayout ? parseEquityReportDocument(content, teamReport) : null;
+  const markdown = equityDocument?.body || (equityLayout && !teamReport ? normalizeEquityMarkdown(content) : content);
   return (
-    <div className={`macro-ai-markdown${equityDocument ? ' has-equity-cover' : ''}`}>
-      {equityDocument ? <EquityReportCover title={equityDocument.title} metadata={equityDocument.metadata} /> : null}
+    <div className={`macro-ai-markdown${equityDocument ? ' has-equity-cover' : ''}${teamReport ? ' is-team-report' : ''}`}>
+      {equityDocument ? <EquityReportCover title={equityDocument.title} metadata={equityDocument.metadata} teamReport={teamReport} /> : null}
       <div className="macro-ai-markdown-body">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
             a: ({ children, ...props }) => <a {...props} target="_blank" rel="noreferrer">{children}</a>,
             table: ({ children }) => <div className="macro-ai-table-wrap"><table>{children}</table></div>,
+            pre: ({ children, ...props }) => {
+              const child = Children.toArray(children)[0];
+              if (isValidElement(child)) {
+                const childProps = child.props as { className?: string; children?: unknown };
+                if (childProps.className === 'language-sparkflow-chart') {
+                  return <EquityReportVisualization raw={String(childProps.children || '').trim()} />;
+                }
+              }
+              return <pre {...props}>{children}</pre>;
+            },
             img: ({ alt, ...props }) => (
               <span className="macro-ai-report-visual">
                 <img {...props} alt={alt || '研报视觉资源'} loading="lazy" />
@@ -484,7 +559,7 @@ export function MacroAiAnalyst({
   const [generatedAt, setGeneratedAt] = useState('');
   const [reportScope, setReportScope] = useState<AiResearchScope>('global');
   const [reportQuery, setReportQuery] = useState('');
-  const [reportProvider, setReportProvider] = useState<'vibe' | 'coze'>('vibe');
+  const [reportProvider, setReportProvider] = useState<ResearchProvider>('vibe');
   const [reportArtifacts, setReportArtifacts] = useState<CozeTaskArtifact[]>([]);
   const [researchScope, setResearchScope] = useState<AiResearchScope>('global');
   const [countryQuery, setCountryQuery] = useState('');
@@ -498,6 +573,7 @@ export function MacroAiAnalyst({
   const liveTextRef = useRef('');
   const completedAnalysisIdsRef = useRef(new Set<string>());
   const activeAnalysisIdRef = useRef<string | null>(null);
+  const activeProviderRef = useRef<ResearchProvider>('vibe');
   const stageIndexRef = useRef(0);
   const stateRef = useRef<MacroAiRunState>(state);
   const wasOpenRef = useRef(false);
@@ -518,10 +594,11 @@ export function MacroAiAnalyst({
   }, []);
 
   const advanceStage = useCallback((nextIndex: number) => {
-    const safeIndex = Math.max(0, Math.min(nextIndex, ANALYSIS_STAGES.length - 1));
+    const stages = activeProviderRef.current === 'trading-team' ? TRADING_TEAM_STAGES : ANALYSIS_STAGES;
+    const safeIndex = Math.max(0, Math.min(nextIndex, stages.length - 1));
     if (safeIndex < stageIndexRef.current) return;
     stageIndexRef.current = safeIndex;
-    setStage(ANALYSIS_STAGES[safeIndex]);
+    setStage(stages[safeIndex]);
   }, []);
 
   useEffect(() => onStateChange?.(state), [onStateChange, state]);
@@ -563,7 +640,7 @@ export function MacroAiAnalyst({
     markdown: string,
     analysisId?: string,
     reveal = true,
-    details?: { provider?: 'vibe' | 'coze'; taskId?: string; artifacts?: CozeTaskArtifact[] },
+    details?: { provider?: ResearchProvider; taskId?: string; artifacts?: CozeTaskArtifact[] },
   ) => {
     const normalized = normalizeMarkdown(markdown);
     if (!normalized) return;
@@ -578,6 +655,8 @@ export function MacroAiAnalyst({
       generatedAt: existing?.generatedAt || completedAt,
       title: extractReportTitle(normalized),
       status: 'completed',
+      sessionId: existing?.sessionId,
+      attemptId: existing?.attemptId,
       scope: existing?.scope || 'global',
       query: existing?.query,
       provider: details?.provider || existing?.provider || 'vibe',
@@ -587,7 +666,9 @@ export function MacroAiAnalyst({
     const next = upsertStoredReport(completedReport);
     if (!mountedRef.current) return;
     setHistory(next);
-    if (!reveal || activeAnalysisIdRef.current !== resolvedId) return;
+    const activeRecovery = activeAnalysisIdRef.current === resolvedId
+      && (stateRef.current === 'connecting' || stateRef.current === 'analyzing');
+    if ((!reveal && !activeRecovery) || activeAnalysisIdRef.current !== resolvedId) return;
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
     setReport(normalized);
@@ -620,22 +701,54 @@ export function MacroAiAnalyst({
     transitionState('error');
   }, [transitionState]);
 
-  const recoverReport = useCallback(async (sessionId: string, attemptId: string, analysisId: string, reveal = true) => {
-    for (let index = 0; index < 240; index += 1) {
+  const recoverReport = useCallback(async (
+    sessionId: string,
+    attemptId: string,
+    analysisId: string,
+    reveal = true,
+    provider: ResearchProvider = 'vibe',
+  ) => {
+    const maxWait = provider === 'trading-team' ? TRADING_TEAM_MAX_WAIT_MS : STANDARD_REPORT_MAX_WAIT_MS;
+    const archivedStart = Date.parse(readStoredReports().find((item) => item.id === analysisId)?.generatedAt || '');
+    const deadline = Number.isFinite(archivedStart) ? archivedStart + maxWait : Date.now() + maxWait;
+    let index = 0;
+    while (Date.now() < deadline) {
       if (completedAnalysisIdsRef.current.has(analysisId)) return;
-      await new Promise((resolve) => window.setTimeout(resolve, 1500));
       try {
-        const messages = await requestJson<StoredMessage[]>(`/api/vibe/research/messages?sessionId=${encodeURIComponent(sessionId)}`);
-        const answer = messages.find((message) => message.role === 'assistant' && message.linked_attempt_id === attemptId);
-        if (answer?.content) {
-          complete(answer.content, analysisId, reveal);
-          return;
+        if (provider === 'trading-team') {
+          const swarm = await requestJsonWithTimeout<TradingTeamReportSnapshot>(
+            `/api/vibe/research/swarm-report?sessionId=${encodeURIComponent(sessionId)}`,
+            5_000,
+          );
+          if (swarm.status === 'completed' && swarm.report) {
+            complete(swarm.report, analysisId, reveal, { provider: 'trading-team' });
+            return;
+          }
+          if (swarm.status === 'failed') {
+            failAnalysis(analysisId, swarm.error || 'Trading Team V2 分析未完成。', reveal);
+            return;
+          }
+        } else {
+          const messages = await requestJsonWithTimeout<StoredMessage[]>(
+            `/api/vibe/research/messages?sessionId=${encodeURIComponent(sessionId)}`,
+            8_000,
+          );
+          const answer = messages.find((message) => message.role === 'assistant' && message.linked_attempt_id === attemptId);
+          if (answer?.content) {
+            complete(answer.content, analysisId, reveal, { provider });
+            return;
+          }
         }
       } catch {
         // The SSE stream remains primary; polling only repairs a missed completion event.
       }
+      index += 1;
+      await new Promise((resolve) => window.setTimeout(resolve, index < 120 ? 1500 : 5000));
     }
-  }, [complete]);
+    failAnalysis(analysisId, provider === 'trading-team'
+      ? 'Trading Team V2 运行时间超过 45 分钟，已停止等待。可重新发起分析，历史任务不会继续占用界面。'
+      : 'AI 研究任务运行时间超过 10 分钟，已停止等待。', reveal);
+  }, [complete, failAnalysis]);
 
   const recoverCozeTask = useCallback(async (taskId: string, analysisId = taskId, reveal = true) => {
     for (let index = 0; index < 2400; index += 1) {
@@ -732,8 +845,13 @@ export function MacroAiAnalyst({
     if (stateRef.current === 'connecting' || stateRef.current === 'analyzing') return;
     const scope = override?.scope || researchScope;
     const rawQuery = String(override?.query ?? (scope === 'country' ? countryQuery : scope === 'equity' ? equityQuery : '')).trim();
-    const useCozeChannel = scope === 'equity' && /cz$/i.test(rawQuery);
-    const query = useCozeChannel ? rawQuery.slice(0, -2).trim() : rawQuery;
+    const useTradingTeam = scope === 'equity' && TRADING_TEAM_V2_SUFFIX.test(rawQuery);
+    const useCozeChannel = !useTradingTeam && scope === 'equity' && /cz$/i.test(rawQuery);
+    const query = useTradingTeam
+      ? rawQuery.replace(TRADING_TEAM_V2_SUFFIX, '').trim()
+      : useCozeChannel
+      ? rawQuery.slice(0, -2).trim()
+      : rawQuery;
     if (scope !== 'global' && !query) {
       setModeTrayOpen(true);
       setError(scope === 'country' ? '请输入需要研究的国家或地区。' : '请输入股票代码或公司名称。');
@@ -750,12 +868,13 @@ export function MacroAiAnalyst({
     const analysisId = `analysis-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const startedAt = new Date().toISOString();
     activeAnalysisIdRef.current = analysisId;
+    activeProviderRef.current = useCozeChannel ? 'coze' : useTradingTeam ? 'trading-team' : 'vibe';
     completedAnalysisIdsRef.current.delete(analysisId);
     liveTextRef.current = '';
     stageIndexRef.current = 0;
     setElapsed(0);
     setError('');
-    setStage(ANALYSIS_STAGES[0]);
+    setStage(useTradingTeam ? '正在启动 13 席交易分析委员会' : ANALYSIS_STAGES[0]);
     setView('home');
     transitionState('connecting');
     const runningReport: StoredReport = {
@@ -766,7 +885,7 @@ export function MacroAiAnalyst({
       status: 'running',
       scope,
       query: query || undefined,
-      provider: useCozeChannel ? 'coze' : 'vibe',
+      provider: useCozeChannel ? 'coze' : useTradingTeam ? 'trading-team' : 'vibe',
     };
     setModeTrayOpen(false);
     if (useCozeChannel) {
@@ -802,7 +921,9 @@ export function MacroAiAnalyst({
     const prompt = scope === 'country'
       ? buildCountryMarketPrompt(query, snapshot)
       : scope === 'equity'
-      ? buildEquityResearchPrompt(query)
+      ? useTradingTeam
+        ? buildTradingTeamV2Prompt(query)
+        : buildEquityResearchPrompt(query)
       : buildMacroAiPrompt(snapshot);
     try {
       const prepared = await requestJson<{ sessionId: string }>('/api/vibe/research/session', {
@@ -825,7 +946,7 @@ export function MacroAiAnalyst({
         transitionState('analyzing');
       }
       if (mountedRef.current) void connectStream(prepared.sessionId, analysisId).catch(() => undefined);
-      void recoverReport(prepared.sessionId, sent.attempt_id, analysisId);
+      void recoverReport(prepared.sessionId, sent.attempt_id, analysisId, true, useTradingTeam ? 'trading-team' : 'vibe');
     } catch (reason) {
       eventSourceRef.current?.close();
       eventSourceRef.current = null;
@@ -842,19 +963,20 @@ export function MacroAiAnalyst({
     initialHistory.current
       .filter((item) => item.status === 'running' && item.sessionId && item.attemptId)
       .forEach((item) => {
-        void recoverReport(item.sessionId!, item.attemptId!, item.id, false);
+        void recoverReport(item.sessionId!, item.attemptId!, item.id, false, item.provider || 'vibe');
       });
   }, [recoverCozeTask, recoverReport]);
 
   const resumeRunningAnalysis = useCallback(async (item: StoredReport) => {
     activeAnalysisIdRef.current = item.id;
+    activeProviderRef.current = item.provider || 'vibe';
     completedAnalysisIdsRef.current.delete(item.id);
     liveTextRef.current = '';
     const runningFor = Math.max(0, Math.floor((Date.now() - Date.parse(item.generatedAt)) / 1000));
     const inferredStage = Math.min(ANALYSIS_STAGES.length - 1, Math.floor(runningFor / 9));
     stageIndexRef.current = inferredStage;
     setElapsed(runningFor);
-    setStage(ANALYSIS_STAGES[inferredStage]);
+    setStage((item.provider === 'trading-team' ? TRADING_TEAM_STAGES : ANALYSIS_STAGES)[inferredStage]);
     setError('');
     setView('home');
     if (item.provider === 'coze' && item.taskId) {
@@ -876,7 +998,7 @@ export function MacroAiAnalyst({
     }
     transitionState('analyzing');
     void connectStream(resumable.sessionId, resumable.id).catch(() => undefined);
-    void recoverReport(resumable.sessionId, resumable.attemptId, resumable.id);
+    void recoverReport(resumable.sessionId, resumable.attemptId, resumable.id, true, resumable.provider || 'vibe');
   }, [connectStream, failAnalysis, recoverCozeTask, recoverReport, transitionState]);
 
   const copyReport = async () => {
@@ -885,43 +1007,11 @@ export function MacroAiAnalyst({
     window.setTimeout(() => setCopied(false), 1400);
   };
 
-  const openHistoricalReport = async (item: StoredReport) => {
-    if (item.status === 'running') {
-      void resumeRunningAnalysis(item);
-      return;
-    }
-    if (item.status === 'failed') {
-      setResearchScope(item.scope);
-      if (item.scope === 'country') setCountryQuery(item.query || '');
-      if (item.scope === 'equity') setEquityQuery(item.query || '');
-      setError(item.error || '上一次分析未完成，请重新开始。');
-      setView('home');
-      setModeTrayOpen(true);
-      transitionState('error');
-      return;
-    }
-    if (item.provider === 'coze' && item.taskId) {
-      try {
-        const task = await requestJson<CozeTaskSnapshot>(`/api/coze/equity-research/tasks/${encodeURIComponent(item.taskId)}`);
-        if (task.status === 'queued' || task.status === 'running') {
-          const runningItem = { ...item, status: 'running' as const, artifacts: task.artifacts };
-          setHistory(upsertStoredReport(runningItem));
-          void resumeRunningAnalysis(runningItem);
-          return;
-        }
-        if (task.status === 'failed' || !task.markdown) {
-          failAnalysis(item.id, task.error || '服务器未返回可显示的研报副本。');
-          return;
-        }
-        activeAnalysisIdRef.current = item.id;
-        completedAnalysisIdsRef.current.delete(item.id);
-        complete(task.markdown, item.id, true, { provider: 'coze', taskId: item.taskId, artifacts: task.artifacts });
-        return;
-      } catch (reason) {
-        failAnalysis(item.id, reason);
-        return;
-      }
-    }
+  const revealStoredReport = useCallback((item: StoredReport) => {
+    activeAnalysisIdRef.current = item.id;
+    completedAnalysisIdsRef.current.add(item.id);
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
     setReport(item.markdown);
     setGeneratedAt(item.generatedAt);
     setReportScope(item.scope);
@@ -930,14 +1020,93 @@ export function MacroAiAnalyst({
     setReportArtifacts(item.artifacts || []);
     setError('');
     setView('report');
+    setStage('历史报告已载入');
     transitionState('completed');
+  }, [transitionState]);
+
+  const refreshVisibleReport = useCallback((item: StoredReport) => {
+    const next = upsertStoredReport(item);
+    if (!mountedRef.current) return;
+    setHistory(next);
+    if (activeAnalysisIdRef.current !== item.id) return;
+    setReport(item.markdown);
+    setGeneratedAt(item.generatedAt);
+    setReportProvider(item.provider || 'vibe');
+    setReportArtifacts(item.artifacts || []);
+  }, []);
+
+  const openHistoricalReport = (item: StoredReport) => {
+    if (item.status === 'running') {
+      void resumeRunningAnalysis(item);
+      return;
+    }
+    if (item.status === 'failed') {
+      setResearchScope(item.scope);
+      if (item.scope === 'country') setCountryQuery(item.query || '');
+      if (item.scope === 'equity') setEquityQuery(item.provider === 'trading-team' ? `${item.query || ''} v2`.trim() : item.query || '');
+      setError(item.error || '上一次分析未完成，请重新开始。');
+      setView('home');
+      setModeTrayOpen(true);
+      transitionState('error');
+      return;
+    }
+
+    revealStoredReport(item);
+
+    if (item.provider === 'trading-team' && (item.sessionId || item.query)) {
+      void (async () => {
+        try {
+          const params = item.sessionId
+            ? `sessionId=${encodeURIComponent(item.sessionId)}`
+            : `query=${encodeURIComponent(item.query || '')}`;
+          const swarm = await requestJsonWithTimeout<TradingTeamReportSnapshot>(`/api/vibe/research/swarm-report?${params}`, 4_000);
+          if (swarm.status === 'completed' && swarm.report) {
+            const normalized = normalizeMarkdown(swarm.report);
+            if (!normalized) return;
+            refreshVisibleReport({
+              ...item,
+              markdown: normalized,
+              title: extractReportTitle(normalized),
+              sessionId: swarm.sessionId || item.sessionId,
+              provider: 'trading-team',
+            });
+          }
+        } catch {
+          // The archived report is already visible; refresh failures stay non-blocking.
+        }
+      })();
+      return;
+    }
+
+    if (item.provider === 'coze' && item.taskId) {
+      const taskId = item.taskId;
+      void (async () => {
+        try {
+          const task = await requestJsonWithTimeout<CozeTaskSnapshot>(`/api/coze/equity-research/tasks/${encodeURIComponent(taskId)}`, 4_000);
+          if (task.status !== 'completed' || !task.markdown) return;
+          const normalized = normalizeMarkdown(task.markdown);
+          if (!normalized) return;
+          refreshVisibleReport({
+            ...item,
+            markdown: normalized,
+            title: extractReportTitle(normalized),
+            artifacts: task.artifacts,
+          });
+        } catch {
+          // The archived report remains usable if the remote task is unavailable.
+        }
+      })();
+    }
   };
 
   const rerunReport = () => {
     setResearchScope(reportScope);
     if (reportScope === 'country') setCountryQuery(reportQuery);
-    if (reportScope === 'equity') setEquityQuery(reportQuery);
-    void startAnalysis({ scope: reportScope, query: reportQuery });
+    const rerunQuery = reportScope === 'equity' && reportProvider === 'trading-team'
+      ? `${reportQuery} v2`.trim()
+      : reportQuery;
+    if (reportScope === 'equity') setEquityQuery(rerunQuery);
+    void startAnalysis({ scope: reportScope, query: rerunQuery });
   };
 
   const returnHome = () => {
@@ -974,7 +1143,7 @@ export function MacroAiAnalyst({
     <AnimatePresence>
       {open ? (
         <motion.section
-          className="macro-ai-panel"
+          className={`macro-ai-panel${!running && view === 'report' && reportProvider === 'trading-team' ? ' is-team-report-open' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-label="AI 市场分析舱"
@@ -1042,7 +1211,7 @@ export function MacroAiAnalyst({
                               value={selectedQuery}
                               onChange={(event) => researchScope === 'country' ? setCountryQuery(event.target.value) : setEquityQuery(event.target.value)}
                               onKeyDown={(event) => { if (event.key === 'Enter') void startAnalysis(); }}
-                              placeholder={researchScope === 'country' ? '输入国家或地区，例如：中国、美国、日本' : '输入一个公司名称或股票代码，例如：长鑫科技、AAPL'}
+                              placeholder={researchScope === 'country' ? '输入国家或地区，例如：中国、美国、日本' : '输入公司或代码，例如：AAPL；团队深度研究：AAPL v2'}
                               maxLength={80}
                             />
                           </label>
@@ -1093,9 +1262,9 @@ export function MacroAiAnalyst({
             ) : null}
 
             {!running && view === 'report' ? (
-              <motion.div className={`macro-ai-report${reportProvider === 'coze' ? ' is-coze' : ''}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+              <motion.div className={`macro-ai-report${reportProvider === 'coze' ? ' is-coze' : reportProvider === 'trading-team' ? ' is-team-v2' : ''}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
                 <div className="macro-ai-report-head">
-                  <div><button type="button" className="macro-ai-report-back" onClick={returnHome} title="返回分析首页"><ArrowLeft size={14} /></button><span><i /> ANALYSIS REPORT</span><strong>{extractReportTitle(report)}</strong><small>{formatReportDate(generatedAt)} {formatReportClock(generatedAt)} · AI 分析师</small></div>
+                  <div><button type="button" className="macro-ai-report-back" onClick={returnHome} title="返回分析首页"><ArrowLeft size={14} /></button><span><i /> {reportProvider === 'trading-team' ? 'TRADING TEAM V2' : 'ANALYSIS REPORT'}</span><strong>{extractReportTitle(report)}</strong><small>{formatReportDate(generatedAt)} {formatReportClock(generatedAt)} · {reportProvider === 'trading-team' ? '13 席分析委员会' : 'AI 分析师'}</small></div>
                   <div>
                     {generatedPdfArtifact ? (
                       <a className="macro-ai-report-download" href={generatedPdfArtifact.url} download title="下载 PDF 研究报告">
@@ -1122,7 +1291,7 @@ export function MacroAiAnalyst({
                     ) : null}
                   </div>
                 ) : null}
-                <MacroAiMarkdown content={report} equityLayout={reportProvider === 'coze'} />
+                <MacroAiMarkdown content={report} equityLayout={reportProvider === 'coze' || reportProvider === 'trading-team'} teamReport={reportProvider === 'trading-team'} />
               </motion.div>
             ) : null}
           </div>

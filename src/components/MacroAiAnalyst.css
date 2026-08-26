@@ -18,6 +18,7 @@
 }
 .macro-ai-panel::before { position: absolute; inset: 0; background: linear-gradient(120deg, transparent 0 44%, rgba(89, 224, 198, .018) 45%, transparent 46% 100%); background-size: 190px 190px; content: ''; pointer-events: none; }
 .macro-ai-panel::after { position: absolute; inset: 58px 0 auto; height: 1px; background: linear-gradient(90deg, transparent, rgba(82, 224, 198, .55), transparent); content: ''; opacity: .65; pointer-events: none; }
+.macro-ai-panel.is-team-report-open { position: fixed; z-index: 140; inset: 64px 0 48px; }
 .macro-ai-header { position: relative; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 18px 0 21px; border-bottom: 1px solid rgba(91, 181, 171, .13); background: rgba(2, 9, 11, .78); backdrop-filter: blur(14px); }
 .macro-ai-brand { display: flex; align-items: center; gap: 11px; }
 .macro-ai-brand > span { position: relative; display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid rgba(84, 232, 195, .34); border-radius: 5px; background: rgba(49, 166, 145, .07); color: var(--ai-mint); box-shadow: inset 0 0 16px rgba(62, 213, 183, .04); }
@@ -87,6 +88,7 @@
 .macro-ai-history-list { display: grid; gap: 7px; }
 .macro-ai-history-list > button { display: grid; min-height: 62px; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 14px 8px 10px; border: 1px solid rgba(83, 147, 148, .14); border-radius: 4px; background: linear-gradient(95deg, rgba(30, 94, 87, .075), rgba(3, 12, 15, .58)); color: inherit; text-align: left; transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease; }
 .macro-ai-history-list > button:hover { border-color: rgba(84, 232, 195, .36); background: linear-gradient(95deg, rgba(37, 130, 117, .13), rgba(6, 20, 23, .72)); box-shadow: inset 3px 0 rgba(84, 232, 195, .65), 0 10px 30px rgba(0, 0, 0, .12); transform: translateX(3px); }
+.macro-ai-history-list > button:active { transform: translateX(2px) scale(.995); }
 .macro-ai-history-list > button.is-running { border-color: rgba(84, 232, 195, .3); background: linear-gradient(95deg, rgba(30, 116, 105, .16), rgba(4, 16, 19, .7)); box-shadow: inset 2px 0 rgba(84, 232, 195, .58); }
 .macro-ai-history-index { color: #39585b; font: 600 11px "JetBrains Mono", monospace; text-align: center; }
 .macro-ai-history-copy { display: grid; min-width: 0; gap: 5px; }
@@ -214,16 +216,16 @@
 .macro-ai-markdown li { margin: 5px 0; padding-left: 3px; }
 .macro-ai-markdown li::marker { color: var(--ai-mint); }
 .macro-ai-markdown a { color: #7dd9e7; text-decoration-color: rgba(125, 217, 231, .3); text-underline-offset: 3px; }
-.macro-ai-report.is-coze .macro-ai-markdown { margin: 0 auto; width: min(1180px, 100%); }
-.macro-ai-report.is-coze .macro-ai-markdown h1 { padding-bottom: 16px; border-bottom: 1px solid rgba(197, 160, 101, .22); background: linear-gradient(90deg, #eef6f3, #b9d8d2 72%); background-clip: text; color: transparent; }
-.macro-ai-report.is-coze .macro-ai-markdown h2 { border-left-color: #c5a065; background: linear-gradient(90deg, rgba(197, 160, 101, .08), rgba(48, 151, 134, .035) 44%, transparent 76%); }
+.macro-ai-report:is(.is-coze, .is-team-v2) .macro-ai-markdown { margin: 0 auto; width: min(1180px, 100%); }
+.macro-ai-report:is(.is-coze, .is-team-v2) .macro-ai-markdown h1 { padding-bottom: 16px; border-bottom: 1px solid rgba(197, 160, 101, .22); background: linear-gradient(90deg, #eef6f3, #b9d8d2 72%); background-clip: text; color: transparent; }
+.macro-ai-report:is(.is-coze, .is-team-v2) .macro-ai-markdown h2 { border-left-color: #c5a065; background: linear-gradient(90deg, rgba(197, 160, 101, .08), rgba(48, 151, 134, .035) 44%, transparent 76%); }
 .macro-ai-markdown.has-equity-cover { --equity-jade-deep: #092526; --equity-jade: #0d3935; --equity-jade-soft: #154b44; --equity-gold: #c5a065; padding-top: 0; }
 .macro-ai-equity-cover { margin: 0 0 24px; overflow: hidden; border: 1px solid rgba(79, 161, 146, .24); border-top: 0; background: linear-gradient(180deg, rgba(8, 34, 34, .72), rgba(3, 15, 17, .7)); box-shadow: 0 20px 50px rgba(0, 0, 0, .24), inset 0 0 60px rgba(48, 151, 134, .025); }
 .macro-ai-equity-brand { display: flex; height: 48px; align-items: center; justify-content: space-between; padding: 0 clamp(18px, 3vw, 34px); border-bottom: 3px solid var(--equity-gold); background: linear-gradient(100deg, #0a2b2c 0%, var(--equity-jade) 48%, #081f22 100%); color: #fff; box-shadow: inset 0 -1px rgba(102, 216, 187, .16); }
 .macro-ai-equity-brand strong { color: #fff; font: 700 18px/1 "Noto Serif SC", Georgia, serif; letter-spacing: -.01em; }
 .macro-ai-equity-brand span { color: rgba(255, 255, 255, .92); font: 500 11px/1 "JetBrains Mono", monospace; letter-spacing: .02em; }
 .macro-ai-equity-title { padding: 34px clamp(24px, 6vw, 76px) 18px; text-align: center; }
-.macro-ai-report.is-coze .macro-ai-equity-title h1 { margin: 0; padding: 0 0 14px; border: 0; background: none; color: #dfeceb; font: 500 clamp(25px, 3.2vw, 39px)/1.25 "Noto Serif SC", "Songti SC", serif; letter-spacing: .015em; }
+.macro-ai-report:is(.is-coze, .is-team-v2) .macro-ai-equity-title h1 { margin: 0; padding: 0 0 14px; border: 0; background: none; color: #dfeceb; font: 500 clamp(25px, 3.2vw, 39px)/1.25 "Noto Serif SC", "Songti SC", serif; letter-spacing: .015em; }
 .macro-ai-equity-title i { display: block; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, var(--equity-gold) 8%, var(--equity-gold) 92%, transparent); opacity: .9; }
 .macro-ai-equity-meta { display: grid; margin: 0 clamp(24px, 8vw, 104px) 30px; border: 1px solid rgba(94, 174, 158, .22); }
 .macro-ai-equity-meta > div { display: grid; min-height: 34px; grid-template-columns: minmax(92px, 22%) 1fr; border-top: 1px solid rgba(164, 211, 200, .11); background: rgba(29, 85, 78, .2); }
@@ -243,6 +245,179 @@
 .macro-ai-table-wrap th { padding: 8px 10px; border-bottom: 1px solid rgba(89, 186, 175, .2); background: rgba(48, 132, 120, .08); color: #cde1dd; font-size: 9px; text-align: left; }
 .macro-ai-table-wrap td { padding: 8px 10px; border-top: 1px solid rgba(90, 140, 145, .1); color: #9eb2b1; font-size: 9px; vertical-align: top; }
 .macro-ai-table-wrap tr:hover td { background: rgba(71, 184, 164, .035); }
+.equity-report-viz { margin: 18px 0 28px; overflow: hidden; border: 1px solid rgba(87, 173, 166, .19); border-radius: 5px; background: linear-gradient(145deg, rgba(8, 28, 31, .94), rgba(3, 12, 16, .9) 58%, rgba(13, 28, 34, .92)); box-shadow: 0 24px 60px rgba(0, 0, 0, .24), inset 0 1px rgba(133, 229, 211, .025); }
+.equity-report-viz > header { display: flex; min-height: 52px; align-items: center; gap: 10px; padding: 0 18px; border-bottom: 1px solid rgba(87, 173, 166, .14); background: linear-gradient(90deg, rgba(30, 115, 103, .12), transparent 56%); }
+.equity-report-viz > header > span { display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid rgba(95, 211, 189, .34); border-radius: 3px; background: rgba(52, 188, 159, .11); color: #77dfca; font: 700 9px "JetBrains Mono", monospace; box-shadow: 0 0 18px rgba(61, 202, 174, .06); }
+.equity-report-viz > header > div { display: grid; gap: 2px; }
+.equity-report-viz > header strong { color: #dce9e7; font: 620 13px/1.3 "Noto Serif SC", "Songti SC", serif; }
+.equity-report-viz > header small { color: #46666b; font: 560 6px "JetBrains Mono", monospace; letter-spacing: .11em; }
+.equity-report-viz-grid { display: grid; min-height: 320px; grid-template-columns: minmax(250px, .72fr) minmax(430px, 1.55fr); }
+.equity-report-radar-panel, .equity-report-price-panel { min-width: 0; padding: 18px; }
+.equity-report-radar-panel { display: grid; place-items: center; border-right: 1px solid rgba(87, 173, 166, .11); background: radial-gradient(circle at 50% 48%, rgba(47, 141, 126, .09), transparent 52%); }
+.equity-report-radar-panel > small { align-self: start; justify-self: start; color: #70888b; font: 570 8px "Noto Serif SC", "Songti SC", serif; }
+.equity-report-radar { width: min(100%, 280px); overflow: visible; }
+.equity-report-radar .radar-ring { fill: rgba(64, 157, 145, .012); stroke: rgba(100, 172, 166, .17); stroke-width: 1; }
+.equity-report-radar line { stroke: rgba(100, 172, 166, .12); stroke-width: 1; }
+.equity-report-radar text { fill: #789092; font: 560 8px "Noto Serif SC", "Songti SC", serif; }
+.equity-report-radar circle { fill: #65dec4; stroke: #0b2325; stroke-width: 2; }
+.equity-report-radar .radar-value { fill: rgba(73, 205, 179, .15); stroke: #61d6bf; stroke-width: 1.8; filter: drop-shadow(0 0 7px rgba(74, 213, 184, .18)); }
+.equity-report-radar .radar-score { fill: #d6ebe6; font: 650 14px "JetBrains Mono", monospace; }
+.equity-report-radar .radar-score-label { fill: #557477; font: 540 6px "Noto Serif SC", "Songti SC", serif; }
+.equity-report-price-panel { display: grid; grid-template-rows: auto minmax(250px, 1fr) auto; }
+.equity-report-chart-title { display: flex; min-height: 26px; align-items: flex-start; justify-content: space-between; gap: 14px; color: #70888b; font: 560 8px "Noto Serif SC", "Songti SC", serif; }
+.equity-report-chart-title > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px; color: #536d71; font: 520 6px "JetBrains Mono", monospace; }
+.equity-report-chart-title i { width: 13px; height: 2px; margin-left: 5px; background: #68a7ff; }
+.equity-report-chart-title i.is-sma20 { background: #dba753; }
+.equity-report-chart-title i.is-sma60 { background: #51c79c; }
+.equity-report-price-canvas { width: 100%; min-height: 270px; }
+.equity-report-price-panel > a { justify-self: end; color: #476a70; font: 520 6px "JetBrains Mono", monospace; text-decoration: none; }
+.equity-report-price-panel > a:hover { color: #79cfc3; }
+.equity-report-price-loading { display: grid; min-height: 270px; place-items: center; border: 1px dashed rgba(91, 166, 161, .12); color: #526f73; font: 550 8px "JetBrains Mono", monospace; }
+.equity-report-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); border-top: 1px solid rgba(87, 173, 166, .13); background: rgba(4, 15, 19, .5); }
+.equity-report-metrics > div { display: grid; min-height: 86px; place-content: center; gap: 4px; padding: 12px; border-left: 1px solid rgba(87, 173, 166, .1); text-align: center; }
+.equity-report-metrics > div:first-child { border-left: 0; }
+.equity-report-metrics strong { color: #8ce3d1; font: 660 15px "JetBrains Mono", monospace; }
+.equity-report-metrics span { color: #b8cac7; font: 570 8px "Noto Serif SC", "Songti SC", serif; }
+.equity-report-metrics small { overflow: hidden; color: #48676b; font: 520 6px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.equity-report-viz-error { margin: 15px 0; padding: 12px 14px; border: 1px solid rgba(220, 94, 103, .2); background: rgba(151, 44, 54, .06); color: #bd777d; font: 550 8px "JetBrains Mono", monospace; }
+
+/* Trading Team V2 uses a dedicated editorial research surface. */
+.macro-ai-report.is-team-v2 { --team-ink: #172033; --team-copy: #445066; --team-muted: #7a879a; --team-line: #d9e0e9; --team-blue: #2f5bea; --team-amber: #d58a14; --team-green: #15966d; --team-red: #d65261; padding-bottom: 0; background: #070b11; }
+.macro-ai-report.is-team-v2 .macro-ai-report-head { padding: 0 8px; border-bottom-color: rgba(159, 174, 197, .16); }
+.macro-ai-report.is-team-v2 .macro-ai-report-head > div:first-child > span { color: #8da9ff; }
+.macro-ai-report.is-team-v2 .macro-ai-report-head > div:first-child > span i { background: #6f91ff; box-shadow: 0 0 8px rgba(89, 124, 255, .55); }
+.macro-ai-report.is-team-v2 .macro-ai-report-head button { border-color: rgba(156, 173, 198, .2); background: rgba(20, 27, 39, .72); color: #9ba8ba; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown.is-team-report { width: 100%; margin: 0; padding: 28px clamp(18px, 4vw, 64px) 80px; background: #e9edf2; color: var(--team-copy); font-size: 13px; line-height: 1.82; scrollbar-color: #aeb8c7 transparent; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report,
+.macro-ai-report.is-team-v2 .macro-ai-markdown-body { width: min(1180px, 100%); margin-right: auto; margin-left: auto; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report { margin-bottom: 0; border: 1px solid var(--team-line); border-bottom: 0; border-radius: 6px 6px 0 0; background: #fff; box-shadow: 0 16px 40px rgba(27, 40, 61, .08); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-brand { height: 54px; padding: 0 clamp(22px, 4vw, 46px); border-bottom: 1px solid var(--team-line); background: #172033; box-shadow: none; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-brand strong { color: #fff; font: 680 16px/1 "Noto Sans SC", sans-serif; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-brand span { color: #aebbd0; font: 540 10px/1 "Noto Sans SC", sans-serif; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-title { padding: 42px clamp(28px, 6vw, 72px) 24px; text-align: left; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-title h1 { max-width: 880px; padding: 0; color: var(--team-ink); font: 680 clamp(28px, 3.2vw, 42px)/1.24 "Noto Serif SC", "Songti SC", serif; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-title i { width: 52px; height: 3px; margin-top: 20px; background: var(--team-blue); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 clamp(28px, 6vw, 72px) 36px; border: 0; border-top: 1px solid var(--team-line); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta > div { display: block; min-height: 68px; padding: 14px 16px 8px 0; border: 0; background: transparent; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta dt,
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta dd { display: block; padding: 0; border: 0; background: transparent; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta dt { margin-bottom: 6px; color: var(--team-muted); font: 600 9px/1.4 "Noto Sans SC", sans-serif; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta dd { overflow: hidden; color: var(--team-ink); font: 600 11px/1.5 "Noto Sans SC", sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown-body { padding: 38px clamp(28px, 5vw, 58px) 64px; border: 1px solid var(--team-line); border-top: 0; border-radius: 0 0 6px 6px; background: #fff; box-shadow: 0 18px 44px rgba(27, 40, 61, .08); }
+.macro-ai-report.is-team-v2 .macro-ai-markdown h1 { color: var(--team-ink); background: none; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown h2 { margin: 38px 0 16px; padding: 11px 0 12px; border: 0; border-bottom: 1px solid var(--team-line); background: none; color: var(--team-ink); font: 700 20px/1.4 "Noto Serif SC", "Songti SC", serif; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown.has-equity-cover .macro-ai-markdown-body > h2:first-child { margin-top: 0; padding: 11px 0 12px; border: 0; border-bottom: 1px solid var(--team-line); border-radius: 0; background: none; color: var(--team-ink); font-size: 20px; box-shadow: none; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown h2::after { position: absolute; bottom: -1px; left: 0; width: 48px; height: 2px; background: var(--team-blue); content: ''; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown h3 { margin-top: 26px; color: #24324a; font-size: 15px; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown p { margin: 10px 0; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown strong { color: #202c40; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown em { color: #5f6e84; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown li::marker { color: var(--team-blue); }
+.macro-ai-report.is-team-v2 .macro-ai-markdown a { color: #2455dc; text-decoration-color: rgba(36, 85, 220, .3); }
+.macro-ai-report.is-team-v2 .macro-ai-markdown code { border-color: #d7deea; background: #f1f4f8; color: #3154a5; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown pre { border-color: #d9e0e9; background: #172033; color: #dce4f0; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown blockquote { border-left-color: var(--team-amber); background: #f7f4ed; color: #5f5545; }
+.macro-ai-report.is-team-v2 .macro-ai-table-wrap { margin: 18px 0 24px; border-color: var(--team-line); border-radius: 4px; background: #fff; box-shadow: 0 5px 18px rgba(24, 38, 61, .05); }
+.macro-ai-report.is-team-v2 .macro-ai-table-wrap th { padding: 11px 13px; border-bottom-color: #cbd5e2; background: #f0f3f7; color: #26344a; font-size: 11px; }
+.macro-ai-report.is-team-v2 .macro-ai-table-wrap td { padding: 11px 13px; border-top-color: #e2e7ee; color: #526078; font-size: 11px; }
+.macro-ai-report.is-team-v2 .macro-ai-table-wrap tr:hover td { background: #f7f9fc; }
+.macro-ai-report.is-team-v2 .macro-ai-report-visual { border-color: var(--team-line); background: #f5f7fa; box-shadow: 0 12px 30px rgba(25, 38, 59, .08); }
+.macro-ai-report.is-team-v2 .macro-ai-report-visual small { border-top-color: var(--team-line); color: var(--team-muted); }
+.macro-ai-report.is-team-v2 .equity-report-viz { margin: 8px 0 34px; border-color: #d5dde8; border-radius: 6px; background: #fbfcfe; box-shadow: 0 12px 32px rgba(31, 48, 76, .08); }
+.macro-ai-report.is-team-v2 .equity-report-viz > header { min-height: 62px; padding: 0 22px; border-bottom-color: #dce3ec; background: #f3f6fa; }
+.macro-ai-report.is-team-v2 .equity-report-viz > header > span { border-color: var(--team-blue); background: var(--team-blue); color: #fff; box-shadow: none; }
+.macro-ai-report.is-team-v2 .equity-report-viz > header strong { color: var(--team-ink); font: 700 14px/1.3 "Noto Sans SC", sans-serif; }
+.macro-ai-report.is-team-v2 .equity-report-viz > header small { color: var(--team-muted); font-size: 7px; }
+.macro-ai-report.is-team-v2 .equity-report-radar-panel { border-right-color: #e0e6ee; background: #fbfcfe; }
+.macro-ai-report.is-team-v2 .equity-report-radar-panel > small,
+.macro-ai-report.is-team-v2 .equity-report-chart-title { color: #58667c; font-size: 10px; }
+.macro-ai-report.is-team-v2 .equity-report-radar .radar-ring { fill: rgba(47, 91, 234, .015); stroke: #d6dfed; }
+.macro-ai-report.is-team-v2 .equity-report-radar line { stroke: #dce3ed; }
+.macro-ai-report.is-team-v2 .equity-report-radar text { fill: #69778d; font-size: 9px; }
+.macro-ai-report.is-team-v2 .equity-report-radar circle { fill: var(--team-blue); stroke: #fff; }
+.macro-ai-report.is-team-v2 .equity-report-radar .radar-value { fill: rgba(47, 91, 234, .14); stroke: var(--team-blue); filter: none; }
+.macro-ai-report.is-team-v2 .equity-report-radar .radar-score { fill: var(--team-blue); }
+.macro-ai-report.is-team-v2 .equity-report-radar .radar-score-label { fill: #7d899b; }
+.macro-ai-report.is-team-v2 .equity-report-chart-title > div { color: #748095; font-size: 7px; }
+.macro-ai-report.is-team-v2 .equity-report-chart-title i { background: var(--team-blue); }
+.macro-ai-report.is-team-v2 .equity-report-chart-title i.is-sma20 { background: var(--team-amber); }
+.macro-ai-report.is-team-v2 .equity-report-chart-title i.is-sma60 { background: var(--team-green); }
+.macro-ai-report.is-team-v2 .equity-report-price-panel > a { color: #718097; }
+.macro-ai-report.is-team-v2 .equity-report-price-panel > a:hover { color: var(--team-blue); }
+.macro-ai-report.is-team-v2 .equity-report-price-loading { border-color: #d9e0e9; color: #77849a; }
+.macro-ai-report.is-team-v2 .equity-report-metrics { border-top-color: #dce3ec; background: #f3f6fa; }
+.macro-ai-report.is-team-v2 .equity-report-metrics > div { border-left-color: #dce3ec; }
+.macro-ai-report.is-team-v2 .equity-report-metrics strong { color: var(--team-blue); font-size: 17px; }
+.macro-ai-report.is-team-v2 .equity-report-metrics span { color: #35435a; font-size: 9px; }
+.macro-ai-report.is-team-v2 .equity-report-metrics small { color: #7c899b; font-size: 7px; }
+.macro-ai-report.is-team-v2 .equity-report-viz-error { border-color: rgba(214, 82, 97, .28); background: #fff1f2; color: #a43c49; }
+
+/* Dark glass revision: cinematic decision surface without a single-color HUD. */
+.macro-ai-report.is-team-v2 { --team-ink: #edf7f3; --team-copy: #aec3bc; --team-muted: #657f77; --team-line: rgba(99, 177, 154, .2); --team-blue: #63d6b5; --team-cyan: #76dcc5; --team-amber: #e1a14b; --team-violet: #9a8df5; --team-green: #82cf9d; --team-red: #ef7180; background: #040907; }
+.macro-ai-report.is-team-v2 .macro-ai-report-head > div:first-child > span { color: #83ddc3; }
+.macro-ai-report.is-team-v2 .macro-ai-report-head > div:first-child > span i { background: #63d6b5; box-shadow: 0 0 8px rgba(99, 214, 181, .52); }
+.macro-ai-report.is-team-v2 .macro-ai-report-head button { border-color: rgba(104, 180, 157, .2); background: rgba(7, 20, 17, .72); color: #91aaa2; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown.is-team-report { background: linear-gradient(135deg, rgba(5, 13, 11, .97), rgba(3, 9, 7, .95) 58%, rgba(7, 15, 12, .97)); color: var(--team-copy); }
+.macro-ai-report.is-team-v2 .macro-ai-markdown.is-team-report::before { position: fixed; z-index: 0; inset: 123px 0 48px; background-image: linear-gradient(rgba(81, 164, 142, .035) 1px, transparent 1px), linear-gradient(90deg, rgba(81, 164, 142, .035) 1px, transparent 1px); background-size: 44px 44px; content: ''; pointer-events: none; mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .8), transparent 90%); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report,
+.macro-ai-report.is-team-v2 .macro-ai-markdown-body { position: relative; z-index: 1; border-color: rgba(99, 177, 154, .22); background: rgba(5, 15, 12, .74); box-shadow: 0 22px 60px rgba(0, 0, 0, .34), inset 0 1px rgba(173, 239, 218, .035); backdrop-filter: blur(18px) saturate(118%); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report { border-bottom-color: rgba(99, 177, 154, .12); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-brand { border-bottom-color: rgba(99, 190, 162, .2); background: linear-gradient(90deg, rgba(11, 35, 28, .92), rgba(6, 20, 16, .76) 58%, rgba(8, 28, 22, .68)); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-brand strong { color: #f4f7fb; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-brand span { color: #78968c; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-title h1 { color: #edf3fa; text-shadow: 0 0 28px rgba(99, 214, 181, .09); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-title i { background: linear-gradient(90deg, var(--team-blue), var(--team-cyan)); box-shadow: 0 0 14px rgba(89, 199, 220, .22); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta { border-top-color: rgba(103, 174, 153, .18); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta > div { border-right: 1px solid rgba(103, 174, 153, .1); }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta > div:last-child { border-right: 0; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta dt { color: #668077; }
+.macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta dd { color: #c8dcd5; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown h1,
+.macro-ai-report.is-team-v2 .macro-ai-markdown h2,
+.macro-ai-report.is-team-v2 .macro-ai-markdown.has-equity-cover .macro-ai-markdown-body > h2:first-child { color: #ecf2f8; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown h2,
+.macro-ai-report.is-team-v2 .macro-ai-markdown.has-equity-cover .macro-ai-markdown-body > h2:first-child { border-bottom-color: rgba(99, 177, 154, .19); }
+.macro-ai-report.is-team-v2 .macro-ai-markdown h2::after { background: linear-gradient(90deg, var(--team-blue), var(--team-cyan)); }
+.macro-ai-report.is-team-v2 .macro-ai-markdown h3 { color: #d0e2dc; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown strong { color: #e4ebf4; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown em { color: #8da69e; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown li::marker { color: var(--team-cyan); }
+.macro-ai-report.is-team-v2 .macro-ai-markdown a { color: #7cddc4; text-decoration-color: rgba(99, 214, 181, .32); }
+.macro-ai-report.is-team-v2 .macro-ai-markdown code { border-color: rgba(103, 180, 157, .18); background: rgba(65, 139, 116, .1); color: #96e0ca; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown pre { border-color: rgba(103, 180, 157, .2); background: rgba(2, 9, 7, .86); color: #c5d9d2; }
+.macro-ai-report.is-team-v2 .macro-ai-markdown blockquote { border-left-color: var(--team-violet); background: rgba(123, 104, 207, .07); color: #b9b3d0; }
+.macro-ai-report.is-team-v2 .macro-ai-table-wrap { border-color: rgba(103, 178, 156, .2); background: rgba(4, 13, 10, .68); box-shadow: 0 10px 28px rgba(0, 0, 0, .2); }
+.macro-ai-report.is-team-v2 .macro-ai-table-wrap th { border-bottom-color: rgba(103, 187, 161, .22); background: linear-gradient(90deg, rgba(49, 128, 104, .15), rgba(39, 92, 75, .08)); color: #d5e8e1; }
+.macro-ai-report.is-team-v2 .macro-ai-table-wrap td { border-top-color: rgba(102, 164, 145, .12); color: #9db4ac; }
+.macro-ai-report.is-team-v2 .macro-ai-table-wrap tr:hover td { background: rgba(66, 148, 123, .07); }
+.macro-ai-report.is-team-v2 .macro-ai-report-visual { border-color: rgba(128, 157, 192, .2); background: rgba(5, 10, 16, .74); box-shadow: 0 18px 42px rgba(0, 0, 0, .28); }
+.macro-ai-report.is-team-v2 .macro-ai-report-visual img { background: rgba(8, 13, 20, .8); }
+.macro-ai-report.is-team-v2 .macro-ai-report-visual small { border-top-color: rgba(128, 157, 192, .14); color: #68798e; }
+.macro-ai-report.is-team-v2 .equity-report-viz { border-color: rgba(102, 184, 159, .24); background: linear-gradient(145deg, rgba(6, 20, 16, .9), rgba(3, 11, 9, .84) 58%, rgba(7, 24, 19, .86)); box-shadow: 0 18px 42px rgba(0, 0, 0, .32), inset 0 1px rgba(173, 239, 218, .035); }
+.macro-ai-report.is-team-v2 .equity-report-viz > header { border-bottom-color: rgba(102, 184, 159, .18); background: linear-gradient(90deg, rgba(45, 127, 102, .16), rgba(8, 27, 21, .4) 58%, rgba(35, 105, 83, .08)); }
+.macro-ai-report.is-team-v2 .equity-report-viz > header > span { border-color: rgba(99, 214, 181, .68); background: rgba(49, 142, 116, .2); color: #a6ecd8; box-shadow: inset 0 0 14px rgba(99, 214, 181, .12), 0 0 16px rgba(111, 184, 210, .08); }
+.macro-ai-report.is-team-v2 .equity-report-viz > header strong { color: #e7eef7; }
+.macro-ai-report.is-team-v2 .equity-report-viz > header small { color: #617f75; }
+.macro-ai-report.is-team-v2 .equity-report-radar-panel { border-right-color: rgba(102, 184, 159, .14); background: linear-gradient(180deg, rgba(28, 79, 63, .07), transparent); }
+.macro-ai-report.is-team-v2 .equity-report-radar-panel > small,
+.macro-ai-report.is-team-v2 .equity-report-chart-title { color: #8594a8; }
+.macro-ai-report.is-team-v2 .equity-report-radar .radar-ring { fill: rgba(99, 214, 181, .018); stroke: rgba(103, 177, 156, .24); }
+.macro-ai-report.is-team-v2 .equity-report-radar line { stroke: rgba(103, 177, 156, .16); }
+.macro-ai-report.is-team-v2 .equity-report-radar text { fill: #78968c; }
+.macro-ai-report.is-team-v2 .equity-report-radar circle { fill: var(--team-cyan); stroke: #09111c; }
+.macro-ai-report.is-team-v2 .equity-report-radar .radar-value { fill: rgba(99, 214, 181, .15); stroke: var(--team-blue); filter: drop-shadow(0 0 7px rgba(99, 214, 181, .18)); }
+.macro-ai-report.is-team-v2 .equity-report-radar .radar-score { fill: #bcebdc; }
+.macro-ai-report.is-team-v2 .equity-report-radar .radar-score-label { fill: #64758b; }
+.macro-ai-report.is-team-v2 .equity-report-chart-title > div { color: #647f76; }
+.macro-ai-report.is-team-v2 .equity-report-price-panel > a { color: #617f75; }
+.macro-ai-report.is-team-v2 .equity-report-price-panel > a:hover { color: var(--team-cyan); }
+.macro-ai-report.is-team-v2 .equity-report-price-loading { border-color: rgba(102, 184, 159, .17); color: #647f76; }
+.macro-ai-report.is-team-v2 .equity-report-metrics { border-top-color: rgba(102, 184, 159, .17); background: rgba(3, 12, 9, .48); }
+.macro-ai-report.is-team-v2 .equity-report-metrics > div { border-left-color: rgba(102, 184, 159, .13); }
+.macro-ai-report.is-team-v2 .equity-report-metrics strong { color: #88dfc5; }
+.macro-ai-report.is-team-v2 .equity-report-metrics span { color: #b7c3d2; }
+.macro-ai-report.is-team-v2 .equity-report-metrics small { color: #607b72; }
+.macro-ai-report.is-team-v2 .equity-report-viz-error { border-color: rgba(239, 113, 128, .28); background: rgba(128, 34, 49, .12); color: #e28a95; }
 
 @keyframes macro-ai-status-pulse { 50% { opacity: .35; transform: scale(.72); } }
 @keyframes macro-ai-gateway-frame { 0%, 100% { opacity: .34; transform: translateY(-50%) perspective(520px) rotateY(var(--gateway-frame-angle)) scale(.98); } 50% { opacity: .76; transform: translateY(-50%) perspective(520px) rotateY(var(--gateway-frame-angle)) scale(1.015); } }
@@ -259,6 +434,7 @@
 @keyframes macro-ai-spin-reverse { to { transform: rotate(-360deg); } }
 
 @media (max-width: 900px) {
+  .macro-ai-panel.is-team-report-open { inset: 0; }
   .macro-ai-panel { grid-template-rows: 52px minmax(0, 1fr); }
   .macro-ai-header { padding: 0 12px; }
   .macro-ai-brand small, .macro-ai-header-state > span { display: none; }
@@ -267,6 +443,11 @@
   .macro-ai-mode-options { grid-template-columns: 1fr; }
   .macro-ai-mode-options > button { min-height: 44px; }
   .macro-ai-research-input { grid-template-columns: 1fr; gap: 4px; }
+  .equity-report-viz-grid { grid-template-columns: 1fr; }
+  .equity-report-radar-panel { min-height: 300px; border-right: 0; border-bottom: 1px solid rgba(87, 173, 166, .11); }
+  .equity-report-metrics { grid-template-columns: repeat(2, 1fr); }
+  .equity-report-metrics > div:nth-child(odd) { border-left: 0; }
+  .equity-report-metrics > div:nth-child(n+3) { border-top: 1px solid rgba(87, 173, 166, .1); }
   .macro-ai-gateway-label { display: none; }
   .macro-ai-gateway-safe { width: min(340px, 58vw); height: min(350px, 48vh); }
   .macro-ai-gateway-network { top: 9%; height: 66%; }
@@ -295,6 +476,13 @@
   .macro-ai-equity-meta { margin: 0 12px 20px; }
   .macro-ai-equity-meta > div { grid-template-columns: 82px 1fr; }
   .macro-ai-equity-meta dt, .macro-ai-equity-meta dd { padding: 6px 8px; font-size: 9px; }
+  .macro-ai-report.is-team-v2 .macro-ai-markdown.is-team-report { padding: 16px 8px 48px; }
+  .macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-title { padding: 28px 20px 18px; }
+  .macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-title h1 { font-size: clamp(23px, 7vw, 31px); }
+  .macro-ai-report.is-team-v2 .macro-ai-equity-cover.is-team-report .macro-ai-equity-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0 20px 22px; }
+  .macro-ai-report.is-team-v2 .macro-ai-markdown-body { padding: 28px 18px 44px; }
+  .macro-ai-report.is-team-v2 .macro-ai-markdown h2,
+  .macro-ai-report.is-team-v2 .macro-ai-markdown.has-equity-cover .macro-ai-markdown-body > h2:first-child { font-size: 17px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

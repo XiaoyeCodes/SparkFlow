@@ -32,6 +32,17 @@ def _max_wait_seconds() -> int:
 # Preset matching: (preset_name, keyword_patterns, weight_boost). Patterns match user intent (EN + ZH).
 _PRESET_KEYWORDS: list[tuple[str, list[str], float]] = [
     (
+        "trading_analysis_team_v2",
+        [
+            "trading analysis v2",
+            "trading team v2",
+            "交易分析 v2",
+            "交易团队 v2",
+            "十三席",
+        ],
+        1.25,
+    ),
+    (
         "global_allocation_committee",
         [
             r"cross[- ]?market",
@@ -594,6 +605,18 @@ def _snippet(prompt: str, max_len: int = 240) -> str:
     return s if len(s) <= max_len else s[: max_len - 3] + "..."
 
 
+def _extract_trading_target(prompt: str) -> str:
+    """Extract the security label from SparkFlow's explicit V2 prompt."""
+    for pattern in (
+        r"(?:对|研究对象(?:为)?)[：:\s]*[“\"]([^”\"]+)[”\"]",
+        r"(?:研究对象|target)[：:]\s*([^\n，,；;]+)",
+    ):
+        match = re.search(pattern, prompt, re.IGNORECASE)
+        if match and match.group(1).strip():
+            return _snippet(match.group(1).strip(), 160)
+    return _snippet(prompt, 160)
+
+
 def _build_variables(preset_name: str, prompt: str) -> dict[str, str]:
     """Build template variables from prompt for the matched preset.
 
@@ -641,6 +664,7 @@ def _build_variables(preset_name: str, prompt: str) -> dict[str, str]:
         "sector_rotation_team": {"market": market, "goal": g},
         "portfolio_review_board": {"portfolio": g, "review_period": _extract_review_period(prompt), "goal": g},
         "ml_quant_lab": {"market": market, "target_variable": _extract_target_variable(prompt), "goal": g},
+        "trading_analysis_team_v2": {"target": _extract_trading_target(prompt), "market": "auto-detect"},
     }
 
     return builders.get(preset_name, {"market": market, "goal": g})

@@ -1,7 +1,7 @@
 import react from '@vitejs/plugin-react';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, openSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readdirSync } from 'node:fs';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { get as httpsGet } from 'node:https';
 import { createServer as createNetServer } from 'node:net';
@@ -9137,6 +9137,66 @@ function validateVibeSessionId(value: unknown) {
   return sessionId;
 }
 
+function readVibeTradingTeamSnapshots(resultsDir: string, sessionId: string): Array<Record<string, unknown>> {
+  if (!existsSync(resultsDir)) return [];
+  return readdirSync(resultsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.txt'))
+    .flatMap((entry) => {
+      try {
+        const parsed = JSON.parse(readFileSync(path.join(resultsDir, entry.name), 'utf8')) as Record<string, unknown>;
+        return parsed.preset === 'trading_analysis_team_v2' ? [{ ...parsed, sessionId }] : [];
+      } catch {
+        return [];
+      }
+    });
+}
+
+function readVibeTradingTeamReport(sessionIdValue: unknown, queryValue?: unknown) {
+  const sessionsRoot = path.join(vibeTradingRoot, 'agent', 'sessions');
+  const requestedSessionId = String(sessionIdValue || '').trim();
+  const query = String(queryValue || '').trim();
+  if (query.length > 80) throw new Error('V2 研究对象过长');
+
+  let snapshots: Array<Record<string, unknown>> = [];
+  if (requestedSessionId) {
+    const sessionId = validateVibeSessionId(requestedSessionId);
+    snapshots = readVibeTradingTeamSnapshots(path.join(sessionsRoot, sessionId, 'tool-results'), sessionId);
+  } else if (query && existsSync(sessionsRoot)) {
+    const normalizedQuery = query.replace(/\s+/g, '').toLowerCase();
+    snapshots = readdirSync(sessionsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^[a-zA-Z0-9_-]{8,100}$/.test(entry.name))
+      .flatMap((entry) => readVibeTradingTeamSnapshots(path.join(sessionsRoot, entry.name, 'tool-results'), entry.name))
+      .filter((item) => {
+        const variables = item.auto_variables && typeof item.auto_variables === 'object'
+          ? item.auto_variables as Record<string, unknown>
+          : {};
+        return String(variables.target || '').replace(/\s+/g, '').toLowerCase() === normalizedQuery;
+      });
+  } else {
+    throw new Error('V2 报告恢复需要会话 ID 或研究对象');
+  }
+
+  snapshots.sort((left, right) => String(right.run_id || '').localeCompare(String(left.run_id || '')));
+  const completed = snapshots.find((item) => item.status === 'completed' && typeof item.final_report === 'string' && item.final_report.trim());
+  if (completed) {
+    return {
+      status: 'completed' as const,
+      runId: String(completed.run_id || ''),
+      sessionId: String(completed.sessionId || ''),
+      report: String(completed.final_report),
+    };
+  }
+  const failed = snapshots.find((item) => item.status === 'failed' || item.status === 'cancelled' || item.status === 'error');
+  if (failed) {
+    return {
+      status: 'failed' as const,
+      runId: String(failed.run_id || ''),
+      error: String(failed.error || 'Trading Team V2 分析未完成'),
+    };
+  }
+  return { status: 'pending' as const };
+}
+
 async function syncVibeLlmSettings(baseUrl: string, body: any) {
   const ai = getAiRequestBody(body);
   const hasKey = Boolean(ai.apiKey.trim());
@@ -10583,6 +10643,36 @@ function allWeatherApiPlugin() {
             return;
           }
 
+          if (url.pathname === '/api/equity-report-chart') {
+            const symbol = String(url.searchParams.get('symbol') || '').trim().toUpperCase();
+            const requestedRange = String(url.searchParams.get('range') || '3mo');
+            const range = ['1mo', '3mo', '6mo', '1y'].includes(requestedRange) ? requestedRange : '3mo';
+            if (!/^[A-Z0-9.^=-]{1,24}$/.test(symbol)) {
+              sendJson(res, 400, { error: '证券代码格式无效' });
+              return;
+            }
+            const quote = await getYahooMacroQuote(symbol, range);
+            const movingAverage = (values: number[], period: number, index: number) => {
+              if (index + 1 < period) return undefined;
+              const window = values.slice(index + 1 - period, index + 1);
+              return Number((window.reduce((sum, value) => sum + value, 0) / period).toFixed(4));
+            };
+            const closes = quote.history.map((point) => point.value);
+            res.setHeader('Cache-Control', 'private, max-age=300');
+            sendJson(res, 200, {
+              symbol,
+              generatedAt: quote.updatedAt,
+              source: { label: 'Yahoo Finance · 日线收盘口径', url: quote.sourceUrl },
+              points: quote.history.map((point, index) => ({
+                time: point.time,
+                close: point.value,
+                sma20: movingAverage(closes, 20, index),
+                sma60: movingAverage(closes, 60, index),
+              })),
+            });
+            return;
+          }
+
           if (url.pathname === '/api/global-macro-core-index') {
             const id = String(url.searchParams.get('id') || '') as IsolatedGlobalMacroCoreIndexId;
             if (!Object.prototype.hasOwnProperty.call(globalMacroCoreIndexConfigs, id)) {
@@ -10990,6 +11080,11 @@ function allWeatherApiPlugin() {
               200,
               await requestVibeJson(baseUrl, `/sessions/${encodeURIComponent(sessionId)}/messages`),
             );
+            return;
+          }
+
+          if (url.pathname === '/api/vibe/research/swarm-report' && req.method === 'GET') {
+            sendJson(res, 200, readVibeTradingTeamReport(url.searchParams.get('sessionId'), url.searchParams.get('query')));
             return;
           }
 
