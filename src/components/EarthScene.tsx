@@ -254,6 +254,7 @@ export function EarthScene() {
     let pointerOverGlobe = false;
     let zoomOffset = 0;
     let zoomVelocity = 0;
+    let layoutDirty = true;
 
     const resize = () => {
       const rect = mount.getBoundingClientRect();
@@ -261,7 +262,12 @@ export function EarthScene() {
       height = Math.max(1, rect.height);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      renderer.setSize(width, height, false);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      // Keep the CSS canvas size equal to the stage while DPR only increases the
+      // backing buffer. Without the style update, 125%/150% Windows scaling makes
+      // the canvas itself wider than its container and visually shifts the globe.
+      renderer.setSize(width, height);
+      layoutDirty = true;
     };
 
     const resizeObserver = new ResizeObserver(resize);
@@ -274,23 +280,35 @@ export function EarthScene() {
 
     const getLayoutFrame = (ease: number) => {
       const isNarrow = width < 760;
-      const centerXRatio = isNarrow ? 0.5 : THREE.MathUtils.lerp(0.5, 0.3, ease);
-      const centerYRatio = isNarrow ? THREE.MathUtils.lerp(0.5, 0.46, ease) : THREE.MathUtils.lerp(0.51, 0.54, ease);
-      const radiusRatio = isNarrow ? THREE.MathUtils.lerp(0.31, 0.23, ease) : THREE.MathUtils.lerp(0.39, 0.27, ease);
+      const minSide = Math.min(width, height);
 
-      return { centerXRatio, centerYRatio, radiusRatio };
+      // Keep the opening composition anchored to the actual stage center. Once the
+      // details panel enters, move the globe by a capped pixel distance instead of
+      // a viewport percentage so ultrawide monitors cannot push it off-canvas.
+      const horizontalTravel = isNarrow ? 0 : Math.min(width * 0.2, 340);
+      const centerX = width * 0.5 - horizontalTravel * ease;
+      const centerY = height * (isNarrow
+        ? THREE.MathUtils.lerp(0.5, 0.46, ease)
+        : THREE.MathUtils.lerp(0.51, 0.54, ease));
+      const radius = minSide * (isNarrow
+        ? THREE.MathUtils.lerp(0.31, 0.23, ease)
+        : THREE.MathUtils.lerp(0.39, 0.27, ease));
+
+      return { centerX, centerY, radius };
     };
 
     const getGlobeScreenBounds = () => {
       const rect = renderer.domElement.getBoundingClientRect();
-      const progress = reducedMotion ? 0.78 : getScrollProgress();
+      const progress = getScrollProgress();
       const ease = 1 - Math.pow(1 - progress, 3);
-      const { centerXRatio, centerYRatio, radiusRatio } = getLayoutFrame(ease);
+      const frame = getLayoutFrame(ease);
+      const scaleX = rect.width / width;
+      const scaleY = rect.height / height;
 
       return {
-        centerX: rect.left + rect.width * centerXRatio,
-        centerY: rect.top + rect.height * centerYRatio,
-        radius: Math.min(rect.width, rect.height) * radiusRatio
+        centerX: rect.left + frame.centerX * scaleX,
+        centerY: rect.top + frame.centerY * scaleY,
+        radius: frame.radius * Math.min(scaleX, scaleY)
       };
     };
 
@@ -365,9 +383,9 @@ export function EarthScene() {
 
     const render = () => {
       const elapsed = clock.getElapsedTime();
-      const progress = reducedMotion ? 0.78 : getScrollProgress();
+      const progress = getScrollProgress();
       const ease = 1 - Math.pow(1 - progress, 3);
-      const { centerXRatio, centerYRatio, radiusRatio } = getLayoutFrame(ease);
+      const frame = getLayoutFrame(ease);
       const targetCameraZ = THREE.MathUtils.lerp(6.45, 6.9, ease) + zoomOffset;
 
       currentParallax.x += (targetParallax.x - currentParallax.x) * PARALLAX_EASE;
@@ -375,17 +393,26 @@ export function EarthScene() {
       currentHover.x += (targetHover.x - currentHover.x) * HOVER_EASE;
       currentHover.y += (targetHover.y - currentHover.y) * HOVER_EASE;
 
-      camera.position.z += (targetCameraZ - camera.position.z) * 0.06;
+      camera.position.z = layoutDirty
+        ? targetCameraZ
+        : camera.position.z + (targetCameraZ - camera.position.z) * 0.06;
 
       const visibleHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.position.z;
       const visibleWidth = visibleHeight * camera.aspect;
-      const targetX = (centerXRatio - 0.5) * visibleWidth;
-      const targetY = (0.5 - centerYRatio) * visibleHeight;
-      const targetScale = (Math.min(width, height) * radiusRatio * visibleHeight) / (height * HIT_SPHERE_RADIUS);
+      const targetX = (frame.centerX / width - 0.5) * visibleWidth;
+      const targetY = camera.position.y + (0.5 - frame.centerY / height) * visibleHeight;
+      const targetScale = (frame.radius * visibleHeight) / (height * HIT_SPHERE_RADIUS);
 
-      root.position.x += (targetX - root.position.x) * 0.075;
-      root.position.y += (targetY - root.position.y) * 0.075;
-      root.scale.setScalar(root.scale.x + (targetScale - root.scale.x) * 0.075);
+      if (layoutDirty) {
+        root.position.x = targetX;
+        root.position.y = targetY;
+        root.scale.setScalar(targetScale);
+        layoutDirty = false;
+      } else {
+        root.position.x += (targetX - root.position.x) * 0.075;
+        root.position.y += (targetY - root.position.y) * 0.075;
+        root.scale.setScalar(root.scale.x + (targetScale - root.scale.x) * 0.075);
+      }
 
       if (!drag.active) {
         manualRotation.x = THREE.MathUtils.clamp(manualRotation.x + velocity.x, -PITCH_LIMIT, PITCH_LIMIT);
@@ -420,6 +447,7 @@ export function EarthScene() {
     resize();
     syncHitArea();
     window.addEventListener('resize', resize);
+    window.visualViewport?.addEventListener('resize', resize);
     hitArea.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('mousemove', onMouseMove);
@@ -432,6 +460,7 @@ export function EarthScene() {
       window.cancelAnimationFrame(raf);
       resizeObserver.disconnect();
       window.removeEventListener('resize', resize);
+      window.visualViewport?.removeEventListener('resize', resize);
       hitArea.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('mousemove', onMouseMove);

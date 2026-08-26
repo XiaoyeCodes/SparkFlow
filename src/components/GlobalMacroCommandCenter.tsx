@@ -1018,12 +1018,15 @@ function RiskSentimentSwitcher({
               <button type="button" className="macro-vix-bulb macro-vxn-bulb" onClick={cycleRiskSentiment} aria-label={`切换至${nextLabel}`} title={`切换至 ${nextLabel}`}><i /><span /></button>
               <div className="macro-vxn-screen" aria-hidden="true">
                 <span className="macro-vxn-grid" />
-                <span className="macro-vxn-liquid" style={{ '--vxn-fill': `${temperature.percent}%` } as CSSProperties}><i /><i /><i /></span>
+                <span className="macro-vxn-liquid" style={{ '--vxn-fill': `${temperature.percent}%` } as CSSProperties}><i /><i /></span>
+                <span className="macro-vxn-thresholds"><i style={{ left: '25%' }} /><i style={{ left: '50%' }} /><i style={{ left: '75%' }} /></span>
                 <span className="macro-vix-identity macro-vxn-identity"><small>VXN</small><b>纳指波动</b></span>
                 <span className="macro-vix-reading macro-vxn-reading"><small>{temperature.label}</small><strong>{display}</strong></span>
               </div>
             </div>
-            <div className="macro-vxn-temperature" style={{ '--vxn-temp': `${temperature.percent}%` } as CSSProperties} aria-hidden="true"><i /><span>平静 &lt;15</span><span>常态 15–25</span><span>升温 25–35</span><span>过温 35+</span></div>
+            <div className="macro-vix-scale macro-vxn-scale" aria-hidden="true">
+              <span><i />平静 &lt;15</span><span><i />常态 15–25</span><span><i />升温 25–35</span><span><i />过温 35+</span>
+            </div>
           </>
         ) : (
           <>

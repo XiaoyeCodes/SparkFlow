@@ -65,6 +65,30 @@ button {
   will-change: opacity, transform, filter;
 }
 
+.sparkflow-shell-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  background: rgba(0, 0, 0, 0.74);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(22px) saturate(118%);
+}
+
+.sparkflow-shell-nav {
+  position: relative;
+  display: flex;
+  width: min(calc(100% - 32px), 1536px);
+  height: 100%;
+  align-items: center;
+  gap: 18px;
+  margin: 0 auto;
+}
+
+@media (max-width: 860px) {
+  .sparkflow-shell-nav {
+    width: min(calc(100% - 24px), 1536px);
+    gap: 10px;
+  }
+}
+
 .market-auto-hide-shell {
   --nav-height: 0px;
 }

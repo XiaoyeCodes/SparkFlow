@@ -362,19 +362,16 @@
 .macro-vxn-bulb > span { position: absolute; top: -4px; left: 50%; width: 5px; height: 5px; border-radius: 50%; background: color-mix(in srgb, var(--vix-accent) 72%, #fff); box-shadow: 0 0 8px var(--vix-accent); }
 .macro-vxn-screen { position: relative; height: 48px; min-width: 0; flex: 1; margin-left: -16px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--vix-accent) 64%, transparent); border-radius: 0 999px 999px 0; background: linear-gradient(120deg, color-mix(in srgb, var(--vix-accent) 10%, #050d11), #050d11 66%); box-shadow: inset 0 0 18px rgba(0, 0, 0, .5), 0 0 15px var(--vix-glow); }
 .macro-vxn-grid { position: absolute; inset: 0; opacity: .26; background-image: linear-gradient(color-mix(in srgb, var(--vix-accent) 18%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--vix-accent) 18%, transparent) 1px, transparent 1px); background-size: 9px 9px; mask-image: linear-gradient(90deg, transparent 18%, #000 36%, #000); }
-.macro-vxn-liquid { position: absolute; inset: 5px 72px 5px 68px; overflow: hidden; border-radius: 5px; opacity: .9; filter: drop-shadow(0 0 5px var(--vix-glow)); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
-.macro-vxn-liquid > i { position: absolute; right: -12%; bottom: -7px; left: -12%; height: calc(var(--vxn-fill) + 14%); transform-origin: 50% 100%; }
-.macro-vxn-liquid > i:nth-child(1) { background: linear-gradient(180deg, color-mix(in srgb, var(--vix-accent) 76%, #fff), color-mix(in srgb, var(--vix-accent) 26%, transparent) 38%, color-mix(in srgb, var(--vix-accent) 10%, transparent)); clip-path: polygon(0 42%, 9% 30%, 18% 46%, 28% 34%, 39% 48%, 50% 29%, 61% 45%, 72% 32%, 83% 48%, 92% 35%, 100% 43%, 100% 100%, 0 100%); box-shadow: 0 -2px 9px var(--vix-accent); animation: macro-vxn-liquid-front 2.9s ease-in-out infinite alternate; }
-.macro-vxn-liquid > i:nth-child(2) { bottom: -5px; height: calc(var(--vxn-fill) + 8%); opacity: .48; background: color-mix(in srgb, var(--vix-accent) 54%, transparent); clip-path: polygon(0 50%, 12% 38%, 24% 53%, 37% 35%, 49% 52%, 62% 39%, 75% 55%, 88% 36%, 100% 49%, 100% 100%, 0 100%); filter: blur(1px); animation: macro-vxn-liquid-back 3.8s ease-in-out infinite alternate-reverse; }
-.macro-vxn-liquid > i:nth-child(3) { right: 0; bottom: var(--vxn-fill); left: 0; width: auto; height: 1px; opacity: .82; background: color-mix(in srgb, var(--vix-accent) 62%, #fff); box-shadow: 0 0 7px var(--vix-accent); animation: macro-vxn-liquid-shimmer 2.2s ease-in-out infinite; }
+.macro-vxn-liquid { position: absolute; inset: 5px 0; overflow: hidden; border-radius: 5px; opacity: .88; filter: drop-shadow(0 0 5px var(--vix-glow)); }
+.macro-vxn-liquid > i { position: absolute; left: 0; display: block; }
+.macro-vxn-liquid > i:nth-child(1) { top: -4%; bottom: -4%; width: var(--vxn-fill); border-radius: 0 8px 8px 0 / 0 50% 50% 0; background: radial-gradient(ellipse at 78% 50%, color-mix(in srgb, var(--vix-accent) 62%, transparent), transparent 28%), linear-gradient(90deg, color-mix(in srgb, var(--vix-accent) 18%, transparent), color-mix(in srgb, var(--vix-accent) 38%, transparent) 42%, color-mix(in srgb, var(--vix-accent) 72%, transparent) 76%, var(--vix-accent)); box-shadow: inset -5px 0 9px color-mix(in srgb, var(--vix-accent) 58%, transparent), 3px 0 10px var(--vix-glow); }
+.macro-vxn-liquid > i:nth-child(2) { top: 5%; bottom: 5%; width: min(calc(var(--vxn-fill) + 3%), 100%); border-radius: 0 7px 7px 0 / 0 50% 50% 0; opacity: .28; background: radial-gradient(ellipse at 84% 50%, color-mix(in srgb, var(--vix-accent) 72%, transparent), color-mix(in srgb, var(--vix-accent) 18%, transparent) 44%, transparent 72%); filter: blur(1.8px); }
+.macro-vxn-thresholds { position: absolute; z-index: 2; inset: 0; pointer-events: none; }
+.macro-vxn-thresholds > i { position: absolute; top: 0; bottom: 0; width: 1px; opacity: .62; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--vix-accent) 28%, transparent) 12%, color-mix(in srgb, var(--vix-accent) 58%, transparent) 50%, color-mix(in srgb, var(--vix-accent) 28%, transparent) 88%, transparent); box-shadow: 0 0 5px color-mix(in srgb, var(--vix-accent) 30%, transparent); transform: translateX(-.5px); }
 .macro-vxn-identity { left: 27px; }
 .macro-vxn-reading strong { color: color-mix(in srgb, var(--vix-accent) 82%, #fff); }
-.macro-vxn-temperature { --vxn-temp: 0%; position: relative; display: grid; grid-template-columns: repeat(4, 1fr); margin: 5px 5px 0 48px; padding-top: 7px; color: color-mix(in srgb, var(--vix-accent) 68%, #607286); font: 5.5px "JetBrains Mono", monospace; white-space: nowrap; }
-.macro-vxn-temperature::before { position: absolute; top: 1px; right: 0; left: 0; height: 2px; border-radius: 999px; background: color-mix(in srgb, var(--vix-accent) 13%, #263342); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vix-accent) 12%, transparent); content: ""; }
-.macro-vxn-temperature::after { position: absolute; top: -1px; left: clamp(2px, var(--vxn-temp), calc(100% - 5px)); width: 5px; height: 5px; margin-left: -2px; border: 1px solid color-mix(in srgb, var(--vix-accent) 72%, #fff); border-radius: 50%; background: var(--vix-accent); box-shadow: 0 0 8px var(--vix-accent); content: ""; transition: left .45s ease; }
-.macro-vxn-temperature > i { position: absolute; top: 1px; left: 0; width: var(--vxn-temp); height: 2px; border-radius: 999px; background: var(--vix-accent); box-shadow: 0 0 6px var(--vix-glow); transition: width .45s ease; }
-.macro-vxn-temperature span { text-align: center; }
-.macro-vxn-scale, .macro-fg-scale { display: grid; margin: 6px 5px 0 48px; color: #63778c; font: 5.5px "JetBrains Mono", monospace; white-space: nowrap; }
+.macro-vxn-scale { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.macro-fg-scale { display: grid; margin: 6px 5px 0 48px; color: #63778c; font: 5.5px "JetBrains Mono", monospace; white-space: nowrap; }
 
 .macro-fg-console { display: flex; align-items: center; min-width: 0; padding-left: 2px; }
 .macro-fg-bulb { border-width: 1px; }
@@ -396,15 +393,6 @@
 
 @keyframes macro-risk-enter { from { opacity: 0; filter: blur(3px); transform: translateX(8px) scale(.985); } to { opacity: 1; filter: blur(0); transform: translateX(0) scale(1); } }
 @keyframes macro-vxn-orbit { to { transform: rotate(1turn); } }
-@keyframes macro-vxn-liquid-front {
-  from { clip-path: polygon(0 42%, 9% 30%, 18% 46%, 28% 34%, 39% 48%, 50% 29%, 61% 45%, 72% 32%, 83% 48%, 92% 35%, 100% 43%, 100% 100%, 0 100%); transform: translateX(-2%) scaleY(.94); }
-  to { clip-path: polygon(0 35%, 9% 47%, 18% 31%, 28% 46%, 39% 33%, 50% 49%, 61% 30%, 72% 47%, 83% 34%, 92% 48%, 100% 36%, 100% 100%, 0 100%); transform: translateX(2%) scaleY(1.06); }
-}
-@keyframes macro-vxn-liquid-back {
-  from { clip-path: polygon(0 50%, 12% 38%, 24% 53%, 37% 35%, 49% 52%, 62% 39%, 75% 55%, 88% 36%, 100% 49%, 100% 100%, 0 100%); transform: translateX(2%) scaleY(1.03); }
-  to { clip-path: polygon(0 39%, 12% 55%, 24% 37%, 37% 52%, 49% 36%, 62% 54%, 75% 38%, 88% 53%, 100% 40%, 100% 100%, 0 100%); transform: translateX(-2%) scaleY(.96); }
-}
-@keyframes macro-vxn-liquid-shimmer { 0%, 100% { opacity: .38; transform: scaleX(.72); } 50% { opacity: .92; transform: scaleX(1); } }
 
 .macro-pulse-section { min-width: 0; }
 .macro-signal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
@@ -1320,7 +1308,7 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 @keyframes macro-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .macro-clock-separator, .macro-live-badge > i, .macro-pulse-loader, .macro-index-track, .macro-news-track, .macro-risk-slide, .macro-vxn-bulb::after, .macro-vxn-liquid > i { animation: none; }
+  .macro-clock-separator, .macro-live-badge > i, .macro-pulse-loader, .macro-index-track, .macro-news-track, .macro-risk-slide, .macro-vxn-bulb::after { animation: none; }
   .macro-signal, .macro-region-pulse > div > i > em, .macro-vix-tube > i, .macro-vix-tube > em, .macro-fg-spectrum > i, .macro-holo-label, .macro-holo-leader { transition: none; }
   .macro-index-tape, .macro-news-window { overflow-x: auto; }
 }

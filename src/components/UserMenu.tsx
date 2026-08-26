@@ -37,7 +37,7 @@ export function UserMenu() {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/5 text-white/74 transition hover:border-[#8ad7ff]/35 hover:text-white"
+        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/5 text-white/74 transition hover:border-[#75e3bd]/40 hover:bg-[#75e3bd]/10 hover:text-[#c9f5e5]"
         aria-label="打开个人菜单"
       >
         <UserRound size={17} strokeWidth={1.8} />
