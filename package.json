@@ -25,6 +25,7 @@
     "face-api.js": "^0.22.2",
     "framer-motion": "^12.23.22",
     "gl-matrix": "^3.4.4",
+    "gsap": "^3.15.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "lightweight-charts": "^5.2.0",

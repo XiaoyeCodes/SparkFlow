@@ -1,0 +1,17 @@
+.startup-overlay { position: fixed; z-index: 10000; inset: 0; isolation: isolate; overflow: hidden; touch-action: none; }
+.startup-backdrop { position: absolute; inset: 0; background: #020605; will-change: opacity; }
+.startup-stage { position: absolute; inset: 0; display: grid; place-items: center; perspective: 900px; pointer-events: none; }
+.startup-wordmark { position: relative; width: min(78%, 880px); aspect-ratio: 4.8; transform-origin: 49% 50%; will-change: transform, opacity; }
+.startup-wordmark .stroke-text { height: 100%; }
+.startup-skip { position: absolute; right: max(28px, env(safe-area-inset-right)); bottom: max(28px, env(safe-area-inset-bottom)); display: grid; width: 44px; height: 44px; padding: 0; place-items: center; border: 1px solid rgba(156, 208, 188, .24); border-radius: 50%; background: rgba(10, 24, 18, .4); color: #94b9a9; cursor: pointer; transition: border-color .18s ease, color .18s ease; }
+.startup-skip:hover { border-color: #63d6b5; color: #d3eee5; }
+.startup-skip:focus-visible { outline: 2px solid #63d6b5; outline-offset: 5px; }
+.startup-skip-tooltip { position: absolute; right: 54px; padding: 6px 9px; border: 1px solid rgba(156, 208, 188, .18); border-radius: 4px; background: #07100c; color: #b2cbbf; font-size: 12px; letter-spacing: 0; white-space: nowrap; opacity: 0; pointer-events: none; }
+.startup-skip:hover .startup-skip-tooltip, .startup-skip:focus-visible .startup-skip-tooltip { opacity: 1; }
+@media (max-width: 600px) {
+  .startup-wordmark { width: 86%; }
+  .startup-skip { right: max(20px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .startup-skip { transition: none; }
+}

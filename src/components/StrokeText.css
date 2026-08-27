@@ -1,0 +1,3 @@
+.stroke-text { display: block; width: 100%; line-height: 0; }
+.stroke-text__svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.stroke-text text { font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif; letter-spacing: 0; user-select: none; }

@@ -1,76 +1,20 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { ArrowUpRight, BookOpenText, Bot, Boxes, ChartNoAxesCombined, Newspaper, Orbit, PenLine, Radar } from 'lucide-react';
+import { ArrowUpRight, Bot, ChartNoAxesCombined, ChartPie, FileChartColumn, Globe2, Newspaper, type LucideIcon } from 'lucide-react';
 import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { EarthScene } from '../components/EarthScene';
 import { PageTransition } from '../components/PageTransition';
+import { primaryNavigation } from '../data/navigation';
+import './Home.css';
 
-const gatewayItems = [
-  {
-    title: '今日新闻',
-    path: '/signals',
-    eyebrow: 'SIGNALS',
-    meta: '每日市场、科技与 AI 信号流',
-    tone: 'text-[#8ad7ff]',
-    Icon: Newspaper
-  },
-  {
-    title: 'AI助手',
-    path: '/assistant',
-    eyebrow: 'ASSISTANT',
-    meta: '对话、检索、整理和行动编排入口',
-    tone: 'text-white',
-    Icon: Bot
-  },
-  {
-    title: '星图情报',
-    path: '/starmap',
-    eyebrow: 'STARMAP',
-    meta: '信号网、主题雷达与情报扫描台',
-    tone: 'text-[#8ad7ff]',
-    Icon: Radar
-  },
-  {
-    title: '星河航道',
-    path: '/galaxy',
-    eyebrow: 'GALAXY',
-    meta: '漂浮灵感、长期主题与低噪想法池',
-    tone: 'text-[#d7dce5]',
-    Icon: Orbit
-  },
-  {
-    title: '股票ETF定投软件',
-    path: '/trader',
-    eyebrow: 'TRADER',
-    meta: '全天候 ETF 配置与复盘工作台',
-    tone: 'text-[#b9ffdc]',
-    Icon: ChartNoAxesCombined
-  },
-  {
-    title: '推荐书籍',
-    path: '/stack',
-    eyebrow: 'STACK',
-    meta: '阅读地图、书单与思维模型',
-    tone: 'text-[#f3d6a0]',
-    Icon: BookOpenText
-  },
-  {
-    title: '个人项目集',
-    path: '/artifacts',
-    eyebrow: 'ARTIFACTS',
-    meta: '产品、工具与数字系统作品',
-    tone: 'text-[#d7dce5]',
-    Icon: Boxes
-  },
-  {
-    title: '个人随笔',
-    path: '/logs',
-    eyebrow: 'LOGS',
-    meta: '长期写作、观察和成长记录',
-    tone: 'text-white',
-    Icon: PenLine
-  }
-];
+const gatewayIcons: Record<string, LucideIcon> = {
+  '/terminal': Globe2,
+  '/market': ChartNoAxesCombined,
+  '/council': FileChartColumn,
+  '/signals': Newspaper,
+  '/assistant': Bot,
+  '/trader': ChartPie
+};
 
 export function Home() {
   const sceneRef = useRef<HTMLElement | null>(null);
@@ -107,80 +51,39 @@ export function Home() {
             </motion.h1>
           </motion.div>
 
-          <motion.aside
-            className="pointer-events-none absolute z-20 px-5 md:px-0"
-            style={{
-              opacity: panelOpacity,
-              x: panelX,
-              top: 'clamp(9.5rem, 27vh, 15rem)',
-              right: '2rem',
-              width: 'min(720px, calc(100vw - 2.5rem))'
-            }}
-          >
-            <div className="mx-auto max-w-xl border-l border-white/14 pl-5 md:pl-7">
-              <p className="text-[11px] font-semibold uppercase text-white/40">PROJECT BRIEF</p>
-              <h2
-                className="mt-4 text-balance font-semibold text-white"
-                style={{ fontSize: 'clamp(2.2rem, 4.6vw, 5.1rem)', lineHeight: 0.94 }}
-              >
-                一个安静但有轨道感的个人操作系统。
-              </h2>
-              <p className="mt-6 max-w-lg text-balance text-base leading-7 text-white/58 md:text-lg">
-                SparkFlow 把新闻信号、ETF 定投、阅读书单、项目作品和长期随笔收束到同一个深色导航系统里。
-                首屏保留克制，滚动之后再展开工具入口。
+          <div className="home-product-panel">
+            <motion.aside className="home-product-copy" style={{ opacity: panelOpacity, x: panelX }}>
+              <p className="home-product-eyebrow">SparkFlow</p>
+              <h2 className="home-product-title">全球市场。<br /><span>一处洞察。</span></h2>
+              <p className="home-product-description">
+                连接宏观数据、全球行情与 AI 研究。
+                从市场观察到 ETF 配置，<strong>让每一次投资判断，更有依据。</strong>
               </p>
-            </div>
-          </motion.aside>
+            </motion.aside>
 
-          <motion.div
-            className="absolute z-30 px-5 md:px-0"
-            style={{
-              opacity: tabsOpacity,
-              y: tabsY,
-              left: 'auto',
-              right: '2rem',
-              bottom: '3rem',
-              width: 'min(720px, calc(100vw - 2.5rem))'
-            }}
-          >
-            <div className="flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-8 md:overflow-visible md:pb-0">
-              {gatewayItems.map((item, index) => {
-                const Icon = item.Icon;
+            <motion.nav className="home-gateways" aria-label="首页快捷入口" style={{ opacity: tabsOpacity, y: tabsY }}>
+              {primaryNavigation.map((item) => {
+                const Icon = gatewayIcons[item.path] || Globe2;
+                const content = (
+                  <>
+                    <Icon className="home-gateway-icon" size={20} strokeWidth={1.5} aria-hidden="true" />
+                    <span className="home-gateway-label">{item.label}</span>
+                    {item.disabled
+                      ? <span className="home-gateway-pending">暂未开放</span>
+                      : <ArrowUpRight className="home-gateway-arrow" size={15} strokeWidth={1.5} aria-hidden="true" />}
+                  </>
+                );
 
-                return (
-                  <motion.div
-                    key={item.path}
-                    initial={{ opacity: 0, y: 16 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, margin: '-15% 0px' }}
-                    transition={{ delay: index * 0.04, duration: 0.44, ease: [0.19, 1, 0.22, 1] }}
-                  >
-                    <Link
-                      to={item.path}
-                      className="group flex h-[96px] w-[178px] shrink-0 flex-col justify-between rounded-lg border border-white/10 bg-black/38 p-3.5 shadow-[0_20px_80px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition duration-500 hover:border-white/28 hover:bg-white/[0.075] md:h-[118px] md:w-auto"
-                    >
-                      <span className="flex items-center justify-between">
-                        <span
-                          className={`inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.045] ${item.tone}`}
-                        >
-                          <Icon size={16} strokeWidth={1.6} />
-                        </span>
-                        <ArrowUpRight
-                          size={15}
-                          strokeWidth={1.6}
-                          className="text-white/32 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-white"
-                        />
-                      </span>
-                      <span>
-                        <span className="block text-[10px] font-semibold uppercase text-white/34">{item.eyebrow}</span>
-                        <span className="mt-1 block truncate text-sm font-semibold text-white">{item.title}</span>
-                      </span>
-                    </Link>
-                  </motion.div>
+                return item.disabled ? (
+                  <button key={item.path} type="button" className="home-gateway" disabled title={`${item.label}暂未开放`}>
+                    {content}
+                  </button>
+                ) : (
+                  <Link key={item.path} to={item.path} className="home-gateway">{content}</Link>
                 );
               })}
-            </div>
-          </motion.div>
+            </motion.nav>
+          </div>
 
           <motion.div
             className="pointer-events-none absolute bottom-9 left-[max(1.25rem,calc((100vw-80rem)/2+2rem))] z-20 hidden w-64 text-left md:block"

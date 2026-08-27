@@ -2,15 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom';
 import { PillNav } from './PillNav';
 import { UserMenu } from './UserMenu';
-
-const primaryNavigation = [
-  { label: '终端大屏', path: '/terminal' },
-  { label: '股票市场', path: '/market' },
-  { label: '每日策略', path: '/council', disabled: true },
-  { label: '今日新闻', path: '/signals' },
-  { label: 'AI助手', path: '/assistant' },
-  { label: '股票ETF定投软件', path: '/trader' }
-];
+import { primaryNavigation } from '../data/navigation';
 
 export function Shell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();

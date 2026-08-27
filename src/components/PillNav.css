@@ -167,29 +167,9 @@
   box-shadow: 0 0 0 1px rgba(201, 245, 229, 0.1), 0 5px 20px rgba(117, 227, 189, 0.18);
 }
 
-.sf-pill.is-active::after {
-  position: absolute;
-  right: 10px;
-  bottom: 7px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: rgba(5, 9, 7, 0.54);
-  content: '';
-}
-
 .sf-pill-disabled {
   color: rgba(255, 255, 255, 0.25);
   cursor: not-allowed;
-}
-
-.sf-pill-disabled::before {
-  width: 5px;
-  height: 5px;
-  margin-right: 8px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.13);
-  content: '';
 }
 
 .sf-pill-menu-button {
