@@ -23,6 +23,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useLocation } from 'react-router-dom';
 import { Strands } from '../components/Strands';
+import { ResearchHistoryItem } from '../components/ResearchHistoryItem';
 import { buildAiPayload, loadIntegrationSettings } from '../lib/integrations';
 
 type AssistantRouteState = {
@@ -30,7 +31,14 @@ type AssistantRouteState = {
   sessionId?: string;
 };
 
-type RunState = 'idle' | 'connecting' | 'researching' | 'completed' | 'error';
+type RunState = 'idle' | 'connecting' | 'researching' | 'completed' | 'stopped' | 'error';
+
+type PendingSubmission = {
+  sessionId: string;
+  controller: AbortController;
+  dispatched: boolean;
+  stopRequested: boolean;
+};
 
 type ResearchMessage = {
   id: string;
@@ -49,7 +57,7 @@ type ToolProgress = {
 type ToolCall = {
   id: string;
   tool: string;
-  status: 'running' | 'ok' | 'error';
+  status: 'running' | 'ok' | 'error' | 'cancelled';
   elapsedMs?: number;
   elapsedSeconds?: number;
   preview?: string;
@@ -71,7 +79,12 @@ type VibeSession = {
   updated_at: string;
   last_attempt_id?: string | null;
   last_attempt_status?: string | null;
+  pinned?: boolean;
 };
+
+function sortResearchSessions(items: VibeSession[]) {
+  return [...items].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updated_at.localeCompare(a.updated_at));
+}
 
 type ResearchSnapshot = {
   tools: ToolCall[];
@@ -152,7 +165,7 @@ function readResearchSnapshot(sessionId: string): ResearchSnapshot | null {
       tools: snapshot.tools as ToolCall[],
       liveText: snapshot.liveText,
       notice: snapshot.notice,
-      runState: snapshot.runState === 'researching' || snapshot.runState === 'connecting' || snapshot.runState === 'completed'
+      runState: snapshot.runState === 'researching' || snapshot.runState === 'connecting' || snapshot.runState === 'completed' || snapshot.runState === 'stopped' || snapshot.runState === 'error'
         ? snapshot.runState
         : 'idle',
       lastEventId: typeof snapshot.lastEventId === 'string' ? snapshot.lastEventId : undefined,
@@ -192,7 +205,7 @@ function updateResearchSnapshot(
   return next;
 }
 
-function ResearchProgress({ tools, running, liveText }: { tools: ToolCall[]; running: boolean; liveText: string }) {
+function ResearchProgress({ tools, running, liveText, stopped = false }: { tools: ToolCall[]; running: boolean; liveText: string; stopped?: boolean }) {
   const [expanded, setExpanded] = useState(true);
   if (!tools.length && !running && !liveText) return null;
 
@@ -203,7 +216,7 @@ function ResearchProgress({ tools, running, liveText }: { tools: ToolCall[]; run
     ? latest
       ? `正在${toolLabel(latest.tool)}`
       : '正在规划研究路径'
-    : `研究过程完成 · ${completed} 个步骤`;
+    : stopped ? '研究已停止' : `研究过程完成 · ${completed} 个步骤`;
 
   return (
     <div className="overflow-hidden rounded-md border border-white/10 bg-white/[0.025]">
@@ -215,6 +228,8 @@ function ResearchProgress({ tools, running, liveText }: { tools: ToolCall[]; run
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         {running ? (
           <Loader2 size={14} className="animate-spin text-[#ff8a1f]" />
+        ) : stopped ? (
+          <CircleStop size={14} className="text-white/50" />
         ) : hasError ? (
           <XCircle size={14} className="text-red-300" />
         ) : (
@@ -239,6 +254,8 @@ function ResearchProgress({ tools, running, liveText }: { tools: ToolCall[]; run
                   <span className="w-4 shrink-0 text-center text-white/20">{index === tools.length - 1 ? '└' : '├'}</span>
                   {tool.status === 'running' ? (
                     <Loader2 size={13} className="shrink-0 animate-spin text-[#ff8a1f]" />
+                  ) : tool.status === 'cancelled' ? (
+                    <CircleStop size={13} className="shrink-0 text-white/40" />
                   ) : tool.status === 'error' ? (
                     <XCircle size={13} className="shrink-0 text-red-300" />
                   ) : (
@@ -323,6 +340,8 @@ export function Assistant() {
   const [sessionId, setSessionId] = useState('');
   const [sessions, setSessions] = useState<VibeSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const sessionsLoadVersionRef = useRef(0);
+  const deletedSessionsRef = useRef(new Set<string>());
   const [historyCollapsed, setHistoryCollapsed] = useState(() => window.localStorage.getItem(sidebarStorageKey) === 'true');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [copiedId, setCopiedId] = useState('');
@@ -334,8 +353,12 @@ export function Assistant() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const latestQuestionEndRef = useRef<HTMLDivElement | null>(null);
   const pendingQuestionScrollRef = useRef<ScrollBehavior | null>(null);
+  const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
+  const stoppingSessionsRef = useRef(new Set<string>());
+  const [stoppingSessionId, setStoppingSessionId] = useState<string | null>(null);
 
   const isRunning = runState === 'connecting' || runState === 'researching';
+  const isStopping = isRunning && stoppingSessionId === sessionId;
   const latestUserMessageId = [...messages].reverse().find((message) => message.role === 'user')?.id || '';
 
   const applyProgressSnapshot = useCallback((sid: string, snapshot: ResearchSnapshot) => {
@@ -371,9 +394,10 @@ export function Assistant() {
   );
 
   const loadSessions = useCallback(async () => {
+    const version = ++sessionsLoadVersionRef.current;
     try {
       const storedSessions = await requestJson<VibeSession[]>('/api/vibe/research/sessions');
-      setSessions(storedSessions);
+      if (version === sessionsLoadVersionRef.current) setSessions(sortResearchSessions(storedSessions.filter(item => !deletedSessionsRef.current.has(item.session_id))));
       return storedSessions;
     } catch {
       // The research service may still be booting; submitting a question will surface a useful error if it stays unavailable.
@@ -409,6 +433,7 @@ export function Assistant() {
           requestJson<StoredVibeMessage[]>(`/api/vibe/research/messages?sessionId=${encodeURIComponent(nextSessionId)}`),
           loadSessions(),
         ]);
+        if (deletedSessionsRef.current.has(nextSessionId)) return;
         const nextSession = storedSessions.find((item) => item.session_id === nextSessionId);
         const lastConversationMessage = [...history].reverse().find(
           (message) => message.role === 'user' || message.role === 'assistant',
@@ -416,12 +441,12 @@ export function Assistant() {
         const snapshot = readResearchSnapshot(nextSessionId);
         const snapshotIsRunning =
           snapshot?.runState === 'researching' || snapshot?.runState === 'connecting';
-        const shouldResume =
+        const shouldResume = snapshot?.runState !== 'stopped' && (
           snapshotIsRunning ||
           nextSession?.last_attempt_status === 'running' ||
           (nextSession?.last_attempt_status !== 'failed' &&
             Boolean(nextSession?.last_attempt_id) &&
-            lastConversationMessage?.role === 'user');
+            lastConversationMessage?.role === 'user'));
         viewingSessionRef.current = nextSessionId;
         activeAttemptRef.current = '';
         completedAttemptsRef.current.clear();
@@ -469,6 +494,29 @@ export function Assistant() {
     [applyProgressSnapshot, loadSessions, sessionId],
   );
 
+  const updateHistorySession = async (sid: string, changes: { title?: string; pinned?: boolean }) => {
+    const updated = await requestJson<VibeSession>(`/api/vibe/research/session?sessionId=${encodeURIComponent(sid)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes),
+    });
+    sessionsLoadVersionRef.current += 1;
+    setSessions(items => sortResearchSessions(items.map(item => item.session_id === sid ? { ...item, ...updated } : item)));
+  };
+
+  const deleteHistorySession = async (sid: string) => {
+    if (pendingSubmissionRef.current?.sessionId === sid || (viewingSessionRef.current === sid && isRunning)) {
+      throw new Error('研究正在执行，请先停止研究后再删除。');
+    }
+    await requestJson(`/api/vibe/research/session?sessionId=${encodeURIComponent(sid)}`, { method: 'DELETE' });
+    deletedSessionsRef.current.add(sid);
+    sessionsLoadVersionRef.current += 1;
+    eventSourcesRef.current.get(sid)?.close();
+    eventSourcesRef.current.delete(sid);
+    clearResearchSnapshot(sid);
+    setSessions(items => items.filter(item => item.session_id !== sid));
+    if (viewingSessionRef.current === sid) resetResearch();
+    else if (window.localStorage.getItem(sessionStorageKey) === sid) window.localStorage.removeItem(sessionStorageKey);
+  };
+
   useEffect(() => {
     if (routeState?.starmapContext) {
       setPrompt(`请基于这份星图情报进行深度研究，并给出有证据、可执行的下一步：\n\n${routeState.starmapContext}`);
@@ -493,6 +541,7 @@ export function Assistant() {
     void restore();
     return () => {
       cancelled = true;
+      if (!pendingSubmissionRef.current?.dispatched) pendingSubmissionRef.current?.controller.abort();
       eventSourcesRef.current.forEach((source) => source.close());
       eventSourcesRef.current.clear();
     };
@@ -552,6 +601,7 @@ export function Assistant() {
         const history = await requestJson<StoredVibeMessage[]>(
           `/api/vibe/research/messages?sessionId=${encodeURIComponent(sid)}`,
         );
+        if (viewingSessionRef.current !== sid || activeAttemptRef.current !== attemptId || completedAttemptsRef.current.has(attemptId)) return;
         const answer = history.find(
           (message) => message.role === 'assistant' && message.linked_attempt_id === attemptId,
         );
@@ -565,8 +615,9 @@ export function Assistant() {
     }
   };
 
-  const connectResearchStream = (sid: string) =>
+  const connectResearchStream = (sid: string, signal?: AbortSignal) =>
     new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) { reject(signal.reason); return; }
       eventSourcesRef.current.get(sid)?.close();
       const lastEventId = readResearchSnapshot(sid)?.lastEventId || '';
       const source = new EventSource(
@@ -576,6 +627,8 @@ export function Assistant() {
       );
       eventSourcesRef.current.set(sid, source);
       const closeSource = () => {
+        window.clearTimeout(timeout);
+        signal?.removeEventListener('abort', onAbort);
         source.close();
         if (eventSourcesRef.current.get(sid) === source) eventSourcesRef.current.delete(sid);
       };
@@ -587,9 +640,12 @@ export function Assistant() {
           reject(new Error('研究事件流连接超时'));
         }
       }, 10000);
+      const onAbort = () => { closeSource(); reject(signal?.reason); };
+      signal?.addEventListener('abort', onAbort, { once: true });
 
       source.onopen = () => {
         opened = true;
+        signal?.removeEventListener('abort', onAbort);
         window.clearTimeout(timeout);
         resolve();
       };
@@ -742,6 +798,13 @@ export function Assistant() {
         finishAttempt(sid, attemptId, String(data.summary || snapshot.liveText));
       });
       source.addEventListener('attempt.failed', (event) => {
+        const failure = parseEvent(event);
+        if (/^cancelled(?: by user)?$/i.test(String(failure.error || ''))) {
+          markResearchStopped(sid);
+          closeSource();
+          void loadSessions();
+          return;
+        }
         const { data } = persistResearchEvent(sid, event, (current) => ({
           ...current,
           tools: current.tools.map((tool) => (tool.status === 'running' ? { ...tool, status: 'error' } : tool)),
@@ -762,7 +825,7 @@ export function Assistant() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const question = prompt.trim();
-    if (!question || isRunning) return;
+    if (!question || isRunning || pendingSubmissionRef.current) return;
 
     const settings = loadIntegrationSettings();
     if (Boolean(settings.ai.apiKey.trim()) !== Boolean(settings.ai.model.trim())) {
@@ -770,6 +833,9 @@ export function Assistant() {
       return;
     }
 
+    const submission: PendingSubmission = { sessionId, controller: new AbortController(), dispatched: false, stopRequested: false };
+    pendingSubmissionRef.current = submission;
+    setStoppingSessionId(null);
     setPrompt('');
     setError('');
     setNotice('正在连接研究引擎');
@@ -787,7 +853,10 @@ export function Assistant() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...buildAiPayload(settings, question), sessionId }),
+        signal: submission.controller.signal,
       });
+      submission.controller.signal.throwIfAborted();
+      submission.sessionId = prepared.sessionId;
       preparedSessionId = prepared.sessionId;
       viewingSessionRef.current = prepared.sessionId;
       clearResearchSnapshot(prepared.sessionId);
@@ -801,14 +870,21 @@ export function Assistant() {
         runState: 'connecting',
       });
 
-      await connectResearchStream(prepared.sessionId);
+      await connectResearchStream(prepared.sessionId, submission.controller.signal);
+      submission.controller.signal.throwIfAborted();
+      submission.dispatched = true;
       const sent = await requestJson<{ attempt_id: string }>('/api/vibe/research/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: prepared.sessionId, prompt: question }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (completedAttemptsRef.current.has(sent.attempt_id)) return;
-      activeAttemptRef.current = sent.attempt_id;
+      if (viewingSessionRef.current === prepared.sessionId) activeAttemptRef.current = sent.attempt_id;
+      if (submission.stopRequested) {
+        await stopSession(prepared.sessionId);
+        return;
+      }
       applyProgressSnapshot(
         prepared.sessionId,
         updateResearchSnapshot(prepared.sessionId, (current) => ({
@@ -820,39 +896,94 @@ export function Assistant() {
       void loadSessions();
       void recoverCompletedAttempt(prepared.sessionId, sent.attempt_id);
     } catch (err) {
+      if (submission.controller.signal.aborted) return;
+      if (submission.dispatched && submission.stopRequested) {
+        await stopSession(preparedSessionId);
+        return;
+      }
       eventSourcesRef.current.get(preparedSessionId)?.close();
       eventSourcesRef.current.delete(preparedSessionId);
       activeAttemptRef.current = '';
       setRunState('error');
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      if (pendingSubmissionRef.current === submission) pendingSubmissionRef.current = null;
+      if (submission.stopRequested && !stoppingSessionsRef.current.has(submission.sessionId)) {
+        setStoppingSessionId((current) => current === submission.sessionId ? null : current);
+      }
       inputRef.current?.focus();
     }
   };
 
-  const cancelResearch = async () => {
-    if (!sessionId) return;
-    try {
-      await requestJson('/api/vibe/research/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      });
-      eventSourcesRef.current.get(sessionId)?.close();
-      eventSourcesRef.current.delete(sessionId);
+  const markResearchStopped = (sid: string) => {
+    eventSourcesRef.current.get(sid)?.close();
+    eventSourcesRef.current.delete(sid);
+    if (viewingSessionRef.current === sid) {
+      if (activeAttemptRef.current) completedAttemptsRef.current.add(activeAttemptRef.current);
       activeAttemptRef.current = '';
-      applyProgressSnapshot(
-        sessionId,
-        updateResearchSnapshot(sessionId, (current) => ({
-          ...current,
-          runState: 'idle',
-          notice: '研究已停止',
-        })),
-      );
-      void loadSessions();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError('');
     }
+    const stoppedSnapshot = (current: ResearchSnapshot): ResearchSnapshot => ({
+      ...current,
+      tools: current.tools.map((tool) => tool.status === 'running' ? { ...tool, status: 'cancelled' } : tool),
+      runState: 'stopped',
+      notice: '研究已停止',
+    });
+    if (sid) applyProgressSnapshot(sid, updateResearchSnapshot(sid, stoppedSnapshot));
+    else { setRunState('stopped'); setNotice('研究已停止'); }
+  };
+
+  const stopSession = async (sid: string) => {
+    if (stoppingSessionsRef.current.has(sid)) return;
+    stoppingSessionsRef.current.add(sid);
+    setStoppingSessionId(sid);
+    try {
+      // The server may accept a message before its agent loop is registered.
+      const signal = AbortSignal.timeout(10_000);
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const state = readResearchSnapshot(sid)?.runState;
+        if (state === 'completed' || state === 'stopped' || state === 'error') return;
+        const result = await requestJson<{ status: string }>('/api/vibe/research/cancel', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: sid }), signal,
+        });
+        if (readResearchSnapshot(sid)?.runState === 'completed') return;
+        if (result.status === 'cancelled') {
+          markResearchStopped(sid);
+          void loadSessions();
+          return;
+        }
+        if (result.status !== 'no_active_loop') throw new Error('研究引擎未确认停止，请重试。');
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+      }
+      throw new Error('暂未确认停止，任务可能仍在初始化，请再次点击停止。');
+    } catch (err) {
+      const state = readResearchSnapshot(sid)?.runState;
+      if (viewingSessionRef.current === sid && (state === 'researching' || state === 'connecting')) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      stoppingSessionsRef.current.delete(sid);
+      setStoppingSessionId((current) => current === sid ? null : current);
+    }
+  };
+
+  const cancelResearch = async () => {
+    if (isStopping) return;
+    const submission = pendingSubmissionRef.current;
+    if (submission && submission.sessionId === sessionId) {
+      submission.stopRequested = true;
+      if (!submission.dispatched) {
+        submission.controller.abort();
+        pendingSubmissionRef.current = null;
+        markResearchStopped(sessionId);
+        return;
+      }
+      // Wait for the send acknowledgement, then cancel the actual server task.
+      setStoppingSessionId(sessionId);
+      return;
+    }
+    if (sessionId) await stopSession(sessionId);
   };
 
   const copyReport = async (message: ResearchMessage) => {
@@ -886,9 +1017,10 @@ export function Assistant() {
   };
 
   const handleInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      event.currentTarget.form?.requestSubmit();
+      if (!event.repeat && !isRunning) event.currentTarget.form?.requestSubmit();
     }
   };
 
@@ -914,22 +1046,31 @@ export function Assistant() {
         ) : null}
 
         <aside
+          aria-label="研究历史"
           className={`fixed bottom-0 left-0 top-[var(--nav-height)] z-40 flex w-[min(84vw,19rem)] flex-col overflow-hidden border-r border-white/10 bg-[#0b0c0f]/97 backdrop-blur-xl transition-[transform,width] duration-200 lg:translate-x-0 ${
             historyOpen ? 'translate-x-0' : '-translate-x-full'
           } ${historyCollapsed ? 'lg:w-14' : 'lg:w-64'}`}
         >
           {historyCollapsed ? (
             <div className="hidden h-16 shrink-0 items-center justify-center border-b border-white/8 lg:flex">
-              <History size={17} className="text-[#ff8a1f]" />
+              <button
+                type="button"
+                title="展开研究历史"
+                aria-label="展开研究历史"
+                onClick={() => setHistoryCollapsed(false)}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white/52 transition hover:bg-white/[0.07] hover:text-white"
+              >
+                <PanelLeftOpen size={17} />
+              </button>
             </div>
           ) : null}
           <div className={`flex min-h-0 flex-1 flex-col ${historyCollapsed ? 'lg:hidden' : ''}`}>
-              <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/8 px-3">
-                <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-white/84">
+              <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-white/8 px-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold text-white/84">
                   <History size={16} className="shrink-0 text-[#ff8a1f]" />
                   <span className="truncate">历史研究</span>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex shrink-0 items-center gap-1">
                   <button
                     type="button"
                     title="新建研究"
@@ -938,6 +1079,15 @@ export function Assistant() {
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white/52 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     <Plus size={17} />
+                  </button>
+                  <button
+                    type="button"
+                    title="收起研究历史"
+                    aria-label="收起研究历史"
+                    onClick={() => setHistoryCollapsed(true)}
+                    className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-white/52 transition hover:bg-white/[0.07] hover:text-white lg:inline-flex"
+                  >
+                    <PanelLeftClose size={17} />
                   </button>
                   <button
                     type="button"
@@ -963,20 +1113,18 @@ export function Assistant() {
                     {sessions.map((item) => {
                       const active = item.session_id === sessionId;
                       return (
-                        <button
+                        <ResearchHistoryItem
                           key={item.session_id}
-                          type="button"
-                          onClick={() => void openSession(item.session_id)}
                           title={item.title || '未命名研究'}
-                          className={`w-full rounded-md px-3 py-2.5 text-left transition ${
-                            active
-                              ? 'bg-white/[0.1] text-white'
-                              : 'text-white/62 hover:bg-white/[0.06] hover:text-white'
-                          }`}
-                        >
-                          <span className="block truncate text-sm font-medium leading-5">{item.title || '未命名研究'}</span>
-                          <span className="mt-1 block text-[11px] text-white/34">{formatSessionTime(item.updated_at)}</span>
-                        </button>
+                          time={formatSessionTime(item.updated_at)}
+                          active={active}
+                          pinned={Boolean(item.pinned)}
+                          running={['pending', 'running'].includes(item.last_attempt_status || '') || (active && isRunning)}
+                          onOpen={() => void openSession(item.session_id)}
+                          onNew={resetResearch}
+                          onUpdate={changes => updateHistorySession(item.session_id, changes)}
+                          onDelete={() => deleteHistorySession(item.session_id)}
+                        />
                       );
                     })}
                   </div>
@@ -988,18 +1136,6 @@ export function Assistant() {
               <div className="border-t border-white/8 px-3 py-3 text-[11px] leading-5 text-white/32">研究记录保存在当前设备</div>
           </div>
         </aside>
-
-        <button
-          type="button"
-          title={historyCollapsed ? '展开研究历史' : '收起研究历史'}
-          aria-label={historyCollapsed ? '展开研究历史' : '收起研究历史'}
-          onClick={() => setHistoryCollapsed((value) => !value)}
-          className={`fixed top-[calc(var(--nav-height)+12px)] z-[45] hidden h-10 w-10 items-center justify-center rounded-md border border-white/12 bg-[#111216]/95 text-white/72 shadow-lg shadow-black/30 backdrop-blur-xl transition hover:border-white/24 hover:text-white lg:inline-flex ${
-            historyCollapsed ? 'left-3' : 'left-[calc(16rem-8px)]'
-          }`}
-        >
-          {historyCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-        </button>
 
         <div
           className={`relative z-10 flex min-h-[calc(100vh-var(--nav-height))] w-full flex-col transition-[padding] duration-200 ${
@@ -1115,19 +1251,22 @@ export function Assistant() {
                     <div className="min-w-0 space-y-3 pt-1">
                       <div className="flex items-center gap-2 text-sm text-white/68">
                         <Loader2 size={15} className="animate-spin text-[#ff8a1f]" />
-                        <span>{notice || '正在研究'}</span>
+                        <span>{isStopping ? '正在停止研究…' : notice || '正在研究'}</span>
                       </div>
                       <ResearchProgress tools={tools} running liveText={liveText} />
                     </div>
                   </div>
                 ) : tools.length ? (
                   <div className="ml-0 md:ml-14">
-                    <ResearchProgress tools={tools} running={false} liveText={liveText} />
+                    <ResearchProgress tools={tools} running={false} liveText={liveText} stopped={runState === 'stopped'} />
                   </div>
                 ) : null}
               </div>
             )}
 
+            {runState === 'stopped' ? (
+              <p role="status" className="mt-4 flex items-center gap-2 text-xs text-white/50"><CircleStop size={14} />研究已停止</p>
+            ) : null}
             {error ? (
               <div className="mt-6 flex items-start gap-2 rounded-md border border-red-400/20 bg-red-400/[0.07] px-4 py-3 text-sm leading-6 text-red-100/80">
                 <XCircle size={16} className="mt-1 shrink-0" />
@@ -1139,7 +1278,7 @@ export function Assistant() {
           <div className="sticky bottom-0 z-20 border-t border-white/10 bg-[#08090b]/95 pb-2 pt-4 backdrop-blur-xl">
             <form
               onSubmit={submit}
-              className="flex min-h-16 items-end gap-2 rounded-full border border-white/18 bg-[#111216] py-2 pl-5 pr-2 transition focus-within:border-white/38"
+              className="flex min-h-16 items-center gap-2 rounded-[32px] border border-white/18 bg-[#111216] py-2 pl-5 pr-2 transition focus-within:border-white/38"
             >
               <textarea
                 ref={inputRef}
@@ -1148,7 +1287,7 @@ export function Assistant() {
                 onKeyDown={handleInputKeyDown}
                 maxLength={5000}
                 rows={1}
-                className="block min-h-10 max-h-28 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent py-2 text-sm leading-6 text-white outline-none [field-sizing:content] placeholder:text-white/32"
+                className="m-0 block min-h-11 max-h-28 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-2.5 text-sm leading-6 text-white outline-none [field-sizing:content] placeholder:text-white/32"
                 placeholder="输入公司、市场、策略或投资问题..."
                 aria-label="深度研究问题"
               />
@@ -1156,11 +1295,12 @@ export function Assistant() {
                 <button
                   type="button"
                   onClick={() => void cancelResearch()}
-                  title="停止研究"
-                  aria-label="停止研究"
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/14 text-white/58 transition hover:border-red-300/40 hover:bg-red-300/[0.06] hover:text-red-200"
+                  disabled={isStopping}
+                  title={isStopping ? '正在停止研究' : '停止生成'}
+                  aria-label={isStopping ? '正在停止研究' : '停止生成'}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/14 text-white/58 transition hover:border-red-300/40 hover:bg-red-300/[0.06] hover:text-red-200 disabled:cursor-wait disabled:opacity-60"
                 >
-                  <CircleStop size={18} />
+                  {isStopping ? <Loader2 size={18} className="animate-spin" /> : <CircleStop size={18} />}
                 </button>
               ) : (
                 <button

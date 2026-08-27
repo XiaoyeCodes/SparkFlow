@@ -112,7 +112,7 @@ class SessionStore:
         if not session_dir.exists():
             return False
         import shutil
-        shutil.rmtree(session_dir, ignore_errors=True)
+        shutil.rmtree(session_dir)
         return True
 
     def list_sessions(self, limit: int = 50) -> List[Session]:
@@ -134,7 +134,7 @@ class SessionStore:
             data = self._read_json(session_file)
             if data:
                 sessions.append(Session.from_dict(data))
-        sessions.sort(key=lambda s: s.updated_at, reverse=True)
+        sessions.sort(key=lambda s: (s.pinned, s.updated_at), reverse=True)
         return sessions[:limit]
 
     # ---- Message Append-Only Log ----

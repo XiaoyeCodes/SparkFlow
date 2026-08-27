@@ -11083,6 +11083,28 @@ function allWeatherApiPlugin() {
             return;
           }
 
+          if (url.pathname === '/api/vibe/research/session' && (req.method === 'PATCH' || req.method === 'DELETE')) {
+            const sessionId = validateVibeSessionId(url.searchParams.get('sessionId'));
+            const baseUrl = await ensureVibeTradingServer();
+            let body: string | undefined;
+            if (req.method === 'PATCH') {
+              const payload = JSON.parse(await getRequestBody(req));
+              const fields: { title?: string; pinned?: boolean } = {};
+              if (typeof payload.title === 'string') {
+                fields.title = payload.title.trim();
+                if (!fields.title || fields.title.length > 120) throw new Error('研究名称需为 1 至 120 个字符');
+              }
+              if (typeof payload.pinned === 'boolean') fields.pinned = payload.pinned;
+              if (!Object.keys(fields).length) throw new Error('没有可更新的研究信息');
+              body = JSON.stringify(fields);
+            }
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await requestVibeJson(baseUrl, `/sessions/${encodeURIComponent(sessionId)}`, {
+              method: req.method, body,
+            }));
+            return;
+          }
+
           if (url.pathname === '/api/vibe/research/swarm-report' && req.method === 'GET') {
             sendJson(res, 200, readVibeTradingTeamReport(url.searchParams.get('sessionId'), url.searchParams.get('query')));
             return;

@@ -164,6 +164,13 @@ class SessionSearchIndex:
         )
         conn.commit()
 
+    def delete_session(self, session_id: str) -> None:
+        """Remove a session and its searchable messages."""
+        conn = self._get_conn()
+        with conn:
+            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+
     def index_message(self, session_id: str, role: str, content: str,
                       tool_name: Optional[str] = None) -> None:
         """Index a single message.

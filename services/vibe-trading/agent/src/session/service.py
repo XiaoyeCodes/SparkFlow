@@ -79,8 +79,16 @@ class SessionService:
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a session."""
+        if not self.store.delete_session(session_id):
+            return False
         self.event_bus.clear(session_id)
-        return self.store.delete_session(session_id)
+        self._search_index.delete_session(session_id)
+        return True
+
+    def update_session_metadata(self, session: Session) -> None:
+        """Keep saved metadata and searchable titles consistent."""
+        self.store.update_session(session)
+        self._search_index.index_session(session.session_id, session.title)
 
     async def send_message(
         self,

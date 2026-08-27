@@ -1,0 +1,32 @@
+.research-history-item { position: relative; border-radius: 6px; color: rgba(255,255,255,.64); }
+.research-history-item:hover, .research-history-item:focus-within, .research-history-item.is-menu-open { background: rgba(255,255,255,.06); color: #fff; }
+.research-history-item.is-active { background: rgba(255,255,255,.1); color: #fff; }
+.research-history-open { display: block; width: 100%; padding: 10px 38px 10px 12px; border: 0; background: transparent; color: inherit; text-align: left; }
+.research-history-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; line-height: 20px; }
+.research-history-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; line-height: 16px; color: rgba(255,255,255,.4); }
+.research-history-more { position: absolute; top: 8px; right: 5px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #9eaaa6; }
+.research-history-more:hover, .research-history-more[aria-expanded="true"] { background: rgba(255,255,255,.1); color: #fff; }
+@media (hover: hover) and (pointer: fine) {
+  .research-history-more { opacity: 0; }
+  .research-history-item:hover .research-history-more, .research-history-item:focus-within .research-history-more, .research-history-item.is-menu-open .research-history-more { opacity: 1; }
+}
+.research-history-menu { position: fixed; z-index: 90; width: 204px; max-height: calc(100dvh - 16px); overflow-y: auto; padding: 5px; border: 1px solid #343936; border-radius: 8px; background: #1b1e1c; box-shadow: 0 12px 36px #0008; color: #e4e9e6; }
+.research-history-menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: inherit; font-size: 13px; text-align: left; }
+.research-history-menu button:hover, .research-history-menu button:focus-visible { background: #303632; }
+.research-history-menu [role="separator"] { height: 1px; margin: 5px 8px; background: #343936; }
+.research-history-menu .is-danger, .research-history-error { color: #fb8a90; }
+.research-history-menu p { padding: 6px 10px; font-size: 12px; color: #fb8a90; overflow-wrap: anywhere; }
+.research-history-dialog { position: fixed; inset: 0; width: min(420px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 22px; overflow: auto; border: 1px solid #343936; border-radius: 8px; background: #151917; color: #e4e9e6; box-shadow: 0 20px 70px #0008; }
+.research-history-dialog::backdrop { background: rgba(0,0,0,.65); }
+.research-history-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.research-history-dialog-heading h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.research-history-dialog-heading button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; background: transparent; color: #9eaaa6; }
+.research-history-dialog label { display: block; font-size: 12px; color: #acb6b0; }
+.research-history-dialog input { display: block; width: 100%; margin-top: 8px; padding: 10px 12px; border: 1px solid #444e48; border-radius: 5px; background: #0c100e; color: #f0f4f1; font-size: 14px; }
+.research-history-dialog p { font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.research-history-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.research-history-dialog-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 8px 14px; border: 1px solid #3b443e; border-radius: 5px; background: transparent; color: #dce4de; font-size: 13px; }
+.research-history-dialog-actions .is-primary { background: #b5e9d5; border-color: #b5e9d5; color: #14251d; }
+.research-history-dialog-actions .is-danger { background: #9f343e; border-color: #9f343e; color: #fff; }
+.research-history-dialog button:disabled, .research-history-menu button:disabled { opacity: .45; cursor: not-allowed; }
+.research-history-item button:focus-visible, .research-history-menu button:focus-visible, .research-history-dialog button:focus-visible, .research-history-dialog input:focus-visible { outline: 2px solid #9bd5c0; outline-offset: -2px; }

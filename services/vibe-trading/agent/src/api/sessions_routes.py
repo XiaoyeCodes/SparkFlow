@@ -37,6 +37,7 @@ class SessionResponse(BaseModel):
     updated_at: str
     last_attempt_id: Optional[str] = None
     last_attempt_status: Optional[str] = None
+    pinned: bool = False
 
 
 class SendMessageRequest(BaseModel):
@@ -156,7 +157,8 @@ class UpdateGoalResponse(BaseModel):
 
 class UpdateSessionRequest(BaseModel):
     """Session update fields."""
-    title: Optional[str] = None
+    title: Optional[str] = Field(None, min_length=1, max_length=120)
+    pinned: Optional[bool] = None
 
 
 # ============================================================================
@@ -340,6 +342,7 @@ def register_sessions_routes(app: FastAPI) -> None:
             updated_at=session.updated_at,
             last_attempt_id=session.last_attempt_id,
             last_attempt_status=attempt_status,
+            pinned=session.pinned,
         )
 
     # Session CRUD routes
@@ -585,6 +588,13 @@ def register_sessions_routes(app: FastAPI) -> None:
         svc = _host_get_session_service()
         if not svc:
             raise HTTPException(status_code=501, detail="Session runtime not enabled")
+        session = svc.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        if session.last_attempt_id:
+            attempt = svc.store.get_attempt(session_id, session.last_attempt_id)
+            if attempt and getattr(attempt.status, "value", attempt.status) in ("pending", "running"):
+                raise HTTPException(status_code=409, detail="研究正在执行，请先停止研究后再删除。")
         deleted = svc.delete_session(session_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
@@ -602,10 +612,14 @@ def register_sessions_routes(app: FastAPI) -> None:
         if not session:
             raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
         if req.title is not None:
-            session.title = req.title
-        session.updated_at = datetime.now(timezone.utc).isoformat()
-        svc.store.update_session(session)
-        return {"status": "updated", "session_id": session_id}
+            title = req.title.strip()
+            if not title:
+                raise HTTPException(status_code=422, detail="研究名称不能为空。")
+            session.title = title
+        if req.pinned is not None:
+            session.pinned = req.pinned
+        svc.update_session_metadata(session)
+        return _session_response(svc, session)
 
     @app.post("/sessions/{session_id}/messages", dependencies=[Depends(require_auth)])
     async def send_message(session_id: str, payload: SendMessageRequest, http_request: Request):
