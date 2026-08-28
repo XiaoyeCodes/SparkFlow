@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
 import {
   Bot,
@@ -45,6 +45,7 @@ type ResearchMessage = {
   role: 'user' | 'assistant';
   content: string;
   attemptId?: string;
+  restored?: boolean;
 };
 
 type ToolProgress = {
@@ -353,6 +354,7 @@ export function Assistant() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const latestQuestionEndRef = useRef<HTMLDivElement | null>(null);
   const pendingQuestionScrollRef = useRef<ScrollBehavior | null>(null);
+  const pendingHistoryScrollRef = useRef(false);
   const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
   const stoppingSessionsRef = useRef(new Set<string>());
   const [stoppingSessionId, setStoppingSessionId] = useState<string | null>(null);
@@ -419,6 +421,7 @@ export function Assistant() {
     setError('');
     setNotice('');
     pendingQuestionScrollRef.current = null;
+    pendingHistoryScrollRef.current = false;
     window.localStorage.removeItem(sessionStorageKey);
     setHistoryOpen(false);
     window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -426,7 +429,11 @@ export function Assistant() {
 
   const openSession = useCallback(
     async (nextSessionId: string) => {
-      if (nextSessionId === sessionId) return;
+      if (nextSessionId === sessionId) {
+        setHistoryOpen(false);
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+        return;
+      }
       setError('');
       try {
         const [history, storedSessions] = await Promise.all([
@@ -455,7 +462,8 @@ export function Assistant() {
         setLiveText(snapshot?.liveText || '');
         setNotice(snapshot?.notice || '');
         setRunState(snapshot?.runState || 'idle');
-        pendingQuestionScrollRef.current = 'auto';
+        pendingQuestionScrollRef.current = null;
+        pendingHistoryScrollRef.current = true;
         setMessages(
           history
             .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -464,6 +472,7 @@ export function Assistant() {
               role: message.role as 'user' | 'assistant',
               content: message.content,
               attemptId: message.linked_attempt_id,
+              restored: true,
             })),
         );
         window.localStorage.setItem(sessionStorageKey, nextSessionId);
@@ -550,6 +559,13 @@ export function Assistant() {
   useEffect(() => {
     window.localStorage.setItem(sidebarStorageKey, String(historyCollapsed));
   }, [historyCollapsed]);
+
+  useLayoutEffect(() => {
+    if (!pendingHistoryScrollRef.current) return;
+    pendingHistoryScrollRef.current = false;
+    // Jump before paint; 'auto' would inherit the global smooth scrolling style.
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+  }, [messages]);
 
   useEffect(() => {
     const behavior = pendingQuestionScrollRef.current;
@@ -1207,7 +1223,7 @@ export function Assistant() {
                     <motion.article
                       key={message.id}
                       className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)] gap-3 md:grid-cols-[40px_minmax(0,1fr)] md:gap-4"
-                      initial={{ opacity: 0, y: 12 }}
+                      initial={message.restored ? false : { opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                     >
                       <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#0e7698] text-white md:h-10 md:w-10">

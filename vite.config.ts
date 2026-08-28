@@ -16,6 +16,9 @@ import {
 } from './src/data/marketCalendars';
 import { CHINA_PROVINCE_ECONOMY } from './src/data/chinaProvinceEconomy';
 import { CozeReportTaskService } from './server/cozeReportTasks';
+import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, parseSyndication, type NewsSource } from './server/newsFeed';
+import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from './server/newsSubscriptions';
+import { dailyHotPlugin } from './server/dailyhotPlugin';
 
 const rootDir = process.cwd();
 const allWeatherDataDir = path.join(rootDir, 'public', 'allweather', 'data');
@@ -534,58 +537,35 @@ function parseRssItems(xml: string, source: NewsSourceConfig): NewsItem[] {
 
 async function fetchNewsSource(source: NewsSourceConfig) {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (const route of ['direct', 'proxy'] as const) {
     try {
-      const xml = await fetchExternalText(source.url, 18000, 'application/rss+xml,application/atom+xml,application/xml,text/xml,*/*');
-      return parseRssItems(xml, source);
+      const xml = await fetchRoutedText(source.url, route, route === 'direct' ? 4500 : 12000, 'application/rss+xml,application/atom+xml,application/xml,text/xml,*/*');
+      return parseRssItems(xml, { ...source, route });
     } catch (error) {
       lastError = error;
-      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
   throw lastError instanceof Error ? lastError : new Error(`${source.label} RSS 暂时不可用`);
 }
 
-async function getNewsFeed() {
-  const settled = await Promise.allSettled(newsSources.map(fetchNewsSource));
-  const sourceResults = settled.map((result, index) => {
-    const source = newsSources[index];
-    return {
-      id: source.id,
-      label: source.label,
-      category: source.category,
-      categoryLabel: categoryLabels[source.category],
-      origin: source.origin,
-      route: source.route,
-      proxy: source.route === 'proxy' ? foreignProxyUrl : undefined,
-      ok: result.status === 'fulfilled',
-      count: result.status === 'fulfilled' ? result.value.length : 0,
-      error: result.status === 'rejected' ? (result.reason instanceof Error ? result.reason.message : String(result.reason)) : undefined,
-    };
-  });
-  const allItems = settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
-  const items = allItems
-    .sort((a, b) => b.weight - a.weight || new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime())
-    .slice(0, 80);
-  const categories = Object.entries(categoryLabels).map(([id, label]) => {
-    const scoped = allItems.filter((item) => item.category === id);
-    const topWeight = scoped.reduce((max, item) => Math.max(max, item.weight), 0);
-    return {
-      id,
-      label,
-      count: scoped.length,
-      topWeight,
-      averageWeight: scoped.length ? Math.round(scoped.reduce((sum, item) => sum + item.weight, 0) / scoped.length) : 0
-    };
-  });
-
-  return {
-    generatedAt: new Date().toISOString(),
-    proxy: foreignProxyUrl,
-    categories,
-    sources: sourceResults,
-    items,
-  };
+const newsSubscriptions = createSubscriptionStore(path.join(sparkflowStateDir, 'news-sources.json'));
+const asCustomNewsSource = (source: ReturnType<typeof validateSubscription>): NewsSource => ({
+  ...source, kind: 'feed', sourceWeight: 55, route: 'direct', custom: true, delivery: 'custom-rss',
+  note: '自定义 RSS/Atom · 来源内容由订阅站点提供；保留原文、实际日期与订阅顺序。仅支持公开 HTTPS 直连。'
+});
+let newsSubscriptionKey = '';
+let newsFeedService = createNewsFeedService(newsSources, fetchNewsSource, foreignProxyUrl);
+async function getNewsFeed(force = false) {
+  const custom = await newsSubscriptions.list();
+  const key = JSON.stringify(custom);
+  if (key !== newsSubscriptionKey) {
+    newsSubscriptionKey = key;
+    newsFeedService = createNewsFeedService(newsSources, fetchNewsSource, foreignProxyUrl, {
+      additionalSources: [...ADDITIONAL_NEWS_SOURCES, ...custom.map(asCustomNewsSource)],
+      customTransport: (source) => fetchPublicFeed(source.url)
+    });
+  }
+  return newsFeedService(force);
 }
 
 const marketIndexConfigs = [
@@ -10633,13 +10613,38 @@ function allWeatherApiPlugin() {
           }
 
           if (url.pathname === '/api/news-feed') {
-            sendJson(res, 200, await getNewsFeed());
+            sendJson(res, 200, await getNewsFeed(url.searchParams.get('refresh') === '1'));
             return;
           }
 
           if (url.pathname === '/api/global-macro-quotes') {
             res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 200, await getCachedGlobalMacroFastQuotes());
+            return;
+          }
+
+          if (url.pathname === '/api/news-sources') {
+            res.setHeader('Cache-Control', 'no-store');
+            if (req.method === 'GET') { sendJson(res, 200, { sources: await newsSubscriptions.list() }); return; }
+            if (!['POST', 'DELETE'].includes(req.method || '')) { sendJson(res, 405, { detail: '不支持此请求方法' }); return; }
+            if (req.headers.origin !== `http://${req.headers.host}` || !req.headers['content-type']?.startsWith('application/json')) {
+              sendJson(res, 403, { detail: '只接受本应用页面发起的 JSON 请求' }); return;
+            }
+            try {
+              let body = '';
+              for await (const chunk of req) { body += chunk.toString(); if (Buffer.byteLength(body) > 8192) throw new Error('订阅参数过大'); }
+              const input = JSON.parse(body);
+              if (req.method === 'DELETE') {
+                sendJson(res, 200, { sources: await newsSubscriptions.remove(String(input.id || '')) });
+              } else {
+                const subscription = validateSubscription(input);
+                if ([...newsSources, ...ADDITIONAL_NEWS_SOURCES].some((source) => source.url === subscription.url)) throw new Error('此地址已在内置来源中，无需重复添加');
+                const response = await fetchPublicFeed(subscription.url);
+                const items = parseSyndication(response.text, asCustomNewsSource(subscription));
+                if (!items.length) throw new Error('订阅中暂无有效新闻，未保存；请确认是 RSS/Atom 地址');
+                sendJson(res, 201, { sources: await newsSubscriptions.add(subscription), count: items.length });
+              }
+            } catch (error) { sendJson(res, 400, { detail: error instanceof Error ? error.message : '订阅操作失败' }); }
             return;
           }
 
@@ -11169,10 +11174,14 @@ function allWeatherApiPlugin() {
 }
 
 export default defineConfig({
-  plugins: [react(), allWeatherApiPlugin()],
+  plugins: [react(), dailyHotPlugin(), allWeatherApiPlugin()],
   server: {
     watch: {
       ignored: [
+        '**/services/dailyhot/node_modules/**',
+        '**/services/dailyhot/web-dist/**',
+        '**/services/dailyhot/api-runtime/**',
+        '**/.sparkflow/dailyhot/**',
         '**/services/vibe-trading/.venv/**',
         '**/services/vibe-trading/agent/runs/**',
         '**/services/vibe-trading/agent/sessions/**',

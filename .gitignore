@@ -8,6 +8,8 @@ __pycache__/
 *.py[cod]
 node_modules/.tmp
 .sparkflow/
+services/dailyhot/web-dist/
+services/dailyhot/api-runtime/
 services/vibe-trading/.venv/
 services/vibe-trading/agent/.env
 services/vibe-trading/agent/.env.*.tmp

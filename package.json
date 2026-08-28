@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "dailyhot:setup": "node scripts/setup-dailyhot.mjs",
+    "test:dailyhot": "node scripts/verify-dailyhot-service.mjs",
     "research:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-vibe-trading.ps1",
     "logos:sync": "node scripts/sync-stock-logos.mjs",
     "logos:global": "node scripts/sync-global-heatmap-logos.mjs",
@@ -12,9 +14,11 @@
     "test:fed-liquidity": "node scripts/verify-fed-net-liquidity.mjs",
     "test:isolated-market-data": "node --no-warnings --experimental-strip-types scripts/verify-isolated-market-resources.mjs",
     "test:coze-report": "node --no-warnings --experimental-strip-types scripts/verify-coze-report-pipeline.mjs",
-    "predev": "npm run research:setup",
+    "predev": "npm run research:setup && npm run dailyhot:setup",
     "dev": "vite --host 127.0.0.1",
+    "prebuild": "npm run dailyhot:setup",
     "build": "tsc -b && vite build",
+    "prepreview": "npm run dailyhot:setup",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

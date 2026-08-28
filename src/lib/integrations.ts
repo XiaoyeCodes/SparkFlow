@@ -1,3 +1,5 @@
+import type { NewsItem } from './newsTypes';
+
 export type AiProviderId = 'openai' | 'zhipu' | 'deepseek' | 'qwen' | 'custom';
 
 export type AiProviderConfig = {
@@ -22,50 +24,7 @@ export type IntegrationSettings = {
   };
 };
 
-export type NewsCategory = 'tech' | 'finance' | 'society' | 'livelihood' | 'world';
-
-export type NewsItem = {
-  id: string;
-  title: string;
-  url: string;
-  source: string;
-  category: NewsCategory;
-  categoryLabel: string;
-  origin: 'domestic' | 'foreign';
-  route: 'direct' | 'proxy';
-  publishedAt?: string;
-  summary?: string;
-  heat: number;
-  importance: number;
-  recency: number;
-  weight: number;
-  weightLabel: string;
-};
-
-export type NewsFeed = {
-  generatedAt: string;
-  proxy: string;
-  categories: Array<{
-    id: NewsCategory;
-    label: string;
-    count: number;
-    topWeight: number;
-    averageWeight: number;
-  }>;
-  sources: Array<{
-    id: string;
-    label: string;
-    category: NewsCategory;
-    categoryLabel: string;
-    origin: 'domestic' | 'foreign';
-    route: 'direct' | 'proxy';
-    proxy?: string;
-    ok: boolean;
-    count: number;
-    error?: string;
-  }>;
-  items: NewsItem[];
-};
+export type { NewsCategory, NewsItem, NewsFeed } from './newsTypes';
 
 const storageKey = 'sparkflow.integrations.v1';
 

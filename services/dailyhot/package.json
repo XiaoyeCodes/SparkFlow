@@ -1,0 +1,32 @@
+{
+  "name": "sparkflow-dailyhot-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.15"
+  },
+  "scripts": {
+    "build:web": "node build-web.mjs"
+  },
+  "dependencies": {
+    "@hono/node-server": "1.17.1",
+    "dailyhot-api": "2.0.8",
+    "dailyhot-web": "https://codeload.github.com/imsyy/DailyHot/tar.gz/8b91ad9d35f7dad3b0c2a0b671001a9de9873115",
+    "node-cache": "5.1.2",
+    "sparkflow": "file:../.."
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.4",
+    "naive-ui": "2.40.1",
+    "unplugin-auto-import": "0.12.2",
+    "unplugin-vue-components": "0.22.12",
+    "vite": "6.4.3"
+  },
+  "overrides": {
+    "dailyhot-api": {
+      "cheerio": "1.0.0"
+    },
+    "sass": "1.80.6"
+  }
+}
