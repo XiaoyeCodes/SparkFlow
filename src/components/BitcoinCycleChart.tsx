@@ -242,7 +242,7 @@ export function BitcoinCycleChart() {
   }, [data]);
 
   return (
-    <section className="mt-8 border-t border-white/10 pt-7" data-testid="bitcoin-cycle-chart">
+    <section className="market-bitcoin-cycle mt-8 border-t border-white/10 pt-7" data-testid="bitcoin-cycle-chart">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#d6b566]">
@@ -259,14 +259,14 @@ export function BitcoinCycleChart() {
             role="switch"
             aria-checked={projectionEnabled}
             onClick={() => setProjectionEnabled((value) => !value)}
-            className={`inline-flex h-9 items-center gap-2 border px-3 text-xs font-semibold transition ${projectionEnabled ? 'border-[#78b9d4]/45 bg-[#78b9d4]/10 text-[#a7d8eb]' : 'border-white/12 bg-[#090c0e] text-white/46 hover:text-white/78'}`}
+            className={`market-bitcoin-control inline-flex h-9 items-center gap-2 border px-3 text-xs font-semibold transition ${projectionEnabled ? 'border-[#78b9d4]/45 bg-[#78b9d4]/10 text-[#a7d8eb]' : 'border-white/12 bg-[#090c0e] text-white/46 hover:text-white/78'}`}
           >
             <Sparkles size={13} /> 2035 周期推演
             <span className={`relative h-4 w-7 rounded-full transition ${projectionEnabled ? 'bg-[#78b9d4]/70' : 'bg-white/12'}`}>
               <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition ${projectionEnabled ? 'left-3.5' : 'left-0.5'}`} />
             </span>
           </button>
-          <div className="flex h-9 border border-white/12 bg-[#090c0e] p-0.5" aria-label="价格坐标模式">
+          <div className="market-bitcoin-control flex h-9 border border-white/12 bg-[#090c0e] p-0.5" aria-label="价格坐标模式">
             <button
               type="button"
               onClick={() => setScaleMode('linear')}
@@ -313,7 +313,7 @@ export function BitcoinCycleChart() {
         </div>
       ) : (
         <>
-          <div className="relative mt-5 overflow-hidden border border-white/10 bg-[#080b0d]">
+          <div className="market-bitcoin-chart relative mt-5 overflow-hidden border border-white/10 bg-[#080b0d]">
             <div ref={containerRef} className="relative z-0 h-[420px] w-full sm:h-[500px]" />
             <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
               {cycleBands.map((band, index) => (
@@ -342,9 +342,9 @@ export function BitcoinCycleChart() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-px border border-white/10 bg-white/10 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="market-bitcoin-cycle-grid mt-4 grid gap-px border border-white/10 bg-white/10 sm:grid-cols-2 xl:grid-cols-5">
             {data.halvings.map((halving) => (
-              <div key={halving.date} className="bg-[#0a0d0f] px-4 py-3">
+              <div key={halving.date} className="market-bitcoin-cycle-card bg-[#0a0d0f] px-4 py-3">
                 <div className="flex items-center gap-2 text-[11px] text-white/36">
                   <CalendarClock size={13} /> {formatDate(halving.date)}
                 </div>
@@ -352,7 +352,7 @@ export function BitcoinCycleChart() {
                 <p className="mt-1 text-[11px] text-[#d6b566]/72">区块奖励 {halving.blockReward}</p>
               </div>
             ))}
-            <div className="bg-[#0a0d0f] px-4 py-3">
+            <div className="market-bitcoin-cycle-card bg-[#0a0d0f] px-4 py-3">
               <p className="text-[11px] text-white/36">当前周期进度</p>
               <p className="mt-1 text-sm font-semibold text-white/82">
                 {currentCycleProgress === null ? '--' : `${currentCycleProgress.toFixed(1)}%`}
@@ -362,7 +362,7 @@ export function BitcoinCycleChart() {
           </div>
 
           {projectionEnabled ? (
-            <div className="mt-4 border border-[#78b9d4]/20 bg-[#78b9d4]/[0.045] p-4">
+            <div className="market-bitcoin-projection mt-4 border border-[#78b9d4]/20 bg-[#78b9d4]/[0.045] p-4">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#78b9d4]">

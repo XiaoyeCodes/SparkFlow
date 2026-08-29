@@ -8,6 +8,7 @@ import {
   Bot,
   Building2,
   CheckCircle2,
+  ChevronDown,
   Database,
   Download,
   Gauge,
@@ -37,6 +38,7 @@ import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper
 import { PageTransition } from '../components/PageTransition';
 import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
+import './Market.css';
 
 const GlobalMacroCommandCenter = lazy(async () => {
   const module = await import('../components/GlobalMacroCommandCenter');
@@ -50,6 +52,9 @@ const ChinaMacroCommandCenter = lazy(async () => {
 
 type MarketChartMode = 'china' | 'hongkong' | 'us' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk' | 'crypto';
 type MarketDashboardView = 'global' | 'china-macro' | 'markets';
+
+const CORE_MARKET_MODES: MarketChartMode[] = ['china', 'hongkong', 'us'];
+const OPTIONAL_MARKET_MODES: MarketChartMode[] = ['japan', 'korea', 'india', 'germany', 'france', 'uk'];
 
 type UsMarketSystemStatus = {
   state: 'normal' | 'halted' | 'unknown';
@@ -469,6 +474,7 @@ function DashboardViewFallback({ label }: { label: string }) {
 export function Market({ initialDashboardView = 'markets' }: { initialDashboardView?: Extract<MarketDashboardView, 'global' | 'markets'> }) {
   const navigate = useNavigate();
   const [activeMarket, setActiveMarket] = useState<MarketChartMode>(() => initialMarketSelection() || 'china');
+  const [optionalMarketsOpen, setOptionalMarketsOpen] = useState(false);
   const [dashboardView, setDashboardView] = useState<MarketDashboardView>(() => {
     if (window.location.hash === '#china-macro') return 'china-macro';
     return initialDashboardView;
@@ -881,6 +887,12 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
   }, [activeIndices, activeMarket, data, regionalRotations]);
   const activeResearch = research[activeMarket];
   const isInternationalMarket = ['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket);
+  const optionalMarketActive = OPTIONAL_MARKET_MODES.includes(activeMarket);
+  const visibleMarketModes: MarketChartMode[] = [
+    ...CORE_MARKET_MODES,
+    ...(optionalMarketsOpen ? OPTIONAL_MARKET_MODES : []),
+    'crypto',
+  ];
   const activeValuation = activeMarket === 'crypto' ? null : valuationSnapshots[activeMarket] || null;
   const activeRegionalContent = activeMarket === 'hongkong' || activeMarket === 'us'
     ? regionalContent[activeMarket]
@@ -1155,22 +1167,22 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
 
   return (
     <PageTransition>
-      <section className="min-h-screen bg-[#030405] px-3 pb-16 pt-[calc(var(--nav-height)+20px)] text-white sm:px-5 lg:px-7">
-        <div className="mx-auto w-full max-w-[1540px]">
-          <header className="mb-5 flex flex-col gap-5 border-b border-white/10 pb-5 xl:flex-row xl:items-end xl:justify-between">
+      <section className="market-terminal min-h-screen px-3 pb-16 pt-[calc(var(--nav-height)+18px)] text-white sm:px-5 lg:px-7">
+        <div className="market-terminal-frame mx-auto w-full max-w-[1780px]">
+          <header className="market-terminal-hero mb-4 flex flex-col gap-5 pb-5 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#69d5ff]">
+              <div className="market-terminal-eyebrow flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em]">
                 <Radar size={14} />
                 Market Intelligence Command
               </div>
-              <h1 className="mt-3 text-3xl font-semibold leading-none sm:text-4xl">市场情报与策略研究台</h1>
-              <p className="mt-3 text-sm text-white/46">实时指数、资金风向、中文新闻、券商研报与 Vibe-Trading 深度研究</p>
+              <h1 className="market-terminal-title mt-4 text-4xl font-semibold leading-none sm:text-5xl">市场情报与策略研究台</h1>
+              <p className="market-terminal-subtitle mt-3 text-sm">实时指数、资金风向、中文新闻、券商研报与 Vibe-Trading 深度研究</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="market-terminal-actions flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => setDashboardView('china-macro')}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-[#66dfb7]/30 bg-[#66dfb7]/8 px-3 text-xs font-semibold text-[#a8efd7] transition hover:border-[#66dfb7]/55 hover:bg-[#66dfb7]/14"
+                className="market-terminal-control market-terminal-control-accent inline-flex h-9 items-center gap-2 px-3 text-xs font-semibold transition"
               >
                 <MapPinned size={14} /> 中国宏观
               </button>
@@ -1185,29 +1197,22 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
                 type="button"
                 onClick={() => void exportPdf()}
                 disabled={!data}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-[#c5a761]/35 bg-[#c5a761]/8 px-3 text-xs font-semibold text-[#ead9a6] transition hover:bg-[#c5a761]/15 disabled:opacity-35"
+                className="market-terminal-control market-terminal-export inline-flex h-9 items-center gap-2 px-3 text-xs font-semibold transition disabled:opacity-35"
               >
                 <Download size={14} /> 导出策略 PDF
               </button>
             </div>
           </header>
 
-          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-stretch lg:justify-between">
-            <div className="flex w-full overflow-x-auto border border-white/10 bg-white/[0.035] p-1 [scrollbar-width:thin] lg:max-w-[1120px]">
-              <button
-                type="button"
-                onClick={() => navigate('/terminal')}
-                className="flex min-h-11 min-w-[88px] flex-1 items-center justify-center gap-2 px-4 text-sm font-semibold text-white/52 transition hover:bg-[#69d5ff]/12 hover:text-[#9deaff]"
-              >
-                <Radar size={15} /> 全球
-              </button>
-              {(Object.keys(MARKET_META) as MarketChartMode[]).map((mode) => (
+          <div className="market-selector mb-5 flex flex-col gap-3 lg:flex-row lg:items-stretch lg:justify-between">
+            <div className="market-selector-tabs flex w-full overflow-x-auto p-1 [scrollbar-width:thin] lg:max-w-[1120px]">
+              {visibleMarketModes.map((mode) => (
                 <button
                   type="button"
                   key={mode}
                   onClick={() => { setActiveMarket(mode); setDashboardView('markets'); }}
-                  className={`flex min-h-11 min-w-[82px] flex-1 items-center justify-center gap-2 px-3 text-sm font-semibold transition ${
-                    dashboardView === 'markets' && activeMarket === mode ? 'bg-white text-black' : 'text-white/52 hover:text-white'
+                  className={`market-selector-tab flex min-h-11 min-w-[82px] flex-1 items-center justify-center gap-2 px-3 text-sm font-semibold transition ${
+                    dashboardView === 'markets' && activeMarket === mode ? 'is-active' : ''
                   }`}
                 >
                   {mode === 'china'
@@ -1220,6 +1225,18 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
                   {MARKET_META[mode].label}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setOptionalMarketsOpen((current) => !current)}
+                aria-expanded={optionalMarketsOpen}
+                aria-label={optionalMarketsOpen ? '收起更多市场' : '展开更多市场'}
+                className={`market-selector-tab market-selector-more flex min-h-11 min-w-[116px] flex-1 items-center justify-center gap-2 px-3 text-sm font-semibold transition ${
+                  optionalMarketsOpen ? 'is-open' : optionalMarketActive ? 'is-contextual' : ''
+                }`}
+              >
+                <span>{optionalMarketsOpen ? '收起市场' : optionalMarketActive ? `更多 · ${MARKET_META[activeMarket].label}` : '更多市场'}</span>
+                <ChevronDown size={14} className="market-more-chevron shrink-0" />
+              </button>
             </div>
             {dashboardView === 'markets' ? <MarketSessionIndicator
               mode={activeMarket}
@@ -1230,7 +1247,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
 
           {error ? <ErrorPanel message={error} onRetry={() => void loadMarket()} /> : null}
           {actionMessage ? (
-            <div className="mb-4 flex items-start gap-2 border border-[#d6b566]/25 bg-[#d6b566]/8 px-4 py-3 text-sm text-[#ead9a6]">
+            <div className="market-notice mb-4 flex items-start gap-2 border border-[#d6b566]/25 bg-[#d6b566]/8 px-4 py-3 text-sm text-[#ead9a6]">
               <TriangleAlert className="mt-0.5 shrink-0" size={15} />
               <span>{actionMessage}</span>
             </div>
@@ -1240,12 +1257,12 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.42 }}>
               <IndexStrip indices={activeIndices} />
 
-              <div className="mt-4 grid min-h-[650px] gap-4 xl:grid-cols-[minmax(0,1fr)_410px]">
-                <section className="flex min-h-[560px] flex-col overflow-hidden border border-white/10 bg-[#050608]">
-                  <div className="flex min-h-[68px] shrink-0 flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3 sm:flex-nowrap sm:px-5">
+               <div className="market-primary-grid mt-5 grid min-h-[650px] xl:grid-cols-[minmax(0,2fr)_minmax(430px,1fr)]">
+                <section className="market-heatmap-shell flex min-h-[560px] flex-col overflow-hidden">
+                  <div className="market-heatmap-head flex min-h-[68px] shrink-0 flex-wrap items-center gap-3 px-4 py-3 sm:flex-nowrap sm:px-5">
                     <div className="shrink-0">
                       <div className="flex items-center gap-2 text-sm font-semibold">
-                        <Activity size={16} className="text-[#69d5ff]" />
+                        <Activity size={16} className="market-terminal-signal" />
                         {MARKET_META[activeMarket].chart} · {MARKET_HEATMAP_PROVIDERS[activeMarket]}
                       </div>
                       <p className="mt-1 text-xs text-white/38">{MARKET_META[activeMarket].description}</p>
@@ -1278,7 +1295,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
                       }
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex h-9 w-9 items-center justify-center text-white/50 transition hover:text-white"
+                      className="market-terminal-icon-link inline-flex h-9 w-9 items-center justify-center transition"
                       aria-label={
                         isInternationalMarket ? '在 Yahoo Finance 打开' : activeMarket !== 'crypto' ? '在东方财富打开' : '在 CoinGecko 打开'
                       }
@@ -1314,20 +1331,20 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
               </div>
 
               {data.warning && !isInternationalMarket ? (
-                <div className="mt-4 flex items-start gap-2 border border-[#d6b566]/20 bg-[#d6b566]/7 px-4 py-3 text-xs leading-5 text-[#ead9a6]/80">
+                <div className="market-notice mt-4 flex items-start gap-2 border border-[#d6b566]/20 bg-[#d6b566]/7 px-4 py-3 text-xs leading-5 text-[#ead9a6]/80">
                   <TriangleAlert className="mt-0.5 shrink-0" size={14} />
                   <span>{data.warning} {data.errors.join('；')}</span>
                 </div>
               ) : null}
 
               <>
-                  <div className="mt-8 border-t border-white/10 pt-7">
+                  <section className="market-lower-section market-rotation-section mt-8">
                     <SectionHeading
                       eyebrow="Capital Rotation"
                       title={getRotationTitle(activeMarket)}
                       icon={<Gauge size={15} />}
                     />
-                    <div className="-mt-2 mb-4 flex flex-wrap items-center justify-between gap-3 text-xs leading-5 text-white/36">
+                    <div className="market-section-meta -mt-2 mb-5 flex flex-wrap items-center justify-between gap-3 text-xs leading-5 text-white/36">
                       <p>{activeRotation?.coverage || getRotationLoadingText(activeMarket)}</p>
                       {activeRotation ? (
                         <a
@@ -1358,7 +1375,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
                         />
                       </div>
                     ) : rotationLoadState === 'error' ? (
-                      <div className="flex min-h-40 items-center justify-center border border-[#d6b566]/20 bg-[#d6b566]/[0.04] px-5 text-center">
+                      <div className="market-async-card flex min-h-40 items-center justify-center border border-[#d6b566]/20 bg-[#d6b566]/[0.04] px-5 text-center">
                         <div>
                           <TriangleAlert className="mx-auto text-[#d6b566]" size={20} />
                           <p className="mt-3 text-sm text-white/68">{rotationError || '板块数据暂时不可用'}</p>
@@ -1374,7 +1391,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
                     ) : (
                       <RotationSkeleton />
                     )}
-                  </div>
+                  </section>
 
                   {activeMarket === 'crypto' ? <BitcoinCycleChart /> : null}
               </>
@@ -1472,11 +1489,11 @@ function VibeResearchPanel({
   }, [mode]);
 
   return (
-    <aside className="flex min-h-[650px] flex-col border border-white/10 bg-[#090a0c]">
-      <div className="border-b border-white/10 px-5 py-5">
+    <aside className="market-research-panel flex min-h-[650px] flex-col">
+      <div className="market-research-head px-5 py-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-[#75e6b1]">
+            <div className="market-research-eyebrow flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em]">
               <Bot size={14} /> Vibe-Trading Research
             </div>
             <h2 className="mt-2 text-xl font-semibold">估值与逆向信号研究</h2>
@@ -1484,18 +1501,18 @@ function VibeResearchPanel({
               {state.targetLabel ? `最近研究：${state.targetLabel}` : `当前市场：${MARKET_META[mode].short}`}
             </p>
           </div>
-          <span className="border border-white/10 px-2 py-1 font-mono text-xs text-white/48">数据置信 {data.confidence}%</span>
+          <span className="market-confidence px-2 py-1 font-mono text-[10px]">数据置信 {data.confidence}%</span>
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden border border-white/10 bg-white/10">
+        <div className="market-research-metrics mt-4 grid grid-cols-2 gap-px overflow-hidden border border-white/10 bg-white/10">
           <Metric label="报告首屏" value="表格结论" />
           <Metric label="估值口径" value={mode === 'crypto' ? '链上与资金代理' : 'PE / PB 分位'} />
           <Metric label="逆向信号" value="逃顶 · 抄底" />
           <Metric label="大众破圈热度" value={mode === 'china' ? '韭菜指数' : '公众关注度'} />
         </div>
 
-        <div className="mt-4 border border-white/10 bg-black/20 p-3">
+        <div className="market-research-target mt-4 p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/34">研究对象</p>
-          <div className={`mt-2 grid gap-px bg-white/10 ${indexTargets.length ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          <div className={`market-research-kind-grid mt-2 grid gap-1.5 ${indexTargets.length ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <button
               type="button"
               onClick={() => setResearchKind('market')}
@@ -1582,7 +1599,7 @@ function VibeResearchPanel({
           type="button"
           onClick={() => onRun(requestedTarget)}
           disabled={!canRun}
-          className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-[#75e6b1]/35 bg-[#75e6b1]/10 px-4 text-sm font-semibold text-[#b8f5d7] transition hover:bg-[#75e6b1]/16 disabled:cursor-wait disabled:opacity-55"
+          className="market-research-run mt-4 inline-flex h-11 w-full items-center justify-center gap-2 px-4 text-sm font-semibold transition disabled:cursor-wait disabled:opacity-55"
         >
           {running ? <LoaderCircle size={16} className="animate-spin" /> : <Radar size={16} />}
           {state.connecting
@@ -1728,7 +1745,7 @@ function MarketSessionIndicator({
       rel="noreferrer"
       aria-label={`${marketName}当前状态：${status.label}`}
       title={mode === 'us' ? `${status.detail}；${usSystemMessage}` : `${status.detail}；查看官方交易时段`}
-      className={`group flex min-h-[64px] w-full min-w-0 items-center gap-4 border px-4 py-3 transition hover:bg-white/[0.055] lg:w-[520px] ${tone.border} ${tone.background}`}
+      className={`market-session-indicator group flex min-h-[60px] w-full min-w-0 items-center gap-4 px-4 py-3 transition lg:w-[500px] ${tone.border} ${tone.background}`}
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <span className="relative flex h-3 w-3 shrink-0 items-center justify-center">
@@ -1767,13 +1784,14 @@ function indexChangeColor(changePercent: number) {
 
 function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
   return (
-    <div className={`grid grid-flow-col auto-cols-[172px] gap-px overflow-x-auto border border-white/10 bg-white/10 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:grid-flow-row ${
+    <div className={`market-index-strip grid grid-flow-col auto-cols-[172px] gap-px overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:grid-flow-row ${
       indices.length >= 6 ? 'xl:grid-cols-6' : indices.length === 5 ? 'xl:grid-cols-5' : indices.length === 4 ? 'xl:grid-cols-4' : 'xl:grid-cols-3'
     }`}>
       {indices.map((item) => {
         const changeColor = indexChangeColor(item.changePercent);
+        const directionClass = item.changePercent > 0 ? 'is-up' : item.changePercent < 0 ? 'is-down' : 'is-flat';
         return (
-          <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer" className="min-w-0 bg-[#08090b] px-4 py-3.5 transition hover:bg-white/[0.055]">
+          <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer" className="market-index-card min-w-0 px-4 py-3.5 transition">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="truncate text-xs font-semibold text-white/72">{item.name}</p>
@@ -1785,10 +1803,10 @@ function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
                 <TriangleAlert size={12} className="shrink-0 text-[#d6b566]" />
               )}
             </div>
-            <div className="mt-3 flex items-end justify-between gap-3">
-              <p className={`truncate font-mono text-lg font-semibold transition-colors ${changeColor}`}>{formatNumber(item.price)}</p>
-              <p className={`shrink-0 font-mono text-xs font-semibold transition-colors ${changeColor}`}>
-                {item.changePercent > 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
+            <div className="market-index-values mt-5">
+              <p className="truncate font-mono text-2xl font-semibold text-[#eaf1ef] transition-colors">{formatNumber(item.price)}</p>
+              <p className={`market-index-delta mt-3 w-fit shrink-0 font-mono text-xs font-semibold transition-colors ${directionClass} ${changeColor}`}>
+                {item.changePercent > 0 ? '▲ +' : item.changePercent < 0 ? '▼ ' : '— '}{item.changePercent.toFixed(2)}%
               </p>
             </div>
           </a>
@@ -1812,7 +1830,7 @@ function SectorBoard({
   currency: MarketRotation['currency'];
 }) {
   return (
-    <section className="border border-white/10 bg-white/[0.025] p-5">
+    <section className={`market-rotation-board market-rotation-board-${mode} border border-white/10 bg-white/[0.025] p-5`}>
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/34">
@@ -1822,11 +1840,11 @@ function SectorBoard({
         </div>
         <span className={`h-2 w-2 ${mode === 'leader' ? 'bg-[#ff8585]' : 'bg-[#75e6b1]'}`} />
       </div>
-      <div className={`mt-5 grid gap-px overflow-hidden border border-white/10 bg-white/10 ${
+      <div className={`market-rotation-grid mt-5 grid gap-px overflow-hidden border border-white/10 bg-white/10 ${
         items.length <= 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
       }`}>
         {items.slice(0, 8).map((item) => (
-          <div key={item.code} className="flex items-center justify-between gap-4 bg-[#090a0c] px-3.5 py-3">
+          <div key={item.code} className="market-rotation-item flex items-center justify-between gap-4 bg-[#090a0c] px-3.5 py-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-white/78">{item.name}</p>
               <p className="mt-1 text-[10px] text-white/34">
@@ -1862,12 +1880,12 @@ function RotationSkeleton() {
   return (
     <div className="grid gap-4 xl:grid-cols-2" aria-label="正在加载板块数据">
       {[0, 1].map((board) => (
-        <div key={board} className="min-h-48 animate-pulse border border-white/10 bg-white/[0.025] p-5">
+        <div key={board} className="market-rotation-board min-h-48 animate-pulse border border-white/10 bg-white/[0.025] p-5">
           <div className="h-3 w-20 bg-white/8" />
           <div className="mt-3 h-6 w-32 bg-white/10" />
-          <div className="mt-5 grid gap-px border border-white/8 bg-white/8 sm:grid-cols-2">
+          <div className="market-rotation-grid mt-5 grid gap-px border border-white/8 bg-white/8 sm:grid-cols-2">
             {Array.from({ length: 6 }, (_, index) => (
-              <div key={index} className="h-[66px] bg-[#090a0c] p-3">
+              <div key={index} className="market-rotation-item h-[66px] bg-[#090a0c] p-3">
                 <div className="h-3 w-20 bg-white/8" />
                 <div className="mt-2 h-2 w-28 bg-white/5" />
               </div>
@@ -2337,11 +2355,11 @@ const MarketReport = forwardRef<HTMLElement, {
 
 function SourceBoard({ sources, disclaimer }: { sources: MarketIntelligence['sources']; disclaimer: string }) {
   return (
-    <section className="mt-7 border-t border-white/10 pt-6">
+    <section className="market-lower-section market-source-board mt-7">
       <SectionHeading eyebrow="Data Lineage" title="来源与校验状态" icon={<Database size={15} />} />
-      <div className="grid gap-px overflow-hidden border border-white/10 bg-white/10 md:grid-cols-2">
+      <div className="market-source-grid grid gap-px overflow-hidden border border-white/10 bg-white/10 md:grid-cols-2">
         {sources.map((source) => (
-          <a key={source.id} href={source.url} target="_blank" rel="noreferrer" className="flex items-start gap-3 bg-[#07080a] p-4 transition hover:bg-white/[0.045]">
+          <a key={source.id} href={source.url} target="_blank" rel="noreferrer" className="market-source-item flex items-start gap-3 bg-[#07080a] p-4 transition hover:bg-white/[0.045]">
             {source.ok ? <CheckCircle2 className="mt-0.5 shrink-0 text-[#75e6b1]" size={14} /> : <TriangleAlert className="mt-0.5 shrink-0 text-[#d6b566]" size={14} />}
             <div className="min-w-0">
               <p className="text-sm font-semibold text-white/76">{source.label}</p>
@@ -2361,7 +2379,7 @@ function MarketDisciplineMotto() {
   return (
     <section
       aria-labelledby="market-discipline-title"
-      className="mt-12 border-y border-[#d6b566]/25 bg-[#d6b566]/[0.025]"
+      className="market-discipline-card mt-9 border-y border-[#d6b566]/25 bg-[#d6b566]/[0.025]"
     >
       <div className="grid gap-7 px-5 py-8 sm:px-7 sm:py-10 lg:grid-cols-[230px_1fr] lg:gap-10 lg:px-9">
         <div className="border-b border-[#d6b566]/20 pb-6 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-9">
@@ -2401,7 +2419,7 @@ function MarketDisciplineMotto() {
 function StatusPill({ data, loadState, latestAt }: { data: MarketIntelligence | null; loadState: AsyncState; latestAt: string }) {
   const live = data?.dataMode === 'live';
   return (
-    <div className="inline-flex h-9 items-center gap-2 border border-white/10 bg-white/[0.035] px-3 text-xs text-white/48">
+    <div className="market-status-pill inline-flex h-9 items-center gap-2 px-3 text-xs">
       <span className={`h-2 w-2 ${live ? 'bg-[#75e6b1]' : 'bg-[#d6b566]'}`} />
       {loadState === 'loading' ? '正在更新' : `每 3 秒轮询 · ${latestAt}`}
     </div>
@@ -2414,7 +2432,7 @@ function IconButton({ label, onClick, disabled, children }: { label: string; onC
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-9 w-9 items-center justify-center border border-white/10 bg-white/[0.035] text-white/58 transition hover:border-[#69d5ff]/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+      className="market-icon-button inline-flex h-9 w-9 items-center justify-center transition disabled:cursor-not-allowed disabled:opacity-35"
       aria-label={label}
       title={label}
     >
@@ -2425,7 +2443,7 @@ function IconButton({ label, onClick, disabled, children }: { label: string; onC
 
 function SectionHeading({ icon, eyebrow, title }: { icon: React.ReactNode; eyebrow: string; title: string }) {
   return (
-    <div className="mb-5">
+    <div className="market-section-heading mb-5">
       <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#69d5ff]/70">{icon}{eyebrow}</div>
       <h2 className="mt-2 text-xl font-semibold text-white">{title}</h2>
     </div>
@@ -2434,7 +2452,7 @@ function SectionHeading({ icon, eyebrow, title }: { icon: React.ReactNode; eyebr
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-[#0b0d0f] px-3 py-3">
+    <div className="market-research-metric px-3 py-3">
       <p className="text-[9px] uppercase text-white/28">{label}</p>
       <p className="mt-1 text-sm font-semibold text-white/74">{value}</p>
     </div>

@@ -1,6 +1,6 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { ArrowUpRight, Bot, ChartNoAxesCombined, ChartPie, FileChartColumn, Globe2, Newspaper, type LucideIcon } from 'lucide-react';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { EarthScene } from '../components/EarthScene';
 import { PageTransition } from '../components/PageTransition';
@@ -16,9 +16,28 @@ const gatewayIcons: Record<string, LucideIcon> = {
   '/trader': ChartPie
 };
 
+const initialEntryIsHome = typeof window !== 'undefined' && window.location.pathname === '/';
+let hasPositionedInitialHome = false;
+
 export function Home() {
   const sceneRef = useRef<HTMLElement | null>(null);
   const { scrollY } = useScroll();
+
+  useEffect(() => {
+    if (!initialEntryIsHome || hasPositionedInitialHome) return;
+    hasPositionedInitialHome = true;
+
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        window.scrollTo({
+          top: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+          behavior: 'instant'
+        });
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   const titleOpacity = useTransform(scrollY, [0, 70, 180], [1, 0.42, 0]);
   const titleY = useTransform(scrollY, [0, 220], ['0vh', '-28vh']);

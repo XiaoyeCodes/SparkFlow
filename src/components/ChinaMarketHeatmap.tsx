@@ -11,7 +11,7 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { getMarketSessionStatus, type MarketSessionMarket } from '../lib/marketSessions';
 
@@ -660,6 +660,7 @@ function StockCell({
     && visualHeight >= 70
     && (!showLogo || visualHeight >= 132);
   const showValue = visualWidth >= MIN_CHANGE_WIDTH && visualHeight >= MIN_CHANGE_HEIGHT;
+  const heatmapCellColor = cellColor(stock.changePercent);
   const nameSize = expanded && visualWidth >= 180 && visualHeight >= 150
     ? 22
     : visualWidth >= 145 && visualHeight >= 92
@@ -683,18 +684,19 @@ function StockCell({
       onClick={() => onSelect(stock)}
       onMouseEnter={() => onHover(stock)}
       onMouseLeave={() => onHover(null)}
-      className={`absolute min-h-0 min-w-0 overflow-hidden text-center text-white transition-[filter,box-shadow] duration-150 hover:z-30 hover:brightness-125 focus:z-30 focus:outline-none ${
+      className={`market-heatmap-tile absolute min-h-0 min-w-0 overflow-hidden text-center text-white transition-[filter,box-shadow] duration-150 hover:z-30 hover:brightness-125 focus:z-30 focus:outline-none ${
         selected ? 'z-30' : ''
       }`}
       style={{
+        '--heatmap-cell-color': heatmapCellColor,
         left: node.x0,
         top: node.y0,
         width,
         height,
-        backgroundColor: cellColor(stock.changePercent),
+        backgroundColor: heatmapCellColor,
         borderRadius: Math.min(3, width * 0.18, height * 0.18),
         boxShadow: selected ? 'inset 0 0 0 2px #2f8cff' : undefined,
-      }}
+      } as CSSProperties}
     >
       <span
         className="absolute left-1/2 top-1/2 flex flex-col items-center justify-center overflow-hidden px-1"

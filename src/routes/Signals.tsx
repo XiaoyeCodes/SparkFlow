@@ -69,7 +69,7 @@ export function Signals() {
   const sortParam = searchParams.get('sort');
   const sortMode: NewsSortMode = newsSortOptions.find(([id]) => id === sortParam)?.[0] ?? 'weight';
   const sourceFilter = searchParams.get('source') || 'all';
-  const onlyChinese = searchParams.get('lang') === 'zh';
+  const onlyChinese = searchParams.get('lang') !== 'all';
   const [displayLimit, setDisplayLimit] = useState(60);
   const setSortMode = (mode: NewsSortMode) => setSearchParams((current) => {
     const params = new URLSearchParams(current);
@@ -133,8 +133,8 @@ export function Signals() {
   const toggleChineseOnly = () => {
     setSearchParams((current) => {
       const params = new URLSearchParams(current);
-      if (onlyChinese) params.delete('lang');
-      else params.set('lang', 'zh');
+      if (onlyChinese) params.set('lang', 'all');
+      else params.delete('lang');
       return params;
     });
   };

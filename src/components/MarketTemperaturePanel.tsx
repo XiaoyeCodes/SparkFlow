@@ -406,7 +406,7 @@ function BookValueAnchorChart({
           : { level: '明显偏高', action: '暂停加码并按目标仓位再平衡', color: '#ed8e99' };
 
   return (
-    <div ref={sectionRef} id="return-decomposition" className="scroll-mt-24 border-t border-white/10 py-7" data-testid="book-value-anchor">
+    <div ref={sectionRef} id="return-decomposition" className="market-valuation-anchor scroll-mt-24 border-t border-white/10 py-7" data-testid="book-value-anchor">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <p className="flex items-center gap-2 text-xs font-semibold text-[#d6b566]">
@@ -423,7 +423,7 @@ function BookValueAnchorChart({
           <ValuationGuideWhitepaperLauncher />
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
-          <div className="flex max-w-full flex-wrap items-center gap-px border border-white/10 bg-white/10 p-px">
+          <div className="market-chip-control flex max-w-full flex-wrap items-center gap-px border border-white/10 bg-white/10 p-px">
             {data.map((item) => (
               <button
                 key={item.id}
@@ -438,7 +438,7 @@ function BookValueAnchorChart({
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-px border border-white/10 bg-white/10 p-px">
+          <div className="market-chip-control flex items-center gap-px border border-white/10 bg-white/10 p-px">
             {([
               ['1y', '1年'],
               ['3y', '3年'],
@@ -461,7 +461,7 @@ function BookValueAnchorChart({
         </div>
       </div>
 
-      <div className="mt-5 grid overflow-hidden border border-white/10 bg-[#0a0b0d] md:grid-cols-2 xl:grid-cols-[0.9fr_0.9fr_1.05fr_1.25fr]">
+      <div className="market-valuation-summary-grid mt-5 grid overflow-hidden border border-white/10 bg-[#0a0b0d] md:grid-cols-2 xl:grid-cols-[0.9fr_0.9fr_1.05fr_1.25fr]">
         <div className="border-b border-white/8 p-5 xl:border-b-0 xl:border-r">
           <p className="text-[11px] text-white/38">当前市场价格 · {activeData.name}</p>
           <p className="mt-2 font-mono text-2xl font-semibold text-[#d99a43]">
@@ -514,7 +514,7 @@ function BookValueAnchorChart({
         </div>
       </div>
 
-      <div className="mt-4 border border-white/10 bg-[#0a0b0d] px-5 py-4">
+      <div className="market-valuation-detail-card mt-4 border border-white/10 bg-[#0a0b0d] px-5 py-4">
         <div className={`grid gap-5 sm:grid-cols-2 ${returnDecomposition.hasTotalReturn ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
           {contributionRows.map((item) => (
             <div key={item.label}>
@@ -541,7 +541,7 @@ function BookValueAnchorChart({
         </div>
       </div>
 
-      <div className="mt-4 overflow-hidden border border-white/10 bg-[#0a0b0d]">
+      <div className="market-valuation-chart-card mt-4 overflow-hidden border border-white/10 bg-[#0a0b0d]">
         <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 border-b border-white/8 px-3 py-3 text-xs">
           <span className="flex items-center gap-2 text-[#d99a43]">
             <span className="h-0.5 w-4 bg-[#d48419]" /> {activeData.name}价格
@@ -564,7 +564,7 @@ function BookValueAnchorChart({
           {hoverPoint ? (
             <div
               data-testid="book-value-hover-readout"
-              className="pointer-events-none absolute right-3 top-3 z-10 w-44 border border-white/12 bg-transparent px-3 py-2.5"
+              className="market-valuation-readout pointer-events-none absolute right-3 top-3 z-10 w-44 border border-white/12 bg-transparent px-3 py-2.5"
             >
               <p className="border-b border-white/8 pb-2 font-mono text-[10px] text-white/42">
                 {hoverPoint.time}
@@ -733,7 +733,7 @@ function TemperatureChart({ series }: { series: MarketChartSeries }) {
 
 function LoadingState({ marketLabel }: { marketLabel: string }) {
   return (
-    <section className="mt-8 border-y border-white/10 py-10" data-testid={`${marketLabel}-temperature-panel`}>
+    <section className="market-temperature-section mt-8 border-y border-white/10 py-10" data-testid={`${marketLabel}-temperature-panel`}>
       <div className="animate-pulse">
         <div className="h-4 w-40 bg-white/10" />
         <div className="mt-4 h-9 w-72 max-w-full bg-white/10" />
@@ -804,7 +804,7 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
 
   if (!data) {
     return (
-      <section className="mt-8 border-y border-white/10 py-10" data-testid={`${mode}-temperature-panel`}>
+      <section className="market-temperature-section mt-8 border-y border-white/10 py-10" data-testid={`${mode}-temperature-panel`}>
         <div className="flex min-h-48 flex-col items-center justify-center text-center">
           <Thermometer className="text-[#d6b566]" size={26} />
           <p className="mt-4 text-sm text-white/60">{error}</p>
@@ -885,8 +885,8 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
               };
 
   return (
-    <section className="mt-8 border-y border-white/10 py-8 sm:py-10" data-testid={`${mode}-temperature-panel`}>
-      <header className="flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
+    <section className="market-temperature-section mt-8 border-y border-white/10 py-8 sm:py-10" data-testid={`${mode}-temperature-panel`}>
+      <header className="market-temperature-header flex flex-col gap-4 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-[#74c9dd]">
             <Thermometer size={14} /> Relative valuation heat
@@ -902,7 +902,7 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
           <button
             type="button"
             onClick={() => setReloadKey((current) => current + 1)}
-            className="grid size-9 place-items-center border border-white/12 text-white/52 transition hover:border-white/30 hover:text-white"
+            className="market-temperature-refresh grid size-9 place-items-center border border-white/12 text-white/52 transition hover:border-white/30 hover:text-white"
             title="刷新估值温度"
             aria-label="刷新估值温度"
           >
@@ -911,7 +911,7 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
         </div>
       </header>
 
-      <div className="mt-6 border border-[#d6b566]/25 bg-[#d6b566]/[0.045] p-5 sm:p-6">
+      <div className="market-temperature-summary mt-6 border border-[#d6b566]/25 bg-[#d6b566]/[0.045] p-5 sm:p-6">
         <div className="grid gap-5 xl:grid-cols-[1.2fr_1.8fr] xl:items-center">
           <div>
             <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/42">
@@ -925,22 +925,22 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
               数据可信度：中等 · 行情可交叉验证，估值数据来自公开第三方，结论是量化参考而非权威定价。
             </p>
           </div>
-          <div className="grid gap-px overflow-hidden border border-white/10 bg-white/10 sm:grid-cols-3">
-            <div className="bg-[#090b0d] p-4">
+          <div className="market-temperature-metrics grid gap-px overflow-hidden border border-white/10 bg-white/10 sm:grid-cols-3">
+            <div className="market-temperature-metric bg-[#090b0d] p-4">
               <p className="text-[10px] text-white/34">短周期 PE/PB 热度</p>
               <p className={`mt-2 font-mono text-xl font-semibold ${activeStyle.text}`}>
                 {activeTemperature.temperature.toFixed(0)}°
               </p>
               <p className="mt-1 text-[10px] text-white/28">近500日 · PE 60% + PB 40%</p>
             </div>
-            <div className="bg-[#090b0d] p-4">
+            <div className="market-temperature-metric bg-[#090b0d] p-4">
               <p className="text-[10px] text-white/34">{mode === 'china' ? '全 A 中位 PB 分位' : `${displayMarketLabel}样本 PB 分位`}</p>
               <p className="mt-2 font-mono text-xl font-semibold text-[#e6cd8e]">
                 {pbPercentile !== undefined ? `${pbPercentile.toFixed(1)}%` : '--'}
               </p>
               <p className="mt-1 text-[10px] text-white/28">较长历史样本</p>
             </div>
-            <div className="bg-[#090b0d] p-4">
+            <div className="market-temperature-metric bg-[#090b0d] p-4">
               <p className="text-[10px] text-white/34">历史中位 PB 价值锚</p>
               <p className={`mt-2 font-mono text-xl font-semibold ${
                 (medianPbGap ?? 0) > 5
@@ -960,7 +960,7 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
       </div>
 
       <div className="grid gap-5 py-6 xl:grid-cols-[minmax(290px,0.72fr)_1.65fr]">
-        <div className="border border-white/10 bg-[#090b0d] p-5 sm:p-6">
+        <div className="market-temperature-score-card border border-white/10 bg-[#090b0d] p-5 sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold text-white/48">{activeTemperature.name} · 近500日 PE/PB 综合热度</p>
@@ -1036,7 +1036,7 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
                   key={item.id}
                   type="button"
                   onClick={() => setSelectedId(item.id)}
-                  className={`min-h-24 border p-3 text-left transition ${
+                  className={`market-temperature-market-card min-h-24 border p-3 text-left transition ${
                     selected
                       ? 'border-[#d6b566]/65 bg-[#d6b566]/[0.07]'
                       : 'border-white/10 bg-[#090b0d] hover:border-white/24'
@@ -1057,11 +1057,11 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
             <p className="text-xs font-semibold text-white/48">重点行业估值温度</p>
             <p className="text-[10px] text-white/30">PE 60% + PB 40%</p>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden border border-white/10 bg-white/10 sm:grid-cols-5">
+          <div className="market-temperature-industry-grid mt-3 grid grid-cols-2 gap-px overflow-hidden border border-white/10 bg-white/10 sm:grid-cols-5">
             {data.industries.map((item) => {
               const style = zoneStyles[item.zone];
               return (
-                <div key={item.id} className="min-h-[92px] bg-[#090b0d] p-3">
+                <div key={item.id} className="market-temperature-industry-card min-h-[92px] bg-[#090b0d] p-3">
                   <div className="flex items-start justify-between gap-2">
                     <span className="truncate text-xs font-semibold text-white/70" title={item.name}>{item.name}</span>
                     <span className={`font-mono text-sm font-semibold ${style.text}`}>{item.temperature.toFixed(0)}°</span>
@@ -1098,7 +1098,7 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
               当前 {selectedMarket.temperature.toFixed(0)}°
             </span>
           </div>
-          <div className="overflow-hidden border border-white/10 bg-[#06090c]">
+          <div className="market-temperature-history-chart overflow-hidden border border-white/10 bg-[#06090c]">
             <TemperatureChart key={selectedSeries.id} series={selectedSeries} />
           </div>
           <div className="mt-4 text-[11px] leading-5 text-white/34" data-testid="valuation-history-notes">
