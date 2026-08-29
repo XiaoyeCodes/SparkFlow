@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   AlertCircle,
   ArrowUpRight,
+  Check,
   ChevronDown,
   ExternalLink,
   Flame,
+  Languages,
   Loader2,
   Newspaper,
   Pause,
@@ -40,6 +42,22 @@ import {
 import './Signals.css';
 import { SignalsSourceManager } from './SignalsSourceManager';
 
+const NEWS_PORTALS = [
+  { id: 'jin10', name: '金十数据', mark: 'J10', descriptor: '全球快讯终端', scope: 'CN · REALTIME', href: 'https://www.jin10.com/' },
+  { id: 'wallstreetcn', name: '华尔街见闻', mark: 'WSCN', descriptor: '市场与宏观情报', scope: 'CN · MARKETS', href: 'https://wallstreetcn.com/' },
+  { id: 'yicai', name: '第一财经', mark: 'YICAI', descriptor: '商业与产业纵深', scope: 'CN · BUSINESS', href: 'https://www.yicai.com/' },
+  { id: 'wsj', name: '华尔街日报', mark: 'WSJ', descriptor: '金融与商业报道', scope: 'US · GLOBAL', href: 'https://www.wsj.com/' },
+  { id: 'nyt', name: '纽约时报', mark: 'NYT', descriptor: '世界与经济观察', scope: 'US · WORLD', href: 'https://www.nytimes.com/' },
+  { id: 'bbc', name: 'BBC 新闻', mark: 'BBC', descriptor: '全球公共新闻', scope: 'UK · WORLD', href: 'https://www.bbc.com/news' },
+  { id: 'reuters', name: '路透社', mark: 'RTR', descriptor: '事实驱动通讯社', scope: 'GLOBAL · WIRE', href: 'https://www.reuters.com/' }
+] as const;
+
+const CHINESE_TEXT_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+function isChineseNewsItem(item: NewsItem) {
+  return CHINESE_TEXT_PATTERN.test(item.title);
+}
+
 export function Signals() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [feed, setFeed] = useState<NewsFeed | null>(null);
@@ -51,6 +69,7 @@ export function Signals() {
   const sortParam = searchParams.get('sort');
   const sortMode: NewsSortMode = newsSortOptions.find(([id]) => id === sortParam)?.[0] ?? 'weight';
   const sourceFilter = searchParams.get('source') || 'all';
+  const onlyChinese = searchParams.get('lang') === 'zh';
   const [displayLimit, setDisplayLimit] = useState(60);
   const setSortMode = (mode: NewsSortMode) => setSearchParams((current) => {
     const params = new URLSearchParams(current);
@@ -59,22 +78,37 @@ export function Signals() {
   });
   const [now, setNow] = useState(Date.now);
   const currentItems = useMemo(() => newsForSource(feed?.items || [], 'all', now), [feed?.items, now]);
+  const languageItems = useMemo(() => onlyChinese ? currentItems.filter(isChineseNewsItem) : currentItems, [currentItems, onlyChinese]);
+  const chineseItemCount = useMemo(() => newsForSource(currentItems, sourceFilter, now).filter(isChineseNewsItem).length, [currentItems, sourceFilter, now]);
 
   const visibleItems = useMemo(() => {
-    return selectNewsItems(currentItems, category, sortMode, sourceFilter, now);
-  }, [category, currentItems, sortMode, sourceFilter, now]);
+    return selectNewsItems(languageItems, category, sortMode, sourceFilter, now);
+  }, [category, languageItems, sortMode, sourceFilter, now]);
 
   const markdown = useMemo(() => buildNewsMarkdown(visibleItems), [visibleItems]);
-  const categories = useMemo(() => newsCategoryCounts(newsForSource(currentItems, sourceFilter, now)), [currentItems, sourceFilter, now]);
+  const categories = useMemo(() => newsCategoryCounts(newsForSource(languageItems, sourceFilter, now)), [languageItems, sourceFilter, now]);
   const selectedSource = feed?.sources.find((source) => source.id === sourceFilter);
-  const dailyMissing = selectedSource?.delivery === 'official-daily' && !newsForSource(currentItems, sourceFilter, now).length;
+  const sourceOptions = useMemo<SourceSelectOption[]>(() => [
+    { value: 'all', label: '全部来源 · 聚合去重', tone: 'aggregate' },
+    { value: 'international', label: '国际媒体 · 聚合去重', tone: 'aggregate' },
+    ...(sourceFilter !== 'all' && sourceFilter !== 'international' && !selectedSource
+      ? [{ value: sourceFilter, label: '未知来源', tone: 'warning' as const }]
+      : []),
+    ...(feed?.sources.map((source) => ({
+      value: source.id,
+      label: source.label,
+      meta: source.stale ? '缓存' : !source.ok ? '暂不可用' : undefined,
+      tone: source.stale || !source.ok ? 'warning' as const : 'source' as const
+    })) || [])
+  ], [feed?.sources, selectedSource, sourceFilter]);
+  const dailyMissing = !onlyChinese && selectedSource?.delivery === 'official-daily' && !newsForSource(currentItems, sourceFilter, now).length;
   const sourceEmptyMessage = selectedSource?.ok && !newsForSource(currentItems, sourceFilter, now).length ? selectedSource.emptyMessage : undefined;
   const displayedItems = visibleItems.slice(0, displayLimit);
   const topWeight = currentItems.reduce((max, item) => Math.max(max, item.weight), 0);
   const connectedSources = feed?.sources.filter((source) => source.ok).length ?? 0;
   const failedSources = feed?.sources.filter((source) => !source.ok).length ?? 0;
   const sortLabel = newsSortOptions.find(([id]) => id === sortMode)?.[1];
-  const tickerItems = useMemo(() => selectNewsItems(currentItems, 'all', 'heat', 'all', now).slice(0, 5), [currentItems, now]);
+  const tickerItems = useMemo(() => selectNewsItems(languageItems, 'all', 'heat', 'all', now).slice(0, 5), [languageItems, now]);
 
   const changeCategory = (next: NewsCategoryFilter) => {
     setSearchParams((current) => {
@@ -96,7 +130,16 @@ export function Signals() {
     });
   };
 
-  useEffect(() => { setDisplayLimit(60); }, [category, sourceFilter, sortMode, feed]);
+  const toggleChineseOnly = () => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (onlyChinese) params.delete('lang');
+      else params.set('lang', 'zh');
+      return params;
+    });
+  };
+
+  useEffect(() => { setDisplayLimit(60); }, [category, sourceFilter, sortMode, onlyChinese, feed]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -180,23 +223,59 @@ export function Signals() {
                 <ActionButton onClick={summarizeWithAi} loading={aiLoading} icon={<Sparkles size={14} />} label="AI 摘要" disabled={!visibleItems.length} />
               </div>
             </div>
-            <dl className="signals-stats">
-              <div><dt>新闻条目</dt><dd>{feed ? currentItems.length : '—'}<small>条</small></dd></div>
-              <div><dt>最高权重</dt><dd className="signals-accent">{feed?.items.length ? topWeight : '—'}<small>/ 100</small></dd></div>
-              <div><dt>已连接数据源</dt><dd>{feed ? connectedSources : '—'}<small>{feed ? `/ ${feed.sources.length}` : ''}</small></dd></div>
-              <div><dt>最近同步</dt><dd className="signals-sync" title={feed ? formatNewsTime(feed.generatedAt) : undefined}>{loading ? '同步中…' : formatNewsSync(feed?.generatedAt, now)}</dd></div>
-            </dl>
-          </header>
+            <div className="signals-hud-command-row">
+              <dl className="signals-stats">
+                <div><dt>新闻条目</dt><dd>{feed ? currentItems.length : '—'}<small>条</small></dd></div>
+                <div><dt>最高权重</dt><dd className="signals-accent">{feed?.items.length ? topWeight : '—'}<small>/ 100</small></dd></div>
+                <div><dt>已连接数据源</dt><dd>{feed ? connectedSources : '—'}<small>{feed ? `/ ${feed.sources.length}` : ''}</small></dd></div>
+                <div><dt>最近同步</dt><dd className="signals-sync" title={feed ? formatNewsTime(feed.generatedAt) : undefined}>{loading ? '同步中…' : formatNewsSync(feed?.generatedAt, now)}</dd></div>
+              </dl>
 
-          <Link className="signals-hot-card" to={{ pathname: '/signals/daily-hot', search: searchParams.toString() }} aria-label="打开今日热榜">
-            <span className="signals-hot-icon" aria-hidden="true"><Flame size={25} /></span>
-            <span className="signals-hot-body">
-              <span className="signals-hot-title">今日热榜 <span>DAILYHOT</span></span>
-              <span className="signals-hot-description">全网热点，一屏速览。进入 DailyHot，浏览各平台热门榜单。</span>
-              <span className="signals-hot-platforms" aria-label="平台示例"><span>微博</span><span>知乎</span><span>哔哩哔哩</span><span>抖音</span><span>更多平台</span></span>
-            </span>
-            <span className="signals-hot-action">打开热榜 <ArrowUpRight size={18} aria-hidden="true" /></span>
-          </Link>
+              <section className="signals-hud-portals" aria-labelledby="signals-hud-portals-title">
+                <header className="signals-hud-portals-heading">
+                  <span id="signals-hud-portals-title">快速情报入口</span>
+                  <small>8 CHANNELS · DIRECT ACCESS</small>
+                </header>
+                <nav className="signals-hud-portals-grid" aria-label="热榜与权威媒体官网">
+                  <Link
+                    className="signals-media-card is-hud-card is-dailyhot"
+                    to={{ pathname: '/signals/daily-hot', search: searchParams.toString() }}
+                    aria-label="打开今日热榜"
+                    style={{ '--portal-order': 0 } as CSSProperties}
+                  >
+                    <span className="signals-media-texture" aria-hidden="true" />
+                    <span className="signals-media-card-top">
+                      <span className="signals-media-mark"><Flame size={11} /> HOT</span>
+                      <span className="signals-media-scope">ALL · TREND</span>
+                    </span>
+                    <strong>今日热榜</strong>
+                    <span className="signals-media-description">全网榜单聚合</span>
+                    <span className="signals-media-card-foot"><span><i aria-hidden="true" /> LIVE</span><ArrowUpRight size={13} aria-hidden="true" /></span>
+                  </Link>
+                  {NEWS_PORTALS.map((portal, index) => (
+                    <a
+                      key={portal.id}
+                      className={`signals-media-card is-hud-card is-${portal.id}`}
+                      href={portal.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`打开${portal.name}官网`}
+                      style={{ '--portal-order': index + 1 } as CSSProperties}
+                    >
+                      <span className="signals-media-texture" aria-hidden="true" />
+                      <span className="signals-media-card-top">
+                        <span className="signals-media-mark">{portal.mark}</span>
+                        <span className="signals-media-scope">{portal.scope}</span>
+                      </span>
+                      <strong>{portal.name}</strong>
+                      <span className="signals-media-description">{portal.descriptor}</span>
+                      <span className="signals-media-card-foot"><span><i aria-hidden="true" /> OFFICIAL</span><ArrowUpRight size={13} aria-hidden="true" /></span>
+                    </a>
+                  ))}
+                </nav>
+              </section>
+            </div>
+          </header>
 
           <SignalsSourceManager feed={feed} onChanged={async (id) => { await fetchNews(true); changeSource(id || 'all'); }} />
 
@@ -254,14 +333,23 @@ export function Signals() {
               ) : null}
 
               <div className="signals-feed-controls">
-                <label>数据来源
-                  <select aria-label="选择新闻数据源" value={sourceFilter} onChange={(event) => changeSource(event.target.value)}>
-                    <option value="all">全部来源 · 聚合去重</option>
-                    <option value="international">国际媒体 · 聚合去重</option>
-                    {sourceFilter !== 'all' && sourceFilter !== 'international' && !selectedSource ? <option value={sourceFilter}>未知来源</option> : null}
-                    {feed?.sources.map((source) => <option key={source.id} value={source.id}>{source.label}{source.stale ? '（缓存）' : !source.ok ? '（暂不可用）' : ''}</option>)}
-                  </select>
-                </label>
+                <div className="signals-feed-filter-group">
+                  <SourceSelect value={sourceFilter} options={sourceOptions} onChange={changeSource} />
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={onlyChinese}
+                    className={`signals-language-toggle${onlyChinese ? ' is-active' : ''}`}
+                    onClick={toggleChineseOnly}
+                  >
+                    <span className="signals-language-icon" aria-hidden="true"><Languages size={17} /></span>
+                    <span className="signals-language-copy">
+                      <strong>只看中文</strong>
+                      <small>{onlyChinese ? `已筛选 ${visibleItems.length} 条` : `可筛选 ${chineseItemCount} 条`}</small>
+                    </span>
+                    <span className="signals-switch-track" aria-hidden="true"><i /></span>
+                  </button>
+                </div>
                 <details className="signals-ranking-guide">
                   <summary>排序规则 <ChevronDown size={12} /></summary>
                   <div>
@@ -297,9 +385,9 @@ export function Signals() {
                 {!loading && !visibleItems.length ? (
                   <div className="signals-empty">
                     <Newspaper size={28} strokeWidth={1.25} />
-                    <h2>{!feed && error ? '暂时无法获取新闻' : selectedSource && !selectedSource.ok ? '该来源更新失败' : dailyMissing ? '暂无可用日报' : sourceFilter === 'x-trends-zh' && sourceEmptyMessage ? '暂无匹配的中文话题' : category === 'all' ? '暂无新闻' : '该分类下暂无新闻'}</h2>
-                    <p>{!feed && error ? '请检查网络连接后重试。' : selectedSource && !selectedSource.ok ? selectedSource.error : sourceEmptyMessage || '稍后刷新，或切换分类看看其他资讯。'}</p>
-                    <button type="button" onClick={category === 'all' ? () => fetchNews(true) : () => changeCategory('all')}>{category === 'all' ? '重新加载' : '查看全部新闻'}</button>
+                    <h2>{!feed && error ? '暂时无法获取新闻' : selectedSource && !selectedSource.ok ? '该来源更新失败' : onlyChinese ? '当前条件下暂无中文新闻' : dailyMissing ? '暂无可用日报' : sourceFilter === 'x-trends-zh' && sourceEmptyMessage ? '暂无匹配的中文话题' : category === 'all' ? '暂无新闻' : '该分类下暂无新闻'}</h2>
+                    <p>{!feed && error ? '请检查网络连接后重试。' : selectedSource && !selectedSource.ok ? selectedSource.error : onlyChinese ? '可关闭“只看中文”，或切换数据来源和新闻分类。' : sourceEmptyMessage || '稍后刷新，或切换分类看看其他资讯。'}</p>
+                    <button type="button" onClick={onlyChinese ? toggleChineseOnly : category === 'all' ? () => fetchNews(true) : () => changeCategory('all')}>{onlyChinese ? '显示全部语言' : category === 'all' ? '重新加载' : '查看全部新闻'}</button>
                   </div>
                 ) : null}
               </div>
@@ -310,6 +398,156 @@ export function Signals() {
         </div>
       </div>
     </PageTransition>
+  );
+}
+
+type SourceSelectOption = {
+  value: string;
+  label: string;
+  meta?: string;
+  tone?: 'aggregate' | 'source' | 'warning';
+};
+
+function SourceSelect({ value, options, onChange }: {
+  value: string;
+  options: SourceSelectOption[];
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const [activeIndex, setActiveIndex] = useState(selectedIndex);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selected = options[selectedIndex] || options[0];
+
+  useEffect(() => {
+    setActiveIndex(selectedIndex);
+  }, [selectedIndex]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+
+    window.addEventListener('pointerdown', closeOnOutsidePress);
+    return () => window.removeEventListener('pointerdown', closeOnOutsidePress);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) optionRefs.current[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, open]);
+
+  const choose = (option: SourceSelectOption) => {
+    onChange(option.value);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const moveActive = (direction: 1 | -1) => {
+    setActiveIndex((current) => (current + direction + options.length) % options.length);
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'Escape') {
+      setOpen(false);
+      return;
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!open) {
+        setOpen(true);
+        setActiveIndex(selectedIndex);
+      } else {
+        moveActive(event.key === 'ArrowDown' ? 1 : -1);
+      }
+      return;
+    }
+
+    if (event.key === 'Home' || event.key === 'End') {
+      if (!open) return;
+      event.preventDefault();
+      setActiveIndex(event.key === 'Home' ? 0 : options.length - 1);
+      return;
+    }
+
+    if ((event.key === 'Enter' || event.key === ' ') && open) {
+      event.preventDefault();
+      choose(options[activeIndex]);
+    }
+  };
+
+  return (
+    <div className="signals-source-select" ref={rootRef}>
+      <span className="signals-source-select-label">数据来源</span>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`signals-source-trigger${open ? ' is-open' : ''}`}
+        aria-label="选择新闻数据源"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls="signals-source-options"
+        aria-activedescendant={open ? `signals-source-option-${activeIndex}` : undefined}
+        onClick={() => {
+          setOpen((current) => !current);
+          setActiveIndex(selectedIndex);
+        }}
+        onKeyDown={onKeyDown}
+      >
+        <span className={`signals-source-indicator is-${selected?.tone || 'source'}`} aria-hidden="true" />
+        <span className="signals-source-trigger-copy">
+          <strong>{selected?.label || '选择来源'}</strong>
+          <small>{selected?.meta || (selected?.tone === 'aggregate' ? '已启用跨源去重' : '保持来源原始排序')}</small>
+        </span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+
+      <div
+        id="signals-source-options"
+        className={`signals-source-menu${open ? ' is-open' : ''}`}
+        role="listbox"
+        aria-label="新闻数据源"
+        aria-hidden={!open}
+      >
+        <div className="signals-source-menu-heading">
+          <span>选择数据来源</span>
+          <small>{options.length} SOURCES</small>
+        </div>
+        <div className="signals-source-option-list">
+          {options.map((option, index) => {
+            const isSelected = option.value === value;
+            const isActive = index === activeIndex;
+            return (
+              <button
+                ref={(element) => { optionRefs.current[index] = element; }}
+                id={`signals-source-option-${index}`}
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                tabIndex={-1}
+                className={`signals-source-option${isSelected ? ' is-selected' : ''}${isActive ? ' is-active' : ''}`}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => choose(option)}
+              >
+                <span className={`signals-source-indicator is-${option.tone || 'source'}`} aria-hidden="true" />
+                <span className="signals-source-option-copy">
+                  <strong>{option.label}</strong>
+                  {option.meta ? <small>{option.meta}</small> : null}
+                </span>
+                <span className="signals-source-option-check" aria-hidden="true">
+                  {isSelected ? <Check size={15} /> : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
