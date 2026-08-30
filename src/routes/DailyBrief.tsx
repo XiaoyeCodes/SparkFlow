@@ -7,11 +7,9 @@ import {
   BrainCircuit,
   ChevronRight,
   CircleAlert,
-  Clock3,
   ExternalLink,
   Gauge,
   Newspaper,
-  RefreshCw,
   ShieldAlert,
   Sparkles,
   TrendingUp,
@@ -147,11 +145,9 @@ function SignalRow({
 export function DailyBrief() {
   const [brief, setBrief] = useState<DailyBriefResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const load = useCallback(async (quiet = false) => {
-    if (quiet) setRefreshing(true);
-    else setLoading(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     setError("");
     try {
       setBrief(await requestJson<DailyBriefResponse>("/api/daily-brief"));
@@ -159,7 +155,6 @@ export function DailyBrief() {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, []);
   useEffect(() => {
@@ -245,49 +240,11 @@ export function DailyBrief() {
       ].filter(Boolean) as string[],
     [articles, snapshot?.summary.headline],
   );
-  const slotLabel =
-    snapshot?.slot === "midday"
-      ? "午间快照"
-      : snapshot?.slot === "evening"
-        ? "晚间快照"
-        : "晨间快照";
-
   return (
     <div className="daily-brief-page strategy-page">
       <div className="daily-brief-orbit daily-brief-orbit--one" />
       <div className="daily-brief-orbit daily-brief-orbit--two" />
       <div className="daily-brief-shell">
-        <header className="strategy-header">
-          <div>
-            <p className="strategy-eyebrow">
-              <span /> DAILY STRATEGY · DAY1 SNAPSHOT
-            </p>
-            <h1>每日策略</h1>
-            <p>
-              仅在北京时间 08:00、12:00、17:00
-              更新；页面始终读取最近一次成功快照。
-            </p>
-          </div>
-          <div className="strategy-header__actions">
-            <span>
-              <Clock3 size={14} /> {slotLabel} · {snapshot?.date || "同步中"}
-            </span>
-            <button
-              type="button"
-              onClick={() => void load(true)}
-              disabled={refreshing}
-            >
-              <RefreshCw
-                size={15}
-                className={refreshing ? "is-spinning" : ""}
-              />{" "}
-              {refreshing ? "读取中" : "重新读取快照"}
-            </button>
-            <Link to="/council/details/judgement">
-              <BrainCircuit size={15} /> 查看详细内容
-            </Link>
-          </div>
-        </header>
         {error ? (
           <div className="daily-brief-error">
             <CircleAlert size={16} /> {error}
@@ -374,7 +331,12 @@ export function DailyBrief() {
                   </p>
                   <h2>市场情绪与交叉信号</h2>
                 </div>
-                <span>Day1 原始指标快照</span>
+                <Link
+                  className="strategy-panel-detail"
+                  to="/council/details/flows"
+                >
+                  <BrainCircuit size={14} /> 查看详细内容
+                </Link>
               </div>
               <div className="strategy-metric-grid">
                 <Metric market={voo} />
@@ -428,12 +390,6 @@ export function DailyBrief() {
                   <p>评分明细来自上游 market-rating</p>
                 </div>
               </div>
-              <Link
-                className="strategy-detail-link"
-                to="/council/details/flows"
-              >
-                查看详细内容 <ChevronRight size={14} />
-              </Link>
             </section>
             <section className="strategy-panel strategy-panel--amber strategy-conclusion">
               <div className="strategy-panel__head">
