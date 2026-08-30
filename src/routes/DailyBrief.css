@@ -569,6 +569,33 @@
     Consolas,
     monospace;
 }
+.strategy-rating-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-top: 9px;
+}
+.strategy-rating-list span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  overflow: hidden;
+  padding: 6px 7px;
+  border: 1px solid rgba(140, 180, 168, 0.12);
+  border-radius: 5px;
+  color: #7d948d;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-rating-list b {
+  color: #b8fff0;
+  font:
+    700 9px/1 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
 .strategy-spark {
   width: 100%;
   height: 72px;

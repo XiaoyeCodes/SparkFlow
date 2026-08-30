@@ -20,37 +20,14 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type {
-  DailyBriefFlowDetails,
+  DailyBriefDay1Snapshot,
   DailyBriefMarket,
   DailyBriefResponse,
+  DailyBriefUpstreamQuote,
 } from "../lib/dailyBriefTypes";
 import "./DailyBrief.css";
 
-type LiveQuotePayload = {
-  generatedAt?: string;
-  ticker?: Array<Record<string, unknown>>;
-  coreIndices?: Array<Record<string, unknown>>;
-  macro?: Array<Record<string, unknown>>;
-  commodities?: Array<Record<string, unknown>>;
-};
-type WatchlistQuote = {
-  symbol: string;
-  name: string;
-  display: string;
-  changePercent: number | null;
-  updatedAt?: string;
-};
-type WatchlistPayload = { generatedAt?: string; items?: WatchlistQuote[] };
-const liveMarketIds = [
-  "china",
-  "hongkong",
-  "nasdaq",
-  "sp500",
-  "vix",
-  "gold",
-  "bitcoin",
-];
-const formatNumber = new Intl.NumberFormat("zh-CN", {
+const marketFormatter = new Intl.NumberFormat("zh-CN", {
   maximumFractionDigits: 2,
 });
 
@@ -63,47 +40,7 @@ async function requestJson<T>(url: string) {
     throw new Error(payload.detail || `请求失败（${response.status}）`);
   return payload;
 }
-function toFinite(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-function normalizeLiveMarket(
-  item: Record<string, unknown>,
-  id: string,
-): DailyBriefMarket {
-  const value = toFinite(item.price ?? item.value);
-  return {
-    id,
-    name: String(item.name || item.label || item.symbol || id),
-    symbol: String(item.symbol || "").replace(/^\^/, ""),
-    value,
-    display:
-      typeof item.display === "string"
-        ? item.display
-        : value === null
-          ? "—"
-          : formatNumber.format(value),
-    changePercent: toFinite(item.changePercent ?? item.change),
-    updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : undefined,
-    sourceUrl: typeof item.sourceUrl === "string" ? item.sourceUrl : undefined,
-    status: typeof item.status === "string" ? item.status : undefined,
-  };
-}
-function extractLiveMarkets(payload: LiveQuotePayload) {
-  const pools = [
-    payload.ticker || [],
-    payload.coreIndices || [],
-    payload.macro || [],
-    payload.commodities || [],
-  ].flat();
-  return liveMarketIds.flatMap((id) => {
-    const item = pools.find((candidate) => candidate.id === id);
-    return item ? [normalizeLiveMarket(item, id)] : [];
-  });
-}
-function marketById(markets: DailyBriefMarket[], id: string) {
-  return markets.find((market) => market.id === id);
-}
+
 function formatDate(value?: string, includeDate = false) {
   if (!value) return "—";
   const date = new Date(value);
@@ -116,9 +53,11 @@ function formatDate(value?: string, includeDate = false) {
     hour12: false,
   }).format(date);
 }
+
 function percentLabel(value: number | null | undefined) {
-  if (value === null || value === undefined) return "—";
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+  return value === null || value === undefined
+    ? "—"
+    : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 function movementClass(value: number | null | undefined) {
   return value === null || value === undefined || value === 0
@@ -127,14 +66,39 @@ function movementClass(value: number | null | undefined) {
       ? "is-up"
       : "is-down";
 }
+function toMarket(
+  id: string,
+  quote?: DailyBriefUpstreamQuote,
+): DailyBriefMarket | undefined {
+  if (!quote) return undefined;
+  return {
+    id,
+    name: quote.name,
+    symbol: quote.symbol,
+    value: quote.price,
+    display: quote.price === null ? "—" : marketFormatter.format(quote.price),
+    changePercent: quote.changePercent,
+    updatedAt: undefined,
+    status: quote.marketState,
+  };
+}
+function numberMetric(data: DailyBriefDay1Snapshot | undefined, key: string) {
+  const value = data?.btcMetrics[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+function moneyMetric(value: number | null, unit = "") {
+  if (value === null) return "—";
+  const absolute = Math.abs(value);
+  const compact =
+    absolute >= 1_000_000_000
+      ? `${(value / 1_000_000_000).toFixed(2)} B`
+      : absolute >= 1_000_000
+        ? `${(value / 1_000_000).toFixed(1)} M`
+        : marketFormatter.format(value);
+  return `${value >= 0 ? "+" : ""}${compact}${unit}`;
+}
 
-function Metric({
-  market,
-  compact = false,
-}: {
-  market?: DailyBriefMarket;
-  compact?: boolean;
-}) {
+function Metric({ market }: { market?: DailyBriefMarket }) {
   const movement = movementClass(market?.changePercent);
   const Icon =
     movement === "is-up"
@@ -143,8 +107,8 @@ function Metric({
         ? ArrowDownRight
         : Activity;
   return (
-    <div className={compact ? "strategy-mini-metric" : "strategy-stat"}>
-      <span>{market?.name || "数据加载中"}</span>
+    <div className="strategy-mini-metric">
+      <span>{market?.name || "数据缺失"}</span>
       <strong>{market?.display || "—"}</strong>
       <small className={movement}>
         <Icon size={11} /> {percentLabel(market?.changePercent)}
@@ -152,23 +116,25 @@ function Metric({
     </div>
   );
 }
+
 function SignalRow({
   label,
   value,
   tone = "teal",
 }: {
   label: string;
-  value: number;
+  value: number | null;
   tone?: "teal" | "violet" | "amber";
 }) {
-  const safeValue = Math.max(0, Math.min(100, Math.round(value)));
+  const safeValue =
+    value === null ? 0 : Math.max(0, Math.min(100, Math.round(value)));
   return (
     <div className="strategy-signal-row">
       <div>
         <span>{label}</span>
         <strong>
-          {safeValue}
-          <small>/100</small>
+          {value === null ? "—" : safeValue}
+          <small>{value === null ? "" : "/100"}</small>
         </strong>
       </div>
       <div className={`strategy-signal-track is-${tone}`}>
@@ -177,153 +143,116 @@ function SignalRow({
     </div>
   );
 }
-function LineSpark({
-  points,
-}: {
-  points: Array<{ time: string; value: number }>;
-}) {
-  const values = points
-    .slice(-28)
-    .map((point) => point.value)
-    .filter(Number.isFinite);
-  if (values.length < 2)
-    return <div className="strategy-chart-empty">历史样本加载后显示</div>;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const path = values
-    .map(
-      (value, index) =>
-        `${(index / (values.length - 1)) * 100},${90 - ((value - min) / range) * 76}`,
-    )
-    .join(" ");
-  return (
-    <svg
-      className="strategy-spark"
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      aria-label="近期趋势"
-    >
-      <polyline points={path} />
-    </svg>
-  );
-}
 
 export function DailyBrief() {
   const [brief, setBrief] = useState<DailyBriefResponse | null>(null);
-  const [liveMarkets, setLiveMarkets] = useState<DailyBriefMarket[]>([]);
-  const [liveUpdatedAt, setLiveUpdatedAt] = useState("");
-  const [flows, setFlows] = useState<DailyBriefFlowDetails | null>(null);
-  const [watchlist, setWatchlist] = useState<WatchlistQuote[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const loadLiveMarkets = useCallback(async () => {
-    const payload = await requestJson<LiveQuotePayload>(
-      "/api/global-macro-quotes",
-    );
-    setLiveMarkets(extractLiveMarkets(payload));
-    setLiveUpdatedAt(payload.generatedAt || "");
-  }, []);
-  const loadSupplemental = useCallback(async () => {
-    const [flowResult, watchlistResult] = await Promise.allSettled([
-      requestJson<DailyBriefFlowDetails>("/api/daily-brief/details?view=flows"),
-      requestJson<WatchlistPayload>("/api/daily-brief/watchlist"),
-    ]);
-    if (flowResult.status === "fulfilled") setFlows(flowResult.value);
-    if (watchlistResult.status === "fulfilled")
-      setWatchlist(watchlistResult.value.items || []);
-  }, []);
-  const load = useCallback(
-    async (quiet = false) => {
-      if (quiet) setRefreshing(true);
-      else setLoading(true);
-      setError("");
-      const [briefResult, quoteResult] = await Promise.allSettled([
-        requestJson<DailyBriefResponse>("/api/daily-brief"),
-        loadLiveMarkets(),
-      ]);
-      if (briefResult.status === "fulfilled") setBrief(briefResult.value);
-      if (
-        briefResult.status === "rejected" &&
-        quoteResult.status === "rejected"
-      )
-        setError(
-          [briefResult.reason, quoteResult.reason]
-            .map((reason) =>
-              reason instanceof Error ? reason.message : String(reason),
-            )
-            .join("；"),
-        );
+  const load = useCallback(async (quiet = false) => {
+    if (quiet) setRefreshing(true);
+    else setLoading(true);
+    setError("");
+    try {
+      setBrief(await requestJson<DailyBriefResponse>("/api/daily-brief"));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
       setLoading(false);
       setRefreshing(false);
-      void loadSupplemental();
-    },
-    [loadLiveMarkets, loadSupplemental],
-  );
+    }
+  }, []);
   useEffect(() => {
     void load();
   }, [load]);
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void loadLiveMarkets().catch(() => undefined);
-    }, 15_000);
-    return () => window.clearInterval(timer);
-  }, [loadLiveMarkets]);
+
   const snapshot = brief?.snapshot;
-  const markets = liveMarkets.length ? liveMarkets : snapshot?.markets || [];
-  const macro = snapshot?.macro || [];
-  const vix = marketById(markets, "vix") || marketById(macro, "vix");
-  const bitcoin =
-    marketById(markets, "bitcoin") || marketById(macro, "bitcoin");
-  const sp500 = marketById(markets, "sp500");
-  const nasdaq = marketById(markets, "nasdaq");
-  const china = marketById(markets, "china");
-  const hongkong = marketById(markets, "hongkong");
-  const gold = marketById(markets, "gold") || marketById(macro, "gold");
-  const toneScore = snapshot?.summary.assessment?.score ?? 50;
-  const defensiveScore = Math.max(
-    0,
-    Math.min(100, Math.round((vix?.value || 15) * 3)),
+  const day1 = snapshot?.day1;
+  const sp500 = toMarket("sp500", day1?.indices.sp500);
+  const vix = toMarket("vix", day1?.indices.vix);
+  const gold = toMarket("gold", day1?.indices.gold);
+  const oil = toMarket("crudeOil", day1?.indices.crudeOil);
+  const dxy = toMarket("dxy", day1?.indices.dxy);
+  const btc = toMarket(
+    "bitcoin",
+    day1?.crypto.find((item) => item.symbol === "BTC"),
   );
+  const eth = toMarket(
+    "eth",
+    day1?.crypto.find((item) => item.symbol === "ETH"),
+  );
+  const sol = toMarket(
+    "sol",
+    day1?.crypto.find((item) => item.symbol === "SOL"),
+  );
+  const voo = toMarket(
+    "voo",
+    day1?.stocks.find((item) => item.symbol === "VOO"),
+  );
+  const qqq = toMarket(
+    "qqq",
+    day1?.stocks.find((item) => item.symbol === "QQQ"),
+  );
+  const totalScore =
+    day1?.rating.totalScore ?? snapshot?.summary.assessment?.score ?? null;
+  const cryptoFearGreed = day1?.sentiment.cryptoFearGreed ?? null;
+  const cnnFearGreed = day1?.sentiment.cnnFearGreed ?? null;
+  const riskScore =
+    vix?.value === null || vix?.value === undefined
+      ? null
+      : Math.max(0, Math.min(100, Math.round(vix.value * 3)));
   const articles = snapshot?.news || [];
+  const actionAdvice = snapshot?.summary.assessment?.advice || [];
+  const stockItems = (day1?.stocks || []).filter((item) =>
+    [
+      "NVDA",
+      "TSLA",
+      "GOOG",
+      "SMH",
+      "MRVL",
+      "AMD",
+      "INTC",
+      "TSM",
+      "QCOM",
+      "COIN",
+    ].includes(item.symbol),
+  );
+  const cryptoItems = (day1?.crypto || []).filter((item) =>
+    ["ETH", "SOL", "HYPE", "BNB", "TAO", "XAUT", "VIRTUAL"].includes(
+      item.symbol,
+    ),
+  );
   const aiLines = [
     {
       label: "宏观",
-      text: snapshot?.summary.headline || "正在汇总今日市场信息。",
+      text: snapshot?.summary.highlights[0] || "等待每日快照。",
     },
     {
-      label: "市场",
-      text: snapshot?.summary.highlights[0] || "等待核心市场行情完成同步。",
+      label: "加密",
+      text: snapshot?.summary.highlights[1] || "等待每日快照。",
     },
     {
-      label: "风险",
-      text: snapshot?.summary.risks[0] || "数据不足时不把缺失当作低风险。",
-    },
-    {
-      label: "观察",
+      label: "评级",
       text:
-        snapshot?.summary.watchlist[0] ||
-        "关注价格、新闻与风险指标是否相互印证。",
+        day1?.rating.suggestion || snapshot?.summary.regime || "等待每日快照。",
     },
+    { label: "观察", text: snapshot?.summary.watchlist[0] || "等待每日快照。" },
   ];
   const alerts = useMemo(
     () =>
       [
         snapshot?.summary.headline,
-        ...(snapshot?.summary.risks || []),
-        ...articles.slice(0, 2).map((item) => item.title),
+        ...articles.slice(0, 3).map((item) => item.title),
       ].filter(Boolean) as string[],
-    [articles, snapshot?.summary],
+    [articles, snapshot?.summary.headline],
   );
-  const stockItems = watchlist.filter((item) =>
-    ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA"].includes(
-      item.symbol,
-    ),
-  );
-  const cryptoItems = watchlist.filter((item) =>
-    ["ETH-USD", "SOL-USD"].includes(item.symbol),
-  );
+  const slotLabel =
+    snapshot?.slot === "midday"
+      ? "午间快照"
+      : snapshot?.slot === "evening"
+        ? "晚间快照"
+        : "晨间快照";
+
   return (
     <div className="daily-brief-page strategy-page">
       <div className="daily-brief-orbit daily-brief-orbit--one" />
@@ -332,18 +261,17 @@ export function DailyBrief() {
         <header className="strategy-header">
           <div>
             <p className="strategy-eyebrow">
-              <span /> DAILY STRATEGY · AI 每日情报
+              <span /> DAILY STRATEGY · DAY1 SNAPSHOT
             </p>
             <h1>每日策略</h1>
             <p>
-              把市场事实、重点新闻和资产表现收束为一页；不提供量化交易指令。
+              仅在北京时间 08:00、12:00、17:00
+              更新；页面始终读取最近一次成功快照。
             </p>
           </div>
           <div className="strategy-header__actions">
             <span>
-              <Clock3 size={14} />{" "}
-              {snapshot?.slot === "evening" ? "晚间简报" : "晨间简报"} ·{" "}
-              {snapshot?.date || "同步中"}
+              <Clock3 size={14} /> {slotLabel} · {snapshot?.date || "同步中"}
             </span>
             <button
               type="button"
@@ -354,7 +282,7 @@ export function DailyBrief() {
                 size={15}
                 className={refreshing ? "is-spinning" : ""}
               />{" "}
-              {refreshing ? "刷新中" : "刷新行情"}
+              {refreshing ? "读取中" : "重新读取快照"}
             </button>
             <Link to="/council/details/judgement">
               <BrainCircuit size={15} /> 查看详细内容
@@ -365,33 +293,35 @@ export function DailyBrief() {
           <div>
             <span>今日必看新闻</span>
             <strong>{articles.length || "—"}</strong>
-            <small>已聚合市场相关资讯</small>
+            <small>Day1 公开分析中的重点新闻</small>
           </div>
           <div>
-            <span>VIX 波动率</span>
+            <span>加密 F&G</span>
+            <strong>{cryptoFearGreed ?? "—"}</strong>
+            <small>{day1?.sentiment.cryptoFearGreedLabel || "—"}</small>
+          </div>
+          <div>
+            <span>美股 F&G · CNN</span>
+            <strong>{cnnFearGreed ?? "—"}</strong>
+            <small>{day1?.sentiment.cnnFearGreedLabel || "—"}</small>
+          </div>
+          <div>
+            <span>VIX</span>
             <strong>{vix?.display || "—"}</strong>
             <small className={movementClass(vix?.changePercent)}>
               {percentLabel(vix?.changePercent)}
             </small>
           </div>
           <div>
-            <span>标普 500 · 24H</span>
-            <strong className={movementClass(sp500?.changePercent)}>
-              {percentLabel(sp500?.changePercent)}
+            <span>{brief?.cache.stale ? "最后成功快照" : "本次快照"}</span>
+            <strong>
+              {formatDate(snapshot?.updatedAt || day1?.fetchedAt)}
             </strong>
-            <small>{sp500?.display || "行情同步中"}</small>
-          </div>
-          <div>
-            <span>BTC · 24H</span>
-            <strong className={movementClass(bitcoin?.changePercent)}>
-              {percentLabel(bitcoin?.changePercent)}
-            </strong>
-            <small>{bitcoin?.display || "行情同步中"}</small>
-          </div>
-          <div>
-            <span>上次同步</span>
-            <strong>{formatDate(liveUpdatedAt || snapshot?.updatedAt)}</strong>
-            <small>{brief?.cache.hit ? "当日快照缓存" : "刚刚更新"}</small>
+            <small>
+              {brief?.cache.stale
+                ? "上游失败，正在保留可用数据"
+                : "Day1 Global Briefing"}
+            </small>
           </div>
         </section>
         {error ? (
@@ -410,7 +340,7 @@ export function DailyBrief() {
                   <h2>今日判断</h2>
                 </div>
                 <span>
-                  {snapshot?.summaryMode === "ai" ? "AI 生成" : "规则摘要"}
+                  {snapshot?.summaryMode === "ai" ? "上游 AI 快照" : "等待快照"}
                 </span>
               </div>
               <div className="strategy-ai-lines">
@@ -422,10 +352,8 @@ export function DailyBrief() {
                 ))}
               </div>
               <div className="strategy-source-note">
-                <Activity size={13} />{" "}
-                {snapshot?.sources.filter((item) => item.ok).length || 0}/
-                {snapshot?.sources.length || 0} 个数据源可用 ·{" "}
-                {formatDate(snapshot?.generatedAt)}
+                <Activity size={13} /> Day1 market-data / analysis /
+                market-rating · {formatDate(day1?.fetchedAt)}
               </div>
               <Link
                 className="strategy-detail-link"
@@ -445,7 +373,7 @@ export function DailyBrief() {
                 <span>{articles.length} 条</span>
               </div>
               <div className="strategy-news-list">
-                {articles.slice(0, 9).map((item, index) => (
+                {articles.map((item, index) => (
                   <a
                     href={item.url}
                     target="_blank"
@@ -458,13 +386,17 @@ export function DailyBrief() {
                         {item.category} · {item.source}
                       </small>
                       <strong>{item.title}</strong>
-                      <time>{formatDate(item.publishedAt, true)}</time>
+                      <time>
+                        {item.summary || formatDate(item.publishedAt, true)}
+                      </time>
                     </div>
                     <ExternalLink size={13} />
                   </a>
                 ))}
                 {loading && !articles.length ? (
-                  <div className="strategy-news-empty">正在读取新闻聚合…</div>
+                  <div className="strategy-news-empty">
+                    正在读取最近成功快照…
+                  </div>
                 ) : null}
               </div>
             </section>
@@ -478,25 +410,25 @@ export function DailyBrief() {
                   </p>
                   <h2>市场情绪与交叉信号</h2>
                 </div>
-                <span>仅作风险观察</span>
+                <span>Day1 原始指标快照</span>
               </div>
               <div className="strategy-metric-grid">
-                <Metric market={china} compact />
-                <Metric market={hongkong} compact />
-                <Metric market={nasdaq} compact />
-                <Metric market={sp500} compact />
-                <Metric market={vix} compact />
-                <Metric market={gold} compact />
+                <Metric market={voo} />
+                <Metric market={qqq} />
+                <Metric market={sp500} />
+                <Metric market={vix} />
+                <Metric market={gold} />
+                <Metric market={dxy} />
               </div>
               <div className="strategy-signals">
                 <SignalRow
-                  label="综合风险偏好"
-                  value={toneScore}
+                  label="BTC 综合评级"
+                  value={totalScore}
                   tone="violet"
                 />
                 <SignalRow
                   label="波动防守信号"
-                  value={defensiveScore}
+                  value={riskScore}
                   tone="amber"
                 />
               </div>
@@ -505,24 +437,31 @@ export function DailyBrief() {
                   <div
                     style={
                       {
-                        "--score": `${toneScore * 3.6}deg`,
+                        "--score": `${(totalScore || 0) * 3.6}deg`,
                       } as React.CSSProperties
                     }
                   >
-                    <strong>{toneScore}</strong>
-                    <span>
-                      {snapshot?.summary.assessment?.rating || "整理中"}
-                    </span>
+                    <strong>
+                      {totalScore === null ? "—" : Math.round(totalScore)}
+                    </strong>
+                    <span>{day1?.rating.level || "等待数据"}</span>
                   </div>
-                  <p>综合评级</p>
+                  <p>BTC 抄底/逃顶评级</p>
                 </div>
                 <div className="strategy-trend">
                   <div>
-                    <span>BTC 近 30 日</span>
-                    <small>{percentLabel(flows?.metrics.btc30dChange)}</small>
+                    <span>恐慌贪婪与资金面</span>
+                    <small>{day1?.rating.suggestion || "—"}</small>
                   </div>
-                  <LineSpark points={flows?.price || []} />
-                  <p>取自 Coin Metrics 日度价格</p>
+                  <div className="strategy-rating-list">
+                    {(day1?.rating.indicators || []).slice(0, 4).map((item) => (
+                      <span key={item.name}>
+                        {item.name}
+                        <b>{item.score === null ? "—" : item.score}</b>
+                      </span>
+                    ))}
+                  </div>
+                  <p>评分明细来自上游 market-rating</p>
                 </div>
               </div>
               <Link
@@ -538,44 +477,41 @@ export function DailyBrief() {
                   <p>
                     <Sparkles size={14} /> TODAY CONCLUSION
                   </p>
-                  <h2>今日结论</h2>
+                  <h2>综合评级与仓位建议</h2>
                 </div>
                 <span>
-                  信心 {snapshot?.summary.assessment?.confidence || "低"}
+                  评分 {totalScore === null ? "—" : totalScore.toFixed(1)}
                 </span>
               </div>
               <div className="strategy-conclusion__rating">
                 <strong>
                   {snapshot?.summary.assessment?.rating ||
-                    snapshot?.summary.regime ||
+                    day1?.rating.level ||
                     "正在整理"}
                 </strong>
                 <span>
-                  {snapshot?.summary.assessment?.rationale ||
-                    snapshot?.summary.headline ||
-                    "等待每日简报快照。"}
+                  加密恐惧贪婪={cryptoFearGreed ?? "—"} ｜ VIX=
+                  {vix?.display || "—"}
                 </span>
               </div>
               <div className="strategy-advice-grid">
-                {(snapshot?.summary.assessment?.advice || [])
-                  .slice(0, 4)
-                  .map((item) => (
-                    <div key={item.label}>
-                      <span>{item.label}</span>
-                      <p>{item.detail}</p>
-                    </div>
-                  ))}
-                {!snapshot?.summary.assessment?.advice?.length ? (
+                {actionAdvice.slice(0, 5).map((item) => (
+                  <div key={item.label}>
+                    <span>{item.label}</span>
+                    <p>{item.detail}</p>
+                  </div>
+                ))}
+                {!actionAdvice.length ? (
                   <div>
                     <span>说明</span>
-                    <p>数据加载后会显示基于当日事实的风险检查。</p>
+                    <p>等待下一次每日快照完成。</p>
                   </div>
                 ) : null}
               </div>
               <div className="strategy-disclaimer">
                 <ShieldAlert size={13} />{" "}
                 {snapshot?.summary.assessment?.disclaimer ||
-                  "以上内容仅用于信息整理与风险检查，不构成投资建议。"}
+                  "以上内容仅供参考，不构成任何投资建议。"}
               </div>
               <Link
                 className="strategy-detail-link"
@@ -590,19 +526,15 @@ export function DailyBrief() {
               <div className="strategy-panel__head">
                 <div>
                   <p>
-                    <TrendingUp size={14} /> MAG7 DATA
+                    <TrendingUp size={14} /> US STOCKS
                   </p>
-                  <h2>Mag7 数据</h2>
+                  <h2>美股数据</h2>
                 </div>
-                <span>
-                  {watchlist.length
-                    ? formatDate(watchlist[0]?.updatedAt)
-                    : "同步中"}
-                </span>
+                <span>{formatDate(day1?.fetchedAt)}</span>
               </div>
               <div className="strategy-index-strip">
-                <Metric market={nasdaq} compact />
-                <Metric market={sp500} compact />
+                <Metric market={sp500} />
+                <Metric market={qqq} />
               </div>
               <div className="strategy-quote-table">
                 {stockItems.map((item) => (
@@ -611,16 +543,18 @@ export function DailyBrief() {
                       {item.symbol}
                       <small>{item.name}</small>
                     </span>
-                    <strong>{item.display}</strong>
+                    <strong>
+                      {item.price === null
+                        ? "—"
+                        : marketFormatter.format(item.price)}
+                    </strong>
                     <em className={movementClass(item.changePercent)}>
                       {percentLabel(item.changePercent)}
                     </em>
                   </div>
                 ))}
                 {!stockItems.length ? (
-                  <div className="strategy-table-empty">
-                    正在以独立缓存读取 Mag7 行情…
-                  </div>
+                  <div className="strategy-table-empty">等待每日美股快照…</div>
                 ) : null}
               </div>
               <Link
@@ -638,20 +572,24 @@ export function DailyBrief() {
                   </p>
                   <h2>加密与 BTC 链上数据</h2>
                 </div>
-                <span>日度数据</span>
+                <span>Day1 每日快照</span>
               </div>
               <div className="strategy-btc-hero">
                 <span>BTC</span>
-                <strong>{bitcoin?.display || "—"}</strong>
-                <em className={movementClass(bitcoin?.changePercent)}>
-                  {percentLabel(bitcoin?.changePercent)}
+                <strong>{btc?.display || "—"}</strong>
+                <em className={movementClass(btc?.changePercent)}>
+                  {percentLabel(btc?.changePercent)}
                 </em>
               </div>
               <div className="strategy-crypto-pairs">
-                {cryptoItems.map((item) => (
+                {cryptoItems.slice(0, 6).map((item) => (
                   <div key={item.symbol}>
-                    <span>{item.symbol.replace("-USD", "")}</span>
-                    <strong>{item.display}</strong>
+                    <span>{item.symbol}</span>
+                    <strong>
+                      {item.price === null
+                        ? "—"
+                        : marketFormatter.format(item.price)}
+                    </strong>
                     <em className={movementClass(item.changePercent)}>
                       {percentLabel(item.changePercent)}
                     </em>
@@ -660,27 +598,36 @@ export function DailyBrief() {
               </div>
               <div className="strategy-onchain-table">
                 <div>
-                  <span>BTC 30日变化</span>
-                  <strong>{percentLabel(flows?.metrics.btc30dChange)}</strong>
-                </div>
-                <div>
-                  <span>活跃地址 30日</span>
+                  <span>200 周均线</span>
                   <strong>
-                    {percentLabel(flows?.metrics.activity30dChange)}
+                    {moneyMetric(numberMetric(day1, "wma200Price"))}
                   </strong>
                 </div>
                 <div>
-                  <span>ETF 近 7 日</span>
+                  <span>200 周均线倍数</span>
                   <strong>
-                    {flows?.metrics.etf7d === null ||
-                    flows?.metrics.etf7d === undefined
+                    {numberMetric(day1, "wma200Multiplier") === null
                       ? "—"
-                      : `${flows.metrics.etf7d >= 0 ? "+" : ""}${flows.metrics.etf7d.toFixed(0)} M`}
+                      : `${numberMetric(day1, "wma200Multiplier")!.toFixed(2)}×`}
+                  </strong>
+                </div>
+                <div>
+                  <span>ETF 每日净流入</span>
+                  <strong>
+                    {moneyMetric(numberMetric(day1, "etfFlowUsd"))}
+                  </strong>
+                </div>
+                <div>
+                  <span>Funding Rate</span>
+                  <strong>
+                    {numberMetric(day1, "fundingRate") === null
+                      ? "—"
+                      : `${numberMetric(day1, "fundingRate")!.toFixed(4)}%`}
                   </strong>
                 </div>
               </div>
               <p className="strategy-data-note">
-                链上指标采用公开日度数据，非实时交易信号。
+                此处为 Day1 公开 market-data 的当次持久化结果。
               </p>
               <Link
                 className="strategy-detail-link"
@@ -707,7 +654,7 @@ export function DailyBrief() {
             ))
           ) : (
             <span>
-              <b>同步中</b>正在读取今日市场简报
+              <b>同步中</b>正在读取最近一次成功快照
             </span>
           )}
         </div>

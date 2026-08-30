@@ -22,6 +22,7 @@ import { dailyHotPlugin } from './server/dailyhotPlugin';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
 import type {
   DailyBriefFlowDetails,
+  DailyBriefDay1Snapshot,
   DailyBriefMarket,
   DailyBriefNews,
   DailyBriefPerformanceDetails,
@@ -9108,85 +9109,77 @@ async function generateDailyBriefAiSummary(input: {
   return normalizeSummary(JSON.parse(jsonText), input.fallback);
 }
 
-async function buildDailyBriefSnapshot(window: { date: string; slot: 'morning' | 'evening' }): Promise<DailyBriefSnapshot> {
-  const loadIbkrIfConnected = async () => {
-    const status: any = await runIbkrReadOnlyBridge('status');
-    return status?.connected ? runIbkrReadOnlyBridge('snapshot') : status;
+const day1BriefBaseUrl = 'https://brief.day1global.xyz';
+
+function day1Number(value: unknown) { return finiteNumber(value); }
+
+function day1Quote(symbol: string, name: string, input: any) {
+  return { symbol, name, price: day1Number(input?.price), changePercent: day1Number(input?.changePercent), marketState: typeof input?.marketState === 'string' ? input.marketState : undefined };
+}
+
+function day1Sentence(input: unknown, fallback: string) {
+  const value = String(input || '').trim();
+  return value.split(/(?<=[。！？.!?])\s*/)[0] || fallback;
+}
+
+function day1Advice(input: unknown) {
+  return String(input || '').split('\n').flatMap((line) => {
+    const match = line.trim().match(/^•\s*\*\*([^*]+)\*\*[：:]\s*(.+)$/);
+    return match ? [{ label: match[1].trim(), detail: match[2].trim() }] : [];
+  }).slice(0, 6);
+}
+
+function day1AssessmentRating(level: unknown) {
+  const value = String(level || '');
+  if (/极度恐慌|偏恐慌/.test(value)) return '中性偏谨慎' as const;
+  if (/贪婪/.test(value)) return '中性偏积极' as const;
+  return '中性' as const;
+}
+
+async function fetchDay1DailyBrief(): Promise<DailyBriefDay1Snapshot> {
+  const request = async (path: string) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    try {
+      const response = await fetch(`${day1BriefBaseUrl}${path}`, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0 Safari/537.36' },
+      });
+      if (!response.ok) throw new Error(`Day1 ${path} 返回 HTTP ${response.status}`);
+      return JSON.parse(await response.text());
+    } finally {
+      clearTimeout(timer);
+    }
   };
-  const [quotesResult, newsResult, ibkrResult] = await Promise.allSettled([
-    getCachedGlobalMacroFastQuotes(),
-    getNewsFeed(false),
-    loadIbkrIfConnected(),
-  ]);
-  const errors: string[] = [];
-  const sources: DailyBriefSourceStatus[] = [];
-  const quoteData: any = quotesResult.status === 'fulfilled' ? quotesResult.value : null;
-  if (quotesResult.status === 'rejected') errors.push(`市场行情：${quotesResult.reason instanceof Error ? quotesResult.reason.message : String(quotesResult.reason)}`);
-  sources.push({ id: 'market-quotes', label: 'SparkFlow 全球行情聚合', ok: Boolean(quoteData), fetchedAt: quoteData?.generatedAt, detail: quoteData?.coverage?.errors ? JSON.stringify(quoteData.coverage.errors) : undefined });
-
-  const ticker: any[] = Array.isArray(quoteData?.ticker) ? quoteData.ticker : [];
-  const core: any[] = Array.isArray(quoteData?.coreIndices) ? quoteData.coreIndices : [];
-  const commodities: any[] = Array.isArray(quoteData?.commodities) ? quoteData.commodities : [];
-  const macroData: any[] = Array.isArray(quoteData?.macro) ? quoteData.macro : [];
-  const find = (id: string, collections = [ticker, core, commodities, macroData]) => collections.flat().find((item: any) => item?.id === id);
-  const marketIds = ['china', 'hongkong', 'nasdaq', 'sp500', 'vix', 'gold', 'bitcoin'];
-  const markets = marketIds.map((id) => compactMarket(find(id), id)).filter((item) => item.value !== null);
-  const macro = ['vix', 'dxy', 'us10y', 'gold', 'wti', 'bitcoin', 'usd-cny']
-    .map((id) => compactMarket(find(id), id)).filter((item) => item.value !== null);
-
-  const feed: any = newsResult.status === 'fulfilled' ? newsResult.value : null;
-  if (newsResult.status === 'rejected') errors.push(`新闻：${newsResult.reason instanceof Error ? newsResult.reason.message : String(newsResult.reason)}`);
-  const marketNewsPattern = /(股市|股票|债券|收益率|利率|通胀|就业|央行|美联储|经济|金融|市场|财报|能源|原油|黄金|比特币|加密|AI|芯片|关税|汇率|美元|人民币|IPO|并购)/i;
-  const marketNewsItems = (Array.isArray(feed?.items) ? feed.items : [])
-    .filter((item: any) => item?.category === 'finance' || item?.category === 'tech' || marketNewsPattern.test(`${item?.title || ''} ${item?.summary || ''}`))
-    .slice(0, 18);
-  const news: DailyBriefNews[] = marketNewsItems.map((item: any) => ({
-    id: String(item.id), title: String(item.title), source: String(item.source), category: String(item.categoryLabel || item.category || '市场'),
-    publishedAt: item.publishedAt, summary: item.summary ? String(item.summary).slice(0, 240) : undefined,
-    weight: finiteNumber(item.weight) || 0, url: String(item.url),
-  }));
-  const newsSources = Array.isArray(feed?.sources) ? feed.sources : [];
-  const onlineNewsSources = newsSources.filter((item: any) => item.ok).length;
-  sources.push({ id: 'news-feed', label: `新闻聚合（${onlineNewsSources}/${newsSources.length} 来源在线）`, ok: Boolean(feed), fetchedAt: feed?.generatedAt, stale: newsSources.some((item: any) => item.stale) });
-
-  const ibkr: any = ibkrResult.status === 'fulfilled' ? ibkrResult.value : null;
-  const connected = Boolean(ibkr?.connected && ibkr?.ok);
-  const positions: DailyBriefPosition[] = connected && Array.isArray(ibkr?.positions) ? ibkr.positions.map((item: any) => ({
-    symbol: String(item.symbol || item.local_symbol || '—'),
-    name: item.local_symbol ? String(item.local_symbol) : undefined,
-    securityType: item.sec_type ? String(item.sec_type) : undefined,
-    currency: item.currency ? String(item.currency) : undefined,
-    quantity: finiteNumber(item.position),
-    averageCost: finiteNumber(item.avg_cost),
-  })).slice(0, 80) : [];
-  if (ibkrResult.status === 'rejected') errors.push(`IBKR：${ibkrResult.reason instanceof Error ? ibkrResult.reason.message : String(ibkrResult.reason)}`);
-  sources.push({ id: 'ibkr', label: 'IBKR 本机只读 Bridge', ok: connected, fetchedAt: ibkr?.syncedAt || ibkr?.checkedAt, detail: connected ? `${positions.length} 个持仓` : String(ibkr?.detail || '未连接') });
-
-  const fallback = summarizeRules(markets, macro, news, positions);
-  let summary = fallback;
-  let summaryMode: DailyBriefSnapshot['summaryMode'] = 'rules';
-  try {
-    const aiSummary = await generateDailyBriefAiSummary({ date: window.date, slot: window.slot, markets, macro, news: news.slice(0, 12), positions, fallback });
-    if (aiSummary) { summary = aiSummary; summaryMode = 'ai'; }
-  } catch (error) {
-    errors.push(`AI 总结：${error instanceof Error ? error.message : String(error)}`);
-  }
-  const now = new Date().toISOString();
+  const [marketData, analysis, rating] = await Promise.all([request('/api/market-data'), request('/api/analysis'), request('/api/market-rating')]);
+  const stockNames: Record<string, string> = { VOO: 'Vanguard S&P 500', QQQ: 'Invesco QQQ', QQQM: 'Invesco NASDAQ 100', NVDA: 'Nvidia', TSLA: 'Tesla', GOOG: 'Alphabet', RKLB: 'Rocket Lab', CRCL: 'Circle', HOOD: 'Robinhood', COIN: 'Coinbase', TEM: 'Tempus AI', GLD: 'SPDR Gold', SMH: 'VanEck Semiconductor', MRVL: 'Marvell', AMD: 'AMD', INTC: 'Intel', TSM: 'TSMC', QCOM: 'Qualcomm' };
+  const cryptoNames: Record<string, string> = { BTC: 'Bitcoin', ETH: 'Ethereum', HYPE: 'Hyperliquid', BNB: 'BNB', SOL: 'Solana', TAO: 'Bittensor', XAUT: 'Tether Gold', VIRTUAL: 'Virtuals Protocol' };
+  const indexNames: Record<string, string> = { sp500: '标普500', vix: 'VIX', gold: '黄金', crudeOil: '原油', dxy: '美元指数' };
+  const stocks = Object.entries(marketData?.stocks || {}).map(([symbol, value]) => day1Quote(symbol, stockNames[symbol] || symbol, value));
+  const crypto = Object.entries(marketData?.crypto || {}).map(([symbol, value]) => day1Quote(symbol, cryptoNames[symbol] || symbol, value));
+  const indices = Object.fromEntries(Object.entries(marketData?.indices || {}).map(([id, value]) => [id, day1Quote(id, indexNames[id] || id, value)]));
+  const sentiment = marketData?.sentiment || {};
+  const btcMetrics = Object.fromEntries(Object.entries(marketData?.btcMetrics || {}).map(([key, value]) => [key, Array.isArray(value) ? value.map(day1Number).filter((item) => item !== null) : day1Number(value)]));
   return {
-    version: 1,
-    date: window.date,
-    slot: window.slot,
-    generatedAt: now,
-    updatedAt: quoteData?.generatedAt || now,
-    summaryMode,
-    summary,
-    markets,
-    macro,
-    news,
-    portfolio: { connected, syncedAt: ibkr?.syncedAt, positions, detail: connected ? undefined : String(ibkr?.detail || 'IBKR 未连接') },
-    sources,
-    errors,
+    fetchedAt: new Date().toISOString(), sourceUrl: day1BriefBaseUrl, stocks, crypto, indices,
+    sentiment: { cryptoFearGreed: day1Number(sentiment.cryptoFearGreed), cryptoFearGreedLabel: typeof sentiment.cryptoFearGreedLabel === 'string' ? sentiment.cryptoFearGreedLabel : undefined, cryptoFearGreedPrev: day1Number(sentiment.cryptoFearGreedPrev), cryptoFearGreedChange: day1Number(sentiment.cryptoFearGreedChange), cnnFearGreed: day1Number(sentiment.cnnFearGreed), cnnFearGreedLabel: typeof sentiment.cnnFearGreedLabel === 'string' ? sentiment.cnnFearGreedLabel : undefined },
+    btcMetrics,
+    rating: { totalScore: day1Number(rating?.totalScore), dailyScore: day1Number(rating?.dailyScore), weeklyScore: day1Number(rating?.weeklyScore), level: typeof rating?.level === 'string' ? rating.level : undefined, suggestion: typeof rating?.suggestion === 'string' ? rating.suggestion : undefined, indicators: Array.isArray(rating?.indicators) ? rating.indicators.map((item: any) => ({ name: String(item?.name || '未知指标'), value: day1Number(item?.value), score: day1Number(item?.score), weight: day1Number(item?.weight), group: typeof item?.group === 'string' ? item.group : undefined, category: typeof item?.category === 'string' ? item.category : undefined })) : [] },
+    analysis: { macroAnalysis: String(analysis?.macroAnalysis || ''), cryptoAnalysis: String(analysis?.cryptoAnalysis || ''), actionSuggestions: String(analysis?.actionSuggestions || ''), topNews: Array.isArray(analysis?.topNews) ? analysis.topNews.map((item: any) => ({ title: String(item?.title || ''), tag: typeof item?.tag === 'string' ? item.tag : undefined, summary: typeof item?.summary === 'string' ? item.summary : undefined, action: typeof item?.action === 'string' ? item.action : undefined, source: typeof item?.source === 'string' ? item.source : undefined, url: typeof item?.url === 'string' ? item.url : undefined })).filter((item: any) => item.title) : [], generatedAt: typeof analysis?.generatedAt === 'string' ? analysis.generatedAt : undefined, dataTimestamp: typeof analysis?.dataTimestamp === 'string' ? analysis.dataTimestamp : undefined },
   };
+}
+
+async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefSnapshot['slot'] }): Promise<DailyBriefSnapshot> {
+  const day1 = await fetchDay1DailyBrief();
+  const markets = Object.entries(day1.indices).map(([id, quote]) => ({ id, name: quote.name, symbol: quote.symbol, value: quote.price, display: quote.price === null ? '—' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: quote.price >= 1000 ? 2 : 4 }).format(quote.price), changePercent: quote.changePercent, updatedAt: day1.fetchedAt })).filter((item) => item.value !== null);
+  const btc = day1.crypto.find((item) => item.symbol === 'BTC');
+  if (btc) markets.push({ id: 'bitcoin', name: btc.name, symbol: btc.symbol, value: btc.price, display: btc.price === null ? '—' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(btc.price), changePercent: btc.changePercent, updatedAt: day1.fetchedAt });
+  const news: DailyBriefNews[] = day1.analysis.topNews.map((item, index) => ({ id: `day1-${window.date}-${index}-${item.title}`, title: item.title, source: item.source || 'Day1 Global', category: item.tag || '市场', publishedAt: day1.analysis.generatedAt || day1.fetchedAt, summary: item.summary, weight: 100 - index, url: item.url || day1.sourceUrl }));
+  const advice = day1Advice(day1.analysis.actionSuggestions);
+  const summary: DailyBriefSummary = {
+    headline: day1Sentence(day1.analysis.macroAnalysis, day1.rating.suggestion || '每日市场快照已更新。'), regime: day1.rating.suggestion || day1.rating.level || '市场情绪整理中', tone: day1.rating.totalScore !== null && day1.rating.totalScore < 40 ? 'cautious' : day1.rating.totalScore !== null && day1.rating.totalScore > 65 ? 'calm' : 'balanced', highlights: [day1Sentence(day1.analysis.macroAnalysis, '宏观分析暂不可用'), day1Sentence(day1.analysis.cryptoAnalysis, '加密分析暂不可用')], risks: [day1.rating.suggestion || '请结合完整指标判断风险'], watchlist: day1.analysis.topNews.slice(0, 3).map((item) => item.action || item.title), portfolioNotes: ['每日简报采用 Day1 Global Briefing 公开接口快照；持仓分析不在本次同步范围内。'], assessment: { rating: day1AssessmentRating(day1.rating.level), score: Math.round(day1.rating.totalScore ?? 50), confidence: '中', rationale: day1Sentence(day1.analysis.macroAnalysis, day1.rating.suggestion || '上游分析暂不可用'), advice, disclaimer: '以上内容来自每日公开市场快照，仅供信息参考，不构成任何投资建议。' },
+  };
+  return { version: 2, date: window.date, slot: window.slot, generatedAt: day1.fetchedAt, updatedAt: day1.analysis.dataTimestamp || day1.fetchedAt, summaryMode: 'ai', summary, markets, macro: markets.filter((item) => ['vix', 'gold', 'crudeOil', 'dxy', 'bitcoin'].includes(item.id)), news, portfolio: { connected: false, positions: [], detail: '本次每日快照不读取 IBKR 持仓。' }, sources: [{ id: 'day1-market-data', label: 'Day1 Global Briefing · market-data', ok: true, fetchedAt: day1.fetchedAt }, { id: 'day1-analysis', label: 'Day1 Global Briefing · analysis', ok: true, fetchedAt: day1.analysis.generatedAt || day1.fetchedAt }, { id: 'day1-rating', label: 'Day1 Global Briefing · market-rating', ok: true, fetchedAt: day1.fetchedAt }], errors: [], day1 };
 }
 
 const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot });

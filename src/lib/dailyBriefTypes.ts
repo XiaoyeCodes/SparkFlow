@@ -1,4 +1,4 @@
-export type DailyBriefSlot = 'morning' | 'evening';
+export type DailyBriefSlot = "morning" | "midday" | "evening";
 
 export type DailyBriefMarket = {
   id: string;
@@ -35,7 +35,7 @@ export type DailyBriefPosition = {
 export type DailyBriefSummary = {
   headline: string;
   regime: string;
-  tone: 'calm' | 'balanced' | 'cautious' | 'risk';
+  tone: "calm" | "balanced" | "cautious" | "risk";
   highlights: string[];
   risks: string[];
   watchlist: string[];
@@ -44,9 +44,9 @@ export type DailyBriefSummary = {
 };
 
 export type DailyBriefAssessment = {
-  rating: '积极' | '中性偏积极' | '中性' | '中性偏谨慎' | '谨慎';
+  rating: "积极" | "中性偏积极" | "中性" | "中性偏谨慎" | "谨慎";
   score: number;
-  confidence: '低' | '中' | '高';
+  confidence: "低" | "中" | "高";
   rationale: string;
   advice: Array<{
     label: string;
@@ -61,7 +61,7 @@ export type DailyBriefChartPoint = {
 };
 
 export type DailyBriefFlowDetails = {
-  kind: 'flows';
+  kind: "flows";
   generatedAt: string;
   price: DailyBriefChartPoint[];
   activity: DailyBriefChartPoint[];
@@ -90,7 +90,7 @@ export type DailyBriefPerformanceSeries = {
 };
 
 export type DailyBriefPerformanceDetails = {
-  kind: 'performance';
+  kind: "performance";
   generatedAt: string;
   startDate: string;
   series: DailyBriefPerformanceSeries[];
@@ -107,13 +107,68 @@ export type DailyBriefSourceStatus = {
   detail?: string;
 };
 
+export type DailyBriefUpstreamQuote = {
+  symbol: string;
+  name: string;
+  price: number | null;
+  changePercent: number | null;
+  marketState?: string;
+};
+
+export type DailyBriefDay1Snapshot = {
+  fetchedAt: string;
+  sourceUrl: string;
+  stocks: DailyBriefUpstreamQuote[];
+  crypto: DailyBriefUpstreamQuote[];
+  indices: Record<string, DailyBriefUpstreamQuote>;
+  sentiment: {
+    cryptoFearGreed: number | null;
+    cryptoFearGreedLabel?: string;
+    cryptoFearGreedPrev: number | null;
+    cryptoFearGreedChange: number | null;
+    cnnFearGreed: number | null;
+    cnnFearGreedLabel?: string;
+  };
+  btcMetrics: Record<string, number | null | number[]>;
+  rating: {
+    totalScore: number | null;
+    dailyScore: number | null;
+    weeklyScore: number | null;
+    level?: string;
+    suggestion?: string;
+    indicators: Array<{
+      name: string;
+      value: number | null;
+      score: number | null;
+      weight: number | null;
+      group?: string;
+      category?: string;
+    }>;
+  };
+  analysis: {
+    macroAnalysis: string;
+    cryptoAnalysis: string;
+    actionSuggestions: string;
+    topNews: Array<{
+      title: string;
+      tag?: string;
+      summary?: string;
+      action?: string;
+      source?: string;
+      url?: string;
+    }>;
+    generatedAt?: string;
+    dataTimestamp?: string;
+  };
+};
+
 export type DailyBriefSnapshot = {
-  version: 1;
+  version: 2;
   date: string;
   slot: DailyBriefSlot;
   generatedAt: string;
   updatedAt: string;
-  summaryMode: 'ai' | 'rules';
+  summaryMode: "ai" | "rules";
   summary: DailyBriefSummary;
   markets: DailyBriefMarket[];
   macro: DailyBriefMarket[];
@@ -126,6 +181,7 @@ export type DailyBriefSnapshot = {
   };
   sources: DailyBriefSourceStatus[];
   errors: string[];
+  day1?: DailyBriefDay1Snapshot;
 };
 
 export type DailyBriefResponse = {
@@ -134,5 +190,6 @@ export type DailyBriefResponse = {
     hit: boolean;
     key: string;
     generated: boolean;
+    stale?: boolean;
   };
 };
