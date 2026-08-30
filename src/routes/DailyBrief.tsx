@@ -196,7 +196,6 @@ export function DailyBrief() {
   const totalScore =
     day1?.rating.totalScore ?? snapshot?.summary.assessment?.score ?? null;
   const cryptoFearGreed = day1?.sentiment.cryptoFearGreed ?? null;
-  const cnnFearGreed = day1?.sentiment.cnnFearGreed ?? null;
   const riskScore =
     vix?.value === null || vix?.value === undefined
       ? null
@@ -289,41 +288,6 @@ export function DailyBrief() {
             </Link>
           </div>
         </header>
-        <section className="strategy-statbar" aria-label="今日概览">
-          <div>
-            <span>今日必看新闻</span>
-            <strong>{articles.length || "—"}</strong>
-            <small>Day1 公开分析中的重点新闻</small>
-          </div>
-          <div>
-            <span>加密 F&G</span>
-            <strong>{cryptoFearGreed ?? "—"}</strong>
-            <small>{day1?.sentiment.cryptoFearGreedLabel || "—"}</small>
-          </div>
-          <div>
-            <span>美股 F&G · CNN</span>
-            <strong>{cnnFearGreed ?? "—"}</strong>
-            <small>{day1?.sentiment.cnnFearGreedLabel || "—"}</small>
-          </div>
-          <div>
-            <span>VIX</span>
-            <strong>{vix?.display || "—"}</strong>
-            <small className={movementClass(vix?.changePercent)}>
-              {percentLabel(vix?.changePercent)}
-            </small>
-          </div>
-          <div>
-            <span>{brief?.cache.stale ? "最后成功快照" : "本次快照"}</span>
-            <strong>
-              {formatDate(snapshot?.updatedAt || day1?.fetchedAt)}
-            </strong>
-            <small>
-              {brief?.cache.stale
-                ? "上游失败，正在保留可用数据"
-                : "Day1 Global Briefing"}
-            </small>
-          </div>
-        </section>
         {error ? (
           <div className="daily-brief-error">
             <CircleAlert size={16} /> {error}
