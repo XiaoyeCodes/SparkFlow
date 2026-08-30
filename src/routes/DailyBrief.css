@@ -81,9 +81,9 @@
 
 .daily-brief-content { scroll-margin-top: calc(var(--nav-height) + 22px); margin-top: 22px; }
 .brief-overview-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(330px, 0.58fr); gap: 18px; }
-.brief-primary-panel, .brief-side-panel, .brief-news-preview, .brief-portfolio-preview, .brief-full-panel { border: 1px solid var(--brief-line); border-radius: 24px; background: var(--brief-panel); backdrop-filter: blur(22px); }
+.brief-primary-panel, .brief-side-panel, .brief-news-preview, .brief-portfolio-preview, .brief-performance-preview, .brief-full-panel { border: 1px solid var(--brief-line); border-radius: 24px; background: var(--brief-panel); backdrop-filter: blur(22px); }
 .brief-primary-panel { padding: 30px; }
-.brief-side-panel, .brief-portfolio-preview { padding: 25px; }
+.brief-side-panel, .brief-portfolio-preview, .brief-performance-preview { padding: 25px; }
 .brief-news-preview { padding: 28px; }
 .brief-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .brief-section-heading > div > p { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; color: var(--brief-cyan); font: 700 10px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: 0.17em; }
@@ -122,6 +122,7 @@
 .brief-mini-metrics small { margin-top: 6px; font: 650 9px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .brief-panel-link { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 17px; padding-top: 15px; border-top: 1px solid var(--brief-line); color: #8ea0b8; font-size: 11px; transition: color 160ms ease; }
 .brief-panel-link:hover { color: var(--brief-cyan); }
+.brief-detail-entry { margin-top: 22px; }
 
 .brief-news-preview__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 19px; }
 .brief-news-card { display: grid; grid-template-columns: 25px 1fr auto; gap: 11px; min-width: 0; padding: 16px; border: 1px solid var(--brief-line); border-radius: 15px; background: rgba(5, 11, 20, 0.25); transition: 160ms ease; }
@@ -134,6 +135,13 @@
 .brief-portfolio-preview > p { min-height: 52px; margin: 20px 0; color: #9ca9bc; font-size: 13px; line-height: 1.7; }
 .brief-portfolio-preview__status { display: flex; gap: 8px; align-items: center; padding: 13px; border: 1px solid var(--brief-line); border-radius: 13px; color: #8190a7; background: rgba(5, 11, 20, 0.28); font-size: 11px; }
 .brief-portfolio-preview__status svg { color: var(--brief-cyan); }
+.brief-performance-preview > p { margin: 16px 0 0; color: #91a0b5; font-size: 12px; line-height: 1.7; }
+.brief-performance-preview { grid-column: 1 / -1; }
+.brief-performance-preview__lines { position: relative; height: 74px; margin-top: 18px; overflow: hidden; border: 1px solid var(--brief-line); border-radius: 13px; background: linear-gradient(180deg, rgba(31, 53, 81, .16), rgba(5, 11, 20, .2)); }
+.brief-performance-preview__lines span { position: absolute; inset: auto -4% 12px -4%; height: 1px; background: var(--brief-blue); transform: rotate(-7deg); opacity: .8; }
+.brief-performance-preview__lines span:nth-child(2) { bottom: 23px; background: var(--brief-green); transform: rotate(-3deg); opacity: .55; }
+.brief-performance-preview__lines span:nth-child(3) { bottom: 36px; background: #8d6df0; transform: rotate(-10deg); opacity: .6; }
+.brief-performance-preview__lines span:nth-child(4) { bottom: 48px; background: var(--brief-gold); transform: rotate(-14deg); opacity: .8; }
 
 .brief-full-panel { min-height: 480px; padding: 30px; }
 .brief-sentiment-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
@@ -189,7 +197,7 @@
   .daily-brief-hero__meta { flex-direction: column; }
   .brief-refresh { min-height: 48px; }
   .brief-market-card { min-height: 145px; padding: 15px; }
-  .brief-primary-panel, .brief-side-panel, .brief-news-preview, .brief-portfolio-preview, .brief-full-panel { padding: 20px; border-radius: 19px; }
+  .brief-primary-panel, .brief-side-panel, .brief-news-preview, .brief-portfolio-preview, .brief-performance-preview, .brief-full-panel { padding: 20px; border-radius: 19px; }
   .brief-headline { padding: 19px; }
   .brief-sentiment-grid { grid-template-columns: 1fr 1fr; }
   .brief-position-table { overflow-x: auto; }

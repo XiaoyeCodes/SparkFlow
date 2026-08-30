@@ -17,6 +17,7 @@ import { HyperspeedRoute } from './routes/HyperspeedRoute';
 import { IbkrAccount } from './routes/IbkrAccount';
 import { StartupGate } from './components/StartupGate';
 import { DailyBrief } from './routes/DailyBrief';
+import { DailyBriefDetail } from './routes/DailyBriefDetail';
 
 export default function App() {
   const location = useLocation();
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="/terminal" element={<Market initialDashboardView="global" />} />
             <Route path="/market" element={<Market initialDashboardView="markets" />} />
             <Route path="/council" element={<DailyBrief />} />
+            <Route path="/council/details/:section" element={<DailyBriefDetail />} />
             <Route path="/assistant" element={<Assistant />} />
             <Route path="/starmap" element={<Starmap />} />
             <Route path="/galaxy" element={<GalaxyRoute />} />

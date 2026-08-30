@@ -17,6 +17,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { DailyBriefMarket, DailyBriefResponse, DailyBriefSnapshot } from '../lib/dailyBriefTypes';
 import './DailyBrief.css';
 
@@ -252,6 +253,7 @@ export function DailyBrief() {
                   <ListBlock title="需要留意" items={snapshot?.summary.risks || []} tone="risk" />
                   <ListBlock title="接下来观察" items={snapshot?.summary.watchlist || []} tone="watch" />
                 </div>
+                <Link className="brief-panel-link brief-detail-entry" to="/council/details/judgement">查看详细内容 <ChevronRight size={15} /></Link>
               </section>
 
               <aside className="brief-side-panel">
@@ -266,7 +268,7 @@ export function DailyBrief() {
                     <div key={item.id}><span>{item.name}</span><strong>{item.display}</strong><small className={(item.changePercent || 0) >= 0 ? 'is-up' : 'is-down'}>{percentLabel(item.changePercent)}</small></div>
                   ))}
                 </div>
-                <button type="button" className="brief-panel-link" onClick={() => switchTab('sentiment')}>查看完整市场情绪 <ChevronRight size={15} /></button>
+                <Link className="brief-panel-link" to="/council/details/flows">查看详细内容 <ChevronRight size={15} /></Link>
               </aside>
 
               <section className="brief-news-preview">
@@ -290,6 +292,13 @@ export function DailyBrief() {
                 <p>{snapshot?.summary.portfolioNotes[0] || '等待读取持仓状态。'}</p>
                 <div className="brief-portfolio-preview__status"><ShieldCheck size={17} /><span>{snapshot?.portfolio.connected ? `IBKR 已连接 · ${snapshot.portfolio.positions.length} 个持仓` : 'IBKR 未连接 · 不影响公共市场简报'}</span></div>
                 <button type="button" className="brief-panel-link" onClick={() => switchTab('portfolio')}>查看我的持仓 <ChevronRight size={15} /></button>
+              </section>
+
+              <section className="brief-performance-preview">
+                <div className="brief-section-heading compact"><div><p><TrendingUp size={14} /> LONG HORIZON</p><h2>长期资产表现</h2></div></div>
+                <div className="brief-performance-preview__lines"><span /><span /><span /><span /></div>
+                <p>用共同起点和对数刻度比较 Mag7 与 BTC 的历史路径，同时检查最大回撤。</p>
+                <Link className="brief-panel-link" to="/council/details/performance">查看详细内容 <ChevronRight size={15} /></Link>
               </section>
             </div>
           ) : null}

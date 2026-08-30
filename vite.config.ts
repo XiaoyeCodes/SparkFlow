@@ -21,8 +21,11 @@ import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from '
 import { dailyHotPlugin } from './server/dailyhotPlugin';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
 import type {
+  DailyBriefFlowDetails,
   DailyBriefMarket,
   DailyBriefNews,
+  DailyBriefPerformanceDetails,
+  DailyBriefPerformanceSeries,
   DailyBriefPosition,
   DailyBriefSnapshot,
   DailyBriefSummary,
@@ -314,10 +317,11 @@ async function fetchRoutedText(url: string, route: FetchRoute, timeoutMs = 12000
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const isYahooFinance = url.includes('yahoo.com');
+    const useBrowserUserAgent = isYahooFinance || url.includes('xoomar.com');
     const init: RequestInit & { dispatcher?: any } = {
       signal: controller.signal,
       headers: {
-        'User-Agent': isYahooFinance
+        'User-Agent': useBrowserUserAgent
           ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0 Safari/537.36'
           : 'SparkFlow/1.0 local intelligence console',
         Accept: accept,
@@ -2576,7 +2580,7 @@ function buildBitcoinProjection(points: Array<{ time: string; value: number }>) 
 async function getBitcoinCycleHistory() {
   const sourceUrl = 'https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=PriceUSD&frequency=1d&start_time=2011-01-01&page_size=10000';
   const payload = JSON.parse(
-    await fetchRoutedText(sourceUrl, 'proxy', 30000, 'application/json'),
+    await fetchRoutedText(sourceUrl, 'direct', 30000, 'application/json'),
   ) as { data?: Array<{ time?: string; PriceUSD?: string }> };
   const points = (payload.data || []).flatMap((row) => {
     const value = asFiniteNumber(row.PriceUSD);
@@ -9010,6 +9014,8 @@ function summarizeRules(markets: DailyBriefMarket[], macro: DailyBriefMarket[], 
     '关注中港股开盘后的量价确认，不仅看隔夜叙事',
     '重大新闻至少用第二个可靠来源交叉验证',
   ];
+  const rating = tone === 'risk' ? '谨慎' : tone === 'cautious' ? '中性偏谨慎' : tone === 'calm' ? '中性偏积极' : '中性';
+  const score = tone === 'risk' ? 28 : tone === 'cautious' ? 42 : tone === 'calm' ? 66 : 52;
   return {
     headline: `${regime}，今天先确认价格与新闻是否相互印证。`,
     regime,
@@ -9020,6 +9026,20 @@ function summarizeRules(markets: DailyBriefMarket[], macro: DailyBriefMarket[], 
     portfolioNotes: positions.length
       ? [`已读取 ${positions.length} 个 IBKR 持仓；优先检查与今日波动最大的市场是否重叠。`]
       : ['IBKR 暂未连接，本次简报不生成个性化持仓判断。'],
+    assessment: {
+      rating,
+      score,
+      confidence: changed.length >= 4 && news.length >= 3 ? '中' : '低',
+      rationale: `${regime}；评级由核心市场广度、VIX 与当日高权重新闻共同归纳。`,
+      advice: [
+        { label: '仓位管理', detail: positions.length ? '先检查现有持仓与今日波动最大的资产是否重叠，避免因同一风险因子形成隐性集中。' : '未连接持仓，因此只给出市场层面的风险提示，不生成个性化仓位比例。' },
+        { label: '关键风险', detail: risks[0] || '波动率数据不足，暂不把安静行情视为低风险。' },
+        { label: '加密观察', detail: '结合 BTC 价格、现货 ETF 资金流与链上活跃度确认方向，单一指标不构成结论。' },
+        { label: '黄金与防守资产', detail: '观察黄金、美元与美债收益率是否同步走强，以判断防守需求和利率预期。' },
+        { label: '潜在机会', detail: '只跟踪价格与基本面信息相互印证的资产，避免因单日涨跌追逐叙事。' },
+      ],
+      disclaimer: '以上内容仅用于信息整理与风险检查，不构成任何投资建议。',
+    },
   };
 }
 
@@ -9028,6 +9048,16 @@ function normalizeSummary(value: any, fallback: DailyBriefSummary): DailyBriefSu
     ? input.map((item) => String(item).trim()).filter(Boolean).slice(0, 4)
     : backup;
   const tone = ['calm', 'balanced', 'cautious', 'risk'].includes(value?.tone) ? value.tone : fallback.tone;
+  const allowedRatings = ['积极', '中性偏积极', '中性', '中性偏谨慎', '谨慎'];
+  const assessmentValue = value?.assessment;
+  const assessmentFallback = fallback.assessment;
+  const advice = Array.isArray(assessmentValue?.advice)
+    ? assessmentValue.advice.flatMap((item: any) => {
+        const label = String(item?.label || '').trim();
+        const detail = String(item?.detail || '').trim();
+        return label && detail ? [{ label, detail }] : [];
+      }).slice(0, 6)
+    : assessmentFallback?.advice || [];
   return {
     headline: String(value?.headline || fallback.headline).trim(),
     regime: String(value?.regime || fallback.regime).trim(),
@@ -9036,6 +9066,14 @@ function normalizeSummary(value: any, fallback: DailyBriefSummary): DailyBriefSu
     risks: list(value?.risks, fallback.risks),
     watchlist: list(value?.watchlist, fallback.watchlist),
     portfolioNotes: list(value?.portfolioNotes, fallback.portfolioNotes),
+    assessment: {
+      rating: allowedRatings.includes(assessmentValue?.rating) ? assessmentValue.rating : assessmentFallback?.rating || '中性',
+      score: Math.max(0, Math.min(100, Math.round(finiteNumber(assessmentValue?.score) ?? assessmentFallback?.score ?? 50))),
+      confidence: ['低', '中', '高'].includes(assessmentValue?.confidence) ? assessmentValue.confidence : assessmentFallback?.confidence || '低',
+      rationale: String(assessmentValue?.rationale || assessmentFallback?.rationale || fallback.headline).trim(),
+      advice,
+      disclaimer: String(assessmentValue?.disclaimer || assessmentFallback?.disclaimer || '以上内容仅用于信息整理与风险检查，不构成任何投资建议。').trim(),
+    },
   };
 }
 
@@ -9057,9 +9095,12 @@ async function generateDailyBriefAiSummary(input: {
   const baseUrl = String(process.env.DAILY_BRIEF_AI_BASE_URL || env.DAILY_BRIEF_AI_BASE_URL || defaults.baseUrl).trim();
   if (!apiKey || !model || !baseUrl) return null;
   const prompt = [
-    '你是 SparkFlow 的每日市场简报编辑。只依据下方带时间戳的数据，不预测具体点位，不给出买卖指令，不使用“抄底/逃顶”等措辞。',
-    '输出纯 JSON，不要 Markdown。字段：headline, regime, tone, highlights, risks, watchlist, portfolioNotes。',
-    'tone 只能是 calm、balanced、cautious、risk；其余数组各 1-3 条短句。资料不足时明确说资料不足，绝不能把缺失值当作 0。',
+    '你是 SparkFlow 的每日市场简报编辑。只依据下方带时间戳的数据做证据归纳，不预测具体点位，不给出买卖指令，不使用“抄底/逃顶”等诱导性措辞。',
+    '结论风格要像投资委员会晨会：先给一个克制的综合评级，再说明证据、风险与需要观察的变量。区分市场事实和持仓相关建议；没有持仓时不得假装给出个性化仓位。',
+    '输出纯 JSON，不要 Markdown。顶层字段：headline, regime, tone, highlights, risks, watchlist, portfolioNotes, assessment。',
+    'assessment 字段必须包含：rating, score, confidence, rationale, advice, disclaimer。rating 只能是“积极”“中性偏积极”“中性”“中性偏谨慎”“谨慎”；score 为 0-100；confidence 只能是“低”“中”“高”。',
+    'assessment.advice 为对象数组，每项包含 label 和 detail，固定覆盖：仓位管理、关键风险、加密观察、黄金与防守资产、潜在机会。每条尽量引用输入中的指标、标的或新闻事实；证据不足时直接说明。',
+    'tone 只能是 calm、balanced、cautious、risk；highlights、risks、watchlist、portfolioNotes 各 1-3 条短句。资料不足时明确说资料不足，绝不能把缺失值当作 0。disclaimer 必须说明不构成投资建议。',
     JSON.stringify({ date: input.date, slot: input.slot, markets: input.markets, macro: input.macro, news: input.news, positions: input.positions }),
   ].join('\n\n');
   const raw = await callAiAnalysis({ provider, baseUrl, protocol: defaults.protocol, apiKey, model, prompt, useProxy: defaults.useProxy });
@@ -9149,6 +9190,179 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: 'morning' |
 }
 
 const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot });
+
+const dailyBriefDetailsCache = new Map<'flows' | 'performance', { storedAt: number; data: DailyBriefFlowDetails | DailyBriefPerformanceDetails }>();
+const dailyBriefDetailsInFlight = new Map<'flows' | 'performance', Promise<DailyBriefFlowDetails | DailyBriefPerformanceDetails>>();
+const dailyBriefDetailsTtlMs = 6 * 60 * 60_000;
+
+function percentChange(latest: number | undefined, previous: number | undefined) {
+  return latest !== undefined && previous !== undefined && previous !== 0 ? (latest / previous - 1) * 100 : null;
+}
+
+async function loadBitcoinEvidenceHistory() {
+  const start = new Date(Date.now() - 210 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+  const sourceUrl = `https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=PriceUSD,AdrActCnt&frequency=1d&start_time=${start}&page_size=10000`;
+  const payload = JSON.parse(await fetchRoutedText(sourceUrl, 'direct', 10_000, 'application/json')) as {
+    data?: Array<{ time?: string; PriceUSD?: string; AdrActCnt?: string }>;
+  };
+  const rows = (payload.data || []).flatMap((row) => {
+    const time = String(row.time || '').slice(0, 10);
+    const price = finiteNumber(row.PriceUSD);
+    const activity = finiteNumber(row.AdrActCnt);
+    return /^\d{4}-\d{2}-\d{2}$/.test(time) && price !== null && activity !== null
+      ? [{ time, price, activity }]
+      : [];
+  }).slice(-180);
+  if (rows.length < 30) throw new Error('Coin Metrics 的近期样本不足');
+  return { sourceUrl, rows };
+}
+
+async function loadBitcoinEtfFlows() {
+  const sourceUrl = 'https://xoomar.com/api/markets/etf-flows?asset=btc&days=180';
+  const payload = JSON.parse(await fetchRoutedText(sourceUrl, 'direct', 10_000, 'application/json,text/plain,*/*')) as {
+    data?: Array<{ date?: string; flowUsd?: string | null }>;
+  };
+  const totals = new Map<string, number>();
+  (payload.data || []).forEach((row) => {
+    const time = String(row.date || '').slice(0, 10);
+    const flowUsd = finiteNumber(row.flowUsd);
+    // Issuer files occasionally restate an entire holding balance as a one-day change.
+    // Keep the chart useful by excluding values that cannot represent a normal one-day fund flow.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(time) && flowUsd !== null && Math.abs(flowUsd) <= 2_000_000_000) {
+      totals.set(time, (totals.get(time) || 0) + flowUsd / 1_000_000);
+    }
+  });
+  const points = [...totals.entries()].map(([time, value]) => ({ time, value: round(value, 2) })).sort((left, right) => left.time.localeCompare(right.time));
+  if (points.length < 10) throw new Error('ETF 持仓变化样本不足');
+  return { sourceUrl: 'https://xoomar.com/markets/api/etf-flows', points };
+}
+
+async function readYahooLongHistory(symbol: string) {
+  const period1 = Math.floor(Date.parse('2012-05-18T00:00:00Z') / 1000);
+  const period2 = Math.floor(Date.now() / 1000);
+  const yahooSymbol = symbol === 'GOOGL' ? 'GOOG' : symbol;
+  const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?period1=${period1}&period2=${period2}&interval=1mo&events=history`;
+  const payload = JSON.parse(await fetchRoutedText(requestUrl, 'proxy', 45_000, 'application/json,text/plain,*/*')) as Record<string, any>;
+  const result = payload?.chart?.result?.[0];
+  const times = Array.isArray(result?.timestamp) ? result.timestamp as number[] : [];
+  const adjusted = Array.isArray(result?.indicators?.adjclose?.[0]?.adjclose) ? result.indicators.adjclose[0].adjclose as Array<number | null> : [];
+  const closes = Array.isArray(result?.indicators?.quote?.[0]?.close) ? result.indicators.quote[0].close as Array<number | null> : [];
+  const history = times.flatMap((timestamp, index) => {
+    const value = finiteNumber(adjusted[index] ?? closes[index]);
+    return value !== null && value > 0 ? [{ time: new Date(timestamp * 1000).toISOString().slice(0, 10), value }] : [];
+  });
+  if (history.length < 20) throw new Error(`${symbol} 长期历史样本不足`);
+  return history;
+}
+
+async function buildDailyBriefFlowDetails(): Promise<DailyBriefFlowDetails> {
+  const [chainResult, etfResult] = await Promise.allSettled([loadBitcoinEvidenceHistory(), loadBitcoinEtfFlows()]);
+  const errors: string[] = [];
+  const chain = chainResult.status === 'fulfilled' ? chainResult.value : null;
+  const etf = etfResult.status === 'fulfilled' ? etfResult.value : null;
+  if (chainResult.status === 'rejected') errors.push(`BTC 与链上活跃度：${chainResult.reason instanceof Error ? chainResult.reason.message : String(chainResult.reason)}`);
+  if (etfResult.status === 'rejected') errors.push(`BTC ETF 资金流：${etfResult.reason instanceof Error ? etfResult.reason.message : String(etfResult.reason)}`);
+  const price = chain?.rows.map((row) => ({ time: row.time, value: row.price })) || [];
+  const activity = chain?.rows.map((row) => ({ time: row.time, value: row.activity })) || [];
+  const etfFlows = etf?.points || [];
+  return {
+    kind: 'flows', generatedAt: new Date().toISOString(), price, activity, etfFlows,
+    metrics: {
+      btcPrice: price.at(-1)?.value ?? null,
+      btc30dChange: percentChange(price.at(-1)?.value, price.at(-31)?.value),
+      activity30dChange: percentChange(activity.at(-1)?.value, activity.at(-31)?.value),
+      etfLatest: etfFlows.at(-1)?.value ?? null,
+      etf7d: etfFlows.length ? etfFlows.slice(-7).reduce((sum, point) => sum + point.value, 0) : null,
+    },
+    sources: [
+      { label: 'Coin Metrics Community API', url: chain?.sourceUrl || 'https://docs.coinmetrics.io/api/v4/', detail: 'BTC 日度参考价与活跃地址数；活跃地址仅作链上活跃度代理。' },
+      { label: 'Xoomar ETF Flows API', url: etf?.sourceUrl || 'https://xoomar.com/markets/api/etf-flows', detail: '按发行人持仓日变化计算的美国现货 BTC ETF 资金流代理，单位为百万美元；过滤无法代表单日资金流的异常重述值，覆盖范围取决于发行人文件可达性。' },
+    ],
+    errors,
+  };
+}
+
+function monthlySample(points: Array<{ time: string; value: number }>) {
+  const monthly = new Map<string, { time: string; value: number }>();
+  points.forEach((point) => monthly.set(point.time.slice(0, 7), { time: point.time.slice(0, 10), value: point.value }));
+  return [...monthly.values()].sort((left, right) => left.time.localeCompare(right.time));
+}
+
+function normalizePerformanceSeries(symbol: string, name: string, color: string, raw: Array<{ time: string; value: number }>, startDate: string): DailyBriefPerformanceSeries {
+  const filtered = monthlySample(raw.filter((point) => point.time.slice(0, 10) >= startDate && point.value > 0));
+  const base = filtered[0]?.value;
+  const points = base ? filtered.map((point) => ({ time: point.time, value: point.value / base })) : [];
+  let peak = 0;
+  let peakTime = '';
+  let maxDrawdown = 0;
+  let drawdownPeak = '';
+  let drawdownTrough = '';
+  let recoveryTarget = 0;
+  points.forEach((point) => {
+    if (point.value > peak) { peak = point.value; peakTime = point.time; }
+    const drawdown = peak > 0 ? point.value / peak - 1 : 0;
+    if (drawdown < maxDrawdown) {
+      maxDrawdown = drawdown;
+      drawdownPeak = peakTime;
+      drawdownTrough = point.time;
+      recoveryTarget = peak;
+    }
+  });
+  const troughIndex = points.findIndex((point) => point.time === drawdownTrough);
+  const recovered = maxDrawdown === 0 || points.slice(Math.max(0, troughIndex + 1)).some((point) => point.value >= recoveryTarget);
+  return { symbol, name, color, multiple: points.at(-1)?.value ?? null, points, maxDrawdown: points.length ? maxDrawdown * 100 : null, drawdownPeak, drawdownTrough, recovered };
+}
+
+async function buildDailyBriefPerformanceDetails(): Promise<DailyBriefPerformanceDetails> {
+  const startDate = '2012-05-18';
+  const configs = [
+    ['AAPL', 'Apple', '#8a9aaf'], ['MSFT', 'Microsoft', '#4f8cff'], ['AMZN', 'Amazon', '#f08a35'],
+    ['GOOGL', 'Alphabet', '#25c7ad'], ['META', 'Meta', '#8d6df0'], ['NVDA', 'Nvidia', '#40c878'], ['TSLA', 'Tesla', '#ef5c62'],
+  ] as const;
+  const [stockResults, bitcoinResult] = await Promise.all([
+    Promise.allSettled(configs.map(async ([symbol, name, color]) => ({ symbol, name, color, history: await readYahooLongHistory(symbol) }))),
+    Promise.resolve(getCachedBitcoinCycleHistory()),
+  ]);
+  const errors: string[] = [];
+  const series = stockResults.flatMap((result, index) => {
+    if (result.status === 'rejected') {
+      errors.push(`${configs[index][0]}：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+      return [];
+    }
+    const { symbol, name, color, history } = result.value;
+    return [normalizePerformanceSeries(symbol, name, color, history, startDate)];
+  });
+  try {
+    const bitcoin = await bitcoinResult;
+    series.push(normalizePerformanceSeries('BTC', 'Bitcoin', '#f5a623', bitcoin.points, startDate));
+  } catch (error) {
+    errors.push(`BTC：${error instanceof Error ? error.message : String(error)}`);
+  }
+  return {
+    kind: 'performance', generatedAt: new Date().toISOString(), startDate, series,
+    sources: [
+      { label: 'Yahoo Finance', url: 'https://finance.yahoo.com/', detail: '美股历史复权收盘价，由 SparkFlow 既有行情聚合读取。' },
+      { label: 'Coin Metrics Community API', url: 'https://docs.coinmetrics.io/api/v4/', detail: 'BTC PriceUSD 日度参考价。' },
+    ],
+    errors,
+  };
+}
+
+async function getDailyBriefDetails(kind: 'flows' | 'performance') {
+  const cached = dailyBriefDetailsCache.get(kind);
+  if (cached && Date.now() - cached.storedAt < dailyBriefDetailsTtlMs) return cached.data;
+  const active = dailyBriefDetailsInFlight.get(kind);
+  if (active) return active;
+  const task = (kind === 'flows' ? buildDailyBriefFlowDetails() : buildDailyBriefPerformanceDetails())
+    .then((data) => {
+      const usable = data.kind === 'performance' ? data.series.length > 0 : data.price.length > 0 || data.etfFlows.length > 0;
+      if (usable) dailyBriefDetailsCache.set(kind, { storedAt: Date.now(), data });
+      return data;
+    })
+    .finally(() => dailyBriefDetailsInFlight.delete(kind));
+  dailyBriefDetailsInFlight.set(kind, task);
+  return task;
+}
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 3000) {
   const controller = new AbortController();
@@ -10898,6 +11112,18 @@ function allWeatherApiPlugin() {
           if (url.pathname === '/api/daily-brief' && req.method === 'GET') {
             res.setHeader('Cache-Control', 'private, no-cache');
             sendJson(res, 200, await dailyBriefService.get());
+            return;
+          }
+
+          if (url.pathname === '/api/daily-brief/details' && req.method === 'GET') {
+            const kind = url.searchParams.get('view');
+            if (kind !== 'flows' && kind !== 'performance') {
+              sendJson(res, 400, { detail: 'view 仅支持 flows 或 performance' });
+              return;
+            }
+            res.setHeader('Cache-Control', 'private, max-age=21600, stale-while-revalidate=3600');
+            const detailsPayload = await getDailyBriefDetails(kind);
+            sendJson(res, 200, detailsPayload);
             return;
           }
 

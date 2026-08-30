@@ -40,6 +40,62 @@ export type DailyBriefSummary = {
   risks: string[];
   watchlist: string[];
   portfolioNotes: string[];
+  assessment?: DailyBriefAssessment;
+};
+
+export type DailyBriefAssessment = {
+  rating: '积极' | '中性偏积极' | '中性' | '中性偏谨慎' | '谨慎';
+  score: number;
+  confidence: '低' | '中' | '高';
+  rationale: string;
+  advice: Array<{
+    label: string;
+    detail: string;
+  }>;
+  disclaimer: string;
+};
+
+export type DailyBriefChartPoint = {
+  time: string;
+  value: number;
+};
+
+export type DailyBriefFlowDetails = {
+  kind: 'flows';
+  generatedAt: string;
+  price: DailyBriefChartPoint[];
+  activity: DailyBriefChartPoint[];
+  etfFlows: DailyBriefChartPoint[];
+  metrics: {
+    btcPrice: number | null;
+    btc30dChange: number | null;
+    activity30dChange: number | null;
+    etfLatest: number | null;
+    etf7d: number | null;
+  };
+  sources: Array<{ label: string; url: string; detail: string }>;
+  errors: string[];
+};
+
+export type DailyBriefPerformanceSeries = {
+  symbol: string;
+  name: string;
+  color: string;
+  multiple: number | null;
+  points: DailyBriefChartPoint[];
+  maxDrawdown: number | null;
+  drawdownPeak?: string;
+  drawdownTrough?: string;
+  recovered: boolean;
+};
+
+export type DailyBriefPerformanceDetails = {
+  kind: 'performance';
+  generatedAt: string;
+  startDate: string;
+  series: DailyBriefPerformanceSeries[];
+  sources: Array<{ label: string; url: string; detail: string }>;
+  errors: string[];
 };
 
 export type DailyBriefSourceStatus = {

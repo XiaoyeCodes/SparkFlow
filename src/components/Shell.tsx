@@ -70,7 +70,7 @@ export function Shell({ children }: { children: ReactNode }) {
         onFocusCapture={revealTouchNavigation}
       >
         <nav className="sparkflow-shell-nav">
-          <PillNav items={primaryNavigation} activePath={pathname} trailing={<UserMenu />} />
+          <PillNav items={primaryNavigation} activePath={pathname.startsWith('/council/') ? '/council' : pathname} trailing={<UserMenu />} />
         </nav>
       </header>
       <main>{children}</main>
