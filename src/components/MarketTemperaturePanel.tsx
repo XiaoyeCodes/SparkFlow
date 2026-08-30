@@ -18,6 +18,7 @@ import {
   Scale,
   Thermometer,
 } from 'lucide-react';
+import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
 import { ValuationGuideWhitepaperLauncher } from './ValuationGuideWhitepaper';
 
 type TemperatureZone = 'cold' | 'low' | 'fair' | 'warm' | 'hot';
@@ -767,28 +768,50 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
   const [selectedId, setSelectedId] = useState('all-market');
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState('');
+  const consumedReloadKeyRef = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
+    let cancelled = false;
+    const force = reloadKey !== consumedReloadKeyRef.current;
+    consumedReloadKeyRef.current = reloadKey;
     setData(null);
     setError('');
-    fetch(`/api/valuation-temperature?market=${mode}`, { signal: controller.signal })
+    const coreMarket = ['china', 'hongkong', 'us'].includes(mode);
+    const request = () => fetch(`/api/valuation-temperature?market=${mode}${coreMarket ? '&fresh=1' : ''}`, {
+      signal: coreMarket ? undefined : controller.signal,
+      cache: 'no-store',
+    })
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload?.error || '估值温度数据暂时不可用');
         return payload as ValuationDashboard;
-      })
+      });
+    const payloadPromise = coreMarket
+      ? loadDailyMarketData({
+          market: mode as CoreMarketMode,
+          resource: 'valuation',
+          force,
+          loader: request,
+        })
+      : request();
+    payloadPromise
       .then((payload) => {
+        if (cancelled) return;
         setData(payload);
         if (!payload.charts.some((item) => item.id === selectedId)) {
           setSelectedId(payload.charts[0]?.id || 'all-market');
         }
       })
       .catch((reason) => {
+        if (cancelled) return;
         if (reason instanceof DOMException && reason.name === 'AbortError') return;
         setError(reason instanceof Error ? reason.message : '估值温度数据暂时不可用');
       });
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [mode, reloadKey]);
 
   const selectedMarket = useMemo(

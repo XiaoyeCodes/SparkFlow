@@ -13,6 +13,7 @@
     "test:macro-cards": "node scripts/verify-us-macro-cards.mjs",
     "test:fed-liquidity": "node scripts/verify-fed-net-liquidity.mjs",
     "test:isolated-market-data": "node --no-warnings --experimental-strip-types scripts/verify-isolated-market-resources.mjs",
+    "test:market-cache": "node --no-warnings --experimental-strip-types scripts/verify-daily-market-cache.mjs",
     "test:coze-report": "node --no-warnings --experimental-strip-types scripts/verify-coze-report-pipeline.mjs",
     "predev": "npm run research:setup && npm run dailyhot:setup",
     "dev": "vite --host 127.0.0.1",

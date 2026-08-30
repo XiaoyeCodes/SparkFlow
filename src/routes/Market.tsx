@@ -9,9 +9,7 @@ import {
   Building2,
   CheckCircle2,
   ChevronDown,
-  Database,
   Download,
-  Gauge,
   Landmark,
   LoaderCircle,
   MapPinned,
@@ -20,8 +18,6 @@ import {
   Save,
   Search,
   ShieldCheck,
-  TrendingDown,
-  TrendingUp,
   TriangleAlert,
 } from 'lucide-react';
 import {
@@ -36,6 +32,7 @@ import { BitcoinCycleChart } from '../components/BitcoinCycleChart';
 import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
 import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper';
 import { PageTransition } from '../components/PageTransition';
+import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
 import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 import './Market.css';
@@ -489,9 +486,6 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
   const [regionalContent, setRegionalContent] = useState<Partial<Record<'hongkong' | 'us', RegionalMarketContent>>>({});
   const [regionalContentState, setRegionalContentState] = useState<AsyncState>('idle');
   const [regionalContentError, setRegionalContentError] = useState('');
-  const [rotationLoadState, setRotationLoadState] = useState<AsyncState>('idle');
-  const [rotationError, setRotationError] = useState('');
-  const [rotationReloadKey, setRotationReloadKey] = useState(0);
   const [usMarketSystem, setUsMarketSystem] = useState<UsMarketSystemStatus>({
     state: 'unknown',
     message: '正在读取 Nasdaq 系统状态',
@@ -567,7 +561,20 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
     if (activeMarket === 'crypto') return;
     const controller = new AbortController();
     let cancelled = false;
-    requestJson<AShareValuationSnapshot>(`/api/valuation-temperature?market=${activeMarket}`, { signal: controller.signal })
+    const request = () => requestJson<AShareValuationSnapshot>(
+      `/api/valuation-temperature?market=${activeMarket}${['china', 'hongkong', 'us'].includes(activeMarket) ? '&fresh=1' : ''}`,
+      ['china', 'hongkong', 'us'].includes(activeMarket)
+        ? { cache: 'no-store' }
+        : { signal: controller.signal },
+    );
+    const payloadPromise = ['china', 'hongkong', 'us'].includes(activeMarket)
+      ? loadDailyMarketData({
+          market: activeMarket as CoreMarketMode,
+          resource: 'valuation',
+          loader: request,
+        })
+      : request();
+    payloadPromise
       .then((payload) => {
         if (!cancelled) setValuationSnapshots((current) => ({ ...current, [activeMarket]: payload }));
       })
@@ -899,44 +906,9 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
     : undefined;
   const activeNews = activeRegionalContent?.news || data?.news || [];
   const activeReports = activeRegionalContent?.reports || data?.reports || [];
-  const activeSources = activeRegionalContent
-    ? [
-        ...(data?.sources.filter((source) => source.id === 'indices') || []),
-        ...activeRegionalContent.sources.map((source, index) => ({
-          id: `regional-content-${index}`,
-          label: source.label,
-          url: source.url,
-          provider: activeMarket === 'hongkong' ? '港股公开数据与中文索引' : '美股公开数据与中文索引',
-          ok: activeRegionalContent.news.length > 0 || activeRegionalContent.reports.length > 0,
-          note: `${activeRegionalContent.news.length} 条新闻 · ${activeRegionalContent.reports.length} 份公开研究`,
-        })),
-      ]
-    : isInternationalMarket
-      ? [
-          {
-            id: `${activeMarket}-yahoo-spark`,
-            label: `${MARKET_META[activeMarket].short}实时指数与公司行情`,
-            url: activeIndices[0]?.sourceUrl || 'https://finance.yahoo.com/markets/',
-            provider: activeIndices[0]?.validation.source || '区域交易所行情适配器',
-            ok: activeIndices.length > 0,
-            note: `${activeIndices.length} 个核心指数 · 代表性龙头热力图 · 前端 5 秒刷新${Math.max(0, ...activeIndices.map((item) => item.sourceDelaySeconds || 0)) >= 60 ? ' · 行情延迟按授权标注' : ''}`,
-          },
-          {
-            id: `${activeMarket}-official-market`,
-            label: `${MARKET_META[activeMarket].short}交易时段与指数说明`,
-            url: getMarketSessionStatus(activeMarket).sourceUrl,
-            provider: '官方交易所 / 指数编制机构',
-            ok: true,
-            note: '官方交易所或指数编制机构',
-          },
-        ]
-      : data?.sources || [];
-
   useEffect(() => {
     if (dashboardView !== 'markets') return;
     if (activeMarket === 'china' || activeMarket === 'crypto') {
-      setRotationLoadState('success');
-      setRotationError('');
       return;
     }
 
@@ -959,22 +931,17 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
       ? internationalCurrencies[activeMarket] || 'WEIGHT'
       : activeMarket === 'hongkong' ? 'HKD' : 'USD';
 
-    setRotationLoadState('loading');
-    setRotationError('');
     requestJson<RegionalHeatmapResponse>(endpoint, { signal: controller.signal })
       .then((payload) => {
         const rotation = buildRegionalRotation(payload, currency);
         setRegionalRotations((current) => ({ ...current, [activeMarket]: rotation }));
-        setRotationLoadState('success');
       })
-      .catch((requestError) => {
+      .catch(() => {
         if (controller.signal.aborted) return;
-        setRotationLoadState('error');
-        setRotationError(requestError instanceof Error ? requestError.message : String(requestError));
       });
 
     return () => controller.abort();
-  }, [activeMarket, dashboardView, rotationReloadKey]);
+  }, [activeMarket, dashboardView]);
 
   const runVibeResearch = async (target: ResearchTarget) => {
     if (!data || activeResearch.running || activeResearch.connecting) return;
@@ -1337,64 +1304,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
                 </div>
               ) : null}
 
-              <>
-                  <section className="market-lower-section market-rotation-section mt-8">
-                    <SectionHeading
-                      eyebrow="Capital Rotation"
-                      title={getRotationTitle(activeMarket)}
-                      icon={<Gauge size={15} />}
-                    />
-                    <div className="market-section-meta -mt-2 mb-5 flex flex-wrap items-center justify-between gap-3 text-xs leading-5 text-white/36">
-                      <p>{activeRotation?.coverage || getRotationLoadingText(activeMarket)}</p>
-                      {activeRotation ? (
-                        <a
-                          href={activeRotation.sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="shrink-0 text-white/46 transition hover:text-white"
-                        >
-                          {activeRotation.source} · {formatDateTime(activeRotation.generatedAt, true)}
-                        </a>
-                      ) : null}
-                    </div>
-                    {activeRotation ? (
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        <SectorBoard
-                          title="领涨赛道"
-                          items={activeRotation.leaders}
-                          mode="leader"
-                          metric={activeRotation.metric}
-                          currency={activeRotation.currency}
-                        />
-                        <SectorBoard
-                          title="落后赛道"
-                          items={activeRotation.laggards}
-                          mode="laggard"
-                          metric={activeRotation.metric}
-                          currency={activeRotation.currency}
-                        />
-                      </div>
-                    ) : rotationLoadState === 'error' ? (
-                      <div className="market-async-card flex min-h-40 items-center justify-center border border-[#d6b566]/20 bg-[#d6b566]/[0.04] px-5 text-center">
-                        <div>
-                          <TriangleAlert className="mx-auto text-[#d6b566]" size={20} />
-                          <p className="mt-3 text-sm text-white/68">{rotationError || '板块数据暂时不可用'}</p>
-                          <button
-                            type="button"
-                            onClick={() => setRotationReloadKey((current) => current + 1)}
-                            className="mt-3 inline-flex h-8 items-center gap-2 border border-white/14 px-3 text-xs font-semibold text-white/64 transition hover:border-white/30 hover:text-white"
-                          >
-                            <RefreshCw size={13} /> 重试
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <RotationSkeleton />
-                    )}
-                  </section>
-
-                  {activeMarket === 'crypto' ? <BitcoinCycleChart /> : null}
-              </>
+              {activeMarket === 'crypto' ? <BitcoinCycleChart /> : null}
 
               {activeMarket !== 'crypto' ? (
                   <MarketTemperaturePanel mode={activeMarket as Exclude<MarketChartMode, 'crypto'>} />
@@ -1409,7 +1319,6 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
                 />
               </div>
 
-              <SourceBoard sources={activeSources} disclaimer={data.summary.disclaimer} />
               <MarketDisciplineMotto />
             </motion.div>
           ) : loadState === 'loading' ? <LoadingPanel /> : null}
@@ -1812,87 +1721,6 @@ function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
           </a>
         );
       })}
-    </div>
-  );
-}
-
-function SectorBoard({
-  title,
-  items,
-  mode,
-  metric,
-  currency,
-}: {
-  title: string;
-  items: MarketRotationItem[];
-  mode: 'leader' | 'laggard';
-  metric: RotationMetric;
-  currency: MarketRotation['currency'];
-}) {
-  return (
-    <section className={`market-rotation-board market-rotation-board-${mode} border border-white/10 bg-white/[0.025] p-5`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/34">
-            {mode === 'leader' ? <TrendingUp size={14} /> : <TrendingDown size={14} />} 板块风向
-          </div>
-          <h3 className="mt-2 text-xl font-semibold">{title}</h3>
-        </div>
-        <span className={`h-2 w-2 ${mode === 'leader' ? 'bg-[#ff8585]' : 'bg-[#75e6b1]'}`} />
-      </div>
-      <div className={`market-rotation-grid mt-5 grid gap-px overflow-hidden border border-white/10 bg-white/10 ${
-        items.length <= 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
-      }`}>
-        {items.slice(0, 8).map((item) => (
-          <div key={item.code} className="market-rotation-item flex items-center justify-between gap-4 bg-[#090a0c] px-3.5 py-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white/78">{item.name}</p>
-              <p className="mt-1 text-[10px] text-white/34">
-                {metric === 'fund-flow'
-                  ? `主力占比 ${item.advanceRatio.toFixed(2)}%`
-                  : metric === 'turnover'
-                    ? `上涨 ${Math.round(item.advanceRatio * item.memberCount / 100)}/${item.memberCount}`
-                    : `上涨占比 ${item.advanceRatio.toFixed(0)}% · ${item.memberCount} 个样本`}
-              </p>
-            </div>
-            <div className="shrink-0 text-right">
-              <p className={`font-mono text-xs ${item.changePercent >= 0 ? 'text-[#ff8585]' : 'text-[#75e6b1]'}`}>
-                {item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
-              </p>
-              <p className="mt-1 font-mono text-[10px] text-white/38">
-                {metric === 'fund-flow'
-                  ? formatMoney(item.scaleValue)
-                  : metric === 'turnover'
-                    ? `24h ${formatMarketValue(item.scaleValue, currency)}`
-                    : currency === 'WEIGHT'
-                      ? formatMarketValue(item.scaleValue, currency)
-                      : `市值 ${formatMarketValue(item.scaleValue, currency)}`}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function RotationSkeleton() {
-  return (
-    <div className="grid gap-4 xl:grid-cols-2" aria-label="正在加载板块数据">
-      {[0, 1].map((board) => (
-        <div key={board} className="market-rotation-board min-h-48 animate-pulse border border-white/10 bg-white/[0.025] p-5">
-          <div className="h-3 w-20 bg-white/8" />
-          <div className="mt-3 h-6 w-32 bg-white/10" />
-          <div className="market-rotation-grid mt-5 grid gap-px border border-white/8 bg-white/8 sm:grid-cols-2">
-            {Array.from({ length: 6 }, (_, index) => (
-              <div key={index} className="market-rotation-item h-[66px] bg-[#090a0c] p-3">
-                <div className="h-3 w-20 bg-white/8" />
-                <div className="mt-2 h-2 w-28 bg-white/5" />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
@@ -2353,28 +2181,6 @@ const MarketReport = forwardRef<HTMLElement, {
   );
 });
 
-function SourceBoard({ sources, disclaimer }: { sources: MarketIntelligence['sources']; disclaimer: string }) {
-  return (
-    <section className="market-lower-section market-source-board mt-7">
-      <SectionHeading eyebrow="Data Lineage" title="来源与校验状态" icon={<Database size={15} />} />
-      <div className="market-source-grid grid gap-px overflow-hidden border border-white/10 bg-white/10 md:grid-cols-2">
-        {sources.map((source) => (
-          <a key={source.id} href={source.url} target="_blank" rel="noreferrer" className="market-source-item flex items-start gap-3 bg-[#07080a] p-4 transition hover:bg-white/[0.045]">
-            {source.ok ? <CheckCircle2 className="mt-0.5 shrink-0 text-[#75e6b1]" size={14} /> : <TriangleAlert className="mt-0.5 shrink-0 text-[#d6b566]" size={14} />}
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-white/76">{source.label}</p>
-              <p className="mt-1 text-xs text-white/38">{source.provider}</p>
-              <p className="mt-1 text-[11px] leading-5 text-white/28">{source.note}</p>
-            </div>
-            <ArrowUpRight className="ml-auto shrink-0 text-white/25" size={13} />
-          </a>
-        ))}
-      </div>
-      <p className="mt-4 text-xs leading-5 text-white/28">{disclaimer}</p>
-    </section>
-  );
-}
-
 function MarketDisciplineMotto() {
   return (
     <section
@@ -2815,49 +2621,6 @@ function getValuationBand(percentile: number) {
   if (percentile < 60) return '中性';
   if (percentile < 80) return '略偏高';
   return '明显偏高';
-}
-
-function formatMoney(value: number) {
-  const amount = Math.abs(value);
-  const sign = value >= 0 ? '+' : '-';
-  if (amount >= 100_000_000) return `${sign}${(amount / 100_000_000).toFixed(2)} 亿`;
-  if (amount >= 10_000) return `${sign}${(amount / 10_000).toFixed(1)} 万`;
-  return `${sign}${amount.toFixed(0)}`;
-}
-
-function formatMarketValue(value: number, currency: MarketRotation['currency']) {
-  if (currency === 'WEIGHT') return `代表权重 ${value.toFixed(value >= 10 ? 0 : 1)}`;
-  const suffix = {
-    CNY: '元',
-    HKD: '港元',
-    USD: '美元',
-    USDT: ' USDT',
-    JPY: '日元',
-    KRW: '韩元',
-    INR: '卢比',
-    EUR: '欧元',
-    GBP: '英镑',
-  }[currency];
-  if (value >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(2)} 万亿${suffix}`;
-  if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(2)} 亿${suffix}`;
-  if (value >= 10_000) return `${(value / 10_000).toFixed(1)} 万${suffix}`;
-  return `${value.toFixed(0)}${suffix}`;
-}
-
-function getRotationTitle(mode: MarketChartMode) {
-  if (mode === 'china') return 'A 股行业资金流向';
-  if (mode === 'hongkong') return '港股行业强弱';
-  if (mode === 'us') return '美股行业强弱';
-  if (mode !== 'crypto') return `${MARKET_META[mode].short}行业强弱`;
-  return '加密资产赛道强弱';
-}
-
-function getRotationLoadingText(mode: MarketChartMode) {
-  if (mode === 'china') return '正在加载 A 股行业主力资金';
-  if (mode === 'hongkong') return '正在按港股样本市值聚合行业表现';
-  if (mode === 'us') return '正在按美股样本市值聚合行业表现';
-  if (mode !== 'crypto') return `正在按${MARKET_META[mode].short}样本总市值聚合行业表现`;
-  return '正在聚合主流加密资产 24 小时赛道表现';
 }
 
 function buildChinaRotation(data: MarketIntelligence): MarketRotation {

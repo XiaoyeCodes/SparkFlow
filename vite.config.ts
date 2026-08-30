@@ -304,11 +304,15 @@ async function fetchRoutedText(url: string, route: FetchRoute, timeoutMs = 12000
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const isYahooFinance = url.includes('yahoo.com');
     const init: RequestInit & { dispatcher?: any } = {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'SparkFlow/1.0 local intelligence console',
+        'User-Agent': isYahooFinance
+          ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0 Safari/537.36'
+          : 'SparkFlow/1.0 local intelligence console',
         Accept: accept,
+        ...(isYahooFinance ? { Referer: 'https://finance.yahoo.com/' } : {}),
       },
     };
     if (route === 'proxy') init.dispatcher = foreignProxyAgent;
@@ -318,6 +322,39 @@ async function fetchRoutedText(url: string, route: FetchRoute, timeoutMs = 12000
   } finally {
     clearTimeout(timer);
   }
+}
+
+const YAHOO_FINANCE_MAX_CONCURRENT_REQUESTS = 6;
+let yahooFinanceActiveRequests = 0;
+const yahooFinanceRequestQueue: Array<() => void> = [];
+
+function runYahooFinanceRequest<T>(request: () => Promise<T>) {
+  return new Promise<T>((resolve, reject) => {
+    const run = () => {
+      yahooFinanceActiveRequests += 1;
+      void request()
+        .then(resolve, reject)
+        .finally(() => {
+          yahooFinanceActiveRequests -= 1;
+          yahooFinanceRequestQueue.shift()?.();
+        });
+    };
+    if (yahooFinanceActiveRequests < YAHOO_FINANCE_MAX_CONCURRENT_REQUESTS) run();
+    else yahooFinanceRequestQueue.push(run);
+  });
+}
+
+async function fetchYahooFinanceJson(url: string, timeoutMs = 18000) {
+  let lastError: unknown;
+  for (const route of ['proxy', 'direct'] as const) {
+    try {
+      const text = await runYahooFinanceRequest(() => fetchRoutedText(url, route, timeoutMs, 'application/json'));
+      return JSON.parse(text) as Record<string, any>;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Yahoo Finance 数据暂时不可用');
 }
 
 async function fetchExternalText(url: string, timeoutMs = 18000, accept = 'text/plain,*/*') {
@@ -665,6 +702,7 @@ type RegionalIndexValuationConfig = {
   officialUrl: string;
   sampleCodes: readonly string[];
   yahooSymbol?: string;
+  yahooPriceLabel?: string;
 };
 
 type RegionalValuationConfig = {
@@ -681,11 +719,14 @@ const regionalValuationConfigs: Record<RegionalValuationMode, RegionalValuationC
       {
         id: 'hsi', name: '恒生指数', code: 'HSI', secid: '100.HSI',
         officialUrl: 'https://www.hsi.com.hk/eng/indexes/all-indexes/hsi',
+        yahooSymbol: '^HSI',
         sampleCodes: ['00700', '09988', '00005', '01299', '00939', '01398', '00941', '00388'],
       },
       {
         id: 'hstech', name: '恒生科技指数', code: 'HSTECH', secid: '124.HSTECH',
         officialUrl: 'https://www.hsi.com.hk/eng/indexes/all-indexes/hstech',
+        yahooSymbol: '3032.HK',
+        yahooPriceLabel: '恒生科技指数ETF（3032.HK）',
         sampleCodes: ['00700', '09988', '01810', '03690', '09618', '09999', '01024', '00981'],
       },
       {
@@ -707,16 +748,19 @@ const regionalValuationConfigs: Record<RegionalValuationMode, RegionalValuationC
       {
         id: 'sp500', name: '标普500', code: 'SPX', secid: '100.SPX',
         officialUrl: 'https://www.spglobal.com/spdji/en/indices/equity/sp-500/',
+        yahooSymbol: '^GSPC',
         sampleCodes: ['NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOG', 'META', 'BRK_B', 'AVGO'],
       },
       {
         id: 'nasdaq100', name: '纳斯达克100', code: 'NDX', secid: '100.NDX',
         officialUrl: 'https://indexes.nasdaqomx.com/Index/Overview/NDX',
+        yahooSymbol: '^NDX',
         sampleCodes: ['NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOG', 'META', 'AVGO', 'TSLA'],
       },
       {
         id: 'dow', name: '道琼斯工业指数', code: 'DJIA', secid: '100.DJIA',
         officialUrl: 'https://www.spglobal.com/spdji/en/indices/equity/dow-jones-industrial-average/',
+        yahooSymbol: '^DJI',
         sampleCodes: ['GS', 'MSFT', 'HD', 'CAT', 'MCD', 'AMZN', 'NVDA', 'AAPL'],
       },
       {
@@ -724,6 +768,12 @@ const regionalValuationConfigs: Record<RegionalValuationMode, RegionalValuationC
         officialUrl: 'https://indexes.nasdaqomx.com/Index/Overview/SOX',
         sampleCodes: ['NVDA', 'AVGO', 'AMD', 'MU', 'ASML', 'AMAT', 'LRCX', 'QCOM'],
         yahooSymbol: '^SOX',
+      },
+      {
+        id: 'mags', name: '美股七巨头（MAGS）', code: 'MAGS', secid: '107.MAGS',
+        officialUrl: 'https://www.roundhillinvestments.com/etf/mags/',
+        yahooSymbol: 'MAGS',
+        sampleCodes: ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOG', 'META', 'TSLA'],
       },
     ],
   },
@@ -1508,18 +1558,26 @@ async function getYahooFundamentalHistory(symbol: string) {
   const encoded = encodeURIComponent(symbol);
   const period2 = Math.floor(Date.now() / 1000) + 86400;
   const period1 = period2 - 7 * 366 * 86400;
-  const fundamentalUrl = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encoded}?symbol=${encoded}&type=annualStockholdersEquity,annualDilutedAverageShares,annualBasicAverageShares,annualNetIncome&period1=${period1}&period2=${period2}`;
+  const fundamentalsUrl = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encoded}?symbol=${encoded}&period1=${period1}&period2=${period2}`;
   const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=5y&interval=1d&events=history`;
-  const [fundamentalText, chartText] = await Promise.all([
-    fetchRoutedText(fundamentalUrl, 'proxy', 18000, 'application/json'),
-    fetchRoutedText(chartUrl, 'proxy', 18000, 'application/json'),
+  const fieldTypes = [
+    'annualStockholdersEquity',
+    'annualDilutedAverageShares',
+    'annualBasicAverageShares',
+    'annualNetIncome',
+  ] as const;
+  const [fieldPayloads, chartPayload] = await Promise.all([
+    Promise.all(fieldTypes.map(async (type) => {
+      const payload = await fetchYahooFinanceJson(`${fundamentalsUrl}&type=${type}`);
+      return [type, payload] as const;
+    })),
+    fetchYahooFinanceJson(chartUrl),
   ]);
-  const fundamentalPayload = JSON.parse(fundamentalText) as Record<string, any>;
-  const chartPayload = JSON.parse(chartText) as Record<string, any>;
-  const series = Array.isArray(fundamentalPayload?.timeseries?.result)
-    ? fundamentalPayload.timeseries.result as Array<Record<string, any>>
-    : [];
-  const valuesFor = (type: string) => {
+  const valuesFor = (type: typeof fieldTypes[number]) => {
+    const payload = fieldPayloads.find(([fieldType]) => fieldType === type)?.[1];
+    const series = Array.isArray(payload?.timeseries?.result)
+      ? payload.timeseries.result as Array<Record<string, any>>
+      : [];
     const record = series.find((item) => item?.meta?.type?.includes(type));
     const values = Array.isArray(record?.[type]) ? record[type] as Array<Record<string, any>> : [];
     return new Map(values.flatMap((item) => {
@@ -1556,7 +1614,7 @@ async function getYahooFundamentalHistory(symbol: string) {
     return [{ time: new Date(timestamp * 1000).toISOString().slice(0, 10), close }];
   });
   if (fundamentals.length < 2 || prices.length < 200) throw new Error(`${symbol} 公开财务历史不足`);
-  return { symbol, fundamentalUrl, chartUrl, fundamentals, prices };
+  return { symbol, fundamentalUrl: fundamentalsUrl, chartUrl, fundamentals, prices };
 }
 
 async function getCachedYahooFundamentalHistory(symbol: string) {
@@ -1647,7 +1705,7 @@ async function getRegionalIndexPerformance(indexConfig: RegionalIndexValuationCo
 
   const encoded = encodeURIComponent(indexConfig.yahooSymbol);
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=5y&interval=1d&events=history`;
-  const payload = JSON.parse(await fetchRoutedText(url, 'proxy', 18000, 'application/json')) as Record<string, any>;
+  const payload = await fetchYahooFinanceJson(url);
   const chart = payload?.chart?.result?.[0];
   const timestamps = Array.isArray(chart?.timestamp) ? chart.timestamp as number[] : [];
   const closes = Array.isArray(chart?.indicators?.quote?.[0]?.close)
@@ -1683,7 +1741,14 @@ async function buildRegionalIndexValuation(
     getCachedYahooFundamentalHistory(yahooSymbolForStock(mode, stock))
   )));
   const samples = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []).slice(0, config.sampleSize);
-  if (samples.length < 4) throw new Error(`${indexConfig.name}公开财务样本不足，暂时无法生成估值代理`);
+  if (samples.length < 4) {
+    const failures = settled.flatMap((result, index) => (
+      result.status === 'rejected'
+        ? [`${candidates[index]?.code || '未知代码'}：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`]
+        : []
+    ));
+    throw new Error(`${indexConfig.name}公开财务样本不足，暂时无法生成估值代理${failures.length ? `（${failures.slice(0, 4).join('；')}）` : ''}`);
+  }
 
   const indexResult = await getRegionalIndexPerformance(indexConfig);
   const priceMaps = samples.map((sample) => new Map(sample.prices.map((point) => [point.time, point.close])));
@@ -1782,7 +1847,10 @@ async function buildRegionalIndexValuation(
     points: anchorPoints,
     methodology: `${indexConfig.name}价格除以代表性成份股公开年报净资产所构造的加权PB代理；财报按披露后90日生效以降低前视偏差，并用${mode === 'hongkong' || mode === 'us' ? '东方财富' : 'Yahoo Finance'}当前个股PB校准最新截面。样本为 ${sampleNames}。该序列用于观察方向与历史中枢，不等同于指数公司授权PB。`,
     sources: [
-      { label: `${indexConfig.name}历史行情 · ${mode === 'hongkong' || mode === 'us' ? '东方财富' : 'Yahoo Finance'}`, url: indexResult.url },
+      {
+        label: `${indexResult.url.includes('yahoo.com') ? (indexConfig.yahooPriceLabel || indexConfig.name) : indexConfig.name}历史行情 · ${indexResult.url.includes('yahoo.com') ? 'Yahoo Finance' : '东方财富'}`,
+        url: indexResult.url,
+      },
       { label: '公司年报财务序列 · Yahoo Finance', url: 'https://finance.yahoo.com/' },
       { label: `${indexConfig.name}官方指数页`, url: indexConfig.officialUrl },
     ],
@@ -1818,7 +1886,14 @@ async function getRegionalValuationDashboard(mode: RegionalValuationMode) {
     buildRegionalIndexValuation(mode, config, indexConfig, valuationStocks)
   )));
   const indexResults = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
-  if (!indexResults.length) throw new Error(`${config.label}主要指数公开财务样本不足，暂时无法生成估值代理`);
+  if (!indexResults.length) {
+    const reasons = settled.flatMap((result, index) => (
+      result.status === 'rejected'
+        ? [`${config.indices[index]?.name || '指数'}：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`]
+        : []
+    ));
+    throw new Error(`${config.label}主要指数公开财务样本不足，暂时无法生成估值代理${reasons.length ? `（${reasons.join('；')}）` : ''}`);
+  }
 
   const primary = indexResults[0];
   const overallWithHistory = {
@@ -3085,13 +3160,13 @@ async function getCachedMarketQuotes() {
   return marketQuotesInFlight;
 }
 
-async function getCachedChinaValuationDashboard() {
+async function getCachedChinaValuationDashboard(force = false) {
   const now = Date.now();
   const expectedAnchorCount = bookValueIndexConfigs.length + 1;
   const cacheTtl = chinaValuationCache?.data.bookValueAnchors.length === expectedAnchorCount
     ? 15 * 60_000
     : 30_000;
-  if (chinaValuationCache && now - chinaValuationCache.storedAt < cacheTtl) {
+  if (!force && chinaValuationCache && now - chinaValuationCache.storedAt < cacheTtl) {
     return chinaValuationCache.data;
   }
   if (!chinaValuationInFlight) {
@@ -3107,9 +3182,9 @@ async function getCachedChinaValuationDashboard() {
   return chinaValuationInFlight;
 }
 
-async function getCachedRegionalValuationDashboard(mode: RegionalValuationMode) {
+async function getCachedRegionalValuationDashboard(mode: RegionalValuationMode, force = false) {
   const cached = regionalValuationCache.get(mode);
-  if (cached && Date.now() - cached.storedAt < 30 * 60_000) return cached.data;
+  if (!force && cached && Date.now() - cached.storedAt < 30 * 60_000) return cached.data;
   const running = regionalValuationInFlight.get(mode);
   if (running) return running;
   const request = getRegionalValuationDashboard(mode)
@@ -9612,8 +9687,8 @@ async function getCachedCryptoMarketHeatmap() {
   return cryptoHeatmapInFlight;
 }
 
-async function getCachedBitcoinCycleHistory() {
-  if (bitcoinCycleCache && Date.now() - bitcoinCycleCache.storedAt < 6 * 60 * 60_000) {
+async function getCachedBitcoinCycleHistory(force = false) {
+  if (!force && bitcoinCycleCache && Date.now() - bitcoinCycleCache.storedAt < 6 * 60 * 60_000) {
     return bitcoinCycleCache.data;
   }
   if (!bitcoinCycleInFlight) {
@@ -10905,26 +10980,27 @@ function allWeatherApiPlugin() {
           }
 
           if (url.pathname === '/api/bitcoin-cycle-history') {
-            sendJson(res, 200, await getCachedBitcoinCycleHistory());
+            sendJson(res, 200, await getCachedBitcoinCycleHistory(url.searchParams.get('fresh') === '1'));
             return;
           }
 
           if (url.pathname === '/api/china-valuation-temperature') {
-            sendJson(res, 200, await getCachedChinaValuationDashboard());
+            sendJson(res, 200, await getCachedChinaValuationDashboard(url.searchParams.get('fresh') === '1'));
             return;
           }
 
           if (url.pathname === '/api/valuation-temperature') {
             const market = String(url.searchParams.get('market') || 'china');
+            const forceFresh = url.searchParams.get('fresh') === '1';
             if (market === 'china') {
-              sendJson(res, 200, await getCachedChinaValuationDashboard());
+              sendJson(res, 200, await getCachedChinaValuationDashboard(forceFresh));
               return;
             }
             if (!['hongkong', 'us', 'japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(market)) {
               sendJson(res, 400, { error: '不支持的股票估值市场' });
               return;
             }
-            sendJson(res, 200, await getCachedRegionalValuationDashboard(market as RegionalValuationMode));
+            sendJson(res, 200, await getCachedRegionalValuationDashboard(market as RegionalValuationMode, forceFresh));
             return;
           }
 

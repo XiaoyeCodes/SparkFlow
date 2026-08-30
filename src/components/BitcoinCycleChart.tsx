@@ -11,6 +11,7 @@ import {
   type Time,
 } from 'lightweight-charts';
 import { Bitcoin, CalendarClock, RefreshCw, Sparkles, TriangleAlert } from 'lucide-react';
+import { loadDailyMarketData } from '../lib/dailyMarketCache';
 
 type BitcoinPricePoint = {
   time: string;
@@ -80,29 +81,36 @@ export function BitcoinCycleChart() {
   const [projectionEnabled, setProjectionEnabled] = useState(false);
 
   useEffect(() => {
-    const controller = new AbortController();
+    let cancelled = false;
     setLoading(true);
     setError('');
-    fetch('/api/bitcoin-cycle-history', { signal: controller.signal })
+    loadDailyMarketData({
+      market: 'crypto',
+      resource: 'bitcoin-cycle',
+      force: reloadKey > 0,
+      loader: () => fetch('/api/bitcoin-cycle-history?fresh=1', { cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.error || `HTTP ${response.status}`);
         }
         return response.json() as Promise<BitcoinCycleHistory>;
-      })
+      }),
+    })
       .then((payload) => {
+        if (cancelled) return;
         setData(payload);
         setHoveredPoint(payload.points[payload.points.length - 1] || null);
       })
       .catch((reason) => {
+        if (cancelled) return;
         if (reason instanceof DOMException && reason.name === 'AbortError') return;
         setError(reason instanceof Error ? reason.message : '比特币历史数据暂时不可用');
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!cancelled) setLoading(false);
       });
-    return () => controller.abort();
+    return () => { cancelled = true; };
   }, [reloadKey]);
 
   const updateHalvingPositions = useCallback(() => {
