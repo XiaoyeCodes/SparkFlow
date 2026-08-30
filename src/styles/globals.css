@@ -66,10 +66,12 @@ button {
 }
 
 .sparkflow-shell-header {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
-  background: rgba(0, 0, 0, 0.74);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(22px) saturate(118%);
+  border-bottom: 1px solid rgba(102, 195, 178, 0.16);
+  background:
+    linear-gradient(180deg, rgba(10, 24, 24, 0.96), rgba(4, 13, 13, 0.97)),
+    rgba(4, 13, 13, 0.95);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22), inset 0 -1px rgba(148, 231, 211, 0.035);
+  backdrop-filter: blur(22px) saturate(124%);
 }
 
 .sparkflow-shell-nav {
