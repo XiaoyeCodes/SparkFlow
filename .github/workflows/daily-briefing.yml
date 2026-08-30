@@ -1,0 +1,30 @@
+name: Refresh daily briefing
+
+on:
+  schedule:
+    # Asia/Shanghai 08:00 and 18:00. GitHub may start scheduled jobs a few minutes late.
+    - cron: '0 0 * * *'
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sparkflow-daily-briefing
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Generate the date-and-slot briefing snapshot
+        env:
+          BRIEFING_URL: ${{ secrets.SPARKFLOW_BRIEFING_URL }}
+          CRON_SECRET: ${{ secrets.DAILY_BRIEF_CRON_SECRET }}
+        run: |
+          test -n "$BRIEFING_URL" || { echo "Missing SPARKFLOW_BRIEFING_URL"; exit 1; }
+          test -n "$CRON_SECRET" || { echo "Missing DAILY_BRIEF_CRON_SECRET"; exit 1; }
+          curl --fail-with-body --retry 3 --retry-delay 20 \
+            --request POST \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "Accept: application/json" \
+            "${BRIEFING_URL%/}/api/daily-brief/refresh"

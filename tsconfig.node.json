@@ -18,6 +18,7 @@
     "src/data/marketCalendars.ts",
     "src/data/chinaProvinceEconomy.ts",
     "src/lib/newsTypes.ts",
+    "src/lib/dailyBriefTypes.ts",
     "server/**/*.ts",
     "server/**/*.d.ts"
   ]

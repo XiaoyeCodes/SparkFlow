@@ -19,6 +19,15 @@ import { CozeReportTaskService } from './server/cozeReportTasks';
 import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, parseSyndication, type NewsSource } from './server/newsFeed';
 import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from './server/newsSubscriptions';
 import { dailyHotPlugin } from './server/dailyhotPlugin';
+import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
+import type {
+  DailyBriefMarket,
+  DailyBriefNews,
+  DailyBriefPosition,
+  DailyBriefSnapshot,
+  DailyBriefSummary,
+  DailyBriefSourceStatus,
+} from './src/lib/dailyBriefTypes';
 
 const rootDir = process.cwd();
 const allWeatherDataDir = path.join(rootDir, 'public', 'allweather', 'data');
@@ -8951,6 +8960,196 @@ function getAiRequestBody(body: any) {
   };
 }
 
+function finiteNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function compactMarket(item: any, fallbackId?: string): DailyBriefMarket {
+  const value = finiteNumber(item?.price ?? item?.value);
+  const display = typeof item?.display === 'string'
+    ? item.display
+    : value === null
+      ? '—'
+      : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: value >= 1000 ? 2 : 4 }).format(value);
+  return {
+    id: String(item?.id || fallbackId || item?.symbol || 'unknown'),
+    name: String(item?.name || item?.label || item?.symbol || '未知市场'),
+    symbol: String(item?.symbol || '').replace(/^\^/, ''),
+    value,
+    display,
+    changePercent: finiteNumber(item?.changePercent ?? item?.change),
+    updatedAt: typeof item?.updatedAt === 'string' ? item.updatedAt : undefined,
+    sourceUrl: typeof item?.sourceUrl === 'string' ? item.sourceUrl : undefined,
+    status: typeof item?.status === 'string' ? item.status : undefined,
+  };
+}
+
+function summarizeRules(markets: DailyBriefMarket[], macro: DailyBriefMarket[], news: DailyBriefNews[], positions: DailyBriefPosition[]): DailyBriefSummary {
+  const changed = markets.filter((item) => item.changePercent !== null);
+  const average = changed.length ? changed.reduce((sum, item) => sum + (item.changePercent || 0), 0) / changed.length : 0;
+  const vix = macro.find((item) => item.id === 'vix');
+  const vixLevel = vix?.value ?? null;
+  const tone: DailyBriefSummary['tone'] = vixLevel !== null && vixLevel >= 28
+    ? 'risk'
+    : average <= -1
+      ? 'cautious'
+      : average >= 1
+        ? 'calm'
+        : 'balanced';
+  const regime = tone === 'risk' ? '风险偏好承压' : tone === 'cautious' ? '市场偏谨慎' : tone === 'calm' ? '风险偏好回暖' : '多空信号交错';
+  const ranked = [...changed].sort((left, right) => Math.abs(right.changePercent || 0) - Math.abs(left.changePercent || 0));
+  const highlights = ranked.slice(0, 3).map((item) => `${item.name}${(item.changePercent || 0) >= 0 ? '上涨' : '下跌'} ${Math.abs(item.changePercent || 0).toFixed(2)}%`);
+  if (news[0]) highlights.push(`高权重新闻：${news[0].title}`);
+  const risks = [
+    vixLevel !== null ? `VIX 当前 ${vixLevel.toFixed(2)}，${vixLevel >= 22 ? '波动风险偏高' : '尚未进入高波动区间'}` : 'VIX 数据暂不可用，避免把缺失值视为低风险',
+    ...ranked.filter((item) => (item.changePercent || 0) < 0).slice(0, 2).map((item) => `${item.name}弱于其他核心市场`),
+  ].slice(0, 3);
+  const watchlist = [
+    '观察美债收益率与美元是否同向走强',
+    '关注中港股开盘后的量价确认，不仅看隔夜叙事',
+    '重大新闻至少用第二个可靠来源交叉验证',
+  ];
+  return {
+    headline: `${regime}，今天先确认价格与新闻是否相互印证。`,
+    regime,
+    tone,
+    highlights: highlights.slice(0, 3),
+    risks,
+    watchlist,
+    portfolioNotes: positions.length
+      ? [`已读取 ${positions.length} 个 IBKR 持仓；优先检查与今日波动最大的市场是否重叠。`]
+      : ['IBKR 暂未连接，本次简报不生成个性化持仓判断。'],
+  };
+}
+
+function normalizeSummary(value: any, fallback: DailyBriefSummary): DailyBriefSummary {
+  const list = (input: unknown, backup: string[]) => Array.isArray(input)
+    ? input.map((item) => String(item).trim()).filter(Boolean).slice(0, 4)
+    : backup;
+  const tone = ['calm', 'balanced', 'cautious', 'risk'].includes(value?.tone) ? value.tone : fallback.tone;
+  return {
+    headline: String(value?.headline || fallback.headline).trim(),
+    regime: String(value?.regime || fallback.regime).trim(),
+    tone,
+    highlights: list(value?.highlights, fallback.highlights),
+    risks: list(value?.risks, fallback.risks),
+    watchlist: list(value?.watchlist, fallback.watchlist),
+    portfolioNotes: list(value?.portfolioNotes, fallback.portfolioNotes),
+  };
+}
+
+async function generateDailyBriefAiSummary(input: {
+  date: string;
+  slot: string;
+  markets: DailyBriefMarket[];
+  macro: DailyBriefMarket[];
+  news: DailyBriefNews[];
+  positions: DailyBriefPosition[];
+  fallback: DailyBriefSummary;
+}) {
+  const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+  const env = loadEnv(mode, rootDir, '');
+  const provider = String(process.env.DAILY_BRIEF_AI_PROVIDER || env.DAILY_BRIEF_AI_PROVIDER || 'openai');
+  const defaults = aiProviderDefaults[provider] || aiProviderDefaults.custom;
+  const apiKey = String(process.env.DAILY_BRIEF_AI_API_KEY || env.DAILY_BRIEF_AI_API_KEY || '').trim();
+  const model = String(process.env.DAILY_BRIEF_AI_MODEL || env.DAILY_BRIEF_AI_MODEL || '').trim();
+  const baseUrl = String(process.env.DAILY_BRIEF_AI_BASE_URL || env.DAILY_BRIEF_AI_BASE_URL || defaults.baseUrl).trim();
+  if (!apiKey || !model || !baseUrl) return null;
+  const prompt = [
+    '你是 SparkFlow 的每日市场简报编辑。只依据下方带时间戳的数据，不预测具体点位，不给出买卖指令，不使用“抄底/逃顶”等措辞。',
+    '输出纯 JSON，不要 Markdown。字段：headline, regime, tone, highlights, risks, watchlist, portfolioNotes。',
+    'tone 只能是 calm、balanced、cautious、risk；其余数组各 1-3 条短句。资料不足时明确说资料不足，绝不能把缺失值当作 0。',
+    JSON.stringify({ date: input.date, slot: input.slot, markets: input.markets, macro: input.macro, news: input.news, positions: input.positions }),
+  ].join('\n\n');
+  const raw = await callAiAnalysis({ provider, baseUrl, protocol: defaults.protocol, apiKey, model, prompt, useProxy: defaults.useProxy });
+  const jsonText = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  return normalizeSummary(JSON.parse(jsonText), input.fallback);
+}
+
+async function buildDailyBriefSnapshot(window: { date: string; slot: 'morning' | 'evening' }): Promise<DailyBriefSnapshot> {
+  const loadIbkrIfConnected = async () => {
+    const status: any = await runIbkrReadOnlyBridge('status');
+    return status?.connected ? runIbkrReadOnlyBridge('snapshot') : status;
+  };
+  const [quotesResult, newsResult, ibkrResult] = await Promise.allSettled([
+    getCachedGlobalMacroFastQuotes(),
+    getNewsFeed(false),
+    loadIbkrIfConnected(),
+  ]);
+  const errors: string[] = [];
+  const sources: DailyBriefSourceStatus[] = [];
+  const quoteData: any = quotesResult.status === 'fulfilled' ? quotesResult.value : null;
+  if (quotesResult.status === 'rejected') errors.push(`市场行情：${quotesResult.reason instanceof Error ? quotesResult.reason.message : String(quotesResult.reason)}`);
+  sources.push({ id: 'market-quotes', label: 'SparkFlow 全球行情聚合', ok: Boolean(quoteData), fetchedAt: quoteData?.generatedAt, detail: quoteData?.coverage?.errors ? JSON.stringify(quoteData.coverage.errors) : undefined });
+
+  const ticker: any[] = Array.isArray(quoteData?.ticker) ? quoteData.ticker : [];
+  const core: any[] = Array.isArray(quoteData?.coreIndices) ? quoteData.coreIndices : [];
+  const commodities: any[] = Array.isArray(quoteData?.commodities) ? quoteData.commodities : [];
+  const macroData: any[] = Array.isArray(quoteData?.macro) ? quoteData.macro : [];
+  const find = (id: string, collections = [ticker, core, commodities, macroData]) => collections.flat().find((item: any) => item?.id === id);
+  const marketIds = ['china', 'hongkong', 'nasdaq', 'sp500', 'vix', 'gold', 'bitcoin'];
+  const markets = marketIds.map((id) => compactMarket(find(id), id)).filter((item) => item.value !== null);
+  const macro = ['vix', 'dxy', 'us10y', 'gold', 'wti', 'bitcoin', 'usd-cny']
+    .map((id) => compactMarket(find(id), id)).filter((item) => item.value !== null);
+
+  const feed: any = newsResult.status === 'fulfilled' ? newsResult.value : null;
+  if (newsResult.status === 'rejected') errors.push(`新闻：${newsResult.reason instanceof Error ? newsResult.reason.message : String(newsResult.reason)}`);
+  const marketNewsPattern = /(股市|股票|债券|收益率|利率|通胀|就业|央行|美联储|经济|金融|市场|财报|能源|原油|黄金|比特币|加密|AI|芯片|关税|汇率|美元|人民币|IPO|并购)/i;
+  const marketNewsItems = (Array.isArray(feed?.items) ? feed.items : [])
+    .filter((item: any) => item?.category === 'finance' || item?.category === 'tech' || marketNewsPattern.test(`${item?.title || ''} ${item?.summary || ''}`))
+    .slice(0, 18);
+  const news: DailyBriefNews[] = marketNewsItems.map((item: any) => ({
+    id: String(item.id), title: String(item.title), source: String(item.source), category: String(item.categoryLabel || item.category || '市场'),
+    publishedAt: item.publishedAt, summary: item.summary ? String(item.summary).slice(0, 240) : undefined,
+    weight: finiteNumber(item.weight) || 0, url: String(item.url),
+  }));
+  const newsSources = Array.isArray(feed?.sources) ? feed.sources : [];
+  const onlineNewsSources = newsSources.filter((item: any) => item.ok).length;
+  sources.push({ id: 'news-feed', label: `新闻聚合（${onlineNewsSources}/${newsSources.length} 来源在线）`, ok: Boolean(feed), fetchedAt: feed?.generatedAt, stale: newsSources.some((item: any) => item.stale) });
+
+  const ibkr: any = ibkrResult.status === 'fulfilled' ? ibkrResult.value : null;
+  const connected = Boolean(ibkr?.connected && ibkr?.ok);
+  const positions: DailyBriefPosition[] = connected && Array.isArray(ibkr?.positions) ? ibkr.positions.map((item: any) => ({
+    symbol: String(item.symbol || item.local_symbol || '—'),
+    name: item.local_symbol ? String(item.local_symbol) : undefined,
+    securityType: item.sec_type ? String(item.sec_type) : undefined,
+    currency: item.currency ? String(item.currency) : undefined,
+    quantity: finiteNumber(item.position),
+    averageCost: finiteNumber(item.avg_cost),
+  })).slice(0, 80) : [];
+  if (ibkrResult.status === 'rejected') errors.push(`IBKR：${ibkrResult.reason instanceof Error ? ibkrResult.reason.message : String(ibkrResult.reason)}`);
+  sources.push({ id: 'ibkr', label: 'IBKR 本机只读 Bridge', ok: connected, fetchedAt: ibkr?.syncedAt || ibkr?.checkedAt, detail: connected ? `${positions.length} 个持仓` : String(ibkr?.detail || '未连接') });
+
+  const fallback = summarizeRules(markets, macro, news, positions);
+  let summary = fallback;
+  let summaryMode: DailyBriefSnapshot['summaryMode'] = 'rules';
+  try {
+    const aiSummary = await generateDailyBriefAiSummary({ date: window.date, slot: window.slot, markets, macro, news: news.slice(0, 12), positions, fallback });
+    if (aiSummary) { summary = aiSummary; summaryMode = 'ai'; }
+  } catch (error) {
+    errors.push(`AI 总结：${error instanceof Error ? error.message : String(error)}`);
+  }
+  const now = new Date().toISOString();
+  return {
+    version: 1,
+    date: window.date,
+    slot: window.slot,
+    generatedAt: now,
+    updatedAt: quoteData?.generatedAt || now,
+    summaryMode,
+    summary,
+    markets,
+    macro,
+    news,
+    portfolio: { connected, syncedAt: ibkr?.syncedAt, positions, detail: connected ? undefined : String(ibkr?.detail || 'IBKR 未连接') },
+    sources,
+    errors,
+  };
+}
+
+const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot });
+
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 3000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -10675,6 +10874,10 @@ function allWeatherApiPlugin() {
   return {
     name: 'sparkflow-allweather-api',
     configureServer(server: ViteDevServer) {
+      const stopDailyBriefScheduler = dailyBriefService.schedule((error) => {
+        console.error('[daily-brief] scheduled generation failed:', error);
+      });
+      server.httpServer?.once('close', stopDailyBriefScheduler);
       // Warm the slow consensus page without delaying the first dashboard response.
       void getPpiMarketContext(false).catch(() => undefined);
       void getNonfarmMarketContext(false).catch(() => undefined);
@@ -10689,6 +10892,37 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/news-feed') {
             sendJson(res, 200, await getNewsFeed(url.searchParams.get('refresh') === '1'));
+            return;
+          }
+
+          if (url.pathname === '/api/daily-brief' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'private, no-cache');
+            sendJson(res, 200, await dailyBriefService.get());
+            return;
+          }
+
+          if (url.pathname === '/api/daily-brief/status' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, {
+              window: getDailyBriefWindow(),
+              latest: await dailyBriefService.latest(),
+            });
+            return;
+          }
+
+          if (url.pathname === '/api/daily-brief/refresh' && req.method === 'POST') {
+            const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+            const env = loadEnv(mode, rootDir, '');
+            const expectedSecret = String(process.env.DAILY_BRIEF_CRON_SECRET || env.DAILY_BRIEF_CRON_SECRET || '').trim();
+            const suppliedSecret = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+            const remoteAddress = req.socket.remoteAddress || '';
+            const isLocal = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remoteAddress);
+            if ((expectedSecret && suppliedSecret !== expectedSecret) || (!expectedSecret && !isLocal)) {
+              sendJson(res, 403, { error: 'forbidden', detail: '定时刷新凭据无效' });
+              return;
+            }
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await dailyBriefService.get(getDailyBriefWindow(), true));
             return;
           }
 
