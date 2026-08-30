@@ -9194,6 +9194,8 @@ const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir,
 const dailyBriefDetailsCache = new Map<'flows' | 'performance', { storedAt: number; data: DailyBriefFlowDetails | DailyBriefPerformanceDetails }>();
 const dailyBriefDetailsInFlight = new Map<'flows' | 'performance', Promise<DailyBriefFlowDetails | DailyBriefPerformanceDetails>>();
 const dailyBriefDetailsTtlMs = 6 * 60 * 60_000;
+const dailyBriefWatchlistCache = { storedAt: 0, data: null as null | { generatedAt: string; items: Array<{ symbol: string; name: string; display: string; changePercent: number | null; updatedAt?: string }> } };
+let dailyBriefWatchlistInFlight: Promise<typeof dailyBriefWatchlistCache.data> | null = null;
 
 function percentChange(latest: number | undefined, previous: number | undefined) {
   return latest !== undefined && previous !== undefined && previous !== 0 ? (latest / previous - 1) * 100 : null;
@@ -9362,6 +9364,29 @@ async function getDailyBriefDetails(kind: 'flows' | 'performance') {
     .finally(() => dailyBriefDetailsInFlight.delete(kind));
   dailyBriefDetailsInFlight.set(kind, task);
   return task;
+}
+
+async function getDailyBriefWatchlist() {
+  if (dailyBriefWatchlistCache.data && Date.now() - dailyBriefWatchlistCache.storedAt < 5 * 60_000) return dailyBriefWatchlistCache.data;
+  if (dailyBriefWatchlistInFlight) return dailyBriefWatchlistInFlight;
+  const configs = [
+    ['AAPL', 'Apple'], ['MSFT', 'Microsoft'], ['AMZN', 'Amazon'], ['GOOGL', 'Alphabet'], ['META', 'Meta'], ['NVDA', 'Nvidia'], ['TSLA', 'Tesla'],
+    ['ETH-USD', 'Ethereum'], ['SOL-USD', 'Solana'],
+  ] as const;
+  dailyBriefWatchlistInFlight = Promise.allSettled(configs.map(async ([symbol, name]) => {
+    const quote = await getYahooMacroQuote(symbol, '1mo');
+    return {
+      symbol, name,
+      display: new Intl.NumberFormat('en-US', { maximumFractionDigits: quote.price >= 1000 ? 2 : 4 }).format(quote.price),
+      changePercent: round(quote.changePercent, 2), updatedAt: quote.updatedAt,
+    };
+  })).then((results) => {
+    const items = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+    const data = { generatedAt: new Date().toISOString(), items };
+    if (items.length) { dailyBriefWatchlistCache.storedAt = Date.now(); dailyBriefWatchlistCache.data = data; }
+    return data;
+  }).finally(() => { dailyBriefWatchlistInFlight = null; });
+  return dailyBriefWatchlistInFlight;
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 3000) {
@@ -11124,6 +11149,12 @@ function allWeatherApiPlugin() {
             res.setHeader('Cache-Control', 'private, max-age=21600, stale-while-revalidate=3600');
             const detailsPayload = await getDailyBriefDetails(kind);
             sendJson(res, 200, detailsPayload);
+            return;
+          }
+
+          if (url.pathname === '/api/daily-brief/watchlist' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'private, max-age=300, stale-while-revalidate=60');
+            sendJson(res, 200, await getDailyBriefWatchlist());
             return;
           }
 
