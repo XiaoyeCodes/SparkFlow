@@ -1,7 +1,8 @@
-import { AlertTriangle, BarChart3, Bitcoin, BriefcaseBusiness, Cpu, Radio, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { AlertTriangle, Bitcoin, Radio } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type {
   DailyBriefChartPoint,
+  DailyBriefAssetGroup,
   DailyBriefEditorialMetric,
   DailyBriefEditorialSnapshot,
   DailyBriefResponse,
@@ -26,10 +27,6 @@ function shanghaiTime(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
-}
-
-function weekday(value?: string) {
-  return value ? new Intl.DateTimeFormat("zh-CN", { weekday: "long", timeZone: "Asia/Shanghai" }).format(new Date(`${value}T12:00:00+08:00`)) : "";
 }
 
 function changeLabel(value: number | null | undefined, digits = 2) {
@@ -84,6 +81,13 @@ function AssetCard({ quote, index }: { quote: DailyBriefUpstreamQuote; index: nu
   </a>;
 }
 
+function AssetGroupPanel({ group }: { group: DailyBriefAssetGroup }) {
+  return <section className={`editorial-asset-group is-${group.id}`}>
+    <header><h3>{group.label}<span>{group.items.filter((item) => item.price !== null).length}/{group.items.length} ONLINE</span></h3></header>
+    <div className="editorial-asset-grid">{group.items.map((quote, index) => <AssetCard quote={quote} index={index} key={quote.symbol} />)}</div>
+  </section>;
+}
+
 function MiniQuoteChart({ quote }: { quote: DailyBriefUpstreamQuote }) {
   const points = (quote.history || []).filter((point) => Number.isFinite(point.value) && point.value > 0);
   if (points.length < 2) return <span className="editorial-stock-chart-empty">3M 同步中</span>;
@@ -135,6 +139,25 @@ function CryptoQuotePill({ quote }: { quote: DailyBriefUpstreamQuote }) {
   </div>;
 }
 
+function Mag7DataPanel({ data }: { data?: DailyBriefEditorialSnapshot }) {
+  return <section className="editorial-market-data-panel is-mag7"><h3>Mag7 数据 <span>DELAYED</span></h3><div className="editorial-index-strip">{(data?.indices || []).map((quote) => <div key={quote.symbol}><span>{quote.name}</span><b className={changeClass(quote.changePercent)}>{changeLabel(quote.changePercent)}</b></div>)}</div>{(data?.stocks || []).map((quote) => <QuotePrice quote={quote} key={quote.symbol} />)}{!data?.stocks.length ? <div className="editorial-empty">美股行情暂不可用</div> : null}</section>;
+}
+
+function CryptoDataPanel({ data, btc }: { data?: DailyBriefEditorialSnapshot; btc?: DailyBriefUpstreamQuote }) {
+  const signalRows = (["top", "bottom"] as const).map((kind) => ({
+    kind,
+    value: data?.signals[kind] ?? null,
+    label: `BTC ${kind === "top" ? "逃顶" : "抄底"}信号`,
+  }));
+  return <section className="editorial-market-data-panel is-crypto"><h3>加密 &amp; BTC 链上数据 <span>LIVE / DAILY</span></h3><div className="editorial-btc-hero"><div><strong>{btc?.display || (btc?.price === null || btc?.price === undefined ? "—" : `$${money.format(btc.price)}`)}</strong><span className={changeClass(btc?.changePercent)}>{changeLabel(btc?.changePercent)} · 24H</span></div><MarketChart series={(data?.marketSeries || []).filter((item) => item.symbol === "BTC")} /></div>
+    {(data?.crypto || []).filter((item) => item.symbol !== "BTC").map((quote) => <CryptoQuotePill quote={quote} key={quote.symbol} />)}
+    <div className="editorial-onchain-table">{data ? <>{signalRows.map(({ kind, label, value }) => <div className={`editorial-onchain-signal is-${kind}`} key={kind} title={data.signals.methodology}><span>{label}</span><b>{signalLabel(value, kind)} · {value === null ? "—" : `${value}/100`}<i className={value === null ? "is-off" : ""} /></b></div>)}{[
+      ["200周均线倍数", data.onchain.wma200Multiple], ["Puell Multiple", data.onchain.puellMultiple], ["资金费率", data.onchain.fundingRate],
+      ["未平仓合约", data.onchain.openInterest], ["市值占比", data.onchain.dominance],
+    ].map(([label, metric]) => { const item = metric as DailyBriefEditorialMetric; return <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><b>{item.display}<i className={item.value === null ? "is-off" : ""} /></b></a>; })}</> : null}</div>
+  </section>;
+}
+
 function TrendBars({ points }: { points: DailyBriefChartPoint[] }) {
   return <div className="editorial-bar-chart" role="img" aria-label="7日加密恐惧贪婪指数走势">
     {points.length ? points.slice(-7).map((point, index, all) => <div className="editorial-bar-column" key={point.time}>
@@ -170,7 +193,7 @@ function Highlight({ text }: { text: string }) {
   const pattern = /(风险|承压|下跌|谨慎|极度恐惧|恐惧|改善|上涨|回暖|机会|贪婪|中性|未触发|观察|等待|暂无数据|\$?[\d,.]+(?:%|x)?)/g;
   return <>{text.split(pattern).filter(Boolean).map((part, index) => {
     const tone = /风险|承压|下跌|谨慎|极度恐惧/.test(part) ? "negative" : /改善|上涨|回暖|机会|未触发/.test(part) ? "positive" : /恐惧|贪婪|观察|等待|\d/.test(part) ? "warning" : "";
-    return tone ? <mark className={`is-${tone}`} key={`${index}-${part}`}>{part}</mark> : <span key={`${index}-${part}`}>{part}</span>;
+    return tone ? <span className={`editorial-highlight is-${tone}`} key={`${index}-${part}`}>{part}</span> : <span key={`${index}-${part}`}>{part}</span>;
   })}</>;
 }
 
@@ -186,9 +209,8 @@ export function DailyBrief() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modelSummary, setModelSummary] = useState<DailyBriefSummary | null>(null);
-  const [modelSummaryState, setModelSummaryState] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
+  const [, setModelSummaryState] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
   const [modelSummaryError, setModelSummaryError] = useState("");
-  const summaryRef = useRef<HTMLElement>(null);
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true);
@@ -254,18 +276,6 @@ export function DailyBrief() {
   }, [snapshot?.generatedAt]);
 
   const summary = modelSummary || snapshot?.summary;
-  const assessment = summary?.assessment;
-  const assessmentAdvice = assessment?.advice || [];
-  const adviceDetail = (labels: string[], fallback = "当前数据不足，等待下一次有效数据更新后再作判断。") =>
-    assessmentAdvice.find((item) => labels.includes(item.label))?.detail || fallback;
-  const strategyAdvice = [
-    { label: "仓位纪律", detail: adviceDetail(["仓位纪律", "仓位管理"]) },
-    { label: "关键风险", detail: adviceDetail(["关键风险"]) },
-    { label: "加密观察", detail: adviceDetail(["加密观察"]) },
-    { label: "潜在机会", detail: adviceDetail(["潜在机会"]) },
-    { label: "下周关注", detail: adviceDetail(["下周关注"], summary?.watchlist?.[0] || "关注下一项高影响事件对美元、美债收益率与核心风险资产的同步传导。") },
-  ];
-  const sp500 = data?.indices.find((item) => item.symbol === "GSPC");
   const btc = data?.crypto.find((item) => item.symbol === "BTC");
   const components = useMemo(() => {
     const order = [
@@ -289,30 +299,37 @@ export function DailyBrief() {
   const alerts = [summary?.headline, ...(snapshot?.news || []).slice(0, 5).map((item) => item.title)].filter(Boolean) as string[];
   const aiLines = [["宏观", summary?.highlights[0]], ["加密", summary?.highlights[1]], ["链上", summary?.highlights[2]], ["策略", summary?.regime]].filter((item): item is string[] => Boolean(item[1]));
   const day1Analysis = snapshot?.day1?.analysis;
+  const assetGroups = data?.assetGroups || [];
+  const leftAssetGroups = assetGroups.filter((group) => group.id !== "crypto").sort((left, right) => (left.id === "technology" ? 0 : 1) - (right.id === "technology" ? 0 : 1));
+  const rightAssetGroups = assetGroups.filter((group) => group.id === "crypto");
 
   return <div className="daily-brief-editorial">
+    {assetGroups.length ? <>
+      <aside className="editorial-side-dock is-left" aria-label="市场数据左侧轨道"><Mag7DataPanel data={data} />{leftAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}</aside>
+      <aside className="editorial-side-dock is-right" aria-label="市场数据右侧轨道">{rightAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}<CryptoDataPanel data={data} btc={btc} /></aside>
+    </> : null}
     <div className="editorial-wrap">
-      <header className="editorial-masthead"><div className="editorial-masthead-inner">
-        <div><div className="editorial-kicker">每日策略 · AI 每日情报</div><h1>每日策略</h1><div className="editorial-issue">{snapshot ? `${snapshot.date} · ${weekday(snapshot.date)} · NO. ${data?.issue || "—"} · 上次同步 ${shanghaiTime(snapshot.updatedAt)}` : "正在同步最新简报"}</div></div>
-        <div className="editorial-masthead-side"><div className="editorial-byline-stats">
-          <div><b>{snapshot?.news.length ?? "—"}</b><span>今日必看</span></div>
-          <div className="is-warning"><b>{data?.sentiment.cryptoFearGreed.display || "—"}</b><span>加密 F&amp;G</span></div>
-          <div><b>{data?.sentiment.stockFearGreed.display || "—"}</b><span>美股 F&amp;G</span></div>
-          <div className={changeClass(sp500?.changePercent)}><b>{changeLabel(sp500?.changePercent)}</b><span>标普500</span></div>
-        </div><div className="editorial-actions">
-          <button type="button" onClick={() => void load(true)} disabled={loading}><RefreshCw size={14} className={loading ? "is-spinning" : ""} />刷新</button>
-          <button className="is-primary" type="button" onClick={() => summaryRef.current?.scrollIntoView({ block: "start" })}><Sparkles size={14} />AI 摘要</button>
-        </div></div>
-      </div></header>
-
       {error ? <div className="editorial-error">{error}</div> : null}
 
-      <section className={`editorial-lead tone-${summary?.tone || "balanced"}`}>
-        <div className="editorial-lead-head"><div><BriefcaseBusiness size={15} /><b>综合评级与行动建议</b></div><span>{modelSummaryState === "loading" ? "AI 生成中" : modelSummaryState === "ready" ? "项目模型" : "规则兜底"}</span></div>
-        <div className="editorial-rating"><BarChart3 size={24} /><strong>{assessment?.rating || "数据不足"}</strong><small>置信度 {assessment?.confidence || "低"} · 综合评分 {assessment?.score ?? "—"}/100 · 数据覆盖 {data?.signals.coverage ?? 0}%</small></div>
-        <p className="editorial-rationale"><Highlight text={assessment?.rationale || summary?.headline || "正在整理今日市场结论。"} /></p>
-        <div className="editorial-advice-list">{strategyAdvice.map((item, index) => <div key={item.label}><i>{index + 1}</i><p><b>{item.label}</b><span>{item.detail}</span></p></div>)}</div>
-        <div className="editorial-lead-foot"><AlertTriangle size={13} /><span>{assessment?.disclaimer || "以上内容仅用于信息整理与风险检查，不构成任何投资建议。"}</span></div>
+      <section className="editorial-lead" aria-label="预留数据区域">
+        <div className="editorial-lead-metrics"><div className="editorial-tile-grid">{data ? [
+          ["美股 F&G", data.sentiment.stockFearGreed], ["VIX 波动率", data.sentiment.vix],
+          ["CNN F&G 变化", fearGreedChangeMetric(data.sentiment.stockFearGreed, "CNN Fear & Greed"), changeClass(data.sentiment.stockFearGreed.change).replace("is-", "")],
+          ["加密 F&G", data.sentiment.cryptoFearGreed], ["MVRV Z-Score", data.sentiment.mvrvZScore],
+          ["Crypto F&G 变化", fearGreedChangeMetric(data.sentiment.cryptoFearGreed, "Crypto Fear & Greed"), changeClass(data.sentiment.cryptoFearGreed.change).replace("is-", "")],
+        ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small>{metricNote(item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div></div>
+        <div className="editorial-intelligence">
+          <div className="editorial-intelligence-head"><div><span>AI MARKET READING</span><b>{day1Analysis ? "Day1 Global 深度解读" : "今日市场要点"}</b></div>{day1Analysis ? <a href={snapshot?.day1?.sourceUrl} target="_blank" rel="noreferrer">查看原始简报</a> : <em>{snapshot?.summaryMode === "ai" ? "项目 AI" : "规则结论"}</em>}</div>
+          {day1Analysis ? <>
+            <div className="editorial-intelligence-grid">
+              <article><header><span>01 / MACRO</span><b>宏观市场</b></header><p><Highlight text={day1Analysis.macroAnalysis} /></p></article>
+              {day1Analysis.cryptoAnalysis ? <article><header><span>02 / CRYPTO</span><b>加密市场</b></header><p><Highlight text={day1Analysis.cryptoAnalysis} /></p></article> : null}
+            </div>
+            {day1Analysis.actionSuggestions ? <article className="editorial-intelligence-action"><header><span>03 / PLAYBOOK</span><b>行动建议</b></header><p><Highlight text={day1Analysis.actionSuggestions} /></p></article> : null}
+          </> : <div className="editorial-intelligence-list">{aiLines.map(([label, text], index) => <article key={label}><span>{String(index + 1).padStart(2, "0")}</span><div><b>{label}</b><p><Highlight text={text} /></p></div></article>)}</div>}
+          <div className="editorial-intelligence-foot"><span>{day1Analysis ? "新闻与 AI 摘要 · Day1 Global" : `来源 · ${snapshot?.sources.filter((item) => item.ok).length || 0} 组专业接口`}</span><span>生成 · {shanghaiTime(day1Analysis?.generatedAt || snapshot?.generatedAt)}</span></div>
+        </div>
+        <div className="editorial-lead-foot"><AlertTriangle size={13} /><span>以上内容仅用于信息整理与风险检查，不构成任何投资建议。</span></div>
         {modelSummaryError ? <div className="editorial-model-note">{modelSummaryError}</div> : null}
         <div className="editorial-chip-row">{(data?.events || []).map((event) => <a href={event.url} target="_blank" rel="noreferrer" key={event.id}><b>{event.date.slice(5).replace("-", "/")}</b>{event.title}</a>)}</div>
       </section>
@@ -336,44 +353,12 @@ export function DailyBrief() {
           <div className="editorial-chart-wrap"><div><h3>MAG7 + BTC 对数股价走势 · 30D</h3><span>BTC {btc?.price === null || btc?.price === undefined ? "—" : `$${money.format(btc.price)}`}</span></div><MarketChart series={data?.marketSeries || []} /></div>
         </section>
 
-        <section ref={summaryRef}><div className="editorial-section-head"><h2>AI 摘要</h2><small>{day1Analysis ? "DAY1 GLOBAL · EDITORIAL AI" : `DAILY BRIEF · ${snapshot?.summaryMode === "ai" ? "AI 生成" : "规则摘要"}`}</small></div>
-          {day1Analysis ? <div className="editorial-day1-brief">
-            <div className="editorial-day1-head"><div><span>DAY1 GLOBAL</span><b>编辑 AI 每日摘要</b></div><a href={snapshot?.day1?.sourceUrl} target="_blank" rel="noreferrer">查看原始简报</a></div>
-            <div className="editorial-day1-grid">
-              <article><span>宏观市场</span><p><Highlight text={day1Analysis.macroAnalysis} /></p></article>
-              {day1Analysis.cryptoAnalysis ? <article><span>加密市场</span><p><Highlight text={day1Analysis.cryptoAnalysis} /></p></article> : null}
-            </div>
-            {day1Analysis.actionSuggestions ? <div className="editorial-day1-actions"><span>行动建议</span><p><Highlight text={day1Analysis.actionSuggestions} /></p></div> : null}
-          </div> : null}
-          <div className="editorial-ai-lines">{aiLines.map(([label, text]) => <div key={label}><span>{label}</span><p><Highlight text={text} /></p></div>)}</div>
-          <div className="editorial-ai-footnote"><span>{day1Analysis ? "新闻与 AI 摘要 · Day1 Global" : `来源 · ${snapshot?.sources.filter((item) => item.ok).length || 0} 组专业接口`}</span><span>生成 · {shanghaiTime(day1Analysis?.generatedAt || snapshot?.generatedAt)}</span></div>
-        </section>
-
         <section className="editorial-assets-section"><div className="editorial-section-head"><h2>跨资产数据矩阵</h2><small>YAHOO FINANCE · BINANCE · COINGECKO · COIN METRICS</small></div>
-          <div className="editorial-asset-groups">{(data?.assetGroups || []).map((group) => {
-            const GroupIcon = group.id === "defensive" ? ShieldCheck : group.id === "technology" ? Cpu : Bitcoin;
-            return <section className={`editorial-asset-group is-${group.id}`} key={group.id}>
-              <header><div className="editorial-asset-group-title"><i><GroupIcon size={15} /></i><div><span>{group.eyebrow}</span><h3>{group.label}</h3></div></div><p>{group.description}</p><em>{group.items.filter((item) => item.price !== null).length}/{group.items.length} ONLINE</em></header>
-              <div className="editorial-asset-grid">{group.items.map((quote, index) => <AssetCard quote={quote} index={index} key={quote.symbol} />)}</div>
-            </section>;
-          })}{!data?.assetGroups?.length ? <div className="editorial-assets-loading"><Radio size={17} />正在建立跨资产数据链路…</div> : null}</div>
+          <div className="editorial-asset-groups">{assetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}{!assetGroups.length ? <div className="editorial-assets-loading"><Radio size={17} />正在建立跨资产数据链路…</div> : null}</div>
 
-          <div className="editorial-chain-console"><header><div><Radio size={14} /><span>BTC NETWORK TELEMETRY</span></div><em>DAILY SIGNAL LAYER</em></header><div>{data ? [
-            ["SOPR", data.onchain.sopr], ["LTH-SOPR", data.onchain.lthSopr], ["200周均线倍数", data.onchain.wma200Multiple], ["Puell Multiple", data.onchain.puellMultiple],
-            ["资金费率", data.onchain.fundingRate], ["未平仓合约", data.onchain.openInterest], ["市值占比", data.onchain.dominance],
-          ].map(([label, metric]) => { const item = metric as DailyBriefEditorialMetric; return <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><b>{item.display}</b><i className={item.value === null ? "is-off" : ""} /></a>; }) : null}</div></div>
         </section>
 
-        <section className="editorial-original-market-section"><div className="editorial-section-head"><h2>Mag7 &amp; 加密数据</h2><small>YAHOO FINANCE · BINANCE · COIN METRICS · GLASSNODE</small></div><div className="editorial-table-pair">
-          <div><h3>Mag7 数据 <span>DELAYED</span></h3><div className="editorial-index-strip">{(data?.indices || []).map((quote) => <div key={quote.symbol}><span>{quote.name}</span><b className={changeClass(quote.changePercent)}>{changeLabel(quote.changePercent)}</b></div>)}</div>{(data?.stocks || []).map((quote) => <QuotePrice quote={quote} key={quote.symbol} />)}{!data?.stocks.length ? <div className="editorial-empty">美股行情暂不可用</div> : null}</div>
-          <div><h3>加密 &amp; BTC 链上数据 <span>LIVE / DAILY</span></h3><div className="editorial-btc-hero"><div><strong>{btc?.display || (btc?.price === null || btc?.price === undefined ? "—" : `$${money.format(btc.price)}`)}</strong><span className={changeClass(btc?.changePercent)}>{changeLabel(btc?.changePercent)} · 24H</span></div><MarketChart series={(data?.marketSeries || []).filter((item) => item.symbol === "BTC")} /></div>
-            {(data?.crypto || []).filter((item) => item.symbol !== "BTC").map((quote) => <CryptoQuotePill quote={quote} key={quote.symbol} />)}
-            <div className="editorial-onchain-table"><h4>BTC 抄底/逃顶评分系统</h4>{data ? [
-              ["SOPR", data.onchain.sopr], ["LTH-SOPR", data.onchain.lthSopr], ["200周均线倍数", data.onchain.wma200Multiple], ["Puell Multiple", data.onchain.puellMultiple],
-              ["资金费率", data.onchain.fundingRate], ["未平仓合约", data.onchain.openInterest], ["市值占比", data.onchain.dominance],
-            ].map(([label, metric]) => { const item = metric as DailyBriefEditorialMetric; return <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><b>{item.display}<i className={item.value === null ? "is-off" : ""} /></b></a>; }) : null}</div>
-          </div>
-        </div></section>
+        <section className="editorial-original-market-section"><div className="editorial-section-head"><h2>Mag7 &amp; 加密数据</h2><small>YAHOO FINANCE · BINANCE · COIN METRICS · GLASSNODE</small></div><div className="editorial-table-pair"><Mag7DataPanel data={data} /><CryptoDataPanel data={data} btc={btc} /></div></section>
       </main>
 
       <aside className="editorial-rail"><section><div className="editorial-rail-head"><h3>{day1Analysis ? "Day1 今日必看" : "今日必看"} {snapshot?.news.length || 0} 条</h3></div>{(snapshot?.news || []).map((item) => <a className="editorial-news-item" href={item.url} target="_blank" rel="noreferrer" key={item.id}><div><i className={item.weight >= 80 ? "is-high" : item.weight >= 60 ? "is-mid" : "is-low"} /><time>{shanghaiTime(item.publishedAt)}</time><span>{item.category}</span></div><strong>{item.title}</strong></a>)}{loading && !snapshot?.news.length ? <div className="editorial-empty">正在聚合专业新闻源</div> : null}</section>
