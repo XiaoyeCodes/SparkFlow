@@ -16,7 +16,7 @@ function snapshot(window, index) {
         ? `${window.date}T04:00:00.000Z`
         : `${window.date}T09:00:00.000Z`;
   return {
-    version: 2,
+    version: 10,
     date: window.date,
     slot: window.slot,
     generatedAt,
@@ -40,33 +40,25 @@ function snapshot(window, index) {
   };
 }
 
-assert.deepEqual(getDailyBriefWindow(new Date("2026-08-29T23:59:59Z")), {
+assert.deepEqual(getDailyBriefWindow(new Date("2026-08-30T00:59:59Z")), {
   date: "2026-08-29",
-  slot: "evening",
+  slot: "morning",
 });
-assert.deepEqual(getDailyBriefWindow(new Date("2026-08-30T00:00:00Z")), {
+assert.deepEqual(getDailyBriefWindow(new Date("2026-08-30T01:00:00Z")), {
   date: "2026-08-30",
   slot: "morning",
 });
-assert.deepEqual(getDailyBriefWindow(new Date("2026-08-30T04:00:00Z")), {
-  date: "2026-08-30",
-  slot: "midday",
-});
 assert.deepEqual(getDailyBriefWindow(new Date("2026-08-30T09:00:00Z")), {
   date: "2026-08-30",
-  slot: "evening",
+  slot: "morning",
 });
 assert.equal(
   getNextDailyBriefRun(new Date("2026-08-30T00:01:00Z")).toISOString(),
-  "2026-08-30T04:00:00.000Z",
+  "2026-08-30T01:00:00.000Z",
 );
 assert.equal(
-  getNextDailyBriefRun(new Date("2026-08-30T04:01:00Z")).toISOString(),
-  "2026-08-30T09:00:00.000Z",
-);
-assert.equal(
-  getNextDailyBriefRun(new Date("2026-08-30T09:01:00Z")).toISOString(),
-  "2026-08-31T00:00:00.000Z",
+  getNextDailyBriefRun(new Date("2026-08-30T01:01:00Z")).toISOString(),
+  "2026-08-31T01:00:00.000Z",
 );
 
 const root = await mkdtemp(path.join(tmpdir(), "sparkflow-daily-brief-"));

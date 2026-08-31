@@ -98,6 +98,85 @@ export type DailyBriefPerformanceDetails = {
   errors: string[];
 };
 
+export type DailyBriefVisualSeries = {
+  symbol: "MAG7" | "BTC";
+  name: string;
+  color: string;
+  changePercent: number | null;
+  points: DailyBriefChartPoint[];
+};
+
+export type DailyBriefEditorialMetric = {
+  value: number | null;
+  display: string;
+  label?: string;
+  change?: number | null;
+  note?: string;
+  status: "live" | "delayed" | "unavailable";
+  source: string;
+  sourceUrl: string;
+};
+
+export type DailyBriefEditorialComponent = {
+  id: string;
+  label: string;
+  value: number | null;
+  color: string;
+};
+
+export type DailyBriefEditorialEvent = {
+  id: string;
+  date: string;
+  time: string;
+  title: string;
+  source: string;
+  url: string;
+};
+
+export type DailyBriefAssetGroup = {
+  id: "defensive" | "technology" | "crypto";
+  label: string;
+  eyebrow: string;
+  description: string;
+  items: DailyBriefUpstreamQuote[];
+};
+
+export type DailyBriefEditorialSnapshot = {
+  generatedAt: string;
+  issue: number;
+  sentiment: {
+    cryptoFearGreed: DailyBriefEditorialMetric;
+    stockFearGreed: DailyBriefEditorialMetric;
+    vix: DailyBriefEditorialMetric;
+    mvrvZScore: DailyBriefEditorialMetric;
+    lthSupplyRatio: DailyBriefEditorialMetric;
+    sopr: DailyBriefEditorialMetric;
+    stockComponents: DailyBriefEditorialComponent[];
+    cryptoHistory: DailyBriefChartPoint[];
+  };
+  signals: {
+    top: number | null;
+    bottom: number | null;
+    coverage: number;
+    methodology: string;
+  };
+  indices: DailyBriefUpstreamQuote[];
+  stocks: DailyBriefUpstreamQuote[];
+  crypto: DailyBriefUpstreamQuote[];
+  assetGroups: DailyBriefAssetGroup[];
+  onchain: {
+    sopr: DailyBriefEditorialMetric;
+    lthSopr: DailyBriefEditorialMetric;
+    wma200Multiple: DailyBriefEditorialMetric;
+    puellMultiple: DailyBriefEditorialMetric;
+    fundingRate: DailyBriefEditorialMetric;
+    openInterest: DailyBriefEditorialMetric;
+    dominance: DailyBriefEditorialMetric;
+  };
+  marketSeries: DailyBriefVisualSeries[];
+  events: DailyBriefEditorialEvent[];
+};
+
 export type DailyBriefSourceStatus = {
   id: string;
   label: string;
@@ -113,38 +192,14 @@ export type DailyBriefUpstreamQuote = {
   price: number | null;
   changePercent: number | null;
   marketState?: string;
+  display?: string;
+  sourceUrl?: string;
+  history?: DailyBriefChartPoint[];
 };
 
 export type DailyBriefDay1Snapshot = {
   fetchedAt: string;
   sourceUrl: string;
-  stocks: DailyBriefUpstreamQuote[];
-  crypto: DailyBriefUpstreamQuote[];
-  indices: Record<string, DailyBriefUpstreamQuote>;
-  sentiment: {
-    cryptoFearGreed: number | null;
-    cryptoFearGreedLabel?: string;
-    cryptoFearGreedPrev: number | null;
-    cryptoFearGreedChange: number | null;
-    cnnFearGreed: number | null;
-    cnnFearGreedLabel?: string;
-  };
-  btcMetrics: Record<string, number | null | number[]>;
-  rating: {
-    totalScore: number | null;
-    dailyScore: number | null;
-    weeklyScore: number | null;
-    level?: string;
-    suggestion?: string;
-    indicators: Array<{
-      name: string;
-      value: number | null;
-      score: number | null;
-      weight: number | null;
-      group?: string;
-      category?: string;
-    }>;
-  };
   analysis: {
     macroAnalysis: string;
     cryptoAnalysis: string;
@@ -163,7 +218,7 @@ export type DailyBriefDay1Snapshot = {
 };
 
 export type DailyBriefSnapshot = {
-  version: 2;
+  version: 10;
   date: string;
   slot: DailyBriefSlot;
   generatedAt: string;
@@ -181,6 +236,7 @@ export type DailyBriefSnapshot = {
   };
   sources: DailyBriefSourceStatus[];
   errors: string[];
+  editorial?: DailyBriefEditorialSnapshot;
   day1?: DailyBriefDay1Snapshot;
 };
 

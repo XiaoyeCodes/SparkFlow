@@ -21,8 +21,10 @@ import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from '
 import { dailyHotPlugin } from './server/dailyhotPlugin';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
 import type {
-  DailyBriefFlowDetails,
+  DailyBriefEditorialMetric,
+  DailyBriefEditorialSnapshot,
   DailyBriefDay1Snapshot,
+  DailyBriefFlowDetails,
   DailyBriefMarket,
   DailyBriefNews,
   DailyBriefPerformanceDetails,
@@ -31,6 +33,7 @@ import type {
   DailyBriefSnapshot,
   DailyBriefSummary,
   DailyBriefSourceStatus,
+  DailyBriefUpstreamQuote,
 } from './src/lib/dailyBriefTypes';
 
 const rootDir = process.cwd();
@@ -9033,11 +9036,11 @@ function summarizeRules(markets: DailyBriefMarket[], macro: DailyBriefMarket[], 
       confidence: changed.length >= 4 && news.length >= 3 ? '中' : '低',
       rationale: `${regime}；评级由核心市场广度、VIX 与当日高权重新闻共同归纳。`,
       advice: [
-        { label: '仓位管理', detail: positions.length ? '先检查现有持仓与今日波动最大的资产是否重叠，避免因同一风险因子形成隐性集中。' : '未连接持仓，因此只给出市场层面的风险提示，不生成个性化仓位比例。' },
+        { label: '仓位纪律', detail: positions.length ? '先检查现有持仓与今日波动最大的资产是否重叠，避免因同一风险因子形成隐性集中。' : '未连接持仓，因此只给出市场层面的风险提示，不生成个性化仓位比例。' },
         { label: '关键风险', detail: risks[0] || '波动率数据不足，暂不把安静行情视为低风险。' },
         { label: '加密观察', detail: '结合 BTC 价格、现货 ETF 资金流与链上活跃度确认方向，单一指标不构成结论。' },
-        { label: '黄金与防守资产', detail: '观察黄金、美元与美债收益率是否同步走强，以判断防守需求和利率预期。' },
         { label: '潜在机会', detail: '只跟踪价格与基本面信息相互印证的资产，避免因单日涨跌追逐叙事。' },
+        { label: '下周关注', detail: watchlist[0] || '关注下一个高影响事件及其对美元、美债收益率和核心风险资产的同步传导。' },
       ],
       disclaimer: '以上内容仅用于信息整理与风险检查，不构成任何投资建议。',
     },
@@ -9052,13 +9055,18 @@ function normalizeSummary(value: any, fallback: DailyBriefSummary): DailyBriefSu
   const allowedRatings = ['积极', '中性偏积极', '中性', '中性偏谨慎', '谨慎'];
   const assessmentValue = value?.assessment;
   const assessmentFallback = fallback.assessment;
-  const advice = Array.isArray(assessmentValue?.advice)
+  const rawAdvice = Array.isArray(assessmentValue?.advice)
     ? assessmentValue.advice.flatMap((item: any) => {
-        const label = String(item?.label || '').trim();
         const detail = String(item?.detail || '').trim();
-        return label && detail ? [{ label, detail }] : [];
-      }).slice(0, 6)
-    : assessmentFallback?.advice || [];
+        return detail ? [detail] : [];
+      }).slice(0, 5)
+    : [];
+  const adviceLabels = ['仓位纪律', '关键风险', '加密观察', '潜在机会', '下周关注'];
+  const fallbackAdvice = assessmentFallback?.advice || [];
+  const advice = adviceLabels.map((label, index) => ({
+    label,
+    detail: rawAdvice[index] || fallbackAdvice[index]?.detail || '当前数据不足，等待下一次有效数据更新后再作判断。',
+  }));
   return {
     headline: String(value?.headline || fallback.headline).trim(),
     regime: String(value?.regime || fallback.regime).trim(),
@@ -9086,100 +9094,564 @@ async function generateDailyBriefAiSummary(input: {
   news: DailyBriefNews[];
   positions: DailyBriefPosition[];
   fallback: DailyBriefSummary;
-}) {
+  context?: unknown;
+}, configuredAi?: ReturnType<typeof getAiRequestBody>) {
   const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
   const env = loadEnv(mode, rootDir, '');
-  const provider = String(process.env.DAILY_BRIEF_AI_PROVIDER || env.DAILY_BRIEF_AI_PROVIDER || 'openai');
+  const provider = configuredAi?.provider || String(process.env.DAILY_BRIEF_AI_PROVIDER || env.DAILY_BRIEF_AI_PROVIDER || 'openai');
   const defaults = aiProviderDefaults[provider] || aiProviderDefaults.custom;
-  const apiKey = String(process.env.DAILY_BRIEF_AI_API_KEY || env.DAILY_BRIEF_AI_API_KEY || '').trim();
-  const model = String(process.env.DAILY_BRIEF_AI_MODEL || env.DAILY_BRIEF_AI_MODEL || '').trim();
-  const baseUrl = String(process.env.DAILY_BRIEF_AI_BASE_URL || env.DAILY_BRIEF_AI_BASE_URL || defaults.baseUrl).trim();
+  const apiKey = String(configuredAi?.apiKey || process.env.DAILY_BRIEF_AI_API_KEY || env.DAILY_BRIEF_AI_API_KEY || '').trim();
+  const model = String(configuredAi?.model || process.env.DAILY_BRIEF_AI_MODEL || env.DAILY_BRIEF_AI_MODEL || '').trim();
+  const baseUrl = String(configuredAi?.baseUrl || process.env.DAILY_BRIEF_AI_BASE_URL || env.DAILY_BRIEF_AI_BASE_URL || defaults.baseUrl).trim();
   if (!apiKey || !model || !baseUrl) return null;
   const prompt = [
-    '你是 SparkFlow 的每日市场简报编辑。只依据下方带时间戳的数据做证据归纳，不预测具体点位，不给出买卖指令，不使用“抄底/逃顶”等诱导性措辞。',
-    '结论风格要像投资委员会晨会：先给一个克制的综合评级，再说明证据、风险与需要观察的变量。区分市场事实和持仓相关建议；没有持仓时不得假装给出个性化仓位。',
+    '你是 SparkFlow 的机构级跨资产每日策略编辑。只依据下方带时间戳的数据生成一份高信息密度的中文结论，不预测具体点位，不给出短线买卖指令，不编造数据。',
+    '结论风格参考投资委员会晨会：先给明确但克制的综合评级与置信度，再给能直接执行的观察框架。必须引用输入中的真实数字、标的或事件，避免“请确认价格与新闻相互印证”一类空泛套话。',
+    'assessment.advice 必须严格输出 5 项且顺序固定：仓位纪律、关键风险、加密观察、潜在机会、下周关注。每项 detail 为 35-90 个中文字符，至少前三项应引用一个输入中的数值或具体资产。没有持仓时只讨论组合纪律，不得声称已知用户仓位。',
     '输出纯 JSON，不要 Markdown。顶层字段：headline, regime, tone, highlights, risks, watchlist, portfolioNotes, assessment。',
     'assessment 字段必须包含：rating, score, confidence, rationale, advice, disclaimer。rating 只能是“积极”“中性偏积极”“中性”“中性偏谨慎”“谨慎”；score 为 0-100；confidence 只能是“低”“中”“高”。',
-    'assessment.advice 为对象数组，每项包含 label 和 detail，固定覆盖：仓位管理、关键风险、加密观察、黄金与防守资产、潜在机会。每条尽量引用输入中的指标、标的或新闻事实；证据不足时直接说明。',
-    'tone 只能是 calm、balanced、cautious、risk；highlights、risks、watchlist、portfolioNotes 各 1-3 条短句。资料不足时明确说资料不足，绝不能把缺失值当作 0。disclaimer 必须说明不构成投资建议。',
-    JSON.stringify({ date: input.date, slot: input.slot, markets: input.markets, macro: input.macro, news: input.news, positions: input.positions }),
+    'headline 用 45-90 个中文字符总结风险偏好、最重要的跨资产信号与策略态度；rationale 用 60-140 个中文字符解释评级依据。tone 只能是 calm、balanced、cautious、risk；highlights、risks、watchlist、portfolioNotes 各 1-3 条短句。资料不足时明确说资料不足，绝不能把缺失值当作 0。disclaimer 必须说明不构成投资建议。',
+    JSON.stringify({ date: input.date, slot: input.slot, markets: input.markets, macro: input.macro, news: input.news.slice(0, 8), positions: input.positions, context: input.context }),
   ].join('\n\n');
-  const raw = await callAiAnalysis({ provider, baseUrl, protocol: defaults.protocol, apiKey, model, prompt, useProxy: defaults.useProxy });
+  const raw = await callAiAnalysis({
+    provider,
+    baseUrl,
+    protocol: configuredAi?.protocol || defaults.protocol,
+    apiKey,
+    model,
+    prompt,
+    useProxy: configuredAi?.useProxy ?? defaults.useProxy,
+  });
   const jsonText = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   return normalizeSummary(JSON.parse(jsonText), input.fallback);
 }
 
-const day1BriefBaseUrl = 'https://brief.day1global.xyz';
+const editorialStockConfigs = [
+  ['NVDA', '英伟达'], ['AAPL', '苹果'], ['MSFT', '微软'], ['GOOGL', '谷歌'],
+  ['AMZN', '亚马逊'], ['META', 'Meta'], ['TSLA', '特斯拉'],
+] as const;
+const editorialIndexConfigs = [
+  ['^NDX', '纳斯达克100'], ['^SOX', '费城半导体'], ['^GSPC', '标普500'],
+] as const;
+const editorialAssetYahooConfigs = [
+  { group: 'defensive', yahooSymbol: '^TNX', symbol: 'US10Y', name: '十年期美债' },
+  { group: 'defensive', yahooSymbol: 'GC=F', symbol: 'GOLD', name: '黄金' },
+  { group: 'defensive', yahooSymbol: 'XLP', symbol: 'XLP', name: '必需消费 ETF' },
+  { group: 'defensive', yahooSymbol: 'SPY', symbol: 'SPY', name: '标普 500 ETF' },
+  { group: 'defensive', yahooSymbol: 'BRK-B', symbol: 'BRK.B', name: '伯克希尔 B' },
+  { group: 'technology', yahooSymbol: 'QQQ', symbol: 'QQQ', name: '纳指 100 ETF' },
+  { group: 'technology', yahooSymbol: 'AIQ', symbol: 'AIQ', name: 'AI 科技 ETF' },
+  { group: 'technology', yahooSymbol: 'GEV', symbol: 'GEV', name: 'GE Vernova' },
+  { group: 'technology', yahooSymbol: 'SMH', symbol: 'SMH', name: '半导体 ETF' },
+  { group: 'technology', yahooSymbol: 'TSM', symbol: 'TSM', name: '台积电 ADR' },
+  { group: 'technology', yahooSymbol: 'ASML', symbol: 'ASML', name: '阿斯麦' },
+  { group: 'technology', yahooSymbol: 'AVGO', symbol: 'AVGO', name: '博通' },
+  { group: 'crypto', yahooSymbol: 'MSTR', symbol: 'MSTR', name: 'Strategy' },
+] as const;
+const editorialMetricColors = ['#8fd0ac', '#8891c9', '#cf9a54', '#c2707c', '#9c8bc4', '#72a0bd', '#b7a46a'];
 
-function day1Number(value: unknown) { return finiteNumber(value); }
-
-function day1Quote(symbol: string, name: string, input: any) {
-  return { symbol, name, price: day1Number(input?.price), changePercent: day1Number(input?.changePercent), marketState: typeof input?.marketState === 'string' ? input.marketState : undefined };
+function editorialAssetDisplay(symbol: string, price: number | null) {
+  if (price === null) return '—';
+  if (symbol === 'US10Y') return `${price.toFixed(3)}%`;
+  const digits = price >= 1_000 ? 2 : price >= 10 ? 2 : 4;
+  return `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: digits }).format(price)}`;
 }
 
-function day1Sentence(input: unknown, fallback: string) {
-  const value = String(input || '').trim();
-  return value.split(/(?<=[。！？.!?])\s*/)[0] || fallback;
+function editorialMetric(
+  value: number | null,
+  display: string,
+  source: string,
+  sourceUrl: string,
+  options: Partial<DailyBriefEditorialMetric> = {},
+): DailyBriefEditorialMetric {
+  return { value, display, source, sourceUrl, status: value === null ? 'unavailable' : 'live', ...options };
 }
 
-function day1Advice(input: unknown) {
-  return String(input || '').split('\n').flatMap((line) => {
-    const match = line.trim().match(/^•\s*\*\*([^*]+)\*\*[：:]\s*(.+)$/);
-    return match ? [{ label: match[1].trim(), detail: match[2].trim() }] : [];
-  }).slice(0, 6);
+function unavailableEditorialMetric(label: string, source: string, sourceUrl: string, note: string) {
+  return editorialMetric(null, '暂无数据', source, sourceUrl, { label, note, status: 'unavailable' });
 }
 
-function day1AssessmentRating(level: unknown) {
-  const value = String(level || '');
-  if (/极度恐慌|偏恐慌/.test(value)) return '中性偏谨慎' as const;
-  if (/贪婪/.test(value)) return '中性偏积极' as const;
-  return '中性' as const;
+async function fetchEditorialCryptoFearGreed() {
+  const sourceUrl = 'https://api.alternative.me/fng/?limit=7';
+  const payload = JSON.parse(await fetchRoutedText(sourceUrl, 'direct', 12_000, 'application/json')) as Record<string, any>;
+  const rows = Array.isArray(payload?.data) ? payload.data as Array<Record<string, unknown>> : [];
+  const history = rows.flatMap((row) => {
+    const value = finiteNumber(row.value);
+    const timestamp = finiteNumber(row.timestamp);
+    return value !== null && timestamp !== null ? [{ time: new Date(timestamp * 1000).toISOString().slice(0, 10), value }] : [];
+  }).reverse();
+  const current = rows[0];
+  const value = finiteNumber(current?.value);
+  const previous = finiteNumber(rows[1]?.value);
+  if (value === null) throw new Error('Alternative.me 未返回加密恐惧贪婪指数');
+  return {
+    metric: editorialMetric(value, Math.round(value).toString(), 'Alternative.me', 'https://alternative.me/crypto/fear-and-greed-index/', {
+      label: String(current?.value_classification || ''), change: previous === null ? null : value - previous,
+    }),
+    history,
+  };
+}
+
+async function fetchEditorialStockFearGreed() {
+  const sourceUrl = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
+  const payload = JSON.parse(await fetchFastMarketText(sourceUrl, 15_000)) as Record<string, any>;
+  const current = payload?.fear_and_greed;
+  const value = finiteNumber(current?.score);
+  const previous = finiteNumber(current?.previous_close);
+  if (value === null) throw new Error('CNN 未返回美股恐惧贪婪指数');
+  const componentDefs = [
+    ['market_momentum_sp500', '价格动能'], ['stock_price_strength', '价格强度'],
+    ['stock_price_breadth', '市场宽度'], ['put_call_options', '期权比率'],
+    ['market_volatility_vix', '波动率 VIX'], ['safe_haven_demand', '避险需求'],
+    ['junk_bond_demand', '垃圾债需求'],
+  ] as const;
+  const components = componentDefs.map(([id, label], index) => {
+    const entry = payload?.[id];
+    const latest = Array.isArray(entry?.data) ? entry.data.at(-1) : undefined;
+    return { id, label, value: finiteNumber(entry?.score ?? latest?.y ?? latest?.value), color: editorialMetricColors[index] };
+  });
+  const historyRows = Array.isArray(payload?.fear_and_greed_historical?.data) ? payload.fear_and_greed_historical.data as Array<Record<string, unknown>> : [];
+  const history = historyRows.flatMap((row) => {
+    const timestamp = finiteNumber(row.x);
+    const point = finiteNumber(row.y);
+    return timestamp !== null && point !== null ? [{ time: new Date(timestamp).toISOString().slice(0, 10), value: point }] : [];
+  }).slice(-7);
+  return {
+    metric: editorialMetric(value, Math.round(value).toString(), 'CNN Markets', 'https://www.cnn.com/markets/fear-and-greed', {
+      label: cnnFearGreedRating(current?.rating, value), change: previous === null ? null : value - previous,
+    }),
+    components,
+    history,
+  };
+}
+
+async function fetchEditorialYahooData() {
+  const configs = [...editorialIndexConfigs, ...editorialStockConfigs] as ReadonlyArray<readonly [string, string]>;
+  const [results, assetResults] = await Promise.all([
+    Promise.allSettled(configs.map(async ([symbol, name]) => ({ symbol, name, quote: await getYahooMacroQuote(symbol, '3mo') }))),
+    Promise.allSettled(editorialAssetYahooConfigs.map(async (config) => ({
+      symbol: config.yahooSymbol,
+      quote: await getYahooMacroQuote(config.yahooSymbol, '3mo'),
+    }))),
+  ]);
+  const assetQuoteMap = new Map(assetResults.flatMap((result) => result.status === 'fulfilled'
+    ? [[result.value.symbol, result.value.quote] as const]
+    : []));
+  const errors: string[] = [];
+  const usable = results.flatMap((result, index) => {
+    if (result.status === 'rejected') {
+      errors.push(`${configs[index][0]}：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+      return [];
+    }
+    return [result.value];
+  });
+  const compact = ({ symbol, name, quote }: typeof usable[number]) => ({
+    symbol: symbol.replace(/^\^/, ''), name, price: finiteNumber(quote.price), changePercent: finiteNumber(quote.changePercent), marketState: 'DELAYED',
+    sourceUrl: quote.sourceUrl,
+    history: quote.history.slice(-63),
+  });
+  const indices = usable.filter((item) => editorialIndexConfigs.some(([symbol]) => symbol === item.symbol)).map(compact);
+  const stocks = usable.filter((item) => editorialStockConfigs.some(([symbol]) => symbol === item.symbol)).map(compact);
+  const stockHistories = usable.filter((item) => editorialStockConfigs.some(([symbol]) => symbol === item.symbol)).map((item) => item.quote.history.slice(-31));
+  const dates = [...new Set(stockHistories.flatMap((history) => history.map((point) => point.time.slice(0, 10))))].sort();
+  const mag7Points = dates.flatMap((time) => {
+    const normalized = stockHistories.flatMap((history) => {
+      const base = history[0]?.value;
+      const current = history.find((point) => point.time.slice(0, 10) === time)?.value;
+      return base && current ? [current / base * 100] : [];
+    });
+    return normalized.length >= 4 ? [{ time, value: round(normalized.reduce((sum, point) => sum + point, 0) / normalized.length, 3) }] : [];
+  });
+  const assetQuotes = editorialAssetYahooConfigs.map((config) => {
+    const quote = assetQuoteMap.get(config.yahooSymbol);
+    const price = finiteNumber(quote?.price);
+    return {
+      group: config.group,
+      symbol: config.symbol,
+      name: config.name,
+      price,
+      display: editorialAssetDisplay(config.symbol, price),
+      changePercent: finiteNumber(quote?.changePercent),
+      marketState: quote ? 'DELAYED' : 'UNAVAILABLE',
+      sourceUrl: quote?.sourceUrl || `https://finance.yahoo.com/quote/${encodeURIComponent(config.yahooSymbol)}`,
+      history: quote?.history.slice(-63) || [],
+    };
+  });
+  return { indices, stocks, mag7Points, assetQuotes, errors };
+}
+
+async function fetchEditorialCryptoData() {
+  const spotUrl = 'https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22SOLUSDT%22%5D';
+  const resilientFetch = async (url: string) => {
+    try {
+      return await fetchRoutedText(url, 'direct', 12_000, 'application/json');
+    } catch {
+      return fetchRoutedText(url, 'proxy', 20_000, 'application/json');
+    }
+  };
+  const [spotResult, fundingResult, openInterestResult, dominanceResult, hyperliquidResult, btcHistoryResult, ethHistoryResult, solHistoryResult, hypeHistoryResult] = await Promise.allSettled([
+    resilientFetch(spotUrl),
+    resilientFetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT'),
+    resilientFetch('https://fapi.binance.com/fapi/v1/openInterest?symbol=BTCUSDT'),
+    resilientFetch('https://api.coinpaprika.com/v1/global'),
+    resilientFetch('https://api.coingecko.com/api/v3/simple/price?ids=hyperliquid&vs_currencies=usd&include_24hr_change=true'),
+    resilientFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90'),
+    resilientFetch('https://api.binance.com/api/v3/klines?symbol=ETHUSDT&interval=1d&limit=90'),
+    resilientFetch('https://api.binance.com/api/v3/klines?symbol=SOLUSDT&interval=1d&limit=90'),
+    resilientFetch('https://api.coingecko.com/api/v3/coins/hyperliquid/market_chart?vs_currency=usd&days=90&interval=daily'),
+  ]);
+  const names: Record<string, string> = { BTCUSDT: '比特币', ETHUSDT: '以太坊', SOLUSDT: 'Solana' };
+  const symbols: Record<string, string> = { BTCUSDT: 'BTC', ETHUSDT: 'ETH', SOLUSDT: 'SOL' };
+  const binanceHistory = (result: PromiseSettledResult<string>) => {
+    if (result.status !== 'fulfilled') return [];
+    try {
+      const rows = JSON.parse(result.value) as unknown;
+      return Array.isArray(rows) ? rows.flatMap((row) => {
+        if (!Array.isArray(row)) return [];
+        const timestamp = finiteNumber(row[0]);
+        const value = finiteNumber(row[4]);
+        return timestamp !== null && value !== null ? [{ time: new Date(timestamp).toISOString().slice(0, 10), value }] : [];
+      }) : [];
+    } catch { return []; }
+  };
+  const hyperliquidHistory = () => {
+    if (hypeHistoryResult.status !== 'fulfilled') return [];
+    try {
+      const prices = (JSON.parse(hypeHistoryResult.value) as { prices?: unknown }).prices;
+      return Array.isArray(prices) ? prices.flatMap((row) => {
+        if (!Array.isArray(row)) return [];
+        const timestamp = finiteNumber(row[0]);
+        const value = finiteNumber(row[1]);
+        return timestamp !== null && value !== null ? [{ time: new Date(timestamp).toISOString().slice(0, 10), value }] : [];
+      }) : [];
+    } catch { return []; }
+  };
+  const histories: Record<string, DailyBriefUpstreamQuote['history']> = {
+    BTC: binanceHistory(btcHistoryResult), ETH: binanceHistory(ethHistoryResult), SOL: binanceHistory(solHistoryResult), HYPE: hyperliquidHistory(),
+  };
+  const spotRows = spotResult.status === 'fulfilled' ? JSON.parse(spotResult.value) as Array<Record<string, unknown>> : [];
+  const crypto: DailyBriefUpstreamQuote[] = spotRows.flatMap((row) => {
+    const symbol = String(row.symbol || '');
+    const price = finiteNumber(row.lastPrice);
+    return symbols[symbol] && price !== null ? [{
+      symbol: symbols[symbol], name: names[symbol], price, display: editorialAssetDisplay(symbols[symbol], price),
+      changePercent: finiteNumber(row.priceChangePercent), marketState: '24H',
+      sourceUrl: `https://www.binance.com/en/trade/${symbols[symbol]}_USDT?type=spot`,
+      history: histories[symbols[symbol]] || [],
+    }] : [];
+  });
+  const hyperliquidPayload = hyperliquidResult.status === 'fulfilled' ? JSON.parse(hyperliquidResult.value) as Record<string, any> : {};
+  const hyperliquidPrice = finiteNumber(hyperliquidPayload?.hyperliquid?.usd);
+  crypto.push({
+    symbol: 'HYPE', name: 'Hyperliquid', price: hyperliquidPrice,
+    display: editorialAssetDisplay('HYPE', hyperliquidPrice),
+    changePercent: finiteNumber(hyperliquidPayload?.hyperliquid?.usd_24h_change),
+    marketState: hyperliquidPrice === null ? 'UNAVAILABLE' : '24H',
+    sourceUrl: 'https://www.coingecko.com/en/coins/hyperliquid',
+    history: histories.HYPE || [],
+  });
+  const funding = fundingResult.status === 'fulfilled' ? JSON.parse(fundingResult.value) as Record<string, unknown> : {};
+  const openInterest = openInterestResult.status === 'fulfilled' ? JSON.parse(openInterestResult.value) as Record<string, unknown> : {};
+  const global = dominanceResult.status === 'fulfilled' ? JSON.parse(dominanceResult.value) as Record<string, unknown> : {};
+  const fundingValue = finiteNumber(funding.lastFundingRate);
+  const contracts = finiteNumber(openInterest.openInterest);
+  const markPrice = finiteNumber(funding.markPrice);
+  const openInterestUsd = contracts !== null && markPrice !== null ? contracts * markPrice : null;
+  const dominance = finiteNumber(global.bitcoin_dominance_percentage);
+  if (!crypto.length && fundingValue === null && openInterestUsd === null && dominance === null) throw new Error('Binance 与 CoinPaprika 均暂时不可用');
+  return {
+    crypto,
+    fundingRate: editorialMetric(fundingValue === null ? null : fundingValue * 100, fundingValue === null ? '暂无数据' : `${fundingValue >= 0 ? '+' : ''}${(fundingValue * 100).toFixed(4)}%`, 'Binance USDⓈ-M Futures', 'https://www.binance.com/en/futures/BTCUSDT'),
+    openInterest: editorialMetric(openInterestUsd, openInterestUsd === null ? '暂无数据' : `$${(openInterestUsd / 1_000_000_000).toFixed(2)}B`, 'Binance USDⓈ-M Futures', 'https://www.binance.com/en/futures/BTCUSDT'),
+    dominance: editorialMetric(dominance, dominance === null ? '暂无数据' : `${dominance.toFixed(1)}%`, 'CoinPaprika Global API', 'https://api.coinpaprika.com/'),
+  };
+}
+
+async function fetchGlassnodeEditorialMetrics() {
+  const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+  const env = loadEnv(mode, rootDir, '');
+  const apiKey = String(process.env.GLASSNODE_API_KEY || env.GLASSNODE_API_KEY || '').trim();
+  const sourceUrl = 'https://docs.glassnode.com/basic-api/endpoints';
+  const missing = (label: string) => unavailableEditorialMetric(label, 'Glassnode API', sourceUrl, '需在 .env.local 配置 GLASSNODE_API_KEY；未授权时不使用其他指标替代。');
+  if (!apiKey) return { mvrvZScore: missing('MVRV Z-Score'), lthSupplyRatio: missing('LTH 持有比例'), sopr: missing('SOPR'), lthSopr: missing('LTH-SOPR'), puellMultiple: missing('Puell Multiple') };
+  const getLatest = async (path: string) => {
+    const url = `https://api.glassnode.com/v1/metrics/${path}?a=BTC&i=24h&api_key=${encodeURIComponent(apiKey)}`;
+    const rows = JSON.parse(await fetchRoutedText(url, 'direct', 20_000, 'application/json')) as Array<Record<string, unknown>>;
+    return finiteNumber(rows.at(-1)?.v);
+  };
+  const results = await Promise.allSettled([
+    getLatest('indicators/mvrv_z_score'), getLatest('supply/lth_sum'), getLatest('supply/current'),
+    getLatest('indicators/sopr'), getLatest('indicators/lth_sopr'), getLatest('indicators/puell_multiple'),
+  ]);
+  const valueAt = (index: number) => results[index].status === 'fulfilled' ? results[index].value : null;
+  const lth = valueAt(1);
+  const supply = valueAt(2);
+  const lthRatio = lth !== null && supply !== null && supply > 0 ? lth / supply * 100 : null;
+  const live = (label: string, value: number | null, digits: number, suffix = '') => editorialMetric(value, value === null ? '暂无数据' : `${value.toFixed(digits)}${suffix}`, 'Glassnode API', sourceUrl, { label, status: value === null ? 'unavailable' : 'delayed' });
+  return {
+    mvrvZScore: live('MVRV Z-Score', valueAt(0), 2), lthSupplyRatio: live('LTH 持有比例', lthRatio, 1, '%'),
+    sopr: live('SOPR', valueAt(3), 3), lthSopr: live('LTH-SOPR', valueAt(4), 3), puellMultiple: live('Puell Multiple', valueAt(5), 2),
+  };
+}
+
+async function fetchCoinMetricsEditorialFallback() {
+  const sourceUrl = 'https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=CapMVRVCur,CapMrktCurUSD,IssTotUSD&frequency=1d&start_time=2010-07-18&page_size=10000';
+  const payload = JSON.parse(await fetchRoutedText(sourceUrl, 'direct', 30_000, 'application/json')) as {
+    data?: Array<{ time?: string; CapMVRVCur?: string | null; CapMrktCurUSD?: string | null; IssTotUSD?: string | null }>;
+  };
+  const rows = (payload.data || []).flatMap((row) => {
+    const mvrv = finiteNumber(row.CapMVRVCur);
+    const marketCap = finiteNumber(row.CapMrktCurUSD);
+    const issuance = finiteNumber(row.IssTotUSD);
+    return mvrv !== null && mvrv > 0 && marketCap !== null && marketCap > 0 && issuance !== null && issuance >= 0
+      ? [{ time: String(row.time || '').slice(0, 10), mvrv, marketCap, issuance }]
+      : [];
+  });
+  if (rows.length < 365) throw new Error('Coin Metrics 的链上历史样本不足');
+
+  const marketCapMean = rows.reduce((sum, row) => sum + row.marketCap, 0) / rows.length;
+  const marketCapVariance = rows.reduce((sum, row) => sum + (row.marketCap - marketCapMean) ** 2, 0) / rows.length;
+  const marketCapStdDev = Math.sqrt(marketCapVariance);
+  const latest = rows.at(-1)!;
+  const realizedCap = latest.marketCap / latest.mvrv;
+  const mvrvZScore = marketCapStdDev > 0 ? (latest.marketCap - realizedCap) / marketCapStdDev : null;
+  const issuanceWindow = rows.slice(-365);
+  const issuanceAverage = issuanceWindow.reduce((sum, row) => sum + row.issuance, 0) / issuanceWindow.length;
+  const puellMultiple = issuanceAverage > 0 ? latest.issuance / issuanceAverage : null;
+  const sourceNote = `Coin Metrics Community API 日度数据，截至 ${latest.time}。`;
+  return {
+    mvrvZScore: editorialMetric(mvrvZScore, mvrvZScore === null ? '暂无数据' : mvrvZScore.toFixed(2), 'Coin Metrics Community API', sourceUrl, {
+      label: 'MVRV Z-Score',
+      status: mvrvZScore === null ? 'unavailable' : 'delayed',
+      note: `${sourceNote}按官方口径 (市值 - 实现市值) / 市值历史标准差计算。`,
+    }),
+    puellMultiple: editorialMetric(puellMultiple, puellMultiple === null ? '暂无数据' : puellMultiple.toFixed(2), 'Coin Metrics Community API', sourceUrl, {
+      label: 'Puell Multiple',
+      status: puellMultiple === null ? 'unavailable' : 'delayed',
+      note: `${sourceNote}按官方口径当日总发行额 / 365 日平均总发行额计算。`,
+    }),
+  };
+}
+
+function scoreEditorialSignals(metrics: Array<number | null>) {
+  const available = metrics.filter((value): value is number => value !== null && Number.isFinite(value));
+  if (available.length < 4) return { top: null, bottom: null, coverage: Math.round(available.length / metrics.length * 100) };
+  const top = Math.round(available.reduce((sum, value) => sum + Math.max(0, Math.min(100, value)), 0) / available.length);
+  return { top, bottom: 100 - top, coverage: Math.round(available.length / metrics.length * 100) };
+}
+
+const day1AnalysisUrl = 'https://brief.day1global.xyz/api/analysis';
+const day1BriefPageUrl = 'https://brief.day1global.xyz/#news';
+
+function compactDay1Text(value: unknown, maxLength = 4_000) {
+  return typeof value === 'string'
+    ? value.replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, maxLength)
+    : '';
+}
+
+function safeExternalUrl(value: unknown) {
+  if (typeof value !== 'string') return undefined;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function fetchDay1DailyBrief(): Promise<DailyBriefDay1Snapshot> {
-  const request = async (path: string) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20_000);
+  let raw = '';
+  let lastError: unknown;
+  for (const route of ['direct', 'proxy'] as const) {
     try {
-      const response = await fetch(`${day1BriefBaseUrl}${path}`, {
-        signal: controller.signal,
-        headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0 Safari/537.36' },
-      });
-      if (!response.ok) throw new Error(`Day1 ${path} 返回 HTTP ${response.status}`);
-      return JSON.parse(await response.text());
-    } finally {
-      clearTimeout(timer);
+      raw = await fetchRoutedText(day1AnalysisUrl, route, route === 'direct' ? 9_000 : 16_000, 'application/json,text/plain,*/*');
+      break;
+    } catch (error) {
+      lastError = error;
     }
-  };
-  const [marketData, analysis, rating] = await Promise.all([request('/api/market-data'), request('/api/analysis'), request('/api/market-rating')]);
-  const stockNames: Record<string, string> = { VOO: 'Vanguard S&P 500', QQQ: 'Invesco QQQ', QQQM: 'Invesco NASDAQ 100', NVDA: 'Nvidia', TSLA: 'Tesla', GOOG: 'Alphabet', RKLB: 'Rocket Lab', CRCL: 'Circle', HOOD: 'Robinhood', COIN: 'Coinbase', TEM: 'Tempus AI', GLD: 'SPDR Gold', SMH: 'VanEck Semiconductor', MRVL: 'Marvell', AMD: 'AMD', INTC: 'Intel', TSM: 'TSMC', QCOM: 'Qualcomm' };
-  const cryptoNames: Record<string, string> = { BTC: 'Bitcoin', ETH: 'Ethereum', HYPE: 'Hyperliquid', BNB: 'BNB', SOL: 'Solana', TAO: 'Bittensor', XAUT: 'Tether Gold', VIRTUAL: 'Virtuals Protocol' };
-  const indexNames: Record<string, string> = { sp500: '标普500', vix: 'VIX', gold: '黄金', crudeOil: '原油', dxy: '美元指数' };
-  const stocks = Object.entries(marketData?.stocks || {}).map(([symbol, value]) => day1Quote(symbol, stockNames[symbol] || symbol, value));
-  const crypto = Object.entries(marketData?.crypto || {}).map(([symbol, value]) => day1Quote(symbol, cryptoNames[symbol] || symbol, value));
-  const indices = Object.fromEntries(Object.entries(marketData?.indices || {}).map(([id, value]) => [id, day1Quote(id, indexNames[id] || id, value)]));
-  const sentiment = marketData?.sentiment || {};
-  const btcMetrics = Object.fromEntries(Object.entries(marketData?.btcMetrics || {}).map(([key, value]) => [key, Array.isArray(value) ? value.map(day1Number).filter((item) => item !== null) : day1Number(value)]));
+  }
+  if (!raw) throw lastError instanceof Error ? lastError : new Error('Day1 Global 接口暂时不可用');
+  const payload = JSON.parse(raw) as Record<string, unknown>;
+  const topNews = Array.isArray(payload.topNews) ? payload.topNews.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const row = item as Record<string, unknown>;
+    const title = compactDay1Text(row.title, 320);
+    return title ? [{
+      title,
+      tag: compactDay1Text(row.tag, 48) || undefined,
+      summary: compactDay1Text(row.summary, 700) || undefined,
+      action: compactDay1Text(row.action, 280) || undefined,
+      source: compactDay1Text(row.source, 80) || undefined,
+      url: safeExternalUrl(row.url),
+    }] : [];
+  }).slice(0, 10) : [];
+  const macroAnalysis = compactDay1Text(payload.macroAnalysis);
+  const cryptoAnalysis = compactDay1Text(payload.cryptoAnalysis);
+  const actionSuggestions = compactDay1Text(payload.actionSuggestions);
+  if (!topNews.length || !macroAnalysis) throw new Error('Day1 Global 返回的数据不完整');
+  const generatedAt = compactDay1Text(payload.generatedAt, 80);
+  const dataTimestamp = compactDay1Text(payload.dataTimestamp, 80);
   return {
-    fetchedAt: new Date().toISOString(), sourceUrl: day1BriefBaseUrl, stocks, crypto, indices,
-    sentiment: { cryptoFearGreed: day1Number(sentiment.cryptoFearGreed), cryptoFearGreedLabel: typeof sentiment.cryptoFearGreedLabel === 'string' ? sentiment.cryptoFearGreedLabel : undefined, cryptoFearGreedPrev: day1Number(sentiment.cryptoFearGreedPrev), cryptoFearGreedChange: day1Number(sentiment.cryptoFearGreedChange), cnnFearGreed: day1Number(sentiment.cnnFearGreed), cnnFearGreedLabel: typeof sentiment.cnnFearGreedLabel === 'string' ? sentiment.cnnFearGreedLabel : undefined },
-    btcMetrics,
-    rating: { totalScore: day1Number(rating?.totalScore), dailyScore: day1Number(rating?.dailyScore), weeklyScore: day1Number(rating?.weeklyScore), level: typeof rating?.level === 'string' ? rating.level : undefined, suggestion: typeof rating?.suggestion === 'string' ? rating.suggestion : undefined, indicators: Array.isArray(rating?.indicators) ? rating.indicators.map((item: any) => ({ name: String(item?.name || '未知指标'), value: day1Number(item?.value), score: day1Number(item?.score), weight: day1Number(item?.weight), group: typeof item?.group === 'string' ? item.group : undefined, category: typeof item?.category === 'string' ? item.category : undefined })) : [] },
-    analysis: { macroAnalysis: String(analysis?.macroAnalysis || ''), cryptoAnalysis: String(analysis?.cryptoAnalysis || ''), actionSuggestions: String(analysis?.actionSuggestions || ''), topNews: Array.isArray(analysis?.topNews) ? analysis.topNews.map((item: any) => ({ title: String(item?.title || ''), tag: typeof item?.tag === 'string' ? item.tag : undefined, summary: typeof item?.summary === 'string' ? item.summary : undefined, action: typeof item?.action === 'string' ? item.action : undefined, source: typeof item?.source === 'string' ? item.source : undefined, url: typeof item?.url === 'string' ? item.url : undefined })).filter((item: any) => item.title) : [], generatedAt: typeof analysis?.generatedAt === 'string' ? analysis.generatedAt : undefined, dataTimestamp: typeof analysis?.dataTimestamp === 'string' ? analysis.dataTimestamp : undefined },
+    fetchedAt: new Date().toISOString(),
+    sourceUrl: day1BriefPageUrl,
+    analysis: { macroAnalysis, cryptoAnalysis, actionSuggestions, topNews, generatedAt: generatedAt || undefined, dataTimestamp: dataTimestamp || undefined },
   };
 }
 
 async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefSnapshot['slot'] }): Promise<DailyBriefSnapshot> {
-  const day1 = await fetchDay1DailyBrief();
-  const markets = Object.entries(day1.indices).map(([id, quote]) => ({ id, name: quote.name, symbol: quote.symbol, value: quote.price, display: quote.price === null ? '—' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: quote.price >= 1000 ? 2 : 4 }).format(quote.price), changePercent: quote.changePercent, updatedAt: day1.fetchedAt })).filter((item) => item.value !== null);
-  const btc = day1.crypto.find((item) => item.symbol === 'BTC');
-  if (btc) markets.push({ id: 'bitcoin', name: btc.name, symbol: btc.symbol, value: btc.price, display: btc.price === null ? '—' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(btc.price), changePercent: btc.changePercent, updatedAt: day1.fetchedAt });
-  const news: DailyBriefNews[] = day1.analysis.topNews.map((item, index) => ({ id: `day1-${window.date}-${index}-${item.title}`, title: item.title, source: item.source || 'Day1 Global', category: item.tag || '市场', publishedAt: day1.analysis.generatedAt || day1.fetchedAt, summary: item.summary, weight: 100 - index, url: item.url || day1.sourceUrl }));
-  const advice = day1Advice(day1.analysis.actionSuggestions);
-  const summary: DailyBriefSummary = {
-    headline: day1Sentence(day1.analysis.macroAnalysis, day1.rating.suggestion || '每日市场快照已更新。'), regime: day1.rating.suggestion || day1.rating.level || '市场情绪整理中', tone: day1.rating.totalScore !== null && day1.rating.totalScore < 40 ? 'cautious' : day1.rating.totalScore !== null && day1.rating.totalScore > 65 ? 'calm' : 'balanced', highlights: [day1Sentence(day1.analysis.macroAnalysis, '宏观分析暂不可用'), day1Sentence(day1.analysis.cryptoAnalysis, '加密分析暂不可用')], risks: [day1.rating.suggestion || '请结合完整指标判断风险'], watchlist: day1.analysis.topNews.slice(0, 3).map((item) => item.action || item.title), portfolioNotes: ['每日简报采用 Day1 Global Briefing 公开接口快照；持仓分析不在本次同步范围内。'], assessment: { rating: day1AssessmentRating(day1.rating.level), score: Math.round(day1.rating.totalScore ?? 50), confidence: '中', rationale: day1Sentence(day1.analysis.macroAnalysis, day1.rating.suggestion || '上游分析暂不可用'), advice, disclaimer: '以上内容来自每日公开市场快照，仅供信息参考，不构成任何投资建议。' },
+  const generatedAt = new Date().toISOString();
+  const [cryptoFearResult, stockFearResult, yahooResult, cryptoResult, glassnodeResult, coinMetricsFallbackResult, cycleResult, newsResult, calendarResult, day1Result] = await Promise.allSettled([
+    fetchEditorialCryptoFearGreed(), fetchEditorialStockFearGreed(), fetchEditorialYahooData(), fetchEditorialCryptoData(),
+    fetchGlassnodeEditorialMetrics(), fetchCoinMetricsEditorialFallback(), getCachedBitcoinCycleHistory(), getNewsFeed(), loadGlobalCalendarSection(), fetchDay1DailyBrief(),
+  ]);
+  const errors: string[] = [];
+  const rejected = (label: string, result: PromiseSettledResult<unknown>) => {
+    if (result.status === 'rejected') errors.push(`${label}：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
   };
-  return { version: 2, date: window.date, slot: window.slot, generatedAt: day1.fetchedAt, updatedAt: day1.analysis.dataTimestamp || day1.fetchedAt, summaryMode: 'ai', summary, markets, macro: markets.filter((item) => ['vix', 'gold', 'crudeOil', 'dxy', 'bitcoin'].includes(item.id)), news, portfolio: { connected: false, positions: [], detail: '本次每日快照不读取 IBKR 持仓。' }, sources: [{ id: 'day1-market-data', label: 'Day1 Global Briefing · market-data', ok: true, fetchedAt: day1.fetchedAt }, { id: 'day1-analysis', label: 'Day1 Global Briefing · analysis', ok: true, fetchedAt: day1.analysis.generatedAt || day1.fetchedAt }, { id: 'day1-rating', label: 'Day1 Global Briefing · market-rating', ok: true, fetchedAt: day1.fetchedAt }], errors: [], day1 };
+  [['加密情绪', cryptoFearResult], ['美股情绪', stockFearResult], ['美股行情', yahooResult], ['加密行情', cryptoResult], ['Glassnode 链上指标', glassnodeResult], ['Coin Metrics 链上兜底', coinMetricsFallbackResult], ['BTC 历史', cycleResult], ['新闻兜底', newsResult], ['日历', calendarResult], ['Day1 Global 新闻与 AI 日报', day1Result]].forEach(([label, result]) => rejected(label as string, result as PromiseSettledResult<unknown>));
+
+  const cryptoFear = cryptoFearResult.status === 'fulfilled' ? cryptoFearResult.value : { metric: unavailableEditorialMetric('加密 F&G', 'Alternative.me', 'https://alternative.me/crypto/fear-and-greed-index/', '接口暂时不可用'), history: [] };
+  const stockFear = stockFearResult.status === 'fulfilled' ? stockFearResult.value : { metric: unavailableEditorialMetric('美股 F&G', 'CNN Markets', 'https://www.cnn.com/markets/fear-and-greed', '接口暂时不可用'), components: [], history: [] };
+  const yahoo = yahooResult.status === 'fulfilled' ? yahooResult.value : {
+    indices: [], stocks: [], mag7Points: [],
+    assetQuotes: editorialAssetYahooConfigs.map((config) => ({
+      group: config.group, symbol: config.symbol, name: config.name, price: null, display: '—',
+      changePercent: null, marketState: 'UNAVAILABLE',
+      sourceUrl: `https://finance.yahoo.com/quote/${encodeURIComponent(config.yahooSymbol)}`,
+    })),
+    errors: [],
+  };
+  errors.push(...yahoo.errors);
+  const cryptoData = cryptoResult.status === 'fulfilled' ? cryptoResult.value : {
+    crypto: [], fundingRate: unavailableEditorialMetric('资金费率', 'Binance', 'https://www.binance.com/en/futures/BTCUSDT', '接口暂时不可用'),
+    openInterest: unavailableEditorialMetric('未平仓合约', 'Binance', 'https://www.binance.com/en/futures/BTCUSDT', '接口暂时不可用'),
+    dominance: unavailableEditorialMetric('市值占比', 'CoinPaprika', 'https://api.coinpaprika.com/', '接口暂时不可用'),
+  };
+  const glassnodeChain = glassnodeResult.status === 'fulfilled' ? glassnodeResult.value : await fetchGlassnodeEditorialMetrics();
+  const coinMetricsFallback = coinMetricsFallbackResult.status === 'fulfilled' ? coinMetricsFallbackResult.value : null;
+  const chain = {
+    ...glassnodeChain,
+    mvrvZScore: glassnodeChain.mvrvZScore.value !== null ? glassnodeChain.mvrvZScore : coinMetricsFallback?.mvrvZScore || glassnodeChain.mvrvZScore,
+    puellMultiple: glassnodeChain.puellMultiple.value !== null ? glassnodeChain.puellMultiple : coinMetricsFallback?.puellMultiple || glassnodeChain.puellMultiple,
+  };
+  const cycle = cycleResult.status === 'fulfilled' ? cycleResult.value : null;
+  const btcPoints = cycle?.points.slice(-31) || [];
+  const btcBase = btcPoints[0]?.value;
+  const btcSeries = btcBase ? btcPoints.map((point) => ({ time: point.time, value: round(point.value / btcBase * 100, 3) })) : [];
+  const latestBtc = cryptoData.crypto.find((item) => item.symbol === 'BTC')?.price ?? btcPoints.at(-1)?.value ?? null;
+  const wmaWindow = cycle?.points.slice(-1400) || [];
+  const wma200 = wmaWindow.length >= 1300 ? wmaWindow.reduce((sum, point) => sum + point.value, 0) / wmaWindow.length : null;
+  const wmaMultiple = latestBtc !== null && wma200 ? latestBtc / wma200 : null;
+  const wmaMetric = editorialMetric(wmaMultiple, wmaMultiple === null ? '暂无数据' : `${wmaMultiple.toFixed(2)}x`, 'Coin Metrics Community API', 'https://docs.coinmetrics.io/api/v4/', { status: wmaMultiple === null ? 'unavailable' : 'delayed', note: 'BTC 日度参考价 / 最近 1400 个日度样本均值。' });
+  const vixQuote = await getYahooMacroQuote('^VIX', '1mo').catch(() => null);
+  const vix = editorialMetric(vixQuote?.price ?? null, vixQuote ? vixQuote.price.toFixed(2) : '暂无数据', 'Yahoo Finance', 'https://finance.yahoo.com/quote/%5EVIX', { change: vixQuote?.change ?? null, status: vixQuote ? 'delayed' : 'unavailable' });
+
+  const topInputs = [
+    cryptoFear.metric.value, stockFear.metric.value,
+    chain.mvrvZScore.value === null ? null : Math.min(100, chain.mvrvZScore.value / 7 * 100),
+    chain.sopr.value === null ? null : Math.min(100, Math.max(0, (chain.sopr.value - 0.95) / 0.15 * 100)),
+    chain.lthSopr.value === null ? null : Math.min(100, Math.max(0, (chain.lthSopr.value - 0.8) / 2.2 * 100)),
+    wmaMultiple === null ? null : Math.min(100, Math.max(0, (wmaMultiple - 0.7) / 3.3 * 100)),
+    chain.puellMultiple.value === null ? null : Math.min(100, chain.puellMultiple.value / 4 * 100),
+    cryptoData.fundingRate.value === null ? null : Math.min(100, Math.max(0, 50 + cryptoData.fundingRate.value * 2500)),
+  ];
+  const signals = scoreEditorialSignals(topInputs);
+  const newsPayload = newsResult.status === 'fulfilled' ? newsResult.value as Record<string, any> : {};
+  const newsItems = Array.isArray(newsPayload.items) ? newsPayload.items as Array<Record<string, any>> : [];
+  const fallbackNews: DailyBriefNews[] = newsItems.slice(0, 10).map((item, index) => ({
+    id: String(item.id || `brief-${window.date}-${index}`), title: String(item.title || ''), source: String(item.source || '公开新闻源'),
+    category: String(item.categoryLabel || item.category || '市场'), publishedAt: typeof item.publishedAt === 'string' ? item.publishedAt : undefined,
+    summary: typeof item.summary === 'string' ? item.summary : undefined, weight: finiteNumber(item.weight) ?? 100 - index, url: String(item.url || '#'),
+  })).filter((item) => item.title);
+  const day1 = day1Result.status === 'fulfilled' ? day1Result.value : undefined;
+  const news: DailyBriefNews[] = day1?.analysis.topNews.map((item, index) => ({
+    id: `day1-${window.date}-${index}-${createHash('sha1').update(item.title).digest('hex').slice(0, 10)}`,
+    title: item.title,
+    source: item.source ? `Day1 Global · ${item.source}` : 'Day1 Global',
+    category: item.tag || '市场要闻',
+    publishedAt: day1.analysis.generatedAt || day1.analysis.dataTimestamp || day1.fetchedAt,
+    summary: item.summary,
+    weight: 100 - index * 3,
+    url: item.url || day1.sourceUrl,
+  })) || fallbackNews;
+  const calendarPayload = calendarResult.status === 'fulfilled' ? calendarResult.value : { calendar: [] };
+  const events = calendarPayload.calendar.slice(0, 4).map((event) => ({ id: event.id, date: event.date, time: event.time, title: event.title, source: event.source, url: event.url }));
+  const markets = [...yahoo.indices, ...cryptoData.crypto].map((item) => compactMarket(item, item.symbol.toLowerCase()));
+  const macro = [compactMarket({ id: 'vix', name: 'VIX 波动率', symbol: 'VIX', price: vix.value, change: vix.change, sourceUrl: vix.sourceUrl })];
+  const fallback = summarizeRules(markets, macro, news, []);
+  fallback.headline = `${stockFear.metric.value === null ? '美股情绪待更新' : `美股情绪${stockFear.metric.label || '中性'}（${stockFear.metric.display}）`}；${cryptoFear.metric.value === null ? '加密情绪待更新' : `加密情绪${cryptoFear.metric.label || '中性'}（${cryptoFear.metric.display}）`}。VIX ${vix.display}，BTC 信号覆盖度 ${signals.coverage}%，请先确认价格与事件是否相互印证。`;
+  fallback.highlights = [
+    `标普500 ${yahoo.indices.find((item) => item.symbol === 'GSPC')?.changePercent?.toFixed(2) ?? '—'}%，VIX ${vix.display}。`,
+    `BTC ${latestBtc === null ? '暂无数据' : `$${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(latestBtc)}`}，资金费率 ${cryptoData.fundingRate.display}。`,
+    `链上指标可用度 ${[chain.mvrvZScore, chain.lthSupplyRatio, chain.sopr, chain.lthSopr, chain.puellMultiple].filter((item) => item.value !== null).length}/5。`,
+  ];
+  fallback.watchlist = events.map((event) => `${event.date.slice(5).replace('-', '/')} ${event.title}`);
+  const aiSummary = day1 ? null : await generateDailyBriefAiSummary({
+    date: window.date,
+    slot: window.slot,
+    markets,
+    macro,
+    news,
+    positions: [],
+    fallback,
+    context: {
+      sentiment: { cryptoFearGreed: cryptoFear.metric, stockFearGreed: stockFear.metric, vix, mvrvZScore: chain.mvrvZScore },
+      signals,
+      indices: yahoo.indices,
+      stocks: yahoo.stocks,
+      crypto: cryptoData.crypto,
+      onchain: { puellMultiple: chain.puellMultiple, fundingRate: cryptoData.fundingRate, openInterest: cryptoData.openInterest, dominance: cryptoData.dominance },
+      events,
+    },
+  }).catch((error) => {
+    errors.push(`AI 摘要：${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  });
+  const summary = aiSummary || fallback;
+  const issue = Math.max(1, Math.floor((Date.parse(`${window.date}T00:00:00Z`) - Date.parse('2026-01-01T00:00:00Z')) / 86_400_000) + 1);
+  const yahooGroup = (group: 'defensive' | 'technology' | 'crypto') => yahoo.assetQuotes
+    .filter((item) => item.group === group)
+    .map(({ group: _group, ...item }) => item);
+  const cryptoCards: DailyBriefUpstreamQuote[] = ['BTC', 'ETH', 'SOL', 'HYPE'].map((symbol) => {
+    const quote = cryptoData.crypto.find((item) => item.symbol === symbol);
+    return quote || {
+      symbol,
+      name: symbol === 'BTC' ? '比特币' : symbol === 'ETH' ? '以太坊' : symbol === 'SOL' ? 'Solana' : 'Hyperliquid',
+      price: null,
+      display: '—',
+      changePercent: null,
+      marketState: 'UNAVAILABLE',
+      sourceUrl: symbol === 'HYPE' ? 'https://www.coingecko.com/en/coins/hyperliquid' : `https://www.binance.com/en/trade/${symbol}_USDT?type=spot`,
+    };
+  });
+  const assetGroups: DailyBriefEditorialSnapshot['assetGroups'] = [
+    { id: 'defensive', label: '稳健', eyebrow: 'STABILITY MATRIX', description: '利率、贵金属与防御型权益资产', items: yahooGroup('defensive') },
+    { id: 'technology', label: '科技半导体', eyebrow: 'TECHNOLOGY CORE', description: 'AI、算力、半导体设备与核心平台', items: yahooGroup('technology') },
+    { id: 'crypto', label: '加密', eyebrow: 'CRYPTO NETWORK', description: '数字资产与加密高敏感度权益标的', items: [...yahooGroup('crypto'), ...cryptoCards] },
+  ];
+  const editorial: DailyBriefEditorialSnapshot = {
+    generatedAt, issue,
+    sentiment: { cryptoFearGreed: cryptoFear.metric, stockFearGreed: stockFear.metric, vix, mvrvZScore: chain.mvrvZScore, lthSupplyRatio: chain.lthSupplyRatio, sopr: chain.sopr, stockComponents: stockFear.components, cryptoHistory: cryptoFear.history },
+    signals: { ...signals, methodology: '由 HTML 指定的 8 项同名指标等权归一化；至少 4 项可用时计算，覆盖度同步展示。' },
+    indices: yahoo.indices, stocks: yahoo.stocks, crypto: cryptoData.crypto, assetGroups,
+    onchain: { sopr: chain.sopr, lthSopr: chain.lthSopr, wma200Multiple: wmaMetric, puellMultiple: chain.puellMultiple, fundingRate: cryptoData.fundingRate, openInterest: cryptoData.openInterest, dominance: cryptoData.dominance },
+    marketSeries: [
+      { symbol: 'MAG7', name: 'MAG7 等权', color: '#8fd0ac', changePercent: yahoo.mag7Points.length > 1 ? round(yahoo.mag7Points.at(-1)!.value - 100, 2) : null, points: yahoo.mag7Points },
+      { symbol: 'BTC', name: 'Bitcoin', color: '#8891c9', changePercent: btcSeries.length > 1 ? round(btcSeries.at(-1)!.value - 100, 2) : null, points: btcSeries },
+    ].filter((series) => series.points.length > 1) as DailyBriefEditorialSnapshot['marketSeries'],
+    events,
+  };
+  const sources: DailyBriefSourceStatus[] = [
+    { id: 'alternative-fng', label: 'Alternative.me · Crypto Fear & Greed', ok: cryptoFear.metric.value !== null, fetchedAt: generatedAt },
+    { id: 'cnn-fng', label: 'CNN Markets · Fear & Greed', ok: stockFear.metric.value !== null, fetchedAt: generatedAt },
+    { id: 'yahoo-market', label: 'Yahoo Finance · 美股与 VIX 延迟行情', ok: yahoo.indices.length > 0, fetchedAt: generatedAt },
+    { id: 'binance-market', label: 'Binance · 加密现货与永续合约', ok: cryptoData.crypto.length > 0, fetchedAt: generatedAt },
+    { id: 'coinmetrics-chain', label: 'Coin Metrics · BTC 日度参考价与衍生链上指标', ok: Boolean(cycle) || Boolean(coinMetricsFallback), fetchedAt: generatedAt },
+    { id: 'glassnode-chain', label: 'Glassnode · 专业链上指标', ok: chain.sopr.value !== null, detail: chain.sopr.note, fetchedAt: generatedAt },
+    { id: 'day1-global', label: 'Day1 Global · 编辑新闻与 AI 日报', ok: Boolean(day1), detail: day1 ? '当前新闻主源；保留其编辑排序与 AI 摘要。' : '不可用时自动回退至 SparkFlow 新闻聚合。', fetchedAt: day1?.fetchedAt || generatedAt },
+    { id: 'news-feed', label: 'SparkFlow · 新闻聚合兜底', ok: !day1 && fallbackNews.length > 0, detail: day1 ? 'Day1 Global 已作为新闻主源。' : 'Day1 Global 暂时不可用，正在展示聚合新闻。', fetchedAt: generatedAt },
+  ];
+  return { version: 10, date: window.date, slot: window.slot, generatedAt, updatedAt: generatedAt, summaryMode: aiSummary ? 'ai' : 'rules', summary, markets, macro, news, portfolio: { connected: false, positions: [], detail: '每日策略不读取 IBKR 持仓。' }, sources, errors, editorial, day1 };
 }
 
 const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot });
@@ -11142,6 +11614,31 @@ function allWeatherApiPlugin() {
             res.setHeader('Cache-Control', 'private, max-age=21600, stale-while-revalidate=3600');
             const detailsPayload = await getDailyBriefDetails(kind);
             sendJson(res, 200, detailsPayload);
+            return;
+          }
+
+          if (url.pathname === '/api/daily-brief/ai-summary' && req.method === 'POST') {
+            const body = JSON.parse(await getRequestBody(req));
+            const aiConfig = getAiRequestBody(body);
+            if (!aiConfig.apiKey || !aiConfig.model || !aiConfig.baseUrl) {
+              sendJson(res, 400, { detail: '请先在右上角“设置”中填写 AI API Key、模型名称和 Base URL。' });
+              return;
+            }
+            const current = await dailyBriefService.get();
+            const snapshot = current.snapshot;
+            const summary = await generateDailyBriefAiSummary({
+              date: snapshot.date,
+              slot: snapshot.slot,
+              markets: snapshot.markets,
+              macro: snapshot.macro,
+              news: snapshot.news,
+              positions: snapshot.portfolio.positions,
+              fallback: snapshot.summary,
+              context: snapshot.editorial,
+            }, aiConfig);
+            if (!summary) throw new Error('模型没有生成每日简报结论');
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, { summary, provider: aiConfig.provider, model: aiConfig.model, generatedAt: new Date().toISOString() });
             return;
           }
 

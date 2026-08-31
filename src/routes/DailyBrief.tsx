@@ -1,584 +1,386 @@
-import {
-  Activity,
-  ArrowDownRight,
-  ArrowUpRight,
-  BellRing,
-  Bot,
-  BrainCircuit,
-  ChevronRight,
-  CircleAlert,
-  ExternalLink,
-  Gauge,
-  Newspaper,
-  ShieldAlert,
-  Sparkles,
-  TrendingUp,
-  WalletCards,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { AlertTriangle, BarChart3, Bitcoin, BriefcaseBusiness, Cpu, Radio, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type {
-  DailyBriefDay1Snapshot,
-  DailyBriefMarket,
+  DailyBriefChartPoint,
+  DailyBriefEditorialMetric,
+  DailyBriefEditorialSnapshot,
   DailyBriefResponse,
+  DailyBriefSummary,
   DailyBriefUpstreamQuote,
+  DailyBriefVisualSeries,
 } from "../lib/dailyBriefTypes";
+import { buildAiPayload, loadIntegrationSettings } from "../lib/integrations";
 import "./DailyBrief.css";
 
-const marketFormatter = new Intl.NumberFormat("zh-CN", {
-  maximumFractionDigits: 2,
-});
+const money = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
-async function requestJson<T>(url: string) {
-  const response = await fetch(url, {
-    headers: { Accept: "application/json" },
-  });
+async function requestJson<T>(url: string, init?: RequestInit) {
+  const response = await fetch(url, { headers: { Accept: "application/json" }, ...init });
   const payload = (await response.json()) as T & { detail?: string };
-  if (!response.ok)
-    throw new Error(payload.detail || `请求失败（${response.status}）`);
+  if (!response.ok) throw new Error(payload.detail || `请求失败（${response.status}）`);
   return payload;
 }
 
-function formatDate(value?: string, includeDate = false) {
+function shanghaiTime(value?: string) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
-    ...(includeDate ? { month: "2-digit", day: "2-digit" } : {}),
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
+  return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
 }
 
-function percentLabel(value: number | null | undefined) {
-  return value === null || value === undefined
-    ? "—"
-    : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+function weekday(value?: string) {
+  return value ? new Intl.DateTimeFormat("zh-CN", { weekday: "long", timeZone: "Asia/Shanghai" }).format(new Date(`${value}T12:00:00+08:00`)) : "";
 }
-function movementClass(value: number | null | undefined) {
-  return value === null || value === undefined || value === 0
-    ? "is-flat"
-    : value > 0
-      ? "is-up"
-      : "is-down";
+
+function changeLabel(value: number | null | undefined, digits = 2) {
+  return value === null || value === undefined ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
 }
-function toMarket(
-  id: string,
-  quote?: DailyBriefUpstreamQuote,
-): DailyBriefMarket | undefined {
-  if (!quote) return undefined;
+
+function changeClass(value: number | null | undefined) {
+  return value === null || value === undefined || value === 0 ? "is-neutral" : value > 0 ? "is-positive" : "is-negative";
+}
+
+function sentimentTone(value: number | null) {
+  if (value === null) return "muted";
+  if (value < 25) return "negative";
+  if (value < 45 || value >= 75) return "warning";
+  return "positive";
+}
+
+function metricNote(metric: DailyBriefEditorialMetric) {
+  if (metric.value === null) return metric.note || "专业数据授权未配置";
+  const change = metric.change === null || metric.change === undefined ? "" : ` ${metric.change >= 0 ? "+" : ""}${metric.change.toFixed(1)}`;
+  return `${metric.label || metric.note || "已更新"}${change}`.trim();
+}
+
+function fearGreedChangeMetric(metric: DailyBriefEditorialMetric, sourceLabel: string): DailyBriefEditorialMetric {
+  const value = metric.change ?? null;
   return {
-    id,
-    name: quote.name,
-    symbol: quote.symbol,
-    value: quote.price,
-    display: quote.price === null ? "—" : marketFormatter.format(quote.price),
-    changePercent: quote.changePercent,
-    updatedAt: undefined,
-    status: quote.marketState,
+    ...metric,
+    value,
+    display: value === null ? "暂无数据" : `${value >= 0 ? "+" : ""}${value.toFixed(1)}p`,
+    label: `当前 ${metric.display} · ${metric.label || sourceLabel}`,
+    note: `${sourceLabel} 较前值变化`,
+    change: null,
+    status: value === null ? "unavailable" : metric.status,
   };
 }
-function numberMetric(data: DailyBriefDay1Snapshot | undefined, key: string) {
-  const value = data?.btcMetrics[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-function moneyMetric(value: number | null, unit = "") {
-  if (value === null) return "—";
-  const absolute = Math.abs(value);
-  const compact =
-    absolute >= 1_000_000_000
-      ? `${(value / 1_000_000_000).toFixed(2)} B`
-      : absolute >= 1_000_000
-        ? `${(value / 1_000_000).toFixed(1)} M`
-        : marketFormatter.format(value);
-  return `${value >= 0 ? "+" : ""}${compact}${unit}`;
+
+function AssetCard({ quote, index }: { quote: DailyBriefUpstreamQuote; index: number }) {
+  const level = quote.changePercent === null ? 8 : Math.min(100, Math.max(8, Math.abs(quote.changePercent) * 15));
+  return <a
+    className={`editorial-asset-card ${changeClass(quote.changePercent)}`}
+    href={quote.sourceUrl || "#"}
+    target="_blank"
+    rel="noreferrer"
+    style={{ "--asset-level": `${level}%`, "--asset-delay": `${index * 42}ms` } as CSSProperties}
+  >
+    <i className="editorial-asset-corner" />
+    <div className="editorial-asset-id"><span>{quote.symbol}</span><em>{quote.marketState === "24H" ? "LIVE 24H" : quote.marketState === "UNAVAILABLE" ? "OFFLINE" : "DELAYED"}</em></div>
+    <small>{quote.name}</small>
+    <MiniQuoteChart quote={quote} />
+    <div className="editorial-asset-price"><strong>{quote.display || (quote.price === null ? "—" : `$${money.format(quote.price)}`)}</strong><div className="editorial-asset-change"><b>{changeLabel(quote.changePercent)}</b><span>Δ SESSION</span></div></div>
+    <div className="editorial-asset-meter"><i /></div>
+  </a>;
 }
 
-function Metric({ market }: { market?: DailyBriefMarket }) {
-  const movement = movementClass(market?.changePercent);
-  const Icon =
-    movement === "is-up"
-      ? ArrowUpRight
-      : movement === "is-down"
-        ? ArrowDownRight
-        : Activity;
-  return (
-    <div className="strategy-mini-metric">
-      <span>{market?.name || "数据缺失"}</span>
-      <strong>{market?.display || "—"}</strong>
-      <small className={movement}>
-        <Icon size={11} /> {percentLabel(market?.changePercent)}
-      </small>
-    </div>
-  );
+function MiniQuoteChart({ quote }: { quote: DailyBriefUpstreamQuote }) {
+  const points = (quote.history || []).filter((point) => Number.isFinite(point.value) && point.value > 0);
+  if (points.length < 2) return <span className="editorial-stock-chart-empty">3M 同步中</span>;
+  const width = 152;
+  const height = 42;
+  const padding = 4;
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const path = points.map((point, index) => {
+    const x = points.length === 1 ? 0 : index / (points.length - 1) * width;
+    const y = padding + (1 - (point.value - min) / range) * (height - padding * 2);
+    return `${index ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(" ");
+  const latest = points[points.length - 1]!;
+  const first = points[0]!;
+  const change = (latest.value / first.value - 1) * 100;
+  const color = change >= 0 ? "#78e9c7" : "#f06b7d";
+  const gradientId = `stock-chart-${quote.symbol.replace(/[^a-z0-9]/gi, "-")}`;
+  const lastX = width;
+  const lastY = padding + (1 - (latest.value - min) / range) * (height - padding * 2);
+  return <div className="editorial-stock-chart">
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${quote.symbol} 近 3 个月价格走势`}>
+      <defs><linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity=".24" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+      <path className="editorial-stock-chart-baseline" d={`M0,${(height / 2).toFixed(2)} L${width},${(height / 2).toFixed(2)}`} />
+      <path d={`${path} L${width},${height} L0,${height} Z`} fill={`url(#${gradientId})`} />
+      <path d={path} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx={lastX} cy={lastY} r="4.5" fill={color} opacity=".2" /><circle cx={lastX} cy={lastY} r="2" fill={color} />
+    </svg>
+    <small className={changeClass(change)}>{changeLabel(change, 1)} · 3M</small>
+  </div>;
 }
 
-function SignalRow({
-  label,
-  value,
-  tone = "teal",
-}: {
-  label: string;
-  value: number | null;
-  tone?: "teal" | "violet" | "amber";
-}) {
-  const safeValue =
-    value === null ? 0 : Math.max(0, Math.min(100, Math.round(value)));
-  return (
-    <div className="strategy-signal-row">
-      <div>
-        <span>{label}</span>
-        <strong>
-          {value === null ? "—" : safeValue}
-          <small>{value === null ? "" : "/100"}</small>
-        </strong>
-      </div>
-      <div className={`strategy-signal-track is-${tone}`}>
-        <i style={{ width: `${safeValue}%` }} />
-      </div>
-    </div>
-  );
+function QuotePrice({ quote }: { quote: DailyBriefUpstreamQuote }) {
+  const level = quote.changePercent === null ? 8 : Math.min(100, Math.max(8, Math.abs(quote.changePercent) * 15));
+  const tone = quote.changePercent === null || quote.changePercent === 0 ? "#77908b" : quote.changePercent > 0 ? "#78e9c7" : "#f06b7d";
+  return <div className="editorial-stock-row" style={{ "--quote-strength": `${level}%`, "--quote-tone": tone } as CSSProperties}>
+    <div className="editorial-stock-id"><b>{quote.symbol}</b><span>{quote.name}</span></div><MiniQuoteChart quote={quote} />
+    <div className="editorial-stock-number"><strong>{quote.display || (quote.price === null ? "—" : `$${money.format(quote.price)}`)}</strong><span className={changeClass(quote.changePercent)}>{changeLabel(quote.changePercent)}</span></div>
+  </div>;
+}
+
+function CryptoQuotePill({ quote }: { quote: DailyBriefUpstreamQuote }) {
+  const level = quote.changePercent === null ? 8 : Math.min(100, Math.max(8, Math.abs(quote.changePercent) * 15));
+  const tone = quote.changePercent === null || quote.changePercent === 0 ? "#ab8561" : quote.changePercent > 0 ? "#f6c778" : "#f06b7d";
+  return <div className="editorial-crypto-row" style={{ "--quote-strength": `${level}%`, "--quote-tone": tone } as CSSProperties}>
+    <span><b>{quote.symbol}</b>{quote.name}</span><strong>{quote.display || (quote.price === null ? "—" : `$${money.format(quote.price)}`)} <em className={changeClass(quote.changePercent)}>{changeLabel(quote.changePercent)}</em></strong>
+  </div>;
+}
+
+function TrendBars({ points }: { points: DailyBriefChartPoint[] }) {
+  return <div className="editorial-bar-chart" role="img" aria-label="7日加密恐惧贪婪指数走势">
+    {points.length ? points.slice(-7).map((point, index, all) => <div className="editorial-bar-column" key={point.time}>
+      <i className={index === all.length - 1 ? "is-today" : ""} style={{ height: `${Math.max(6, Math.min(100, point.value))}%` }}><b>{Math.round(point.value)}</b></i>
+      <span>{point.time.slice(5).replace("-", "/")}</span>
+    </div>) : <div className="editorial-empty">暂无历史序列</div>}
+  </div>;
+}
+
+function pathFor(points: DailyBriefChartPoint[], width: number, height: number, min: number, max: number) {
+  const spread = max - min || 1;
+  return points.map((point, index) => {
+    const x = points.length <= 1 ? 0 : index / (points.length - 1) * width;
+    const y = 6 + (1 - (point.value - min) / spread) * (height - 12);
+    return `${index ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(" ");
+}
+
+function MarketChart({ series }: { series: DailyBriefVisualSeries[] }) {
+  const values = series.flatMap((item) => item.points.map((point) => point.value));
+  const min = values.length ? Math.min(...values) : 95;
+  const max = values.length ? Math.max(...values) : 105;
+  const mag7 = series.find((item) => item.symbol === "MAG7");
+  const btc = series.find((item) => item.symbol === "BTC");
+  return <div className="editorial-market-chart">{series.length ? <svg viewBox="0 0 600 90" preserveAspectRatio="none" role="img" aria-label="MAG7 与 BTC 近30日归一化走势">
+    <defs><linearGradient id="editorial-jade-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#6fae8d" stopOpacity=".3" /><stop offset="100%" stopColor="#6fae8d" stopOpacity="0" /></linearGradient></defs>
+    {mag7?.points.length ? <><path className="area" d={`${pathFor(mag7.points, 600, 90, min, max)} L600,90 L0,90 Z`} /><path className="mag7" d={pathFor(mag7.points, 600, 90, min, max)} /></> : null}
+    {btc?.points.length ? <path className="btc" d={pathFor(btc.points, 600, 90, min, max)} /> : null}
+  </svg> : <div className="editorial-empty">30 日价格序列暂不可用</div>}</div>;
+}
+
+function Highlight({ text }: { text: string }) {
+  const pattern = /(风险|承压|下跌|谨慎|极度恐惧|恐惧|改善|上涨|回暖|机会|贪婪|中性|未触发|观察|等待|暂无数据|\$?[\d,.]+(?:%|x)?)/g;
+  return <>{text.split(pattern).filter(Boolean).map((part, index) => {
+    const tone = /风险|承压|下跌|谨慎|极度恐惧/.test(part) ? "negative" : /改善|上涨|回暖|机会|未触发/.test(part) ? "positive" : /恐惧|贪婪|观察|等待|\d/.test(part) ? "warning" : "";
+    return tone ? <mark className={`is-${tone}`} key={`${index}-${part}`}>{part}</mark> : <span key={`${index}-${part}`}>{part}</span>;
+  })}</>;
+}
+
+function signalLabel(value: number | null, kind: "top" | "bottom") {
+  if (value === null) return "数据不足";
+  if (value >= 70) return kind === "top" ? "高位预警" : "信号增强";
+  if (value >= 45) return "观察中";
+  return "未触发";
 }
 
 export function DailyBrief() {
   const [brief, setBrief] = useState<DailyBriefResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const load = useCallback(async () => {
+  const [modelSummary, setModelSummary] = useState<DailyBriefSummary | null>(null);
+  const [modelSummaryState, setModelSummaryState] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
+  const [modelSummaryError, setModelSummaryError] = useState("");
+  const summaryRef = useRef<HTMLElement>(null);
+
+  const load = useCallback(async (refresh = false) => {
     setLoading(true);
     setError("");
     try {
-      setBrief(await requestJson<DailyBriefResponse>("/api/daily-brief"));
+      const payload = refresh ? await requestJson<DailyBriefResponse>("/api/daily-brief/refresh", { method: "POST" }) : await requestJson<DailyBriefResponse>("/api/daily-brief");
+      setBrief(payload);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setLoading(false);
     }
   }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
+
+  useEffect(() => { void load(); }, [load]);
 
   const snapshot = brief?.snapshot;
-  const day1 = snapshot?.day1;
-  const sp500 = toMarket("sp500", day1?.indices.sp500);
-  const vix = toMarket("vix", day1?.indices.vix);
-  const gold = toMarket("gold", day1?.indices.gold);
-  const oil = toMarket("crudeOil", day1?.indices.crudeOil);
-  const dxy = toMarket("dxy", day1?.indices.dxy);
-  const btc = toMarket(
-    "bitcoin",
-    day1?.crypto.find((item) => item.symbol === "BTC"),
-  );
-  const eth = toMarket(
-    "eth",
-    day1?.crypto.find((item) => item.symbol === "ETH"),
-  );
-  const sol = toMarket(
-    "sol",
-    day1?.crypto.find((item) => item.symbol === "SOL"),
-  );
-  const voo = toMarket(
-    "voo",
-    day1?.stocks.find((item) => item.symbol === "VOO"),
-  );
-  const qqq = toMarket(
-    "qqq",
-    day1?.stocks.find((item) => item.symbol === "QQQ"),
-  );
-  const totalScore =
-    day1?.rating.totalScore ?? snapshot?.summary.assessment?.score ?? null;
-  const cryptoFearGreed = day1?.sentiment.cryptoFearGreed ?? null;
-  const riskScore =
-    vix?.value === null || vix?.value === undefined
-      ? null
-      : Math.max(0, Math.min(100, Math.round(vix.value * 3)));
-  const articles = snapshot?.news || [];
-  const actionAdvice = snapshot?.summary.assessment?.advice || [];
-  const stockItems = (day1?.stocks || []).filter((item) =>
-    [
-      "NVDA",
-      "TSLA",
-      "GOOG",
-      "SMH",
-      "MRVL",
-      "AMD",
-      "INTC",
-      "TSM",
-      "QCOM",
-      "COIN",
-    ].includes(item.symbol),
-  );
-  const cryptoItems = (day1?.crypto || []).filter((item) =>
-    ["ETH", "SOL", "HYPE", "BNB", "TAO", "XAUT", "VIRTUAL"].includes(
-      item.symbol,
-    ),
-  );
-  const aiLines = [
-    {
-      label: "宏观",
-      text: snapshot?.summary.highlights[0] || "等待每日快照。",
-    },
-    {
-      label: "加密",
-      text: snapshot?.summary.highlights[1] || "等待每日快照。",
-    },
-    {
-      label: "评级",
-      text:
-        day1?.rating.suggestion || snapshot?.summary.regime || "等待每日快照。",
-    },
-    { label: "观察", text: snapshot?.summary.watchlist[0] || "等待每日快照。" },
+  const data: DailyBriefEditorialSnapshot | undefined = snapshot?.editorial;
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const settings = loadIntegrationSettings();
+    if (!settings.ai.apiKey.trim() || !settings.ai.model.trim()) {
+      setModelSummary(null);
+      setModelSummaryState("fallback");
+      setModelSummaryError("项目 AI 尚未配置完整，当前展示规则结论。");
+      return;
+    }
+    const cacheKey = `sparkflow.daily-brief.ai-summary.v2:${snapshot.date}:${snapshot.slot}:${snapshot.generatedAt}:${settings.ai.provider}:${settings.ai.model}`;
+    try {
+      const cached = window.localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached) as DailyBriefSummary;
+        if (parsed?.assessment?.advice?.length) {
+          setModelSummary(parsed);
+          setModelSummaryState("ready");
+          setModelSummaryError("");
+          return;
+        }
+      }
+    } catch {
+      // A malformed convenience cache should never block a fresh model result.
+    }
+    const controller = new AbortController();
+    setModelSummary(null);
+    setModelSummaryState("loading");
+    setModelSummaryError("");
+    void requestJson<{ summary: DailyBriefSummary }>("/api/daily-brief/ai-summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildAiPayload(settings, "生成每日简报结构化结论")),
+      signal: controller.signal,
+    }).then((payload) => {
+      setModelSummary(payload.summary);
+      setModelSummaryState("ready");
+      try { window.localStorage.setItem(cacheKey, JSON.stringify(payload.summary)); } catch { /* Optional cache only. */ }
+    }).catch((reason) => {
+      if (controller.signal.aborted) return;
+      setModelSummaryState("fallback");
+      setModelSummaryError(reason instanceof Error ? reason.message : String(reason));
+    });
+    return () => controller.abort();
+  }, [snapshot?.generatedAt]);
+
+  const summary = modelSummary || snapshot?.summary;
+  const assessment = summary?.assessment;
+  const assessmentAdvice = assessment?.advice || [];
+  const adviceDetail = (labels: string[], fallback = "当前数据不足，等待下一次有效数据更新后再作判断。") =>
+    assessmentAdvice.find((item) => labels.includes(item.label))?.detail || fallback;
+  const strategyAdvice = [
+    { label: "仓位纪律", detail: adviceDetail(["仓位纪律", "仓位管理"]) },
+    { label: "关键风险", detail: adviceDetail(["关键风险"]) },
+    { label: "加密观察", detail: adviceDetail(["加密观察"]) },
+    { label: "潜在机会", detail: adviceDetail(["潜在机会"]) },
+    { label: "下周关注", detail: adviceDetail(["下周关注"], summary?.watchlist?.[0] || "关注下一项高影响事件对美元、美债收益率与核心风险资产的同步传导。") },
   ];
-  const alerts = useMemo(
-    () =>
-      [
-        snapshot?.summary.headline,
-        ...articles.slice(0, 3).map((item) => item.title),
-      ].filter(Boolean) as string[],
-    [articles, snapshot?.summary.headline],
-  );
-  return (
-    <div className="daily-brief-page strategy-page">
-      <div className="daily-brief-orbit daily-brief-orbit--one" />
-      <div className="daily-brief-orbit daily-brief-orbit--two" />
-      <div className="daily-brief-shell">
-        {error ? (
-          <div className="daily-brief-error">
-            <CircleAlert size={16} /> {error}
+  const sp500 = data?.indices.find((item) => item.symbol === "GSPC");
+  const btc = data?.crypto.find((item) => item.symbol === "BTC");
+  const components = useMemo(() => {
+    const order = [
+      "market_momentum_sp500",
+      "put_call_options",
+      "safe_haven_demand",
+      "junk_bond_demand",
+      "market_volatility_vix",
+    ];
+    const byId = new Map((data?.sentiment.stockComponents || []).map((item) => [item.id, item]));
+    const selected = order.map((id) => byId.get(id)).filter((item) => item?.value !== null && item?.value !== undefined);
+    const total = selected.reduce((sum, item) => sum + Math.max(0, item?.value || 0), 0);
+    return selected.map((item) => ({ ...item!, share: total ? Math.round(Math.max(0, item?.value || 0) / total * 100) : 0 }));
+  }, [data?.sentiment.stockComponents]);
+  const donut = useMemo(() => {
+    const total = components.reduce((sum, item) => sum + Math.max(0, item.value || 0), 0);
+    if (!total) return "conic-gradient(rgba(255,255,255,.08) 0 100%)";
+    let cursor = 0;
+    return `conic-gradient(${components.map((item) => { const start = cursor; cursor += Math.max(0, item.value || 0) / total * 100; return `${item.color} ${start}% ${cursor}%`; }).join(",")})`;
+  }, [components]);
+  const alerts = [summary?.headline, ...(snapshot?.news || []).slice(0, 5).map((item) => item.title)].filter(Boolean) as string[];
+  const aiLines = [["宏观", summary?.highlights[0]], ["加密", summary?.highlights[1]], ["链上", summary?.highlights[2]], ["策略", summary?.regime]].filter((item): item is string[] => Boolean(item[1]));
+  const day1Analysis = snapshot?.day1?.analysis;
+
+  return <div className="daily-brief-editorial">
+    <div className="editorial-wrap">
+      <header className="editorial-masthead"><div className="editorial-masthead-inner">
+        <div><div className="editorial-kicker">每日策略 · AI 每日情报</div><h1>每日策略</h1><div className="editorial-issue">{snapshot ? `${snapshot.date} · ${weekday(snapshot.date)} · NO. ${data?.issue || "—"} · 上次同步 ${shanghaiTime(snapshot.updatedAt)}` : "正在同步最新简报"}</div></div>
+        <div className="editorial-masthead-side"><div className="editorial-byline-stats">
+          <div><b>{snapshot?.news.length ?? "—"}</b><span>今日必看</span></div>
+          <div className="is-warning"><b>{data?.sentiment.cryptoFearGreed.display || "—"}</b><span>加密 F&amp;G</span></div>
+          <div><b>{data?.sentiment.stockFearGreed.display || "—"}</b><span>美股 F&amp;G</span></div>
+          <div className={changeClass(sp500?.changePercent)}><b>{changeLabel(sp500?.changePercent)}</b><span>标普500</span></div>
+        </div><div className="editorial-actions">
+          <button type="button" onClick={() => void load(true)} disabled={loading}><RefreshCw size={14} className={loading ? "is-spinning" : ""} />刷新</button>
+          <button className="is-primary" type="button" onClick={() => summaryRef.current?.scrollIntoView({ block: "start" })}><Sparkles size={14} />AI 摘要</button>
+        </div></div>
+      </div></header>
+
+      {error ? <div className="editorial-error">{error}</div> : null}
+
+      <section className={`editorial-lead tone-${summary?.tone || "balanced"}`}>
+        <div className="editorial-lead-head"><div><BriefcaseBusiness size={15} /><b>综合评级与行动建议</b></div><span>{modelSummaryState === "loading" ? "AI 生成中" : modelSummaryState === "ready" ? "项目模型" : "规则兜底"}</span></div>
+        <div className="editorial-rating"><BarChart3 size={24} /><strong>{assessment?.rating || "数据不足"}</strong><small>置信度 {assessment?.confidence || "低"} · 综合评分 {assessment?.score ?? "—"}/100 · 数据覆盖 {data?.signals.coverage ?? 0}%</small></div>
+        <p className="editorial-rationale"><Highlight text={assessment?.rationale || summary?.headline || "正在整理今日市场结论。"} /></p>
+        <div className="editorial-advice-list">{strategyAdvice.map((item, index) => <div key={item.label}><i>{index + 1}</i><p><b>{item.label}</b><span>{item.detail}</span></p></div>)}</div>
+        <div className="editorial-lead-foot"><AlertTriangle size={13} /><span>{assessment?.disclaimer || "以上内容仅用于信息整理与风险检查，不构成任何投资建议。"}</span></div>
+        {modelSummaryError ? <div className="editorial-model-note">{modelSummaryError}</div> : null}
+        <div className="editorial-chip-row">{(data?.events || []).map((event) => <a href={event.url} target="_blank" rel="noreferrer" key={event.id}><b>{event.date.slice(5).replace("-", "/")}</b>{event.title}</a>)}</div>
+      </section>
+
+      <div className="editorial-report-grid"><main className="editorial-main-column">
+        <section><div className="editorial-section-head"><h2>市场情绪 &amp; 抄底逃顶信号</h2><small>CRYPTO · STOCKS · ON-CHAIN</small></div>
+          <div className="editorial-tile-grid">{data ? [
+            ["加密 F&G", data.sentiment.cryptoFearGreed], ["美股 F&G", data.sentiment.stockFearGreed], ["VIX 波动率", data.sentiment.vix],
+            ["MVRV Z-Score", data.sentiment.mvrvZScore],
+            ["CNN F&G 变化", fearGreedChangeMetric(data.sentiment.stockFearGreed, "CNN Fear & Greed"), changeClass(data.sentiment.stockFearGreed.change).replace("is-", "")],
+            ["Crypto F&G 变化", fearGreedChangeMetric(data.sentiment.cryptoFearGreed, "Crypto Fear & Greed"), changeClass(data.sentiment.cryptoFearGreed.change).replace("is-", "")],
+          ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small>{metricNote(item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div>
+
+          {(["top", "bottom"] as const).map((kind) => { const value = data?.signals[kind] ?? null; return <div className={`editorial-signal-row is-${kind}`} key={kind}><div><span>BTC {kind === "top" ? "逃顶" : "抄底"}信号强度</span><strong>{signalLabel(value, kind)} · {value === null ? "—" : `${value}/100`} <em>覆盖 {data?.signals.coverage ?? 0}%</em></strong></div><div className="editorial-signal-track"><i style={{ width: `${value || 0}%` }} /></div></div>; })}
+
+          <div className="editorial-charts-row"><div className="editorial-chart-box"><h4>情绪构成 · CNN 7 项指标</h4><div className="editorial-donut-wrap">
+            <div className="editorial-donut" style={{ background: donut }}><div><b>{data?.sentiment.stockFearGreed.display || "—"}</b><span>{data?.sentiment.stockFearGreed.label || "待更新"}</span></div></div>
+            <div className="editorial-legend">{components.map((item) => <span key={item.id}><i style={{ background: item.color }} />{item.label}<b>{item.share}%</b></span>)}{!components.length ? <small>暂无分项数据</small> : null}</div>
+          </div></div><div className="editorial-chart-box"><h4>7日加密恐惧贪婪指数走势</h4><TrendBars points={data?.sentiment.cryptoHistory || []} /></div></div>
+
+          <div className="editorial-chart-wrap"><div><h3>MAG7 + BTC 对数股价走势 · 30D</h3><span>BTC {btc?.price === null || btc?.price === undefined ? "—" : `$${money.format(btc.price)}`}</span></div><MarketChart series={data?.marketSeries || []} /></div>
+        </section>
+
+        <section ref={summaryRef}><div className="editorial-section-head"><h2>AI 摘要</h2><small>{day1Analysis ? "DAY1 GLOBAL · EDITORIAL AI" : `DAILY BRIEF · ${snapshot?.summaryMode === "ai" ? "AI 生成" : "规则摘要"}`}</small></div>
+          {day1Analysis ? <div className="editorial-day1-brief">
+            <div className="editorial-day1-head"><div><span>DAY1 GLOBAL</span><b>编辑 AI 每日摘要</b></div><a href={snapshot?.day1?.sourceUrl} target="_blank" rel="noreferrer">查看原始简报</a></div>
+            <div className="editorial-day1-grid">
+              <article><span>宏观市场</span><p><Highlight text={day1Analysis.macroAnalysis} /></p></article>
+              {day1Analysis.cryptoAnalysis ? <article><span>加密市场</span><p><Highlight text={day1Analysis.cryptoAnalysis} /></p></article> : null}
+            </div>
+            {day1Analysis.actionSuggestions ? <div className="editorial-day1-actions"><span>行动建议</span><p><Highlight text={day1Analysis.actionSuggestions} /></p></div> : null}
+          </div> : null}
+          <div className="editorial-ai-lines">{aiLines.map(([label, text]) => <div key={label}><span>{label}</span><p><Highlight text={text} /></p></div>)}</div>
+          <div className="editorial-ai-footnote"><span>{day1Analysis ? "新闻与 AI 摘要 · Day1 Global" : `来源 · ${snapshot?.sources.filter((item) => item.ok).length || 0} 组专业接口`}</span><span>生成 · {shanghaiTime(day1Analysis?.generatedAt || snapshot?.generatedAt)}</span></div>
+        </section>
+
+        <section className="editorial-assets-section"><div className="editorial-section-head"><h2>跨资产数据矩阵</h2><small>YAHOO FINANCE · BINANCE · COINGECKO · COIN METRICS</small></div>
+          <div className="editorial-asset-groups">{(data?.assetGroups || []).map((group) => {
+            const GroupIcon = group.id === "defensive" ? ShieldCheck : group.id === "technology" ? Cpu : Bitcoin;
+            return <section className={`editorial-asset-group is-${group.id}`} key={group.id}>
+              <header><div className="editorial-asset-group-title"><i><GroupIcon size={15} /></i><div><span>{group.eyebrow}</span><h3>{group.label}</h3></div></div><p>{group.description}</p><em>{group.items.filter((item) => item.price !== null).length}/{group.items.length} ONLINE</em></header>
+              <div className="editorial-asset-grid">{group.items.map((quote, index) => <AssetCard quote={quote} index={index} key={quote.symbol} />)}</div>
+            </section>;
+          })}{!data?.assetGroups?.length ? <div className="editorial-assets-loading"><Radio size={17} />正在建立跨资产数据链路…</div> : null}</div>
+
+          <div className="editorial-chain-console"><header><div><Radio size={14} /><span>BTC NETWORK TELEMETRY</span></div><em>DAILY SIGNAL LAYER</em></header><div>{data ? [
+            ["SOPR", data.onchain.sopr], ["LTH-SOPR", data.onchain.lthSopr], ["200周均线倍数", data.onchain.wma200Multiple], ["Puell Multiple", data.onchain.puellMultiple],
+            ["资金费率", data.onchain.fundingRate], ["未平仓合约", data.onchain.openInterest], ["市值占比", data.onchain.dominance],
+          ].map(([label, metric]) => { const item = metric as DailyBriefEditorialMetric; return <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><b>{item.display}</b><i className={item.value === null ? "is-off" : ""} /></a>; }) : null}</div></div>
+        </section>
+
+        <section className="editorial-original-market-section"><div className="editorial-section-head"><h2>Mag7 &amp; 加密数据</h2><small>YAHOO FINANCE · BINANCE · COIN METRICS · GLASSNODE</small></div><div className="editorial-table-pair">
+          <div><h3>Mag7 数据 <span>DELAYED</span></h3><div className="editorial-index-strip">{(data?.indices || []).map((quote) => <div key={quote.symbol}><span>{quote.name}</span><b className={changeClass(quote.changePercent)}>{changeLabel(quote.changePercent)}</b></div>)}</div>{(data?.stocks || []).map((quote) => <QuotePrice quote={quote} key={quote.symbol} />)}{!data?.stocks.length ? <div className="editorial-empty">美股行情暂不可用</div> : null}</div>
+          <div><h3>加密 &amp; BTC 链上数据 <span>LIVE / DAILY</span></h3><div className="editorial-btc-hero"><div><strong>{btc?.display || (btc?.price === null || btc?.price === undefined ? "—" : `$${money.format(btc.price)}`)}</strong><span className={changeClass(btc?.changePercent)}>{changeLabel(btc?.changePercent)} · 24H</span></div><MarketChart series={(data?.marketSeries || []).filter((item) => item.symbol === "BTC")} /></div>
+            {(data?.crypto || []).filter((item) => item.symbol !== "BTC").map((quote) => <CryptoQuotePill quote={quote} key={quote.symbol} />)}
+            <div className="editorial-onchain-table"><h4>BTC 抄底/逃顶评分系统</h4>{data ? [
+              ["SOPR", data.onchain.sopr], ["LTH-SOPR", data.onchain.lthSopr], ["200周均线倍数", data.onchain.wma200Multiple], ["Puell Multiple", data.onchain.puellMultiple],
+              ["资金费率", data.onchain.fundingRate], ["未平仓合约", data.onchain.openInterest], ["市值占比", data.onchain.dominance],
+            ].map(([label, metric]) => { const item = metric as DailyBriefEditorialMetric; return <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><b>{item.display}<i className={item.value === null ? "is-off" : ""} /></b></a>; }) : null}</div>
           </div>
-        ) : null}
-        <main className="strategy-dashboard">
-          <aside className="strategy-column strategy-column--left">
-            <section className="strategy-panel strategy-panel--violet">
-              <div className="strategy-panel__head">
-                <div>
-                  <p>
-                    <Bot size={14} /> AI 摘要
-                  </p>
-                  <h2>今日判断</h2>
-                </div>
-                <span>
-                  {snapshot?.summaryMode === "ai" ? "上游 AI 快照" : "等待快照"}
-                </span>
-              </div>
-              <div className="strategy-ai-lines">
-                {aiLines.map((line) => (
-                  <div key={line.label}>
-                    <span>{line.label}</span>
-                    <p>{line.text}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="strategy-source-note">
-                <Activity size={13} /> Day1 market-data / analysis /
-                market-rating · {formatDate(day1?.fetchedAt)}
-              </div>
-              <Link
-                className="strategy-detail-link"
-                to="/council/details/judgement"
-              >
-                查看详细内容 <ChevronRight size={14} />
-              </Link>
-            </section>
-            <section className="strategy-panel strategy-panel--teal strategy-news-panel">
-              <div className="strategy-panel__head">
-                <div>
-                  <p>
-                    <Newspaper size={14} /> TODAY NEWS
-                  </p>
-                  <h2>今日新闻</h2>
-                </div>
-                <span>{articles.length} 条</span>
-              </div>
-              <div className="strategy-news-list">
-                {articles.map((item, index) => (
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    key={item.id}
-                  >
-                    <i>{String(index + 1).padStart(2, "0")}</i>
-                    <div>
-                      <small>
-                        {item.category} · {item.source}
-                      </small>
-                      <strong>{item.title}</strong>
-                      <time>
-                        {item.summary || formatDate(item.publishedAt, true)}
-                      </time>
-                    </div>
-                    <ExternalLink size={13} />
-                  </a>
-                ))}
-                {loading && !articles.length ? (
-                  <div className="strategy-news-empty">
-                    正在读取最近成功快照…
-                  </div>
-                ) : null}
-              </div>
-            </section>
-          </aside>
-          <section className="strategy-column strategy-column--center">
-            <section className="strategy-panel strategy-panel--teal">
-              <div className="strategy-panel__head">
-                <div>
-                  <p>
-                    <Gauge size={14} /> MARKET SENTIMENT
-                  </p>
-                  <h2>市场情绪与交叉信号</h2>
-                </div>
-                <Link
-                  className="strategy-panel-detail"
-                  to="/council/details/flows"
-                >
-                  <BrainCircuit size={14} /> 查看详细内容
-                </Link>
-              </div>
-              <div className="strategy-metric-grid">
-                <Metric market={voo} />
-                <Metric market={qqq} />
-                <Metric market={sp500} />
-                <Metric market={vix} />
-                <Metric market={gold} />
-                <Metric market={dxy} />
-              </div>
-              <div className="strategy-signals">
-                <SignalRow
-                  label="BTC 综合评级"
-                  value={totalScore}
-                  tone="violet"
-                />
-                <SignalRow
-                  label="波动防守信号"
-                  value={riskScore}
-                  tone="amber"
-                />
-              </div>
-              <div className="strategy-chart-grid">
-                <div className="strategy-dial">
-                  <div
-                    style={
-                      {
-                        "--score": `${(totalScore || 0) * 3.6}deg`,
-                      } as React.CSSProperties
-                    }
-                  >
-                    <strong>
-                      {totalScore === null ? "—" : Math.round(totalScore)}
-                    </strong>
-                    <span>{day1?.rating.level || "等待数据"}</span>
-                  </div>
-                  <p>BTC 抄底/逃顶评级</p>
-                </div>
-                <div className="strategy-trend">
-                  <div>
-                    <span>恐慌贪婪与资金面</span>
-                    <small>{day1?.rating.suggestion || "—"}</small>
-                  </div>
-                  <div className="strategy-rating-list">
-                    {(day1?.rating.indicators || []).slice(0, 4).map((item) => (
-                      <span key={item.name}>
-                        {item.name}
-                        <b>{item.score === null ? "—" : item.score}</b>
-                      </span>
-                    ))}
-                  </div>
-                  <p>评分明细来自上游 market-rating</p>
-                </div>
-              </div>
-            </section>
-            <section className="strategy-panel strategy-panel--amber strategy-conclusion">
-              <div className="strategy-panel__head">
-                <div>
-                  <p>
-                    <Sparkles size={14} /> TODAY CONCLUSION
-                  </p>
-                  <h2>综合评级与仓位建议</h2>
-                </div>
-                <span>
-                  评分 {totalScore === null ? "—" : totalScore.toFixed(1)}
-                </span>
-              </div>
-              <div className="strategy-conclusion__rating">
-                <strong>
-                  {snapshot?.summary.assessment?.rating ||
-                    day1?.rating.level ||
-                    "正在整理"}
-                </strong>
-                <span>
-                  加密恐惧贪婪={cryptoFearGreed ?? "—"} ｜ VIX=
-                  {vix?.display || "—"}
-                </span>
-              </div>
-              <div className="strategy-advice-grid">
-                {actionAdvice.slice(0, 5).map((item) => (
-                  <div key={item.label}>
-                    <span>{item.label}</span>
-                    <p>{item.detail}</p>
-                  </div>
-                ))}
-                {!actionAdvice.length ? (
-                  <div>
-                    <span>说明</span>
-                    <p>等待下一次每日快照完成。</p>
-                  </div>
-                ) : null}
-              </div>
-              <div className="strategy-disclaimer">
-                <ShieldAlert size={13} />{" "}
-                {snapshot?.summary.assessment?.disclaimer ||
-                  "以上内容仅供参考，不构成任何投资建议。"}
-              </div>
-              <Link
-                className="strategy-detail-link"
-                to="/council/details/judgement"
-              >
-                查看详细内容 <ChevronRight size={14} />
-              </Link>
-            </section>
-          </section>
-          <aside className="strategy-column strategy-column--right">
-            <section className="strategy-panel strategy-panel--indigo">
-              <div className="strategy-panel__head">
-                <div>
-                  <p>
-                    <TrendingUp size={14} /> US STOCKS
-                  </p>
-                  <h2>美股数据</h2>
-                </div>
-                <span>{formatDate(day1?.fetchedAt)}</span>
-              </div>
-              <div className="strategy-index-strip">
-                <Metric market={sp500} />
-                <Metric market={qqq} />
-              </div>
-              <div className="strategy-quote-table">
-                {stockItems.map((item) => (
-                  <div key={item.symbol}>
-                    <span>
-                      {item.symbol}
-                      <small>{item.name}</small>
-                    </span>
-                    <strong>
-                      {item.price === null
-                        ? "—"
-                        : marketFormatter.format(item.price)}
-                    </strong>
-                    <em className={movementClass(item.changePercent)}>
-                      {percentLabel(item.changePercent)}
-                    </em>
-                  </div>
-                ))}
-                {!stockItems.length ? (
-                  <div className="strategy-table-empty">等待每日美股快照…</div>
-                ) : null}
-              </div>
-              <Link
-                className="strategy-detail-link"
-                to="/council/details/performance"
-              >
-                查看详细内容 <ChevronRight size={14} />
-              </Link>
-            </section>
-            <section className="strategy-panel strategy-panel--btc">
-              <div className="strategy-panel__head">
-                <div>
-                  <p>
-                    <WalletCards size={14} /> CRYPTO & ON-CHAIN
-                  </p>
-                  <h2>加密与 BTC 链上数据</h2>
-                </div>
-                <span>Day1 每日快照</span>
-              </div>
-              <div className="strategy-btc-hero">
-                <span>BTC</span>
-                <strong>{btc?.display || "—"}</strong>
-                <em className={movementClass(btc?.changePercent)}>
-                  {percentLabel(btc?.changePercent)}
-                </em>
-              </div>
-              <div className="strategy-crypto-pairs">
-                {cryptoItems.slice(0, 6).map((item) => (
-                  <div key={item.symbol}>
-                    <span>{item.symbol}</span>
-                    <strong>
-                      {item.price === null
-                        ? "—"
-                        : marketFormatter.format(item.price)}
-                    </strong>
-                    <em className={movementClass(item.changePercent)}>
-                      {percentLabel(item.changePercent)}
-                    </em>
-                  </div>
-                ))}
-              </div>
-              <div className="strategy-onchain-table">
-                <div>
-                  <span>200 周均线</span>
-                  <strong>
-                    {moneyMetric(numberMetric(day1, "wma200Price"))}
-                  </strong>
-                </div>
-                <div>
-                  <span>200 周均线倍数</span>
-                  <strong>
-                    {numberMetric(day1, "wma200Multiplier") === null
-                      ? "—"
-                      : `${numberMetric(day1, "wma200Multiplier")!.toFixed(2)}×`}
-                  </strong>
-                </div>
-                <div>
-                  <span>ETF 每日净流入</span>
-                  <strong>
-                    {moneyMetric(numberMetric(day1, "etfFlowUsd"))}
-                  </strong>
-                </div>
-                <div>
-                  <span>Funding Rate</span>
-                  <strong>
-                    {numberMetric(day1, "fundingRate") === null
-                      ? "—"
-                      : `${numberMetric(day1, "fundingRate")!.toFixed(4)}%`}
-                  </strong>
-                </div>
-              </div>
-              <p className="strategy-data-note">
-                此处为 Day1 公开 market-data 的当次持久化结果。
-              </p>
-              <Link
-                className="strategy-detail-link"
-                to="/council/details/flows"
-              >
-                查看详细内容 <ChevronRight size={14} />
-              </Link>
-            </section>
-          </aside>
-        </main>
-      </div>
-      <footer className="strategy-alert-ticker">
-        <div>
-          <BellRing size={14} />
-          <strong>GLOBAL ALERT</strong>
-        </div>
-        <div className="strategy-alert-ticker__rail">
-          {alerts.length ? (
-            alerts.map((alert, index) => (
-              <span key={`${index}-${alert}`}>
-                <b>观察</b>
-                {alert}
-              </span>
-            ))
-          ) : (
-            <span>
-              <b>同步中</b>正在读取最近一次成功快照
-            </span>
-          )}
-        </div>
-      </footer>
+        </div></section>
+      </main>
+
+      <aside className="editorial-rail"><section><div className="editorial-rail-head"><h3>{day1Analysis ? "Day1 今日必看" : "今日必看"} {snapshot?.news.length || 0} 条</h3></div>{(snapshot?.news || []).map((item) => <a className="editorial-news-item" href={item.url} target="_blank" rel="noreferrer" key={item.id}><div><i className={item.weight >= 80 ? "is-high" : item.weight >= 60 ? "is-mid" : "is-low"} /><time>{shanghaiTime(item.publishedAt)}</time><span>{item.category}</span></div><strong>{item.title}</strong></a>)}{loading && !snapshot?.news.length ? <div className="editorial-empty">正在聚合专业新闻源</div> : null}</section>
+        <section><div className="editorial-rail-head"><h3>本周关注</h3></div>{(data?.events || []).map((event) => <a className="editorial-calendar-item" href={event.url} target="_blank" rel="noreferrer" key={event.id}><b>{event.date.slice(5).replace("-", "/")}</b><span>{event.title}<small>{event.time} · {event.source}</small></span></a>)}</section>
+      </aside></div>
     </div>
-  );
+
+    <footer className="editorial-ticker"><div><i />GLOBAL ALERT</div><div className="editorial-ticker-track">{[...alerts, ...alerts].map((alert, index) => <span key={`${index}-${alert}`}><b>{index % 3 === 0 ? "市场" : index % 3 === 1 ? "热点" : "观察"}</b>{alert}</span>)}</div></footer>
+  </div>;
 }

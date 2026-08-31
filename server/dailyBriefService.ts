@@ -20,6 +20,7 @@ import type {
 const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 const LOCK_STALE_MS = 20 * 60_000;
 const HISTORY_DAYS = 90;
+const DAILY_BRIEF_HOUR = 9;
 
 type BriefWindow = { date: string; slot: DailyBriefSlot };
 type GenerateBrief = (window: BriefWindow) => Promise<DailyBriefSnapshot>;
@@ -43,12 +44,10 @@ function shanghaiParts(now: Date) {
 
 export function getDailyBriefWindow(now = new Date()): BriefWindow {
   const local = shanghaiParts(now);
-  if (local.hour >= 17) return { date: local.date, slot: "evening" };
-  if (local.hour >= 12) return { date: local.date, slot: "midday" };
-  if (local.hour >= 8) return { date: local.date, slot: "morning" };
+  if (local.hour >= DAILY_BRIEF_HOUR) return { date: local.date, slot: "morning" };
   const [year, month, day] = local.date.split("-").map(Number);
   const previous = new Date(Date.UTC(year, month - 1, day - 1));
-  return { date: previous.toISOString().slice(0, 10), slot: "evening" };
+  return { date: previous.toISOString().slice(0, 10), slot: "morning" };
 }
 
 export function getNextDailyBriefRun(now = new Date()) {
@@ -66,7 +65,7 @@ export function getNextDailyBriefRun(now = new Date()) {
     formatter.formatToParts(now).map((part) => [part.type, part.value]),
   );
   const hour = Number(parts.hour);
-  const targetHour = hour < 8 ? 8 : hour < 12 ? 12 : hour < 17 ? 17 : 32;
+  const targetHour = hour < DAILY_BRIEF_HOUR ? DAILY_BRIEF_HOUR : DAILY_BRIEF_HOUR + 24;
   const shanghaiAsUtc = Date.UTC(
     Number(parts.year),
     Number(parts.month) - 1,
@@ -92,7 +91,7 @@ function isSnapshot(value: unknown): value is DailyBriefSnapshot {
   const item = value as Partial<DailyBriefSnapshot> | null;
   return Boolean(
     item &&
-    item.version === 2 &&
+    item.version === 10 &&
     /^\d{4}-\d{2}-\d{2}$/.test(item.date || "") &&
     ["morning", "midday", "evening"].includes(item.slot || "") &&
     item.summary &&
@@ -103,10 +102,7 @@ function isSnapshot(value: unknown): value is DailyBriefSnapshot {
 function isScheduledWindowComplete(snapshot: DailyBriefSnapshot) {
   const generated = shanghaiParts(new Date(snapshot.generatedAt));
   if (generated.date !== snapshot.date) return false;
-  if (snapshot.slot === "evening") return generated.hour >= 17;
-  if (snapshot.slot === "midday")
-    return generated.hour >= 12 && generated.hour < 17;
-  return generated.hour >= 8 && generated.hour < 12;
+  return snapshot.slot === "morning" && generated.hour >= DAILY_BRIEF_HOUR;
 }
 
 async function readSnapshot(filePath: string) {
