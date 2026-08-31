@@ -151,6 +151,7 @@
 .editorial-market-chart path.btc { stroke: var(--ed-indigo); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: .8; }
 
 .editorial-intelligence { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--ed-border-soft); }
+.editorial-added-visuals { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--ed-border-soft); }
 .editorial-intelligence-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
 .editorial-intelligence-head > div { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
 .editorial-intelligence-head span, .editorial-intelligence article header > span { color: var(--rating-accent); font: 9px/1 var(--ed-mono); letter-spacing: .11em; }
@@ -172,6 +173,72 @@
 .editorial-intelligence-list b { color: var(--ed-text); font-size: 11.5px; font-weight: 650; }
 .editorial-intelligence-list p { margin: 3px 0 0; color: var(--ed-dim); font-size: 12.6px; line-height: 1.75; }
 .editorial-intelligence-foot { display: flex; justify-content: space-between; gap: 14px; margin-top: 10px; color: var(--ed-faint); font: 9.5px/1.4 var(--ed-mono); }
+
+.brief-viz-dashboard { --viz-grid: rgba(151, 188, 180, .105); }
+.brief-viz-primary-grid { display: grid; grid-template-columns: minmax(310px, .9fr) minmax(430px, 1.45fr); gap: 10px; }
+.brief-viz-secondary-grid { display: grid; grid-template-columns: .9fr 1.15fr 1.08fr; gap: 10px; margin-top: 10px; }
+.brief-viz-card { position: relative; min-width: 0; min-height: 220px; overflow: hidden; padding: 14px 15px 12px; border: 1px solid rgba(103, 219, 194, .13); border-radius: 11px; background: radial-gradient(circle at 100% 0, rgba(58, 133, 115, .09), transparent 38%), linear-gradient(145deg, rgba(12, 35, 34, .77), rgba(4, 13, 15, .92)); box-shadow: inset 0 1px rgba(207, 255, 245, .025), 0 12px 32px rgba(0, 0, 0, .13); }
+.brief-viz-card::after { position: absolute; top: 0; left: 14px; width: 54px; height: 1px; background: linear-gradient(90deg, var(--ed-jade-bright), transparent); content: ""; }
+.brief-viz-card.is-btc { border-color: rgba(135, 184, 255, .16); background: radial-gradient(circle at 100% 0, rgba(72, 103, 166, .12), transparent 42%), linear-gradient(145deg, rgba(12, 25, 36, .88), rgba(5, 12, 18, .94)); }
+.brief-viz-card.is-btc::after { background: linear-gradient(90deg, var(--ed-indigo), transparent); }
+.brief-viz-card.is-radar { border-color: rgba(230, 199, 125, .16); background: radial-gradient(circle at 50% 48%, rgba(232, 185, 93, .07), transparent 48%), linear-gradient(145deg, rgba(35, 29, 17, .58), rgba(8, 15, 15, .93)); }
+.brief-viz-card.is-radar::after { background: linear-gradient(90deg, var(--ed-amber), transparent); }
+.brief-viz-card > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
+.brief-viz-card > header > div { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
+.brief-viz-card > header span { color: var(--ed-jade-bright); font: 8px/1 var(--ed-mono); letter-spacing: .11em; }
+.brief-viz-card > header h3 { overflow: hidden; margin: 0; color: var(--ed-text); font-size: 11.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.brief-viz-card > header em, .brief-source-chip { flex: 0 0 auto; color: var(--ed-faint); font: 8px/1 var(--ed-mono); font-style: normal; letter-spacing: .05em; }
+.brief-macro-bars { display: grid; gap: 10px; }
+.brief-macro-row { display: grid; grid-template-columns: 76px minmax(90px, 1fr) 57px; align-items: center; gap: 8px; }
+.brief-macro-row > div:first-child b, .brief-macro-row > div:first-child span { display: block; }
+.brief-macro-row > div:first-child b { color: var(--ed-text); font: 650 10px/1.2 var(--ed-mono); }
+.brief-macro-row > div:first-child span { margin-top: 3px; color: var(--ed-faint); font-size: 8.5px; }
+.brief-macro-row > strong { font: 650 10.5px/1 var(--ed-mono); text-align: right; }
+.brief-macro-axis { position: relative; height: 8px; border-radius: 99px; background: rgba(126, 167, 158, .07); }
+.brief-macro-axis > i { position: absolute; top: -2px; bottom: -2px; left: 50%; width: 1px; background: rgba(180, 216, 208, .27); }
+.brief-macro-axis > b { position: absolute; top: 0; width: var(--macro-size); height: 100%; border-radius: inherit; }
+.brief-macro-axis > b.is-right { left: 50%; background: linear-gradient(90deg, rgba(120, 233, 199, .4), var(--ed-jade-bright)); }
+.brief-macro-axis > b.is-left { right: 50%; background: linear-gradient(90deg, var(--ed-rose), rgba(240, 107, 125, .38)); }
+.brief-macro-bars > p { margin: 0; color: var(--ed-faint); font-size: 8.5px; line-height: 1.45; }
+.brief-btc-chart { display: block; width: 100%; height: 208px; overflow: visible; }
+.brief-chart-grid { stroke: var(--viz-grid); stroke-width: 1; stroke-dasharray: 2 5; vector-effect: non-scaling-stroke; }
+.brief-support-zone { fill: rgba(240, 107, 125, .1); stroke: rgba(240, 107, 125, .26); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.brief-resistance-line { stroke: var(--ed-amber); stroke-width: 1; stroke-dasharray: 5 5; opacity: .75; vector-effect: non-scaling-stroke; }
+.brief-btc-line { fill: none; stroke: var(--ed-jade-bright); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.brief-btc-dot { fill: var(--ed-jade-bright); stroke: rgba(120, 233, 199, .25); stroke-width: 8; vector-effect: non-scaling-stroke; }
+.brief-chart-label { font: 9px var(--ed-mono); }
+.brief-chart-label.is-amber { fill: var(--ed-amber); }
+.brief-chart-label.is-rose { fill: var(--ed-rose); }
+.brief-chart-label.is-jade { fill: var(--ed-jade-bright); }
+.brief-chart-date { fill: var(--ed-faint); font: 8px var(--ed-mono); }
+.brief-viz-secondary-grid .brief-viz-card { min-height: 236px; }
+.brief-sopr-chart { position: relative; display: grid; gap: 19px; padding-top: 17px; }
+.brief-source-chip { position: absolute; top: -2px; right: 0; padding: 4px 6px; border: 1px solid var(--ed-border-soft); border-radius: 99px; }
+.brief-sopr-chart header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.brief-sopr-chart header span { color: var(--ed-dim); font: 9.5px/1 var(--ed-mono); }
+.brief-sopr-chart header b { font: 650 13px/1 var(--ed-mono); }
+.brief-sopr-track { position: relative; height: 9px; overflow: hidden; border-radius: 99px; background: rgba(126, 167, 158, .08); }
+.brief-sopr-track > i { position: absolute; z-index: 2; top: -2px; bottom: -2px; left: 80%; width: 1px; background: rgba(232, 185, 93, .8); }
+.brief-sopr-track > b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, rgba(240, 107, 125, .35), var(--ed-rose)); }
+.brief-sopr-track > b.is-profit { background: linear-gradient(90deg, rgba(120, 233, 199, .3), var(--ed-jade-bright)); }
+.brief-sopr-chart > p { display: flex; justify-content: space-between; margin: -5px 0 0; color: var(--ed-faint); font: 7.8px/1 var(--ed-mono); }
+.brief-sopr-chart > p strong { color: var(--ed-amber); font-weight: 500; }
+.brief-etf-turn svg { display: block; width: 100%; height: 145px; overflow: visible; }
+.brief-etf-turn svg text { fill: var(--ed-dim); font: 9px var(--ed-mono); }
+.brief-etf-turn svg text.is-outflow { fill: var(--ed-rose); font-weight: 650; }
+.brief-chart-zero { stroke: rgba(180, 216, 208, .2); stroke-dasharray: 4 4; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.brief-flow-line { fill: none; stroke: var(--ed-jade-bright); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.brief-etf-turn circle { fill: var(--ed-jade-bright); }
+.brief-etf-turn circle.is-outflow { fill: var(--ed-rose); stroke: rgba(240, 107, 125, .2); stroke-width: 7; vector-effect: non-scaling-stroke; }
+.brief-etf-turn p { margin: 4px 0 0; color: var(--ed-faint); font-size: 8.5px; line-height: 1.5; }
+.brief-radar { display: block; width: 100%; height: 192px; margin-top: -2px; overflow: visible; }
+.brief-radar-grid, .brief-radar-axis { fill: none; stroke: rgba(191, 209, 203, .11); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.brief-radar-area { fill: rgba(120, 233, 199, .15); stroke: var(--ed-jade-bright); stroke-linejoin: round; stroke-width: 1.7; vector-effect: non-scaling-stroke; }
+.brief-radar-label { fill: var(--ed-dim); font: 8.5px var(--ed-sans); }
+.brief-radar-value { fill: var(--ed-amber); font: 650 9px var(--ed-mono); }
+.brief-viz-method { display: flex; align-items: center; gap: 8px; margin-top: 9px; color: var(--ed-faint); font-size: 8.5px; line-height: 1.5; }
+.brief-viz-method span { flex: 0 0 auto; color: var(--ed-jade-bright); font: 8px/1 var(--ed-mono); letter-spacing: .1em; }
+.brief-viz-empty { display: grid; min-height: 180px; place-items: center; color: var(--ed-faint); font-size: 10px; }
 
 .editorial-side-dock { display: none; }
 .editorial-assets-section { position: relative; }
@@ -317,6 +384,9 @@
   .editorial-rail { padding-top: 28px; padding-left: 0; border-top: 1px solid var(--ed-border); border-left: 0; }
   .editorial-masthead-inner, .editorial-masthead-side { align-items: flex-start; flex-direction: column; }
   .editorial-byline-stats > div { text-align: left; }
+  .brief-viz-primary-grid { grid-template-columns: 1fr; }
+  .brief-viz-secondary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .brief-viz-secondary-grid .brief-viz-card.is-radar { grid-column: 1 / -1; }
 }
 
 @media (min-width: 1800px) {
@@ -382,6 +452,14 @@
   .editorial-actions button { flex: 1; justify-content: center; }
   .editorial-lead { padding: 0 14px 15px; }
   .editorial-lead-metrics { padding-top: 16px; }
+  .brief-viz-primary-grid, .brief-viz-secondary-grid { grid-template-columns: minmax(0, 1fr); }
+  .brief-viz-secondary-grid .brief-viz-card.is-radar { grid-column: auto; }
+  .brief-viz-card { padding: 13px 12px 11px; }
+  .brief-viz-card > header { align-items: flex-start; }
+  .brief-viz-card > header em { max-width: 42%; text-align: right; white-space: normal; }
+  .brief-macro-row { grid-template-columns: 68px minmax(70px, 1fr) 55px; }
+  .brief-btc-chart { height: 190px; }
+  .brief-viz-method { align-items: flex-start; }
   .editorial-lead-metrics .editorial-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-flow: row; }
   .editorial-rating strong { font-size: 22px; }
   .editorial-rationale { font-size: 14.5px; text-align: left; }

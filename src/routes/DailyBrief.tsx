@@ -10,6 +10,7 @@ import type {
   DailyBriefUpstreamQuote,
   DailyBriefVisualSeries,
 } from "../lib/dailyBriefTypes";
+import { DailyBriefVisualDashboard } from "../components/DailyBriefVisuals";
 import { buildAiPayload, loadIntegrationSettings } from "../lib/integrations";
 import "./DailyBrief.css";
 
@@ -318,6 +319,7 @@ export function DailyBrief() {
           ["加密 F&G", data.sentiment.cryptoFearGreed], ["MVRV Z-Score", data.sentiment.mvrvZScore],
           ["Crypto F&G 变化", fearGreedChangeMetric(data.sentiment.cryptoFearGreed, "Crypto Fear & Greed"), changeClass(data.sentiment.cryptoFearGreed.change).replace("is-", "")],
         ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small>{metricNote(item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div></div>
+        <div className="editorial-added-visuals"><DailyBriefVisualDashboard data={data} analysis={day1Analysis} summary={summary} btc={btc} /></div>
         <div className="editorial-intelligence">
           <div className="editorial-intelligence-head"><div><span>AI MARKET READING</span><b>{day1Analysis ? "Day1 Global 深度解读" : "今日市场要点"}</b></div>{day1Analysis ? <a href={snapshot?.day1?.sourceUrl} target="_blank" rel="noreferrer">查看原始简报</a> : <em>{snapshot?.summaryMode === "ai" ? "项目 AI" : "规则结论"}</em>}</div>
           {day1Analysis ? <>
