@@ -183,6 +183,22 @@ export type DailyBriefEditorialSnapshot = {
     openInterest: DailyBriefEditorialMetric;
     dominance: DailyBriefEditorialMetric;
   };
+  futuresLongShort: {
+    longAccount: number | null;
+    shortAccount: number | null;
+    longShortRatio: number | null;
+    updatedAt: string | null;
+    sourceUrl: string;
+  };
+  derivativesSentiment: {
+    score: number | null;
+    accountLong: number | null;
+    takerBuySellRatio: number | null;
+    topTraderLong: number | null;
+    fundingRate: number | null;
+    oiChange5m: number | null;
+    updatedAt: string | null;
+  };
   marketSeries: DailyBriefVisualSeries[];
   events: DailyBriefEditorialEvent[];
 };
@@ -228,7 +244,7 @@ export type DailyBriefDay1Snapshot = {
 };
 
 export type DailyBriefSnapshot = {
-  version: 13;
+  version: 16;
   date: string;
   slot: DailyBriefSlot;
   generatedAt: string;

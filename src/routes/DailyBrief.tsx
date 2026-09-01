@@ -17,10 +17,26 @@ import "./DailyBrief.css";
 const money = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
 async function requestJson<T>(url: string, init?: RequestInit) {
-  const response = await fetch(url, { headers: { Accept: "application/json" }, ...init });
-  const payload = (await response.json()) as T & { detail?: string };
-  if (!response.ok) throw new Error(payload.detail || `请求失败（${response.status}）`);
-  return payload;
+  const attempts = !init?.method || init.method === "GET" ? 2 : 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, { headers: { Accept: "application/json" }, ...init });
+      const text = await response.text();
+      if (!text.trim()) throw new Error(`接口返回空内容（${response.status}）`);
+      let payload: T & { detail?: string };
+      try {
+        payload = JSON.parse(text) as T & { detail?: string };
+      } catch {
+        throw new Error(response.ok ? "接口返回的数据不完整，请重试" : `请求失败（${response.status}）`);
+      }
+      if (!response.ok) throw new Error(payload.detail || `请求失败（${response.status}）`);
+      return payload;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("请求失败，请重试");
 }
 
 function shanghaiTime(value?: string) {
@@ -345,24 +361,7 @@ export function DailyBrief() {
         <div className="editorial-chip-row">{(data?.events || []).map((event) => <a href={event.url} target="_blank" rel="noreferrer" key={event.id}><b>{event.date.slice(5).replace("-", "/")}</b>{event.title}</a>)}</div>
       </section>
 
-      <div className="editorial-report-grid"><main className="editorial-main-column">
-        <section><div className="editorial-section-head"><h2>市场情绪 &amp; 抄底逃顶信号</h2><small>CRYPTO · STOCKS · ON-CHAIN</small></div>
-          <div className="editorial-tile-grid">{data ? [
-            ["加密 F&G", data.sentiment.cryptoFearGreed], ["美股 F&G", data.sentiment.stockFearGreed], ["VIX 波动率", data.sentiment.vix],
-            ["MVRV Z-Score", data.sentiment.mvrvZScore],
-            ["CNN F&G 变化", fearGreedChangeMetric(data.sentiment.stockFearGreed, "CNN Fear & Greed"), changeClass(data.sentiment.stockFearGreed.change).replace("is-", "")],
-            ["Crypto F&G 变化", fearGreedChangeMetric(data.sentiment.cryptoFearGreed, "Crypto Fear & Greed"), changeClass(data.sentiment.cryptoFearGreed.change).replace("is-", "")],
-          ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small className="editorial-tile-status">{metricCurrentStatus(label as string, item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div>
-
-          {(["top", "bottom"] as const).map((kind) => { const value = data?.signals[kind] ?? null; return <div className={`editorial-signal-row is-${kind}`} key={kind}><div><span>BTC {kind === "top" ? "逃顶" : "抄底"}信号强度</span><strong>{signalLabel(value, kind)} · {value === null ? "—" : `${value}/100`} <em>覆盖 {data?.signals.coverage ?? 0}%</em></strong></div><div className="editorial-signal-track"><i style={{ width: `${value || 0}%` }} /></div></div>; })}
-
-          <div className="editorial-charts-row"><div className="editorial-chart-box"><h4>情绪构成 · CNN 7 项指标</h4><div className="editorial-donut-wrap">
-            <div className="editorial-donut" style={{ background: donut }}><div><b>{data?.sentiment.stockFearGreed.display || "—"}</b><span>{data?.sentiment.stockFearGreed.label || "待更新"}</span></div></div>
-            <div className="editorial-legend">{components.map((item) => <span key={item.id}><i style={{ background: item.color }} />{item.label}<b>{item.share}%</b></span>)}{!components.length ? <small>暂无分项数据</small> : null}</div>
-          </div></div><div className="editorial-chart-box"><h4>7日加密恐惧贪婪指数走势</h4><TrendBars points={data?.sentiment.cryptoHistory || []} /></div></div>
-
-          <div className="editorial-chart-wrap"><div><h3>MAG7 + BTC 对数股价走势 · 30D</h3><span>BTC {btc?.price === null || btc?.price === undefined ? "—" : `$${money.format(btc.price)}`}</span></div><MarketChart series={data?.marketSeries || []} /></div>
-        </section>
+      <div className="editorial-report-grid"><main className="editorial-main-column is-full">
 
         <section className="editorial-assets-section"><div className="editorial-section-head"><h2>跨资产数据矩阵</h2><small>YAHOO FINANCE · BINANCE · COINGECKO · COIN METRICS</small></div>
           <div className="editorial-asset-groups">{assetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}{!assetGroups.length ? <div className="editorial-assets-loading"><Radio size={17} />正在建立跨资产数据链路…</div> : null}</div>
@@ -372,9 +371,7 @@ export function DailyBrief() {
         <section className="editorial-original-market-section"><div className="editorial-section-head"><h2>Mag7 &amp; 加密数据</h2><small>YAHOO FINANCE · BINANCE · COIN METRICS · GLASSNODE</small></div><div className="editorial-table-pair"><Mag7DataPanel data={data} /><CryptoDataPanel data={data} btc={btc} /></div></section>
       </main>
 
-      <aside className="editorial-rail"><section><div className="editorial-rail-head"><h3>{day1Analysis ? "Day1 今日必看" : "今日必看"} {snapshot?.news.length || 0} 条</h3></div>{(snapshot?.news || []).map((item) => <a className="editorial-news-item" href={item.url} target="_blank" rel="noreferrer" key={item.id}><div><i className={item.weight >= 80 ? "is-high" : item.weight >= 60 ? "is-mid" : "is-low"} /><time>{shanghaiTime(item.publishedAt)}</time><span>{item.category}</span></div><strong>{item.title}</strong></a>)}{loading && !snapshot?.news.length ? <div className="editorial-empty">正在聚合专业新闻源</div> : null}</section>
-        <section><div className="editorial-rail-head"><h3>本周关注</h3></div>{(data?.events || []).map((event) => <a className="editorial-calendar-item" href={event.url} target="_blank" rel="noreferrer" key={event.id}><b>{event.date.slice(5).replace("-", "/")}</b><span>{event.title}<small>{event.time} · {event.source}</small></span></a>)}</section>
-      </aside></div>
+      </div>
     </div>
 
     <footer className="editorial-ticker"><div><i />GLOBAL ALERT</div><div className="editorial-ticker-track">{[...alerts, ...alerts].map((alert, index) => <span key={`${index}-${alert}`}><b>{index % 3 === 0 ? "市场" : index % 3 === 1 ? "热点" : "观察"}</b>{alert}</span>)}</div></footer>

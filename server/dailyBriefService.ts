@@ -91,7 +91,7 @@ function isSnapshot(value: unknown): value is DailyBriefSnapshot {
   const item = value as Partial<DailyBriefSnapshot> | null;
   return Boolean(
     item &&
-    item.version === 13 &&
+    item.version === 16 &&
     /^\d{4}-\d{2}-\d{2}$/.test(item.date || "") &&
     ["morning", "midday", "evening"].includes(item.slot || "") &&
     item.summary &&

@@ -97,22 +97,30 @@ function CnnFearGreedComponents({ data }: { data?: DailyBriefEditorialSnapshot }
   </div>;
 }
 
-function EtfFlowTurn({ analysis }: { analysis?: Day1Analysis }) {
-  const text = analysis?.cryptoAnalysis || "";
-  const streak = Number(text.match(/连续\s*(\d+)日净流入/)?.[1]) || 9;
-  const outflowYi = Number(text.match(/净流出\s*([\d.]+)亿/)?.[1]);
-  const outflowM = Number.isFinite(outflowYi) ? outflowYi * 100 : null;
-  const width = 430, height = 130, left = 16, right = 18, mid = 66;
-  const states = Array.from({ length: Math.min(12, streak) }, (_, index) => ({ value: .45 + index * .025 })).concat([{ value: -1 }]);
-  const x = (index: number) => left + index / (states.length - 1) * (width - left - right);
-  const y = (value: number) => mid - value * 43;
-  const path = states.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(point.value).toFixed(1)}`).join(" ");
-  return <div className="brief-etf-turn"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`比特币ETF连续${streak}日净流入后转为净流出${outflowM ?? "未知"}百万美元`}>
-    <line className="brief-chart-zero" x1={left} x2={width - right} y1={mid} y2={mid} />
-    <path className="brief-flow-line" d={path} />
-    {states.map((point, index) => <circle className={point.value < 0 ? "is-outflow" : ""} cx={x(index)} cy={y(point.value)} r={index === states.length - 1 ? 4 : 2.5} key={index} />)}
-    <text x={left} y="15">连续 {streak} 日净流入</text><text className="is-outflow" textAnchor="end" x={width - right} y={height - 8}>{outflowM === null ? "首次转为净流出" : `-$${outflowM.toFixed(1)}M`}</text>
-  </svg><p>方向序列来自简报；仅末日披露了具体流出金额。</p></div>;
+function BinanceLongShortPie({ data }: { data?: DailyBriefEditorialSnapshot }) {
+  const futures = data?.futuresLongShort;
+  const long = futures?.longAccount ?? null;
+  const short = futures?.shortAccount ?? null;
+  const ratio = futures?.longShortRatio ?? null;
+  const sentiment = data?.derivativesSentiment;
+  const score = sentiment?.score ?? null;
+  if (long === null || short === null || ratio === null || score === null || !sentiment) return <div className="brief-viz-empty">Binance BTC 合约多空情绪同步中</div>;
+  const updatedAt = futures?.updatedAt ? new Date(futures.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) : "—";
+  const tone = score >= 58 ? "偏多" : score <= 42 ? "偏空" : "均衡";
+  const takerRatio = sentiment.takerBuySellRatio;
+  const takerLabel = takerRatio === null ? "买卖盘待更新" : takerRatio >= 1.05 ? "买盘偏强" : takerRatio <= .95 ? "卖盘偏强" : "买卖盘均衡";
+  const whaleLabel = sentiment.topTraderLong === null ? "大户仓位待更新" : sentiment.topTraderLong >= 55 ? "大户偏多" : sentiment.topTraderLong <= 45 ? "大户偏空" : "大户中性";
+  const fundingLabel = sentiment.fundingRate === null ? "资金费率待更新" : sentiment.fundingRate >= .005 ? "多头付费" : sentiment.fundingRate <= -.005 ? "空头付费" : "费率中性";
+  const oiLabel = sentiment.oiChange5m === null ? "持仓待更新" : sentiment.oiChange5m >= .05 ? "持仓升温" : sentiment.oiChange5m <= -.05 ? "持仓降温" : "持仓平稳";
+  return <div className="brief-long-short" role="img" aria-label={`Binance BTC 合约多空情绪${score.toFixed(0)}分${tone}，账户多头${long.toFixed(2)}%，空头${short.toFixed(2)}%，多空比${ratio.toFixed(3)}`}>
+    <div className="brief-long-short-pie" style={{ "--long-share": `${Math.max(0, Math.min(100, long))}%` } as CSSProperties}><div><b>{score.toFixed(0)}</b><span>{tone}情绪</span></div></div>
+    <div className="brief-long-short-stats">
+      <div className="is-long"><span>多头账户</span><strong>{long.toFixed(2)}%</strong></div>
+      <div className="is-short"><span>空头账户</span><strong>{short.toFixed(2)}%</strong></div>
+      <small>5 分钟周期 · 更新 {updatedAt}</small>
+    </div>
+    <div className="brief-derivatives-metrics"><span>{takerLabel} <b>{takerRatio === null ? "—" : `${takerRatio.toFixed(2)}×`}</b></span><span>{whaleLabel} <b>{sentiment.topTraderLong === null ? "—" : `${sentiment.topTraderLong.toFixed(1)}%`}</b></span><span>{fundingLabel} <b>{sentiment.fundingRate === null ? "—" : `${sentiment.fundingRate >= 0 ? "+" : ""}${sentiment.fundingRate.toFixed(4)}%`}</b></span><span>{oiLabel} <b>{sentiment.oiChange5m === null ? "—" : `${sentiment.oiChange5m >= 0 ? "+" : ""}${sentiment.oiChange5m.toFixed(2)}%`}</b></span></div>
+  </div>;
 }
 
 function RadarChart({ analysis, data, summary }: { analysis?: Day1Analysis; data?: DailyBriefEditorialSnapshot; summary?: DailyBriefSummary }) {
@@ -152,9 +160,9 @@ export function DailyBriefVisualDashboard({ data, analysis, summary, btc }: { da
       <VizCard index="02 / CRYPTO" title="BTC 价格与关键区间" source="Binance · 90D / 14D ATR" className="is-btc"><BtcKeyLevelsChart data={data} btc={btc} /></VizCard>
     </div>
     <div className="brief-viz-secondary-grid">
-      <VizCard index="02A / CNN" title="CNN 7 项情绪指标" source="CNN · 实时"><CnnFearGreedComponents data={data} /></VizCard>
-      <VizCard index="02B / ETF FLOW" title="资金流拐点" source="方向序列"><EtfFlowTurn analysis={analysis} /></VizCard>
+      <VizCard index="02A / CNN" title="CNN 7 项情绪指标" source="CNN · 实时" className="is-cnn"><CnnFearGreedComponents data={data} /></VizCard>
       <VizCard index="03 / PLAYBOOK" title="今日市场体质" source="规则化映射" className="is-radar"><RadarChart analysis={analysis} data={data} summary={summary} /></VizCard>
+      <VizCard index="02B / FUTURES" title="BTC 合约多空情绪" source="Binance · 5m" className="is-futures"><BinanceLongShortPie data={data} /></VizCard>
     </div>
     <div className="brief-viz-method"><span>DATA MAP</span> 图表优先使用实时接口；CNN 情绪卡展示其公开的七项底层指标，缺失指标不以简报文本替代。</div>
   </div>;
