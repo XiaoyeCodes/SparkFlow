@@ -9148,6 +9148,11 @@ const editorialAssetYahooConfigs = [
   { group: 'technology', yahooSymbol: 'AVGO', symbol: 'AVGO', name: '博通' },
   { group: 'crypto', yahooSymbol: 'MSTR', symbol: 'MSTR', name: 'Strategy' },
 ] as const;
+const editorialMacroVisualYahooConfigs = [
+  { yahooSymbol: 'GC=F', symbol: 'GOLD', name: '黄金' },
+  { yahooSymbol: 'CL=F', symbol: 'CL=F', name: 'WTI 原油' },
+  { yahooSymbol: 'DX-Y.NYB', symbol: 'DXY', name: '美元指数' },
+] as const;
 const editorialMetricColors = ['#8fd0ac', '#8891c9', '#cf9a54', '#c2707c', '#9c8bc4', '#72a0bd', '#b7a46a'];
 
 function editorialAssetDisplay(symbol: string, price: number | null) {
@@ -9172,7 +9177,7 @@ function unavailableEditorialMetric(label: string, source: string, sourceUrl: st
 }
 
 async function fetchEditorialCryptoFearGreed() {
-  const sourceUrl = 'https://api.alternative.me/fng/?limit=7';
+  const sourceUrl = 'https://api.alternative.me/fng/?limit=90';
   const payload = JSON.parse(await fetchRoutedText(sourceUrl, 'direct', 12_000, 'application/json')) as Record<string, any>;
   const rows = Array.isArray(payload?.data) ? payload.data as Array<Record<string, unknown>> : [];
   const history = rows.flatMap((row) => {
@@ -9229,7 +9234,7 @@ async function fetchEditorialYahooData() {
   const configs = [...editorialIndexConfigs, ...editorialStockConfigs] as ReadonlyArray<readonly [string, string]>;
   const [results, assetResults] = await Promise.all([
     Promise.allSettled(configs.map(async ([symbol, name]) => ({ symbol, name, quote: await getYahooMacroQuote(symbol, '3mo') }))),
-    Promise.allSettled(editorialAssetYahooConfigs.map(async (config) => ({
+    Promise.allSettled([...editorialAssetYahooConfigs, ...editorialMacroVisualYahooConfigs].map(async (config) => ({
       symbol: config.yahooSymbol,
       quote: await getYahooMacroQuote(config.yahooSymbol, '3mo'),
     }))),
@@ -9277,7 +9282,20 @@ async function fetchEditorialYahooData() {
       history: quote?.history.slice(-63) || [],
     };
   });
-  return { indices, stocks, mag7Points, assetQuotes, errors };
+  const macroVisualQuotes = editorialMacroVisualYahooConfigs.map((config) => {
+    const quote = assetQuoteMap.get(config.yahooSymbol);
+    const price = finiteNumber(quote?.price);
+    return {
+      symbol: config.symbol,
+      name: config.name,
+      price,
+      display: editorialAssetDisplay(config.symbol, price),
+      changePercent: finiteNumber(quote?.changePercent),
+      marketState: quote ? 'DELAYED' : 'UNAVAILABLE',
+      sourceUrl: quote?.sourceUrl || `https://finance.yahoo.com/quote/${encodeURIComponent(config.yahooSymbol)}`,
+    };
+  });
+  return { indices, stocks, mag7Points, assetQuotes, macroVisualQuotes, errors };
 }
 
 async function fetchEditorialCryptoData() {
@@ -9302,17 +9320,56 @@ async function fetchEditorialCryptoData() {
   ]);
   const names: Record<string, string> = { BTCUSDT: '比特币', ETHUSDT: '以太坊', SOLUSDT: 'Solana' };
   const symbols: Record<string, string> = { BTCUSDT: 'BTC', ETHUSDT: 'ETH', SOLUSDT: 'SOL' };
-  const binanceHistory = (result: PromiseSettledResult<string>) => {
+  const binanceCandles = (result: PromiseSettledResult<string>) => {
     if (result.status !== 'fulfilled') return [];
     try {
       const rows = JSON.parse(result.value) as unknown;
       return Array.isArray(rows) ? rows.flatMap((row) => {
         if (!Array.isArray(row)) return [];
         const timestamp = finiteNumber(row[0]);
-        const value = finiteNumber(row[4]);
-        return timestamp !== null && value !== null ? [{ time: new Date(timestamp).toISOString().slice(0, 10), value }] : [];
+        const high = finiteNumber(row[2]);
+        const low = finiteNumber(row[3]);
+        const close = finiteNumber(row[4]);
+        const volume = finiteNumber(row[5]);
+        return timestamp !== null && high !== null && low !== null && close !== null && volume !== null
+          ? [{ time: new Date(timestamp).toISOString().slice(0, 10), high, low, close, volume }]
+          : [];
       }) : [];
     } catch { return []; }
+  };
+  const binanceHistory = (result: PromiseSettledResult<string>) => binanceCandles(result).map((candle) => ({ time: candle.time, value: candle.close }));
+  const btcCandles = binanceCandles(btcHistoryResult);
+  const btcTechnical = (): DailyBriefEditorialSnapshot['btcTechnical'] => {
+    // The in-progress daily candle is allowed for the displayed price but excluded from level detection.
+    const candles = btcCandles.slice(0, -1).slice(-90);
+    if (candles.length < 30) return null;
+    const latest = candles[candles.length - 1]!.close;
+    const atrRows = candles.slice(-15);
+    const trueRanges = atrRows.slice(1).map((candle, index) => {
+      const previousClose = atrRows[index]!.close;
+      return Math.max(candle.high - candle.low, Math.abs(candle.high - previousClose), Math.abs(candle.low - previousClose));
+    });
+    const atr14 = trueRanges.length ? trueRanges.reduce((sum, value) => sum + value, 0) / trueRanges.length : 0;
+    const pivotHighs: number[] = [];
+    const pivotLows: number[] = [];
+    for (let index = 2; index < candles.length - 2; index += 1) {
+      const current = candles[index]!;
+      const nearby = candles.slice(index - 2, index + 3);
+      if (nearby.every((candle) => current.high >= candle.high)) pivotHighs.push(current.high);
+      if (nearby.every((candle) => current.low <= candle.low)) pivotLows.push(current.low);
+    }
+    const resistance = pivotHighs.filter((level) => level > latest).sort((left, right) => left - right)[0] ?? null;
+    const support = pivotLows.filter((level) => level < latest).sort((left, right) => right - left)[0] ?? null;
+    const halfBand = Math.max(atr14 * .35, latest * .004);
+    return {
+      source: 'Binance BTCUSDT · 1D OHLCV',
+      lookbackDays: candles.length,
+      atr14: round(atr14, 2),
+      resistance: resistance === null ? null : round(resistance, 2),
+      supportLow: support === null ? null : round(Math.max(0, support - halfBand), 2),
+      supportHigh: support === null ? null : round(support + halfBand, 2),
+      calculatedAt: new Date().toISOString(),
+    };
   };
   const hyperliquidHistory = () => {
     if (hypeHistoryResult.status !== 'fulfilled') return [];
@@ -9361,6 +9418,7 @@ async function fetchEditorialCryptoData() {
   if (!crypto.length && fundingValue === null && openInterestUsd === null && dominance === null) throw new Error('Binance 与 CoinPaprika 均暂时不可用');
   return {
     crypto,
+    btcTechnical: btcTechnical(),
     fundingRate: editorialMetric(fundingValue === null ? null : fundingValue * 100, fundingValue === null ? '暂无数据' : `${fundingValue >= 0 ? '+' : ''}${(fundingValue * 100).toFixed(4)}%`, 'Binance USDⓈ-M Futures', 'https://www.binance.com/en/futures/BTCUSDT'),
     openInterest: editorialMetric(openInterestUsd, openInterestUsd === null ? '暂无数据' : `$${(openInterestUsd / 1_000_000_000).toFixed(2)}B`, 'Binance USDⓈ-M Futures', 'https://www.binance.com/en/futures/BTCUSDT'),
     dominance: editorialMetric(dominance, dominance === null ? '暂无数据' : `${dominance.toFixed(1)}%`, 'CoinPaprika Global API', 'https://api.coinpaprika.com/'),
@@ -9519,6 +9577,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
       changePercent: null, marketState: 'UNAVAILABLE',
       sourceUrl: `https://finance.yahoo.com/quote/${encodeURIComponent(config.yahooSymbol)}`,
     })),
+    macroVisualQuotes: [],
     errors: [],
   };
   errors.push(...yahoo.errors);
@@ -9526,6 +9585,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     crypto: [], fundingRate: unavailableEditorialMetric('资金费率', 'Binance', 'https://www.binance.com/en/futures/BTCUSDT', '接口暂时不可用'),
     openInterest: unavailableEditorialMetric('未平仓合约', 'Binance', 'https://www.binance.com/en/futures/BTCUSDT', '接口暂时不可用'),
     dominance: unavailableEditorialMetric('市值占比', 'CoinPaprika', 'https://api.coinpaprika.com/', '接口暂时不可用'),
+    btcTechnical: null,
   };
   const glassnodeChain = glassnodeResult.status === 'fulfilled' ? glassnodeResult.value : await fetchGlassnodeEditorialMetrics();
   const coinMetricsFallback = coinMetricsFallbackResult.status === 'fulfilled' ? coinMetricsFallbackResult.value : null;
@@ -9633,7 +9693,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     generatedAt, issue,
     sentiment: { cryptoFearGreed: cryptoFear.metric, stockFearGreed: stockFear.metric, vix, mvrvZScore: chain.mvrvZScore, lthSupplyRatio: chain.lthSupplyRatio, sopr: chain.sopr, stockComponents: stockFear.components, cryptoHistory: cryptoFear.history },
     signals: { ...signals, methodology: '由 HTML 指定的 8 项同名指标等权归一化；至少 4 项可用时计算，覆盖度同步展示。' },
-    indices: yahoo.indices, stocks: yahoo.stocks, crypto: cryptoData.crypto, assetGroups,
+    indices: yahoo.indices, stocks: yahoo.stocks, crypto: cryptoData.crypto, macroAssets: yahoo.macroVisualQuotes, btcTechnical: cryptoData.btcTechnical, assetGroups,
     onchain: { sopr: chain.sopr, lthSopr: chain.lthSopr, wma200Multiple: wmaMetric, puellMultiple: chain.puellMultiple, fundingRate: cryptoData.fundingRate, openInterest: cryptoData.openInterest, dominance: cryptoData.dominance },
     marketSeries: [
       { symbol: 'MAG7', name: 'MAG7 等权', color: '#8fd0ac', changePercent: yahoo.mag7Points.length > 1 ? round(yahoo.mag7Points.at(-1)!.value - 100, 2) : null, points: yahoo.mag7Points },
@@ -9651,7 +9711,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     { id: 'day1-global', label: 'Day1 Global · 编辑新闻与 AI 日报', ok: Boolean(day1), detail: day1 ? '当前新闻主源；保留其编辑排序与 AI 摘要。' : '不可用时自动回退至 SparkFlow 新闻聚合。', fetchedAt: day1?.fetchedAt || generatedAt },
     { id: 'news-feed', label: 'SparkFlow · 新闻聚合兜底', ok: !day1 && fallbackNews.length > 0, detail: day1 ? 'Day1 Global 已作为新闻主源。' : 'Day1 Global 暂时不可用，正在展示聚合新闻。', fetchedAt: generatedAt },
   ];
-  return { version: 10, date: window.date, slot: window.slot, generatedAt, updatedAt: generatedAt, summaryMode: aiSummary ? 'ai' : 'rules', summary, markets, macro, news, portfolio: { connected: false, positions: [], detail: '每日策略不读取 IBKR 持仓。' }, sources, errors, editorial, day1 };
+  return { version: 13, date: window.date, slot: window.slot, generatedAt, updatedAt: generatedAt, summaryMode: aiSummary ? 'ai' : 'rules', summary, markets, macro, news, portfolio: { connected: false, positions: [], detail: '每日策略不读取 IBKR 持仓。' }, sources, errors, editorial, day1 };
 }
 
 const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot });
@@ -11601,7 +11661,14 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/daily-brief' && req.method === 'GET') {
             res.setHeader('Cache-Control', 'private, no-cache');
-            sendJson(res, 200, await dailyBriefService.get());
+            const window = getDailyBriefWindow();
+            let response = await dailyBriefService.get(window);
+            // The core daily reading is only useful once a real editorial/AI result exists.
+            // Retry its upstream source once per page open until today's snapshot has one.
+            if (url.searchParams.get('retry-content') === '1' && !response.snapshot.day1?.analysis && response.snapshot.summaryMode !== 'ai') {
+              response = await dailyBriefService.get(window, true);
+            }
+            sendJson(res, 200, response);
             return;
           }
 

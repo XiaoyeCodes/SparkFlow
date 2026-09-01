@@ -45,10 +45,36 @@ function sentimentTone(value: number | null) {
   return "positive";
 }
 
-function metricNote(metric: DailyBriefEditorialMetric) {
-  if (metric.value === null) return metric.note || "专业数据授权未配置";
-  const change = metric.change === null || metric.change === undefined ? "" : ` ${metric.change >= 0 ? "+" : ""}${metric.change.toFixed(1)}`;
-  return `${metric.label || metric.note || "已更新"}${change}`.trim();
+function metricCurrentStatus(label: string, metric: DailyBriefEditorialMetric) {
+  const value = metric.value;
+  if (value === null || value === undefined) return "暂不可用";
+  if (label === "美股 F&G" || label === "加密 F&G") {
+    if (value <= 25) return "极度恐惧";
+    if (value < 45) return "偏恐惧";
+    if (value <= 55) return "中性观望";
+    if (value < 75) return "轻度贪婪";
+    return "极度贪婪";
+  }
+  if (label === "VIX 波动率") {
+    if (value < 15) return "波动偏低";
+    if (value < 20) return "波动正常";
+    if (value < 30) return "波动抬升";
+    return "高波动预警";
+  }
+  if (label === "MVRV Z-Score") {
+    if (value < 1) return "估值偏低";
+    if (value < 3) return "估值合理";
+    if (value < 5) return "估值偏高";
+    return "高估警戒";
+  }
+  if (/变化$/.test(label)) {
+    if (value <= -10) return "情绪快速降温";
+    if (value < -1) return "情绪降温";
+    if (value <= 1) return "情绪稳定";
+    if (value < 10) return "情绪升温";
+    return "情绪快速升温";
+  }
+  return metric.label || "持续观察";
 }
 
 function fearGreedChangeMetric(metric: DailyBriefEditorialMetric, sourceLabel: string): DailyBriefEditorialMetric {
@@ -65,13 +91,12 @@ function fearGreedChangeMetric(metric: DailyBriefEditorialMetric, sourceLabel: s
 }
 
 function AssetCard({ quote, index }: { quote: DailyBriefUpstreamQuote; index: number }) {
-  const level = quote.changePercent === null ? 8 : Math.min(100, Math.max(8, Math.abs(quote.changePercent) * 15));
   return <a
     className={`editorial-asset-card ${changeClass(quote.changePercent)}`}
     href={quote.sourceUrl || "#"}
     target="_blank"
     rel="noreferrer"
-    style={{ "--asset-level": `${level}%`, "--asset-delay": `${index * 42}ms` } as CSSProperties}
+    style={{ "--asset-delay": `${index * 42}ms` } as CSSProperties}
   >
     <i className="editorial-asset-corner" />
     <div className="editorial-asset-id"><span>{quote.symbol}</span><em>{quote.marketState === "24H" ? "LIVE 24H" : quote.marketState === "UNAVAILABLE" ? "OFFLINE" : "DELAYED"}</em></div>
@@ -124,24 +149,14 @@ function MiniQuoteChart({ quote }: { quote: DailyBriefUpstreamQuote }) {
 }
 
 function QuotePrice({ quote }: { quote: DailyBriefUpstreamQuote }) {
-  const level = quote.changePercent === null ? 8 : Math.min(100, Math.max(8, Math.abs(quote.changePercent) * 15));
-  const tone = quote.changePercent === null || quote.changePercent === 0 ? "#77908b" : quote.changePercent > 0 ? "#78e9c7" : "#f06b7d";
-  return <div className="editorial-stock-row" style={{ "--quote-strength": `${level}%`, "--quote-tone": tone } as CSSProperties}>
+  return <div className="editorial-stock-row">
     <div className="editorial-stock-id"><b>{quote.symbol}</b><span>{quote.name}</span></div><MiniQuoteChart quote={quote} />
     <div className="editorial-stock-number"><strong>{quote.display || (quote.price === null ? "—" : `$${money.format(quote.price)}`)}</strong><span className={changeClass(quote.changePercent)}>{changeLabel(quote.changePercent)}</span></div>
   </div>;
 }
 
-function CryptoQuotePill({ quote }: { quote: DailyBriefUpstreamQuote }) {
-  const level = quote.changePercent === null ? 8 : Math.min(100, Math.max(8, Math.abs(quote.changePercent) * 15));
-  const tone = quote.changePercent === null || quote.changePercent === 0 ? "#ab8561" : quote.changePercent > 0 ? "#f6c778" : "#f06b7d";
-  return <div className="editorial-crypto-row" style={{ "--quote-strength": `${level}%`, "--quote-tone": tone } as CSSProperties}>
-    <span><b>{quote.symbol}</b>{quote.name}</span><strong>{quote.display || (quote.price === null ? "—" : `$${money.format(quote.price)}`)} <em className={changeClass(quote.changePercent)}>{changeLabel(quote.changePercent)}</em></strong>
-  </div>;
-}
-
 function Mag7DataPanel({ data }: { data?: DailyBriefEditorialSnapshot }) {
-  return <section className="editorial-market-data-panel is-mag7"><h3>Mag7 数据 <span>DELAYED</span></h3><div className="editorial-index-strip">{(data?.indices || []).map((quote) => <div key={quote.symbol}><span>{quote.name}</span><b className={changeClass(quote.changePercent)}>{changeLabel(quote.changePercent)}</b></div>)}</div>{(data?.stocks || []).map((quote) => <QuotePrice quote={quote} key={quote.symbol} />)}{!data?.stocks.length ? <div className="editorial-empty">美股行情暂不可用</div> : null}</section>;
+  return <section className="editorial-market-data-panel is-mag7"><h3>Mag7 数据 <span>DELAYED</span></h3>{(data?.stocks || []).map((quote) => <QuotePrice quote={quote} key={quote.symbol} />)}{!data?.stocks.length ? <div className="editorial-empty">美股行情暂不可用</div> : null}</section>;
 }
 
 function CryptoDataPanel({ data, btc }: { data?: DailyBriefEditorialSnapshot; btc?: DailyBriefUpstreamQuote }) {
@@ -151,7 +166,6 @@ function CryptoDataPanel({ data, btc }: { data?: DailyBriefEditorialSnapshot; bt
     label: `BTC ${kind === "top" ? "逃顶" : "抄底"}信号`,
   }));
   return <section className="editorial-market-data-panel is-crypto"><h3>加密 &amp; BTC 链上数据 <span>LIVE / DAILY</span></h3><div className="editorial-btc-hero"><div><strong>{btc?.display || (btc?.price === null || btc?.price === undefined ? "—" : `$${money.format(btc.price)}`)}</strong><span className={changeClass(btc?.changePercent)}>{changeLabel(btc?.changePercent)} · 24H</span></div><MarketChart series={(data?.marketSeries || []).filter((item) => item.symbol === "BTC")} /></div>
-    {(data?.crypto || []).filter((item) => item.symbol !== "BTC").map((quote) => <CryptoQuotePill quote={quote} key={quote.symbol} />)}
     <div className="editorial-onchain-table">{data ? <>{signalRows.map(({ kind, label, value }) => <div className={`editorial-onchain-signal is-${kind}`} key={kind} title={data.signals.methodology}><span>{label}</span><b>{signalLabel(value, kind)} · {value === null ? "—" : `${value}/100`}<i className={value === null ? "is-off" : ""} /></b></div>)}{[
       ["200周均线倍数", data.onchain.wma200Multiple], ["Puell Multiple", data.onchain.puellMultiple], ["资金费率", data.onchain.fundingRate],
       ["未平仓合约", data.onchain.openInterest], ["市值占比", data.onchain.dominance],
@@ -211,13 +225,12 @@ export function DailyBrief() {
   const [error, setError] = useState("");
   const [modelSummary, setModelSummary] = useState<DailyBriefSummary | null>(null);
   const [, setModelSummaryState] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
-  const [modelSummaryError, setModelSummaryError] = useState("");
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true);
     setError("");
     try {
-      const payload = refresh ? await requestJson<DailyBriefResponse>("/api/daily-brief/refresh", { method: "POST" }) : await requestJson<DailyBriefResponse>("/api/daily-brief");
+      const payload = refresh ? await requestJson<DailyBriefResponse>("/api/daily-brief/refresh", { method: "POST" }) : await requestJson<DailyBriefResponse>("/api/daily-brief?retry-content=1");
       setBrief(payload);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -237,10 +250,9 @@ export function DailyBrief() {
     if (!settings.ai.apiKey.trim() || !settings.ai.model.trim()) {
       setModelSummary(null);
       setModelSummaryState("fallback");
-      setModelSummaryError("项目 AI 尚未配置完整，当前展示规则结论。");
       return;
     }
-    const cacheKey = `sparkflow.daily-brief.ai-summary.v2:${snapshot.date}:${snapshot.slot}:${snapshot.generatedAt}:${settings.ai.provider}:${settings.ai.model}`;
+    const cacheKey = `sparkflow.daily-brief.ai-summary.v3:${snapshot.date}:${snapshot.slot}:${settings.ai.provider}:${settings.ai.model}`;
     try {
       const cached = window.localStorage.getItem(cacheKey);
       if (cached) {
@@ -248,7 +260,6 @@ export function DailyBrief() {
         if (parsed?.assessment?.advice?.length) {
           setModelSummary(parsed);
           setModelSummaryState("ready");
-          setModelSummaryError("");
           return;
         }
       }
@@ -258,7 +269,6 @@ export function DailyBrief() {
     const controller = new AbortController();
     setModelSummary(null);
     setModelSummaryState("loading");
-    setModelSummaryError("");
     void requestJson<{ summary: DailyBriefSummary }>("/api/daily-brief/ai-summary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -268,10 +278,9 @@ export function DailyBrief() {
       setModelSummary(payload.summary);
       setModelSummaryState("ready");
       try { window.localStorage.setItem(cacheKey, JSON.stringify(payload.summary)); } catch { /* Optional cache only. */ }
-    }).catch((reason) => {
+    }).catch(() => {
       if (controller.signal.aborted) return;
       setModelSummaryState("fallback");
-      setModelSummaryError(reason instanceof Error ? reason.message : String(reason));
     });
     return () => controller.abort();
   }, [snapshot?.generatedAt]);
@@ -300,6 +309,7 @@ export function DailyBrief() {
   const alerts = [summary?.headline, ...(snapshot?.news || []).slice(0, 5).map((item) => item.title)].filter(Boolean) as string[];
   const aiLines = [["宏观", summary?.highlights[0]], ["加密", summary?.highlights[1]], ["链上", summary?.highlights[2]], ["策略", summary?.regime]].filter((item): item is string[] => Boolean(item[1]));
   const day1Analysis = snapshot?.day1?.analysis;
+  const hasDailyCoreJudgment = Boolean(day1Analysis || modelSummary || snapshot?.summaryMode === "ai");
   const assetGroups = data?.assetGroups || [];
   const leftAssetGroups = assetGroups.filter((group) => group.id !== "crypto").sort((left, right) => (left.id === "technology" ? 0 : 1) - (right.id === "technology" ? 0 : 1));
   const rightAssetGroups = assetGroups.filter((group) => group.id === "crypto");
@@ -318,10 +328,10 @@ export function DailyBrief() {
           ["CNN F&G 变化", fearGreedChangeMetric(data.sentiment.stockFearGreed, "CNN Fear & Greed"), changeClass(data.sentiment.stockFearGreed.change).replace("is-", "")],
           ["加密 F&G", data.sentiment.cryptoFearGreed], ["MVRV Z-Score", data.sentiment.mvrvZScore],
           ["Crypto F&G 变化", fearGreedChangeMetric(data.sentiment.cryptoFearGreed, "Crypto Fear & Greed"), changeClass(data.sentiment.cryptoFearGreed.change).replace("is-", "")],
-        ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small>{metricNote(item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div></div>
+        ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small className="editorial-tile-status">{metricCurrentStatus(label as string, item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div></div>
         <div className="editorial-added-visuals"><DailyBriefVisualDashboard data={data} analysis={day1Analysis} summary={summary} btc={btc} /></div>
-        <div className="editorial-intelligence">
-          <div className="editorial-intelligence-head"><div><span>AI MARKET READING</span><b>{day1Analysis ? "Day1 Global 深度解读" : "今日市场要点"}</b></div>{day1Analysis ? <a href={snapshot?.day1?.sourceUrl} target="_blank" rel="noreferrer">查看原始简报</a> : <em>{snapshot?.summaryMode === "ai" ? "项目 AI" : "规则结论"}</em>}</div>
+        {hasDailyCoreJudgment ? <div className="editorial-intelligence">
+          <div className="editorial-intelligence-head"><div><span>AI MARKET READING</span><b>{day1Analysis ? "Day1 Global 深度解读" : "今日核心判断"}</b></div>{day1Analysis ? <a href={snapshot?.day1?.sourceUrl} target="_blank" rel="noreferrer">查看原始简报</a> : <em>AI 生成</em>}</div>
           {day1Analysis ? <>
             <div className="editorial-intelligence-grid">
               <article><header><span>01 / MACRO</span><b>宏观市场</b></header><p><Highlight text={day1Analysis.macroAnalysis} /></p></article>
@@ -330,9 +340,8 @@ export function DailyBrief() {
             {day1Analysis.actionSuggestions ? <article className="editorial-intelligence-action"><header><span>03 / PLAYBOOK</span><b>行动建议</b></header><p><Highlight text={day1Analysis.actionSuggestions} /></p></article> : null}
           </> : <div className="editorial-intelligence-list">{aiLines.map(([label, text], index) => <article key={label}><span>{String(index + 1).padStart(2, "0")}</span><div><b>{label}</b><p><Highlight text={text} /></p></div></article>)}</div>}
           <div className="editorial-intelligence-foot"><span>{day1Analysis ? "新闻与 AI 摘要 · Day1 Global" : `来源 · ${snapshot?.sources.filter((item) => item.ok).length || 0} 组专业接口`}</span><span>生成 · {shanghaiTime(day1Analysis?.generatedAt || snapshot?.generatedAt)}</span></div>
-        </div>
+        </div> : null}
         <div className="editorial-lead-foot"><AlertTriangle size={13} /><span>以上内容仅用于信息整理与风险检查，不构成任何投资建议。</span></div>
-        {modelSummaryError ? <div className="editorial-model-note">{modelSummaryError}</div> : null}
         <div className="editorial-chip-row">{(data?.events || []).map((event) => <a href={event.url} target="_blank" rel="noreferrer" key={event.id}><b>{event.date.slice(5).replace("-", "/")}</b>{event.title}</a>)}</div>
       </section>
 
@@ -343,7 +352,7 @@ export function DailyBrief() {
             ["MVRV Z-Score", data.sentiment.mvrvZScore],
             ["CNN F&G 变化", fearGreedChangeMetric(data.sentiment.stockFearGreed, "CNN Fear & Greed"), changeClass(data.sentiment.stockFearGreed.change).replace("is-", "")],
             ["Crypto F&G 变化", fearGreedChangeMetric(data.sentiment.cryptoFearGreed, "Crypto Fear & Greed"), changeClass(data.sentiment.cryptoFearGreed.change).replace("is-", "")],
-          ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small>{metricNote(item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div>
+          ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small className="editorial-tile-status">{metricCurrentStatus(label as string, item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div>
 
           {(["top", "bottom"] as const).map((kind) => { const value = data?.signals[kind] ?? null; return <div className={`editorial-signal-row is-${kind}`} key={kind}><div><span>BTC {kind === "top" ? "逃顶" : "抄底"}信号强度</span><strong>{signalLabel(value, kind)} · {value === null ? "—" : `${value}/100`} <em>覆盖 {data?.signals.coverage ?? 0}%</em></strong></div><div className="editorial-signal-track"><i style={{ width: `${value || 0}%` }} /></div></div>; })}
 

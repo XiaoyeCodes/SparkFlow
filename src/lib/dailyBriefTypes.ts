@@ -163,6 +163,16 @@ export type DailyBriefEditorialSnapshot = {
   indices: DailyBriefUpstreamQuote[];
   stocks: DailyBriefUpstreamQuote[];
   crypto: DailyBriefUpstreamQuote[];
+  macroAssets: DailyBriefUpstreamQuote[];
+  btcTechnical: {
+    source: string;
+    lookbackDays: number;
+    atr14: number;
+    resistance: number | null;
+    supportLow: number | null;
+    supportHigh: number | null;
+    calculatedAt: string;
+  } | null;
   assetGroups: DailyBriefAssetGroup[];
   onchain: {
     sopr: DailyBriefEditorialMetric;
@@ -218,7 +228,7 @@ export type DailyBriefDay1Snapshot = {
 };
 
 export type DailyBriefSnapshot = {
-  version: 10;
+  version: 13;
   date: string;
   slot: DailyBriefSlot;
   generatedAt: string;

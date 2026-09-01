@@ -91,18 +91,12 @@ function isSnapshot(value: unknown): value is DailyBriefSnapshot {
   const item = value as Partial<DailyBriefSnapshot> | null;
   return Boolean(
     item &&
-    item.version === 10 &&
+    item.version === 13 &&
     /^\d{4}-\d{2}-\d{2}$/.test(item.date || "") &&
     ["morning", "midday", "evening"].includes(item.slot || "") &&
     item.summary &&
     Array.isArray(item.markets),
   );
-}
-
-function isScheduledWindowComplete(snapshot: DailyBriefSnapshot) {
-  const generated = shanghaiParts(new Date(snapshot.generatedAt));
-  if (generated.date !== snapshot.date) return false;
-  return snapshot.slot === "morning" && generated.hour >= DAILY_BRIEF_HOUR;
 }
 
 async function readSnapshot(filePath: string) {
@@ -191,7 +185,7 @@ export function createDailyBriefService(options: {
   ): Promise<DailyBriefResponse> {
     const locations = pathsFor(window);
     const inMemory = memory.get(locations.key);
-    if (inMemory && (!force || isScheduledWindowComplete(inMemory))) {
+    if (inMemory && !force) {
       return {
         snapshot: inMemory,
         cache: { hit: true, key: locations.key, generated: false },
@@ -199,7 +193,7 @@ export function createDailyBriefService(options: {
     }
     const cached = await readSnapshot(locations.file);
     if (cached && cached.date === window.date && cached.slot === window.slot) {
-      if (!force || isScheduledWindowComplete(cached)) {
+      if (!force) {
         memory.set(locations.key, cached);
         return {
           snapshot: cached,

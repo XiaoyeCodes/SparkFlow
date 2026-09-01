@@ -11,24 +11,14 @@ type Day1Analysis = DailyBriefDay1Snapshot["analysis"];
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 
-function signedFromPhrase(text: string, pattern: RegExp) {
-  const match = text.match(pattern);
-  if (!match) return null;
-  const direction = match[1] || "";
-  const number = Number(match[2]?.replace(/,/g, ""));
-  if (!Number.isFinite(number)) return null;
-  return /跌|下行|回落|微跌/.test(direction) ? -Math.abs(number) : Math.abs(number);
-}
-
-function MacroBars({ analysis, data }: { analysis?: Day1Analysis; data?: DailyBriefEditorialSnapshot }) {
-  const text = analysis?.macroAnalysis || "";
-  const findQuote = (symbol: string) => data?.assetGroups.flatMap((group) => group.items).find((item) => item.symbol === symbol)?.changePercent ?? data?.indices.find((item) => item.symbol === symbol)?.changePercent ?? null;
+function MacroBars({ data }: { data?: DailyBriefEditorialSnapshot }) {
+  const findQuote = (symbol: string) => data?.macroAssets.find((item) => item.symbol === symbol)?.changePercent ?? data?.assetGroups.flatMap((group) => group.items).find((item) => item.symbol === symbol)?.changePercent ?? data?.indices.find((item) => item.symbol === symbol)?.changePercent ?? null;
   const rows = [
-    { label: "SPX", name: "标普 500", value: signedFromPhrase(text, /标普500[\s\S]{0,35}?[（(]\s*(跌|涨)?\s*([+-]?\d+(?:\.\d+)?)%/) ?? findQuote("GSPC") },
-    { label: "QQQ", name: "纳指 100", value: signedFromPhrase(text, /QQQ[\s\S]{0,20}?(跌|涨)\s*([+-]?\d+(?:\.\d+)?)%/) ?? findQuote("QQQ") },
-    { label: "GLD", name: "黄金 ETF", value: signedFromPhrase(text, /GLD ETF[\s\S]{0,20}?(跌|涨)\s*([+-]?\d+(?:\.\d+)?)%/) },
-    { label: "CL=F", name: "原油", value: signedFromPhrase(text, /原油[\s\S]{0,25}?(反弹|上涨|下跌)\s*([+-]?\d+(?:\.\d+)?)%/) },
-    { label: "DXY", name: "美元指数", value: signedFromPhrase(text, /美元指数[\s\S]{0,24}?(上涨|下跌|微幅下行|微跌)\s*([+-]?\d+(?:\.\d+)?)%/) },
+    { label: "SPX", name: "标普 500", value: findQuote("GSPC") },
+    { label: "QQQ", name: "纳指 100", value: findQuote("QQQ") },
+    { label: "GLD", name: "黄金", value: findQuote("GOLD") },
+    { label: "CL=F", name: "WTI 原油", value: findQuote("CL=F") },
+    { label: "DXY", name: "美元指数", value: findQuote("DXY") },
   ];
   const maxAbs = Math.max(1, ...rows.map((row) => Math.abs(row.value || 0)));
   return <div className="brief-macro-bars" role="img" aria-label="宏观资产单日涨跌幅柱状图">
@@ -37,21 +27,20 @@ function MacroBars({ analysis, data }: { analysis?: Day1Analysis; data?: DailyBr
       return <div className="brief-macro-row" key={row.label}>
         <div><b>{row.label}</b><span>{row.name}</span></div>
         <div className="brief-macro-axis"><i /><b className={row.value !== null && row.value < 0 ? "is-left" : "is-right"} style={{ "--macro-size": `${size}%` } as CSSProperties} /></div>
-        <strong className={row.value === null ? "is-muted" : row.value >= 0 ? "is-positive" : "is-negative"}>{row.value === null ? "微跌*" : `${row.value >= 0 ? "+" : ""}${row.value.toFixed(2)}%`}</strong>
+        <strong className={row.value === null ? "is-muted" : row.value >= 0 ? "is-positive" : "is-negative"}>{row.value === null ? "暂无数据" : `${row.value >= 0 ? "+" : ""}${row.value.toFixed(2)}%`}</strong>
       </div>;
     })}
-    <p>* DXY 原文仅披露方向，未披露精确涨跌幅。</p>
+    <p>优先使用实时行情；行情暂不可用时明确标注“暂无数据”。</p>
   </div>;
 }
 
-function BtcKeyLevelsChart({ analysis, btc }: { analysis?: Day1Analysis; btc?: DailyBriefUpstreamQuote }) {
-  const text = analysis?.cryptoAnalysis || "";
-  const resistance = Number(text.match(/突破\s*([\d,]+)美元关键阻力/)?.[1]?.replace(/,/g, "")) || 79000;
-  const supportMatch = text.match(/([\d,]+)-([\d,]+)美元支撑/);
-  const supportLow = Number(supportMatch?.[1]?.replace(/,/g, "")) || 76000;
-  const supportHigh = Number(supportMatch?.[2]?.replace(/,/g, "")) || 77000;
+function BtcKeyLevelsChart({ data, btc }: { data?: DailyBriefEditorialSnapshot; btc?: DailyBriefUpstreamQuote }) {
+  const levels = data?.btcTechnical;
+  const resistance = levels?.resistance ?? null;
+  const supportLow = levels?.supportLow ?? null;
+  const supportHigh = levels?.supportHigh ?? null;
   const points = (btc?.history || []).filter((point) => Number.isFinite(point.value) && point.value > 0).slice(-30);
-  if (points.length < 2) return <div className="brief-viz-empty">BTC 价格序列同步中</div>;
+  if (points.length < 2 || !levels || resistance === null || supportLow === null || supportHigh === null) return <div className="brief-viz-empty">Binance 日线关键区间同步中</div>;
   const width = 720, height = 235, left = 52, right = 82, top = 18, bottom = 30;
   const values = [...points.map((point) => point.value), resistance, supportLow, supportHigh];
   const min = Math.min(...values) * .985;
@@ -61,11 +50,20 @@ function BtcKeyLevelsChart({ analysis, btc }: { analysis?: Day1Analysis; btc?: D
   const path = points.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(point.value).toFixed(1)}`).join(" ");
   const supportY = y(supportHigh), supportHeight = Math.max(2, y(supportLow) - supportY);
   const latest = points[points.length - 1]!;
-  return <svg className="brief-btc-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`BTC价格走势，阻力位${resistance}美元，支撑区间${supportLow}至${supportHigh}美元`}>
+  const fearGreed = (data?.sentiment.cryptoHistory || []).filter((point) => Number.isFinite(point.value) && point.value >= 0 && point.value <= 100).slice(-30);
+  const fearGreedPath = fearGreed.map((point, index) => {
+    const priceIndex = points.findIndex((price) => price.time.slice(0, 10) === point.time.slice(0, 10));
+    const matchedIndex = priceIndex >= 0 ? priceIndex : Math.max(0, points.length - fearGreed.length + index);
+    const fearY = top + (1 - point.value / 100) * (height - top - bottom);
+    return `${index ? "L" : "M"}${x(matchedIndex).toFixed(1)},${fearY.toFixed(1)}`;
+  }).join(" ");
+  const latestFearGreed = fearGreed[fearGreed.length - 1];
+  return <svg className="brief-btc-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Binance BTC 日线，${levels.lookbackDays}日结构、14日ATR计算的阻力位${resistance}美元，支撑区间${supportLow}至${supportHigh}美元`}>
     <defs><linearGradient id="brief-btc-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#78e9c7" stopOpacity=".3" /><stop offset="100%" stopColor="#78e9c7" stopOpacity="0" /></linearGradient></defs>
     {[0, .33, .66, 1].map((ratio) => { const gy = top + ratio * (height - top - bottom); return <line className="brief-chart-grid" x1={left} x2={width - right} y1={gy} y2={gy} key={ratio} />; })}
     <rect className="brief-support-zone" x={left} y={supportY} width={width - left - right} height={supportHeight} rx="2" />
     <line className="brief-resistance-line" x1={left} x2={width - right} y1={y(resistance)} y2={y(resistance)} />
+    {fearGreedPath ? <><path className="brief-fng-line" d={fearGreedPath} /><text className="brief-chart-label is-fng" x={left} y={top + 10}>F&amp;G 0–100</text>{latestFearGreed ? <text className="brief-chart-label is-fng" textAnchor="end" x={width - right} y={Math.max(top + 11, top + (1 - latestFearGreed.value / 100) * (height - top - bottom) - 7)}>F&amp;G {Math.round(latestFearGreed.value)}</text> : null}</> : null}
     <path d={`${path} L${x(points.length - 1)},${height - bottom} L${left},${height - bottom} Z`} fill="url(#brief-btc-fill)" />
     <path className="brief-btc-line" d={path} />
     <circle cx={x(points.length - 1)} cy={y(latest.value)} r="4" className="brief-btc-dot" />
@@ -81,18 +79,21 @@ function moneyShort(value: number) {
   return value >= 1000 ? `$${(value / 1000).toFixed(value % 1000 ? 1 : 0)}k` : `$${value.toFixed(0)}`;
 }
 
-function SoprComparison({ analysis, data }: { analysis?: Day1Analysis; data?: DailyBriefEditorialSnapshot }) {
-  const text = analysis?.cryptoAnalysis || "";
-  const parsedSth = Number(text.match(/STH-SOPR为\s*([\d.]+)/)?.[1]);
-  const parsedLth = Number(text.match(/LTH-SOPR为\s*([\d.]+)/)?.[1]);
-  const sth = data?.onchain.sopr.value ?? (Number.isFinite(parsedSth) ? parsedSth : null);
-  const lth = data?.onchain.lthSopr.value ?? (Number.isFinite(parsedLth) ? parsedLth : null);
-  const source = data?.onchain.sopr.value !== null ? "链上接口" : "简报提取";
-  const rows = [{ label: "STH-SOPR", value: sth }, { label: "LTH-SOPR", value: lth }];
-  return <div className="brief-sopr-chart" role="img" aria-label="短期与长期持有者SOPR对比">
-    <div className="brief-source-chip">{source}</div>
-    {rows.map((row) => <div key={row.label}><header><span>{row.label}</span><b className={row.value !== null && row.value >= 1 ? "is-positive" : "is-negative"}>{row.value?.toFixed(3) || "—"}</b></header><div className="brief-sopr-track"><i /><b className={row.value !== null && row.value >= 1 ? "is-profit" : "is-loss"} style={{ width: `${row.value === null ? 0 : clamp((row.value - .8) / .25) * 100}%` }} /></div></div>)}
-    <p><span>0.80</span><strong>盈亏平衡 1.00</strong><span>1.05</span></p>
+function CnnFearGreedComponents({ data }: { data?: DailyBriefEditorialSnapshot }) {
+  const components = (data?.sentiment.stockComponents || []).filter((item) => item.value !== null && Number.isFinite(item.value));
+  const score = data?.sentiment.stockFearGreed.value ?? null;
+  if (score === null || !components.length) return <div className="brief-viz-empty">CNN 7 项情绪指标同步中</div>;
+  let cursor = 0;
+  const segments = components.map((item) => {
+    const start = cursor;
+    cursor += 100 / components.length;
+    return `${item.color} ${start.toFixed(2)}% ${cursor.toFixed(2)}%`;
+  }).join(", ");
+  return <div className="brief-cnn-components" role="img" aria-label={`CNN 恐惧贪婪指数 ${Math.round(score)}，七项指标：${components.map((item) => `${item.label}${Math.round(item.value!)}`).join("，")}`}>
+    <div className="brief-cnn-score" style={{ "--cnn-segments": segments } as CSSProperties}><div><b>{Math.round(score)}</b><span>{data?.sentiment.stockFearGreed.label || "中性"}</span></div></div>
+    <div className="brief-cnn-list">
+      {components.map((item) => <div key={item.id}><span style={{ backgroundColor: item.color }} /><b>{item.label}</b><strong className={item.value! >= 55 ? "is-positive" : item.value! <= 45 ? "is-negative" : "is-neutral"}>{Math.round(item.value!)}</strong></div>)}
+    </div>
   </div>;
 }
 
@@ -147,14 +148,14 @@ function VizCard({ index, title, source, className = "", children }: { index: st
 export function DailyBriefVisualDashboard({ data, analysis, summary, btc }: { data?: DailyBriefEditorialSnapshot; analysis?: Day1Analysis; summary?: DailyBriefSummary; btc?: DailyBriefUpstreamQuote }) {
   return <div className="brief-viz-dashboard">
     <div className="brief-viz-primary-grid">
-      <VizCard index="01 / MACRO" title="宏观资产强弱" source="简报提取" className="is-macro"><MacroBars analysis={analysis} data={data} /></VizCard>
-      <VizCard index="02 / CRYPTO" title="BTC 价格与关键区间" source="实盘序列 + 简报关键位" className="is-btc"><BtcKeyLevelsChart analysis={analysis} btc={btc} /></VizCard>
+      <VizCard index="01 / MACRO" title="宏观资产强弱" source="Yahoo Finance · 延迟行情" className="is-macro"><MacroBars data={data} /></VizCard>
+      <VizCard index="02 / CRYPTO" title="BTC 价格与关键区间" source="Binance · 90D / 14D ATR" className="is-btc"><BtcKeyLevelsChart data={data} btc={btc} /></VizCard>
     </div>
     <div className="brief-viz-secondary-grid">
-      <VizCard index="02A / HOLDERS" title="持有者盈亏反差" source="SOPR"><SoprComparison analysis={analysis} data={data} /></VizCard>
+      <VizCard index="02A / CNN" title="CNN 7 项情绪指标" source="CNN · 实时"><CnnFearGreedComponents data={data} /></VizCard>
       <VizCard index="02B / ETF FLOW" title="资金流拐点" source="方向序列"><EtfFlowTurn analysis={analysis} /></VizCard>
       <VizCard index="03 / PLAYBOOK" title="今日市场体质" source="规则化映射" className="is-radar"><RadarChart analysis={analysis} data={data} summary={summary} /></VizCard>
     </div>
-    <div className="brief-viz-method"><span>DATA MAP</span> 图表优先使用实时接口；缺失的 SOPR 与关键位仅从当日简报原文提取，并在卡片中明确标注。</div>
+    <div className="brief-viz-method"><span>DATA MAP</span> 图表优先使用实时接口；CNN 情绪卡展示其公开的七项底层指标，缺失指标不以简报文本替代。</div>
   </div>;
 }

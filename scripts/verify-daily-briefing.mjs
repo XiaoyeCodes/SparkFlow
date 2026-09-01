@@ -16,7 +16,7 @@ function snapshot(window, index) {
         ? `${window.date}T04:00:00.000Z`
         : `${window.date}T09:00:00.000Z`;
   return {
-    version: 10,
+    version: 13,
     date: window.date,
     slot: window.slot,
     generatedAt,
