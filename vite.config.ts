@@ -9147,6 +9147,8 @@ const editorialAssetYahooConfigs = [
   { group: 'technology', yahooSymbol: 'ASML', symbol: 'ASML', name: '阿斯麦' },
   { group: 'technology', yahooSymbol: 'AVGO', symbol: 'AVGO', name: '博通' },
   { group: 'crypto', yahooSymbol: 'MSTR', symbol: 'MSTR', name: 'Strategy' },
+  { group: 'crypto', yahooSymbol: 'COIN', symbol: 'COIN', name: 'Coinbase' },
+  { group: 'crypto', yahooSymbol: 'MARA', symbol: 'MARA', name: 'MARA Holdings' },
 ] as const;
 const editorialMacroVisualYahooConfigs = [
   { yahooSymbol: 'GC=F', symbol: 'GOLD', name: '黄金' },
@@ -9307,7 +9309,7 @@ async function fetchEditorialCryptoData() {
       return fetchRoutedText(url, 'proxy', 20_000, 'application/json');
     }
   };
-  const [spotResult, fundingResult, openInterestResult, longShortResult, takerRatioResult, topPositionResult, openInterestHistoryResult, dominanceResult, hyperliquidResult, btcHistoryResult, ethHistoryResult, solHistoryResult, hypeHistoryResult] = await Promise.allSettled([
+  const [spotResult, fundingResult, openInterestResult, longShortResult, takerRatioResult, topPositionResult, openInterestHistoryResult, dominanceResult, hyperliquidResult, liquidationVenuesResult, btcHistoryResult, ethHistoryResult, solHistoryResult, hypeHistoryResult] = await Promise.allSettled([
     resilientFetch(spotUrl),
     resilientFetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT'),
     resilientFetch('https://fapi.binance.com/fapi/v1/openInterest?symbol=BTCUSDT'),
@@ -9317,6 +9319,7 @@ async function fetchEditorialCryptoData() {
     resilientFetch('https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=5m&limit=2'),
     resilientFetch('https://api.coinpaprika.com/v1/global'),
     resilientFetch('https://api.coingecko.com/api/v3/simple/price?ids=hyperliquid&vs_currencies=usd&include_24hr_change=true'),
+    resilientFetch('https://marginpad.io/api/v1/venues'),
     resilientFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90'),
     resilientFetch('https://api.binance.com/api/v3/klines?symbol=ETHUSDT&interval=1d&limit=90'),
     resilientFetch('https://api.binance.com/api/v3/klines?symbol=SOLUSDT&interval=1d&limit=90'),
@@ -9421,6 +9424,14 @@ async function fetchEditorialCryptoData() {
   const taker = takerRows.at(-1) || {};
   const topPosition = topRows.at(-1) || {};
   const global = dominanceResult.status === 'fulfilled' ? JSON.parse(dominanceResult.value) as Record<string, unknown> : {};
+  const liquidationVenuesPayload = liquidationVenuesResult.status === 'fulfilled' ? JSON.parse(liquidationVenuesResult.value) as { data?: { ts?: unknown; venues?: unknown } } : {};
+  const binanceLiquidations = Array.isArray(liquidationVenuesPayload.data?.venues)
+    ? liquidationVenuesPayload.data.venues.find((venue): venue is Record<string, unknown> => Boolean(venue) && typeof venue === 'object' && String((venue as Record<string, unknown>).venue || '').toLowerCase() === 'binance')
+    : undefined;
+  const liquidationTimestamp = finiteNumber(liquidationVenuesPayload.data?.ts);
+  const liquidationTotal = finiteNumber(binanceLiquidations?.total);
+  const liquidationLong = finiteNumber(binanceLiquidations?.long);
+  const liquidationShort = finiteNumber(binanceLiquidations?.short);
   const fundingValue = finiteNumber(funding.lastFundingRate);
   const contracts = finiteNumber(openInterest.openInterest);
   const markPrice = finiteNumber(funding.markPrice);
@@ -9454,6 +9465,13 @@ async function fetchEditorialCryptoData() {
       sourceUrl: 'https://www.binance.com/en/futures/BTCUSDT',
     },
     derivativesSentiment: { score: derivativesScore === null ? null : round(derivativesScore, 1), accountLong: longAccount === null ? null : longAccount * 100, takerBuySellRatio: takerBuy !== null && takerSell !== null && takerSell > 0 ? takerBuy / takerSell : null, topTraderLong: topTraderLong === null ? null : topTraderLong * 100, fundingRate: fundingValue === null ? null : fundingValue * 100, oiChange5m, updatedAt: longShortTimestamp === null ? null : new Date(longShortTimestamp).toISOString() },
+    binanceLiquidations: {
+      totalUsd: liquidationTotal,
+      longUsd: liquidationLong,
+      shortUsd: liquidationShort,
+      updatedAt: liquidationTimestamp === null ? null : new Date(liquidationTimestamp).toISOString(),
+      sourceUrl: 'https://marginpad.io/liquidations/by-exchange/',
+    },
   };
 }
 
@@ -9532,6 +9550,7 @@ function scoreEditorialSignals(metrics: Array<number | null>) {
 
 const day1AnalysisUrl = 'https://brief.day1global.xyz/api/analysis';
 const day1BriefPageUrl = 'https://brief.day1global.xyz/#news';
+const day1MarketDataUrl = 'https://brief.day1global.xyz/api/market-data';
 
 function compactDay1Text(value: unknown, maxLength = 4_000) {
   return typeof value === 'string'
@@ -9588,17 +9607,56 @@ async function fetchDay1DailyBrief(): Promise<DailyBriefDay1Snapshot> {
   };
 }
 
+async function fetchDay1BtcMetrics(): Promise<DailyBriefEditorialSnapshot['day1BtcMetrics']> {
+  let raw = '';
+  let lastError: unknown;
+  for (const route of ['direct', 'proxy'] as const) {
+    try {
+      raw = await fetchRoutedText(day1MarketDataUrl, route, route === 'direct' ? 9_000 : 16_000, 'application/json,text/plain,*/*');
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!raw) throw lastError instanceof Error ? lastError : new Error('Day1 Global 指标接口暂时不可用');
+  const payload = JSON.parse(raw) as { timestamp?: unknown; sentiment?: Record<string, unknown>; btcMetrics?: Record<string, unknown> };
+  const metrics = payload.btcMetrics;
+  if (!metrics || typeof metrics !== 'object') throw new Error('Day1 Global 未返回 BTC 指标');
+  const result = {
+    etfFlowUsd: finiteNumber(metrics.etfFlowUsd),
+    fundingRate: finiteNumber(metrics.fundingRate),
+    longShortRatio: finiteNumber(metrics.longShortRatio),
+    fearGreed: finiteNumber(payload.sentiment?.cryptoFearGreed),
+    lthMvrv: finiteNumber(metrics.lthMvrv),
+    nupl: finiteNumber(metrics.nupl),
+    lthSopr: finiteNumber(metrics.lthSopr),
+    sthSopr: finiteNumber(metrics.sthSopr),
+    lthSupplyPercent: finiteNumber(metrics.lthSupplyPercent),
+    ma365Ratio: finiteNumber(metrics.ma365Ratio),
+    wma200Multiple: finiteNumber(metrics.wma200Multiplier),
+    weeklyRsi: finiteNumber(metrics.weeklyRsi),
+    volume24h: finiteNumber(metrics.volume24h),
+    volumeChangePercent: finiteNumber(metrics.volumeChangePercent),
+    updatedAt: typeof payload.timestamp === 'string' ? payload.timestamp : null,
+    sourceUrl: day1BriefPageUrl,
+  };
+  if ([result.etfFlowUsd, result.fundingRate, result.lthMvrv, result.nupl, result.lthSopr, result.sthSopr].every((value) => value === null)) {
+    throw new Error('Day1 Global 指标数据不完整');
+  }
+  return result;
+}
+
 async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefSnapshot['slot'] }): Promise<DailyBriefSnapshot> {
   const generatedAt = new Date().toISOString();
-  const [cryptoFearResult, stockFearResult, yahooResult, cryptoResult, glassnodeResult, coinMetricsFallbackResult, cycleResult, newsResult, calendarResult, day1Result] = await Promise.allSettled([
+  const [cryptoFearResult, stockFearResult, yahooResult, cryptoResult, glassnodeResult, coinMetricsFallbackResult, cycleResult, newsResult, calendarResult, day1Result, day1MetricsResult] = await Promise.allSettled([
     fetchEditorialCryptoFearGreed(), fetchEditorialStockFearGreed(), fetchEditorialYahooData(), fetchEditorialCryptoData(),
-    fetchGlassnodeEditorialMetrics(), fetchCoinMetricsEditorialFallback(), getCachedBitcoinCycleHistory(), getNewsFeed(), loadGlobalCalendarSection(), fetchDay1DailyBrief(),
+    fetchGlassnodeEditorialMetrics(), fetchCoinMetricsEditorialFallback(), getCachedBitcoinCycleHistory(), getNewsFeed(), loadGlobalCalendarSection(), fetchDay1DailyBrief(), fetchDay1BtcMetrics(),
   ]);
   const errors: string[] = [];
   const rejected = (label: string, result: PromiseSettledResult<unknown>) => {
     if (result.status === 'rejected') errors.push(`${label}：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
   };
-  [['加密情绪', cryptoFearResult], ['美股情绪', stockFearResult], ['美股行情', yahooResult], ['加密行情', cryptoResult], ['Glassnode 链上指标', glassnodeResult], ['Coin Metrics 链上兜底', coinMetricsFallbackResult], ['BTC 历史', cycleResult], ['新闻兜底', newsResult], ['日历', calendarResult], ['Day1 Global 新闻与 AI 日报', day1Result]].forEach(([label, result]) => rejected(label as string, result as PromiseSettledResult<unknown>));
+  [['加密情绪', cryptoFearResult], ['美股情绪', stockFearResult], ['美股行情', yahooResult], ['加密行情', cryptoResult], ['Glassnode 链上指标', glassnodeResult], ['Coin Metrics 链上兜底', coinMetricsFallbackResult], ['BTC 历史', cycleResult], ['新闻兜底', newsResult], ['日历', calendarResult], ['Day1 Global 新闻与 AI 日报', day1Result], ['Day1 Global BTC 指标', day1MetricsResult]].forEach(([label, result]) => rejected(label as string, result as PromiseSettledResult<unknown>));
 
   const cryptoFear = cryptoFearResult.status === 'fulfilled' ? cryptoFearResult.value : { metric: unavailableEditorialMetric('加密 F&G', 'Alternative.me', 'https://alternative.me/crypto/fear-and-greed-index/', '接口暂时不可用'), history: [] };
   const stockFear = stockFearResult.status === 'fulfilled' ? stockFearResult.value : { metric: unavailableEditorialMetric('美股 F&G', 'CNN Markets', 'https://www.cnn.com/markets/fear-and-greed', '接口暂时不可用'), components: [], history: [] };
@@ -9619,6 +9677,8 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     dominance: unavailableEditorialMetric('市值占比', 'CoinPaprika', 'https://api.coinpaprika.com/', '接口暂时不可用'),
     futuresLongShort: { longAccount: null, shortAccount: null, longShortRatio: null, updatedAt: null, sourceUrl: 'https://www.binance.com/en/futures/BTCUSDT' },
     derivativesSentiment: { score: null, accountLong: null, takerBuySellRatio: null, topTraderLong: null, fundingRate: null, oiChange5m: null, updatedAt: null },
+    binanceLiquidations: { totalUsd: null, longUsd: null, shortUsd: null, updatedAt: null, sourceUrl: 'https://marginpad.io/liquidations/by-exchange/' },
+    day1BtcMetrics: { etfFlowUsd: null, fundingRate: null, longShortRatio: null, fearGreed: null, lthMvrv: null, nupl: null, lthSopr: null, sthSopr: null, lthSupplyPercent: null, ma365Ratio: null, wma200Multiple: null, weeklyRsi: null, volume24h: null, volumeChangePercent: null, updatedAt: null, sourceUrl: day1BriefPageUrl },
     btcTechnical: null,
   };
   const glassnodeChain = glassnodeResult.status === 'fulfilled' ? glassnodeResult.value : await fetchGlassnodeEditorialMetrics();
@@ -9658,6 +9718,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     summary: typeof item.summary === 'string' ? item.summary : undefined, weight: finiteNumber(item.weight) ?? 100 - index, url: String(item.url || '#'),
   })).filter((item) => item.title);
   const day1 = day1Result.status === 'fulfilled' ? day1Result.value : undefined;
+  const day1BtcMetrics = day1MetricsResult.status === 'fulfilled' ? day1MetricsResult.value : cryptoData.day1BtcMetrics;
   const news: DailyBriefNews[] = day1?.analysis.topNews.map((item, index) => ({
     id: `day1-${window.date}-${index}-${createHash('sha1').update(item.title).digest('hex').slice(0, 10)}`,
     title: item.title,
@@ -9721,13 +9782,13 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
   const assetGroups: DailyBriefEditorialSnapshot['assetGroups'] = [
     { id: 'defensive', label: '稳健', eyebrow: 'STABILITY MATRIX', description: '利率、贵金属与防御型权益资产', items: yahooGroup('defensive') },
     { id: 'technology', label: '科技半导体', eyebrow: 'TECHNOLOGY CORE', description: 'AI、算力、半导体设备与核心平台', items: yahooGroup('technology') },
-    { id: 'crypto', label: '加密', eyebrow: 'CRYPTO NETWORK', description: '数字资产与加密高敏感度权益标的', items: [...yahooGroup('crypto'), ...cryptoCards] },
+    { id: 'crypto', label: '加密', eyebrow: 'CRYPTO NETWORK', description: '数字资产与加密高敏感度权益标的', items: [...cryptoCards, ...yahooGroup('crypto')] },
   ];
   const editorial: DailyBriefEditorialSnapshot = {
     generatedAt, issue,
     sentiment: { cryptoFearGreed: cryptoFear.metric, stockFearGreed: stockFear.metric, vix, mvrvZScore: chain.mvrvZScore, lthSupplyRatio: chain.lthSupplyRatio, sopr: chain.sopr, stockComponents: stockFear.components, cryptoHistory: cryptoFear.history },
     signals: { ...signals, methodology: '由 HTML 指定的 8 项同名指标等权归一化；至少 4 项可用时计算，覆盖度同步展示。' },
-    indices: yahoo.indices, stocks: yahoo.stocks, crypto: cryptoData.crypto, macroAssets: yahoo.macroVisualQuotes, btcTechnical: cryptoData.btcTechnical, futuresLongShort: cryptoData.futuresLongShort, derivativesSentiment: cryptoData.derivativesSentiment, assetGroups,
+    indices: yahoo.indices, stocks: yahoo.stocks, crypto: cryptoData.crypto, macroAssets: yahoo.macroVisualQuotes, btcTechnical: cryptoData.btcTechnical, futuresLongShort: cryptoData.futuresLongShort, derivativesSentiment: cryptoData.derivativesSentiment, binanceLiquidations: cryptoData.binanceLiquidations, day1BtcMetrics, assetGroups,
     onchain: { sopr: chain.sopr, lthSopr: chain.lthSopr, wma200Multiple: wmaMetric, puellMultiple: chain.puellMultiple, fundingRate: cryptoData.fundingRate, openInterest: cryptoData.openInterest, dominance: cryptoData.dominance },
     marketSeries: [
       { symbol: 'MAG7', name: 'MAG7 等权', color: '#8fd0ac', changePercent: yahoo.mag7Points.length > 1 ? round(yahoo.mag7Points.at(-1)!.value - 100, 2) : null, points: yahoo.mag7Points },
@@ -9745,7 +9806,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     { id: 'day1-global', label: 'Day1 Global · 编辑新闻与 AI 日报', ok: Boolean(day1), detail: day1 ? '当前新闻主源；保留其编辑排序与 AI 摘要。' : '不可用时自动回退至 SparkFlow 新闻聚合。', fetchedAt: day1?.fetchedAt || generatedAt },
     { id: 'news-feed', label: 'SparkFlow · 新闻聚合兜底', ok: !day1 && fallbackNews.length > 0, detail: day1 ? 'Day1 Global 已作为新闻主源。' : 'Day1 Global 暂时不可用，正在展示聚合新闻。', fetchedAt: generatedAt },
   ];
-  return { version: 16, date: window.date, slot: window.slot, generatedAt, updatedAt: generatedAt, summaryMode: aiSummary ? 'ai' : 'rules', summary, markets, macro, news, portfolio: { connected: false, positions: [], detail: '每日策略不读取 IBKR 持仓。' }, sources, errors, editorial, day1 };
+  return { version: 18, date: window.date, slot: window.slot, generatedAt, updatedAt: generatedAt, summaryMode: aiSummary ? 'ai' : 'rules', summary, markets, macro, news, portfolio: { connected: false, positions: [], detail: '每日策略不读取 IBKR 持仓。' }, sources, errors, editorial, day1 };
 }
 
 const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot });

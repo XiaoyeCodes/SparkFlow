@@ -371,6 +371,34 @@
 .editorial-onchain-signal.is-top i { background: var(--ed-rose); }
 .editorial-onchain-signal.is-bottom i { background: var(--ed-amber); }
 .editorial-onchain-table a i.is-off, .editorial-onchain-signal i.is-off { background: var(--ed-faint); }
+.editorial-liquidation-summary { display: grid !important; grid-template-columns: 1fr auto; gap: 5px 12px; margin-top: 7px; padding: 9px 10px !important; border: 1px solid rgba(240, 173, 88, .17); border-radius: 10px; background: linear-gradient(100deg, rgba(240, 173, 88, .08), rgba(240, 173, 88, .015)); }
+.editorial-liquidation-summary > span { color: var(--ed-brass-bright) !important; font-size: 11px; }
+.editorial-liquidation-summary > b { color: var(--ed-text); font: 650 12px/1 var(--ed-mono) !important; }
+.editorial-liquidation-summary small { display: flex; grid-column: 1 / -1; justify-content: space-between; gap: 10px; color: var(--ed-dim); font: 10px/1 var(--ed-mono); }
+.editorial-liquidation-summary em { font-style: normal; }
+.editorial-liquidation-summary em:first-child { color: var(--ed-rose); }
+.editorial-liquidation-summary em:last-child { color: var(--ed-jade-bright); }
+.editorial-day1-metrics { position: relative; overflow: hidden; padding: 12px; border: 1px solid rgba(98, 126, 218, .22); border-radius: 16px; background: linear-gradient(145deg, rgba(14, 22, 42, .96), rgba(6, 12, 24, .99)); box-shadow: inset 0 1px rgba(255,255,255,.025), 0 12px 30px rgba(0,0,0,.18); }
+.editorial-day1-metrics::before { position: absolute; top: 11px; right: 5px; left: 5px; height: 34px; border: 1px solid rgba(135, 167, 255, .08); border-radius: 999px; background: radial-gradient(ellipse at 50% 50%, rgba(97, 132, 238, .15), rgba(97, 132, 238, .04) 54%, transparent 82%); content: ""; }
+.editorial-day1-metrics > header { position: relative; z-index: 1; display: flex; min-height: 34px; align-items: center; justify-content: space-between; padding: 0 7px; }
+.editorial-day1-metrics > header strong { color: var(--ed-text); font-size: 12px; }
+.editorial-day1-metrics > header a { color: rgba(148, 173, 255, .7); font: 8px/1 var(--ed-mono); letter-spacing: .08em; }
+.editorial-day1-tabs { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 8px 0 10px; padding: 3px; border: 1px solid rgba(130, 154, 229, .13); border-radius: 9px; background: rgba(7, 16, 32, .7); }
+.editorial-day1-tabs button { min-height: 27px; border: 0; border-radius: 6px; background: transparent; color: var(--ed-faint); font: 10px/1 var(--ed-mono); cursor: pointer; transition: background .18s ease, color .18s ease; }
+.editorial-day1-tabs button:hover { color: var(--ed-dim); }
+.editorial-day1-tabs button.is-active { background: rgba(118, 147, 239, .18); color: #b9c8ff; box-shadow: inset 0 1px rgba(255,255,255,.05); }
+.editorial-day1-column-head, .editorial-day1-row { display: grid; grid-template-columns: minmax(72px, 1.18fr) minmax(54px, .75fr) minmax(70px, 1.07fr); align-items: center; gap: 6px; }
+.editorial-day1-column-head { padding: 0 3px 5px; border-bottom: 1px solid rgba(135, 167, 255, .12); color: var(--ed-faint); font: 8px/1 var(--ed-mono); letter-spacing: .05em; }
+.editorial-day1-column-head span:nth-child(2), .editorial-day1-row > strong { text-align: right; }
+.editorial-day1-column-head span:last-child { text-align: right; }
+.editorial-day1-row { min-height: 29px; padding: 4px 3px; border-bottom: 1px solid rgba(135, 167, 255, .075); }
+.editorial-day1-row:last-child { border-bottom: 0; }
+.editorial-day1-row > b { overflow: hidden; color: var(--ed-dim); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.editorial-day1-row > strong { color: #a9c4ff; font: 10px/1 var(--ed-mono); white-space: nowrap; }
+.editorial-day1-row > span { overflow: hidden; color: rgba(184, 200, 242, .72); font-size: 9px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.editorial-day1-row > strong.is-positive { color: var(--ed-jade-bright); }
+.editorial-day1-row > strong.is-negative { color: var(--ed-rose); }
+.editorial-day1-row > strong.is-neutral { color: var(--ed-dim); }
 
 .editorial-rail { display: flex; flex-direction: column; gap: 30px; padding-left: 28px; border-left: 1px solid var(--ed-border); }
 .editorial-rail-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }

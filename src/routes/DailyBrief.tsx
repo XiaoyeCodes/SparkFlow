@@ -107,6 +107,8 @@ function fearGreedChangeMetric(metric: DailyBriefEditorialMetric, sourceLabel: s
 }
 
 function AssetCard({ quote, index }: { quote: DailyBriefUpstreamQuote; index: number }) {
+  const displaySymbol = quote.symbol === "HYPE" ? "HYP" : quote.symbol;
+  const marketState = quote.marketState === "24H" ? "24H" : quote.marketState === "UNAVAILABLE" ? "OFFLINE" : "DELAYED";
   return <a
     className={`editorial-asset-card ${changeClass(quote.changePercent)}`}
     href={quote.sourceUrl || "#"}
@@ -115,7 +117,7 @@ function AssetCard({ quote, index }: { quote: DailyBriefUpstreamQuote; index: nu
     style={{ "--asset-delay": `${index * 42}ms` } as CSSProperties}
   >
     <i className="editorial-asset-corner" />
-    <div className="editorial-asset-id"><span>{quote.symbol}</span><em>{quote.marketState === "24H" ? "LIVE 24H" : quote.marketState === "UNAVAILABLE" ? "OFFLINE" : "DELAYED"}</em></div>
+    <div className="editorial-asset-id"><span>{displaySymbol}</span><em>{marketState}</em></div>
     <small>{quote.name}</small>
     <MiniQuoteChart quote={quote} />
     <div className="editorial-asset-price"><strong>{quote.display || (quote.price === null ? "—" : `$${money.format(quote.price)}`)}</strong><div className="editorial-asset-change"><b>{changeLabel(quote.changePercent)}</b><span>Δ SESSION</span></div></div>
@@ -175,17 +177,63 @@ function Mag7DataPanel({ data }: { data?: DailyBriefEditorialSnapshot }) {
   return <section className="editorial-market-data-panel is-mag7"><h3>Mag7 数据 <span>DELAYED</span></h3>{(data?.stocks || []).map((quote) => <QuotePrice quote={quote} key={quote.symbol} />)}{!data?.stocks.length ? <div className="editorial-empty">美股行情暂不可用</div> : null}</section>;
 }
 
+function compactUsd(value: number) {
+  if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`;
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
+  return `$${Math.round(value)}`;
+}
+
 function CryptoDataPanel({ data, btc }: { data?: DailyBriefEditorialSnapshot; btc?: DailyBriefUpstreamQuote }) {
   const signalRows = (["top", "bottom"] as const).map((kind) => ({
     kind,
     value: data?.signals[kind] ?? null,
     label: `BTC ${kind === "top" ? "逃顶" : "抄底"}信号`,
   }));
+  const liquidations = data?.binanceLiquidations;
+  const hasLiquidations = liquidations?.totalUsd !== null && liquidations?.totalUsd !== undefined
+    && liquidations.longUsd !== null && liquidations.longUsd !== undefined
+    && liquidations.shortUsd !== null && liquidations.shortUsd !== undefined;
   return <section className="editorial-market-data-panel is-crypto"><h3>加密 &amp; BTC 链上数据 <span>LIVE / DAILY</span></h3><div className="editorial-btc-hero"><div><strong>{btc?.display || (btc?.price === null || btc?.price === undefined ? "—" : `$${money.format(btc.price)}`)}</strong><span className={changeClass(btc?.changePercent)}>{changeLabel(btc?.changePercent)} · 24H</span></div><MarketChart series={(data?.marketSeries || []).filter((item) => item.symbol === "BTC")} /></div>
     <div className="editorial-onchain-table">{data ? <>{signalRows.map(({ kind, label, value }) => <div className={`editorial-onchain-signal is-${kind}`} key={kind} title={data.signals.methodology}><span>{label}</span><b>{signalLabel(value, kind)} · {value === null ? "—" : `${value}/100`}<i className={value === null ? "is-off" : ""} /></b></div>)}{[
       ["200周均线倍数", data.onchain.wma200Multiple], ["Puell Multiple", data.onchain.puellMultiple], ["资金费率", data.onchain.fundingRate],
       ["未平仓合约", data.onchain.openInterest], ["市值占比", data.onchain.dominance],
-    ].map(([label, metric]) => { const item = metric as DailyBriefEditorialMetric; return <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><b>{item.display}<i className={item.value === null ? "is-off" : ""} /></b></a>; })}</> : null}</div>
+    ].map(([label, metric]) => { const item = metric as DailyBriefEditorialMetric; return <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><b>{item.display}<i className={item.value === null ? "is-off" : ""} /></b></a>; })}{hasLiquidations && liquidations ? <a className="editorial-liquidation-summary" href={liquidations.sourceUrl} target="_blank" rel="noreferrer" title="由公开 Binance 爆仓流聚合，统计窗口为过去 24 小时"><span>Binance 24H 爆仓</span><b>{compactUsd(liquidations.totalUsd!)}</b><small><em>多单 {compactUsd(liquidations.longUsd!)}</em><em>空单 {compactUsd(liquidations.shortUsd!)}</em></small></a> : null}</> : null}</div>
+  </section>;
+}
+
+type Day1MetricRow = { label: string; value: string; signal: string; tone?: "positive" | "negative" | "neutral" };
+
+function Day1BtcMetricsPanel({ data }: { data?: DailyBriefEditorialSnapshot }) {
+  const [tab, setTab] = useState<"flow" | "onchain">("flow");
+  const metrics = data?.day1BtcMetrics;
+  const hasMetrics = Boolean(metrics && [metrics.etfFlowUsd, metrics.fundingRate, metrics.longShortRatio, metrics.lthMvrv, metrics.nupl, metrics.lthSopr, metrics.sthSopr].some((value) => value !== null));
+  if (!metrics || !hasMetrics) return null;
+  const metricUsd = (value: number | null) => value === null ? "—" : compactUsd(Math.abs(value));
+  const fixed = (value: number | null, digits = 2) => value === null ? "—" : value.toFixed(digits);
+  const flowRows: Day1MetricRow[] = [
+    { label: "ETF 净流入", value: metrics.etfFlowUsd === null ? "—" : `${metrics.etfFlowUsd >= 0 ? "+" : "-"}${metricUsd(metrics.etfFlowUsd)}`, signal: metrics.etfFlowUsd === null ? "待更新" : metrics.etfFlowUsd >= 0 ? "净流入" : "净流出", tone: metrics.etfFlowUsd === null ? "neutral" : metrics.etfFlowUsd >= 0 ? "positive" : "negative" },
+    { label: "Funding Rate", value: metrics.fundingRate === null ? "—" : `${metrics.fundingRate >= 0 ? "+" : ""}${fixed(metrics.fundingRate, 3)}%`, signal: metrics.fundingRate === null ? "待更新" : Math.abs(metrics.fundingRate) < 0.03 ? "中性" : metrics.fundingRate > 0 ? "多头付费" : "空头付费" },
+    { label: "多空比", value: fixed(metrics.longShortRatio, 2), signal: metrics.longShortRatio === null ? "待更新" : metrics.longShortRatio > 1.08 ? "多头略强" : metrics.longShortRatio < 0.92 ? "空头略强" : "多空均衡" },
+    { label: "恐惧贪婪指数", value: metrics.fearGreed === null ? "—" : `${Math.round(metrics.fearGreed)} / 100`, signal: metrics.fearGreed === null ? "待更新" : metrics.fearGreed >= 75 ? "未到极端" : metrics.fearGreed >= 55 ? "情绪偏热" : metrics.fearGreed <= 25 ? "情绪偏冷" : "中性" },
+  ];
+  const onchainRows: Day1MetricRow[] = [
+    { label: "LTH-MVRV", value: fixed(metrics.lthMvrv), signal: metrics.lthMvrv === null ? "待更新" : metrics.lthMvrv < 1 ? "LTH 低估区" : metrics.lthMvrv < 2.5 ? "LTH 正常盈利" : "LTH 盈利偏高" },
+    { label: "NUPL", value: fixed(metrics.nupl, 3), signal: metrics.nupl === null ? "待更新" : metrics.nupl < 0 ? "投降区" : metrics.nupl < 0.25 ? "复苏阶段" : metrics.nupl < 0.5 ? "乐观阶段" : "盈利偏高" },
+    { label: "LTH-SOPR", value: fixed(metrics.lthSopr, 3), signal: metrics.lthSopr === null ? "待更新" : metrics.lthSopr > 1 ? "正常分配" : "LTH 亏损实现" },
+    { label: "STH-SOPR", value: fixed(metrics.sthSopr, 3), signal: metrics.sthSopr === null ? "待更新" : metrics.sthSopr > 1 ? "短线获利" : "短线承压" },
+    { label: "LTH 持有量", value: metrics.lthSupplyPercent === null ? "—" : `${fixed(metrics.lthSupplyPercent, 1)}%`, signal: metrics.lthSupplyPercent === null ? "待更新" : metrics.lthSupplyPercent >= 75 ? "长期持仓高" : "长期持仓回落" },
+    { label: "365日均线", value: metrics.ma365Ratio === null ? "—" : `${fixed(metrics.ma365Ratio)}x`, signal: metrics.ma365Ratio === null ? "待更新" : metrics.ma365Ratio >= 1 ? "高于年均线" : "低于年均线" },
+    { label: "200周均线", value: metrics.wma200Multiple === null ? "—" : `${fixed(metrics.wma200Multiple)}x`, signal: metrics.wma200Multiple === null ? "待更新" : metrics.wma200Multiple >= 1 ? "高于长期均线" : "低于长期均线" },
+    { label: "周线 RSI", value: fixed(metrics.weeklyRsi, 1), signal: metrics.weeklyRsi === null ? "待更新" : metrics.weeklyRsi >= 70 ? "周线偏热" : metrics.weeklyRsi <= 30 ? "周线偏冷" : "正常区间" },
+    { label: "24H 成交量", value: metricUsd(metrics.volume24h), signal: metrics.volumeChangePercent === null ? "待更新" : `${metrics.volumeChangePercent >= 0 ? "+" : ""}${fixed(metrics.volumeChangePercent, 0)}% vs 30D` },
+  ];
+  const rows = tab === "flow" ? flowRows : onchainRows;
+  return <section className="editorial-day1-metrics" aria-label="Day1 Global BTC 指标">
+    <header><strong>BTC 关键指标</strong><a href={metrics.sourceUrl} target="_blank" rel="noreferrer">DAY1 · LIVE</a></header>
+    <div className="editorial-day1-tabs" role="tablist" aria-label="BTC 指标分类"><button className={tab === "flow" ? "is-active" : ""} onClick={() => setTab("flow")} role="tab" aria-selected={tab === "flow"}>资金流 / 情绪</button><button className={tab === "onchain" ? "is-active" : ""} onClick={() => setTab("onchain")} role="tab" aria-selected={tab === "onchain"}>链上 / 技术</button></div>
+    <div className="editorial-day1-column-head"><span>指标</span><span>当前</span><span>信号</span></div>
+    <div className="editorial-day1-rows">{rows.map((row) => <div className="editorial-day1-row" key={row.label}><b>{row.label}</b><strong className={row.tone ? `is-${row.tone}` : ""}>{row.value}</strong><span>{row.signal}</span></div>)}</div>
   </section>;
 }
 
@@ -333,7 +381,7 @@ export function DailyBrief() {
   return <div className="daily-brief-editorial">
     {assetGroups.length ? <>
       <aside className="editorial-side-dock is-left" aria-label="市场数据左侧轨道"><Mag7DataPanel data={data} />{leftAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}</aside>
-      <aside className="editorial-side-dock is-right" aria-label="市场数据右侧轨道">{rightAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}<CryptoDataPanel data={data} btc={btc} /></aside>
+      <aside className="editorial-side-dock is-right" aria-label="市场数据右侧轨道">{rightAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}<CryptoDataPanel data={data} btc={btc} /><Day1BtcMetricsPanel data={data} /></aside>
     </> : null}
     <div className="editorial-wrap">
       {error ? <div className="editorial-error">{error}</div> : null}

@@ -199,6 +199,31 @@ export type DailyBriefEditorialSnapshot = {
     oiChange5m: number | null;
     updatedAt: string | null;
   };
+  binanceLiquidations: {
+    totalUsd: number | null;
+    longUsd: number | null;
+    shortUsd: number | null;
+    updatedAt: string | null;
+    sourceUrl: string;
+  };
+  day1BtcMetrics: {
+    etfFlowUsd: number | null;
+    fundingRate: number | null;
+    longShortRatio: number | null;
+    fearGreed: number | null;
+    lthMvrv: number | null;
+    nupl: number | null;
+    lthSopr: number | null;
+    sthSopr: number | null;
+    lthSupplyPercent: number | null;
+    ma365Ratio: number | null;
+    wma200Multiple: number | null;
+    weeklyRsi: number | null;
+    volume24h: number | null;
+    volumeChangePercent: number | null;
+    updatedAt: string | null;
+    sourceUrl: string;
+  };
   marketSeries: DailyBriefVisualSeries[];
   events: DailyBriefEditorialEvent[];
 };
@@ -244,7 +269,7 @@ export type DailyBriefDay1Snapshot = {
 };
 
 export type DailyBriefSnapshot = {
-  version: 16;
+  version: 18;
   date: string;
   slot: DailyBriefSlot;
   generatedAt: string;
