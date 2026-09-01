@@ -6989,43 +6989,89 @@ const officialMacroEvents: GlobalCalendarEvent[] = [
   { id: 'nfp-2026-10', date: '2026-10-02', time: '20:30', title: '美国非农就业报告', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/empsit.htm', kind: 'macro', importance: 'high' },
   { id: 'nfp-2026-11', date: '2026-11-06', time: '21:30', title: '美国非农就业报告', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/empsit.htm', kind: 'macro', importance: 'high' },
   { id: 'nfp-2026-12', date: '2026-12-04', time: '21:30', title: '美国非农就业报告', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/empsit.htm', kind: 'macro', importance: 'high' },
+  { id: 'cpi-2026-09', date: '2026-09-11', time: '20:30', title: '美国 CPI', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/cpi.htm', kind: 'macro', importance: 'high' },
+  { id: 'cpi-2026-10', date: '2026-10-14', time: '20:30', title: '美国 CPI', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/cpi.htm', kind: 'macro', importance: 'high' },
+  { id: 'cpi-2026-11', date: '2026-11-10', time: '21:30', title: '美国 CPI', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/cpi.htm', kind: 'macro', importance: 'high' },
+  { id: 'cpi-2026-12', date: '2026-12-10', time: '21:30', title: '美国 CPI', source: 'BLS', url: 'https://www.bls.gov/schedule/news_release/cpi.htm', kind: 'macro', importance: 'high' },
   { id: 'fomc-2026-09', date: '2026-09-16', time: '待定', title: 'FOMC 利率决议与经济预测', source: 'Federal Reserve', url: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm', kind: 'central-bank', importance: 'high' },
   { id: 'fomc-2026-10', date: '2026-10-28', time: '待定', title: 'FOMC 利率决议', source: 'Federal Reserve', url: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm', kind: 'central-bank', importance: 'high' },
   { id: 'fomc-2026-12', date: '2026-12-09', time: '待定', title: 'FOMC 利率决议与经济预测', source: 'Federal Reserve', url: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm', kind: 'central-bank', importance: 'high' },
   { id: 'fomc-2027-01', date: '2027-01-27', time: '待定', title: 'FOMC 利率决议', source: 'Federal Reserve', url: 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm', kind: 'central-bank', importance: 'high' },
 ];
 
-function parseMarketCap(value: unknown) {
-  const parsed = Number(String(value || '').replace(/[$,]/g, ''));
-  return Number.isFinite(parsed) ? parsed : 0;
+const mag7Companies = [
+  { symbol: 'AAPL', name: 'Apple' },
+  { symbol: 'MSFT', name: 'Microsoft' },
+  { symbol: 'NVDA', name: 'NVIDIA' },
+  { symbol: 'GOOGL', name: 'Alphabet' },
+  { symbol: 'AMZN', name: 'Amazon' },
+  { symbol: 'META', name: 'Meta' },
+  { symbol: 'TSLA', name: 'Tesla' },
+] as const;
+
+const mag7EstimatedEarningsDates: Record<(typeof mag7Companies)[number]['symbol'], string> = {
+  AAPL: '2026-10-29',
+  MSFT: '2026-10-28',
+  NVDA: '2026-11-17',
+  GOOGL: '2026-10-28',
+  AMZN: '2026-10-29',
+  META: '2026-10-28',
+  TSLA: '2026-10-21',
+};
+
+function parseNasdaqEarningsDate(payload: Record<string, any>) {
+  const announcement = String(payload?.data?.announcement || '');
+  const match = announcement.match(/\b([A-Z][a-z]{2} \d{1,2}, \d{4})\b/);
+  if (!match?.[1]) return null;
+  const parsed = new Date(`${match[1]} 12:00:00 UTC`);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : null;
 }
 
-async function getUpcomingEarnings() {
-  const dates: string[] = [];
-  const cursor = new Date();
-  cursor.setUTCDate(cursor.getUTCDate() + 1);
-  while (dates.length < 4) {
-    const weekday = cursor.getUTCDay();
-    if (weekday !== 0 && weekday !== 6) dates.push(cursor.toISOString().slice(0, 10));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  const settled = await Promise.allSettled(dates.map(async (date) => {
-    const url = `https://api.nasdaq.com/api/calendar/earnings?date=${date}`;
-    const text = await fetchExternalText(url, 18000, 'application/json,text/plain,*/*');
-    const payload = JSON.parse(text) as Record<string, any>;
-    const rows = Array.isArray(payload?.data?.rows) ? payload.data.rows as Array<Record<string, unknown>> : [];
-    return rows.sort((left, right) => parseMarketCap(right.marketCap) - parseMarketCap(left.marketCap)).slice(0, 2).map((row) => ({
-      id: `earnings-${date}-${String(row.symbol || '')}`,
+async function getUpcomingMag7Earnings(): Promise<GlobalCalendarEvent[]> {
+  const now = Date.now();
+  const settled = await Promise.allSettled(mag7Companies.map(async ({ symbol, name }) => {
+    const url = `https://www.nasdaq.com/market-activity/stocks/${symbol.toLowerCase()}/earnings`;
+    let officialDate: string | null = null;
+    try {
+      const text = await fetchExternalText(`https://api.nasdaq.com/api/analyst/${symbol.toLowerCase()}/earnings-date`, 12_000, 'application/json,text/plain,*/*');
+      officialDate = parseNasdaqEarningsDate(JSON.parse(text) as Record<string, any>);
+    } catch {
+      // Nasdaq 的单个接口偶有延迟；使用明确标注的预期日可避免日历卡片整体留空。
+    }
+    const date = officialDate || mag7EstimatedEarningsDates[symbol];
+    if (!date || new Date(`${date}T23:59:59Z`).getTime() < now) return null;
+    return {
+      id: `mag7-earnings-${symbol}-${date}`,
       date,
-      time: row.time === 'time-pre-market' ? '盘前' : row.time === 'time-after-hours' ? '盘后' : '待定',
-      title: `${String(row.symbol || '')} · ${String(row.name || '')} 财报`,
-      source: 'Nasdaq',
-      url: `https://www.nasdaq.com/market-activity/stocks/${String(row.symbol || '').toLowerCase()}/earnings`,
+      time: officialDate ? 'Nasdaq 已确认' : '预计',
+      title: `${symbol} · ${name} 财报${officialDate ? '' : '（预计）'}`,
+      source: officialDate ? 'Nasdaq' : 'Nasdaq 待公布 · 市场预期',
+      url,
       kind: 'earnings' as const,
-      importance: parseMarketCap(row.marketCap) >= 20_000_000_000 ? 'high' as const : 'medium' as const,
-    }));
+      importance: 'high' as const,
+    };
   }));
-  return settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  return settled.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : []);
+}
+
+function dailyBriefFocusEventKey(event: GlobalCalendarEvent) {
+  if (event.id.startsWith('nfp-')) return 'nfp';
+  if (event.id.startsWith('cpi-')) return 'cpi';
+  if (event.id.startsWith('fomc-')) return 'fomc';
+  if (event.id.startsWith('mag7-earnings-')) return event.id.split('-').slice(0, 3).join('-');
+  return null;
+}
+
+function selectDailyBriefFocusEvents(events: GlobalCalendarEvent[]) {
+  const sorted = events
+    .filter((event) => new Date(`${event.date}T23:59:59Z`).getTime() >= Date.now())
+    .sort((left, right) => left.date.localeCompare(right.date) || (left.importance === 'high' ? -1 : 1));
+  const nearestByFocus = new Map<string, GlobalCalendarEvent>();
+  for (const event of sorted) {
+    const key = dailyBriefFocusEventKey(event);
+    if (key && !nearestByFocus.has(key)) nearestByFocus.set(key, event);
+  }
+  return [...nearestByFocus.values()].sort((left, right) => left.date.localeCompare(right.date) || (left.importance === 'high' ? -1 : 1));
 }
 
 const fedFundsMonthCodes = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'] as const;
@@ -8073,13 +8119,10 @@ async function loadGlobalNewsSection(region: GlobalMacroRegion) {
 }
 
 async function loadGlobalCalendarSection() {
-  const earnings = await getUpcomingEarnings().catch(() => []);
+  const earnings = await getUpcomingMag7Earnings().catch(() => []);
   return {
     generatedAt: new Date().toISOString(),
-    calendar: [...officialMacroEvents, ...earnings]
-      .filter((event) => new Date(`${event.date}T23:59:59Z`).getTime() >= Date.now())
-      .sort((left, right) => left.date.localeCompare(right.date) || (left.importance === 'high' ? -1 : 1))
-      .slice(0, 12),
+    calendar: selectDailyBriefFocusEvents([...officialMacroEvents, ...earnings]),
   };
 }
 
@@ -9137,6 +9180,10 @@ const editorialAssetYahooConfigs = [
   { group: 'defensive', yahooSymbol: '^TNX', symbol: 'US10Y', name: '十年期美债' },
   { group: 'defensive', yahooSymbol: 'GC=F', symbol: 'GOLD', name: '黄金' },
   { group: 'defensive', yahooSymbol: 'XLP', symbol: 'XLP', name: '必需消费 ETF' },
+  { group: 'defensive', yahooSymbol: 'XLV', symbol: 'XLV', name: '医疗保健 ETF' },
+  { group: 'defensive', yahooSymbol: 'XLF', symbol: 'XLF', name: '金融 ETF' },
+  { group: 'defensive', yahooSymbol: 'VYM', symbol: 'VYM', name: '高股息 ETF' },
+  { group: 'defensive', yahooSymbol: 'SCHD', symbol: 'SCHD', name: '美国红利 ETF' },
   { group: 'defensive', yahooSymbol: 'SPY', symbol: 'SPY', name: '标普 500 ETF' },
   { group: 'defensive', yahooSymbol: 'BRK-B', symbol: 'BRK.B', name: '伯克希尔 B' },
   { group: 'technology', yahooSymbol: 'QQQ', symbol: 'QQQ', name: '纳指 100 ETF' },
@@ -9718,7 +9765,11 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     summary: typeof item.summary === 'string' ? item.summary : undefined, weight: finiteNumber(item.weight) ?? 100 - index, url: String(item.url || '#'),
   })).filter((item) => item.title);
   const day1 = day1Result.status === 'fulfilled' ? day1Result.value : undefined;
-  const day1BtcMetrics = day1MetricsResult.status === 'fulfilled' ? day1MetricsResult.value : cryptoData.day1BtcMetrics;
+  const day1BtcMetrics = day1MetricsResult.status === 'fulfilled' ? day1MetricsResult.value : {
+    etfFlowUsd: null, fundingRate: null, longShortRatio: null, fearGreed: null, lthMvrv: null, nupl: null,
+    lthSopr: null, sthSopr: null, lthSupplyPercent: null, ma365Ratio: null, wma200Multiple: null,
+    weeklyRsi: null, volume24h: null, volumeChangePercent: null, updatedAt: null, sourceUrl: day1BriefPageUrl,
+  };
   const news: DailyBriefNews[] = day1?.analysis.topNews.map((item, index) => ({
     id: `day1-${window.date}-${index}-${createHash('sha1').update(item.title).digest('hex').slice(0, 10)}`,
     title: item.title,
@@ -9730,7 +9781,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     url: item.url || day1.sourceUrl,
   })) || fallbackNews;
   const calendarPayload = calendarResult.status === 'fulfilled' ? calendarResult.value : { calendar: [] };
-  const events = calendarPayload.calendar.slice(0, 4).map((event) => ({ id: event.id, date: event.date, time: event.time, title: event.title, source: event.source, url: event.url }));
+  const events = calendarPayload.calendar.map((event) => ({ id: event.id, date: event.date, time: event.time, title: event.title, source: event.source, url: event.url }));
   const markets = [...yahoo.indices, ...cryptoData.crypto].map((item) => compactMarket(item, item.symbol.toLowerCase()));
   const macro = [compactMarket({ id: 'vix', name: 'VIX 波动率', symbol: 'VIX', price: vix.value, change: vix.change, sourceUrl: vix.sourceUrl })];
   const fallback = summarizeRules(markets, macro, news, []);

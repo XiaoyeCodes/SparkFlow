@@ -1,10 +1,12 @@
-import { AlertTriangle, Bitcoin, Radio } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { AlertTriangle, Bitcoin, Radio, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type {
   DailyBriefChartPoint,
   DailyBriefAssetGroup,
+  DailyBriefEditorialEvent,
   DailyBriefEditorialMetric,
   DailyBriefEditorialSnapshot,
+  DailyBriefNews,
   DailyBriefResponse,
   DailyBriefSummary,
   DailyBriefUpstreamQuote,
@@ -52,6 +54,16 @@ function changeLabel(value: number | null | undefined, digits = 2) {
 
 function changeClass(value: number | null | undefined) {
   return value === null || value === undefined || value === 0 ? "is-neutral" : value > 0 ? "is-positive" : "is-negative";
+}
+
+function eventChipLabel(event: DailyBriefEditorialEvent) {
+  if (/\bFOMC\b/i.test(event.title)) return "FOMC 会议";
+  const ticker = event.title.match(/^\s*([A-Z][A-Z.\-]*)\s*·/i)?.[1]?.toUpperCase();
+  if (ticker && /财报/.test(event.title)) {
+    const estimated = event.time === "预计" || /预计|市场预期/.test(`${event.title} ${event.source}`);
+    return `${ticker} 财报${estimated ? "（预计）" : ""}`;
+  }
+  return event.title;
 }
 
 function sentimentTone(value: number | null) {
@@ -235,6 +247,24 @@ function Day1BtcMetricsPanel({ data }: { data?: DailyBriefEditorialSnapshot }) {
   </section>;
 }
 
+function SideNewsPanel({ news, fillHeight }: { news: DailyBriefNews[]; fillHeight?: number }) {
+  const items = news.slice(0, 4);
+  return <section
+    className="editorial-side-news"
+    style={fillHeight ? { "--side-news-fill-height": `${fillHeight}px` } as CSSProperties : undefined}
+  >
+    <header><div><Radio size={13} /><span>市场快讯</span></div><em><i />LIVE WIRE</em></header>
+    <div className="editorial-side-news-list">
+      {items.map((item, index) => <a href={item.url || "#"} target="_blank" rel="noreferrer" key={item.id}>
+        <div><i className={index === 0 ? "is-primary" : ""} /><span>{item.category || "市场"}</span><time>{item.publishedAt ? shanghaiTime(item.publishedAt) : "LIVE"}</time></div>
+        <strong>{item.title}</strong>
+        <small>{item.source || "GLOBAL WIRE"}</small>
+      </a>)}
+      {!items.length ? <div className="editorial-side-news-empty">正在同步市场快讯…</div> : null}
+    </div>
+  </section>;
+}
+
 function TrendBars({ points }: { points: DailyBriefChartPoint[] }) {
   return <div className="editorial-bar-chart" role="img" aria-label="7日加密恐惧贪婪指数走势">
     {points.length ? points.slice(-7).map((point, index, all) => <div className="editorial-bar-column" key={point.time}>
@@ -287,13 +317,23 @@ export function DailyBrief() {
   const [error, setError] = useState("");
   const [modelSummary, setModelSummary] = useState<DailyBriefSummary | null>(null);
   const [, setModelSummaryState] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
+  const [aiRefreshNonce, setAiRefreshNonce] = useState(0);
+  const leftDockRef = useRef<HTMLElement>(null);
+  const rightDockRef = useRef<HTMLElement>(null);
+  const sideNewsRef = useRef<HTMLDivElement>(null);
+  const assetGroupsRef = useRef<HTMLDivElement>(null);
+  const [sideNewsFillHeight, setSideNewsFillHeight] = useState<number>();
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true);
     setError("");
+    if (refresh) {
+      setModelSummary(null);
+    }
     try {
       const payload = refresh ? await requestJson<DailyBriefResponse>("/api/daily-brief/refresh", { method: "POST" }) : await requestJson<DailyBriefResponse>("/api/daily-brief?retry-content=1");
       setBrief(payload);
+      if (refresh) setAiRefreshNonce((current) => current + 1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -317,7 +357,7 @@ export function DailyBrief() {
     const cacheKey = `sparkflow.daily-brief.ai-summary.v3:${snapshot.date}:${snapshot.slot}:${settings.ai.provider}:${settings.ai.model}`;
     try {
       const cached = window.localStorage.getItem(cacheKey);
-      if (cached) {
+      if (cached && aiRefreshNonce === 0) {
         const parsed = JSON.parse(cached) as DailyBriefSummary;
         if (parsed?.assessment?.advice?.length) {
           setModelSummary(parsed);
@@ -345,7 +385,7 @@ export function DailyBrief() {
       setModelSummaryState("fallback");
     });
     return () => controller.abort();
-  }, [snapshot?.generatedAt]);
+  }, [snapshot?.generatedAt, aiRefreshNonce]);
 
   const summary = modelSummary || snapshot?.summary;
   const btc = data?.crypto.find((item) => item.symbol === "BTC");
@@ -368,7 +408,10 @@ export function DailyBrief() {
     let cursor = 0;
     return `conic-gradient(${components.map((item) => { const start = cursor; cursor += Math.max(0, item.value || 0) / total * 100; return `${item.color} ${start}% ${cursor}%`; }).join(",")})`;
   }, [components]);
-  const alerts = [summary?.headline, ...(snapshot?.news || []).slice(0, 5).map((item) => item.title)].filter(Boolean) as string[];
+  const tickerAlerts = [
+    summary?.headline ? { title: summary.headline, category: "市场" } : null,
+    ...(snapshot?.news || []).slice(0, 5).map((item) => ({ title: item.title, category: item.category || "热点", url: item.url })),
+  ].filter((item): item is { title: string; category: string; url?: string } => Boolean(item));
   const aiLines = [["宏观", summary?.highlights[0]], ["加密", summary?.highlights[1]], ["链上", summary?.highlights[2]], ["策略", summary?.regime]].filter((item): item is string[] => Boolean(item[1]));
   const day1Analysis = snapshot?.day1?.analysis;
   const hasDailyCoreJudgment = Boolean(day1Analysis || modelSummary || snapshot?.summaryMode === "ai");
@@ -376,10 +419,63 @@ export function DailyBrief() {
   const leftAssetGroups = assetGroups.filter((group) => group.id !== "crypto").sort((left, right) => (left.id === "technology" ? 0 : 1) - (right.id === "technology" ? 0 : 1));
   const rightAssetGroups = assetGroups.filter((group) => group.id === "crypto");
 
+  useLayoutEffect(() => {
+    const leftDock = leftDockRef.current;
+    const rightDock = rightDockRef.current;
+    const sideNews = sideNewsRef.current;
+    if (!leftDock || !rightDock || !sideNews) return;
+    const syncHeight = () => {
+      const leftHeight = leftDock.getBoundingClientRect().height;
+      const rightHeight = rightDock.getBoundingClientRect().height;
+      const newsHeight = sideNews.getBoundingClientRect().height;
+      if (!leftHeight || !rightHeight || !newsHeight) return;
+      const target = Math.max(210, Math.round(leftHeight - (rightHeight - newsHeight)));
+      setSideNewsFillHeight((current) => current === target ? current : target);
+    };
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(leftDock);
+    observer.observe(rightDock);
+    observer.observe(sideNews);
+    syncHeight();
+    return () => observer.disconnect();
+  }, [assetGroups, snapshot?.news]);
+
+  useLayoutEffect(() => {
+    const container = assetGroupsRef.current;
+    if (!container) return;
+    const groups = Array.from(container.querySelectorAll<HTMLElement>(".editorial-asset-group"));
+    const defensive = groups.find((group) => group.classList.contains("is-defensive"));
+    const comparisonGroups = groups.filter((group) => !group.classList.contains("is-defensive"));
+    if (!defensive || !comparisonGroups.length) return;
+
+    let frame = 0;
+    const syncAssetGroupHeight = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const isThreeColumnLayout = window.matchMedia("(min-width: 1081px) and (max-width: 1799px)").matches;
+        defensive.style.removeProperty("--asset-group-height");
+        if (!isThreeColumnLayout) return;
+        const targetHeight = Math.round(Math.max(...comparisonGroups.map((group) => group.getBoundingClientRect().height)));
+        if (!targetHeight) return;
+        defensive.style.setProperty("--asset-group-height", `${targetHeight}px`);
+      });
+    };
+
+    const observer = new ResizeObserver(syncAssetGroupHeight);
+    comparisonGroups.forEach((group) => observer.observe(group));
+    window.addEventListener("resize", syncAssetGroupHeight);
+    syncAssetGroupHeight();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("resize", syncAssetGroupHeight);
+    };
+  }, [assetGroups]);
+
   return <div className="daily-brief-editorial">
     {assetGroups.length ? <>
-      <aside className="editorial-side-dock is-left" aria-label="市场数据左侧轨道"><Mag7DataPanel data={data} />{leftAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}</aside>
-      <aside className="editorial-side-dock is-right" aria-label="市场数据右侧轨道">{rightAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}<CryptoDataPanel data={data} btc={btc} /><Day1BtcMetricsPanel data={data} /></aside>
+      <aside className="editorial-side-dock is-left" aria-label="市场数据左侧轨道" ref={leftDockRef}><Mag7DataPanel data={data} />{leftAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}</aside>
+      <aside className="editorial-side-dock is-right" aria-label="市场数据右侧轨道" ref={rightDockRef}>{rightAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}<CryptoDataPanel data={data} btc={btc} /><Day1BtcMetricsPanel data={data} /><div ref={sideNewsRef}><SideNewsPanel news={snapshot?.news || []} fillHeight={sideNewsFillHeight} /></div></aside>
     </> : null}
     <div className="editorial-wrap">
       {error ? <div className="editorial-error">{error}</div> : null}
@@ -404,13 +500,13 @@ export function DailyBrief() {
           <div className="editorial-intelligence-foot"><span>{day1Analysis ? "新闻与 AI 摘要 · Day1 Global" : `来源 · ${snapshot?.sources.filter((item) => item.ok).length || 0} 组专业接口`}</span><span>生成 · {shanghaiTime(day1Analysis?.generatedAt || snapshot?.generatedAt)}</span></div>
         </div> : null}
         <div className="editorial-lead-foot"><AlertTriangle size={13} /><span>以上内容仅用于信息整理与风险检查，不构成任何投资建议。</span></div>
-        <div className="editorial-chip-row">{(data?.events || []).map((event) => <a href={event.url} target="_blank" rel="noreferrer" key={event.id}><b>{event.date.slice(5).replace("-", "/")}</b>{event.title}</a>)}</div>
+        <div className="editorial-chip-row">{(data?.events || []).slice(0, 5).map((event) => <a href={event.url} target="_blank" rel="noreferrer" key={event.id} title={`${event.date} ${event.title}`}><b>{event.date.slice(5).replace("-", "/")}</b><span>{eventChipLabel(event)}</span></a>)}<button className="editorial-refresh-all" type="button" onClick={() => void load(true)} disabled={loading} title="重新拉取行情、新闻、链上指标与 AI 摘要"><RefreshCw size={15} className={loading ? "is-spinning" : ""} /><span>{loading ? "正在刷新数据" : "刷新全部数据"}</span><small>LIVE</small></button></div>
       </section>
 
       <div className="editorial-report-grid"><main className="editorial-main-column is-full">
 
         <section className="editorial-assets-section"><div className="editorial-section-head"><h2>跨资产数据矩阵</h2><small>YAHOO FINANCE · BINANCE · COINGECKO · COIN METRICS</small></div>
-          <div className="editorial-asset-groups">{assetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}{!assetGroups.length ? <div className="editorial-assets-loading"><Radio size={17} />正在建立跨资产数据链路…</div> : null}</div>
+          <div className="editorial-asset-groups" ref={assetGroupsRef}>{assetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}{!assetGroups.length ? <div className="editorial-assets-loading"><Radio size={17} />正在建立跨资产数据链路…</div> : null}</div>
 
         </section>
 
@@ -420,6 +516,6 @@ export function DailyBrief() {
       </div>
     </div>
 
-    <footer className="editorial-ticker"><div><i />GLOBAL ALERT</div><div className="editorial-ticker-track">{[...alerts, ...alerts].map((alert, index) => <span key={`${index}-${alert}`}><b>{index % 3 === 0 ? "市场" : index % 3 === 1 ? "热点" : "观察"}</b>{alert}</span>)}</div></footer>
+    <footer className="editorial-ticker"><div><i />GLOBAL ALERT</div><div className="editorial-ticker-window"><div className="editorial-ticker-track">{[...tickerAlerts, ...tickerAlerts].map((alert, index) => alert.url ? <a href={alert.url} target="_blank" rel="noreferrer" title={`打开：${alert.title}`} key={`${index}-${alert.title}`}><b>{alert.category}</b>{alert.title}</a> : <span key={`${index}-${alert.title}`}><b>{alert.category}</b>{alert.title}</span>)}</div></div></footer>
   </div>;
 }
