@@ -205,7 +205,6 @@ function CryptoDataPanel({ data, btc }: { data?: DailyBriefEditorialSnapshot; bt
 type Day1MetricRow = { label: string; value: string; signal: string; tone?: "positive" | "negative" | "neutral" };
 
 function Day1BtcMetricsPanel({ data }: { data?: DailyBriefEditorialSnapshot }) {
-  const [tab, setTab] = useState<"flow" | "onchain">("flow");
   const metrics = data?.day1BtcMetrics;
   const hasMetrics = Boolean(metrics && [metrics.etfFlowUsd, metrics.fundingRate, metrics.longShortRatio, metrics.lthMvrv, metrics.nupl, metrics.lthSopr, metrics.sthSopr].some((value) => value !== null));
   if (!metrics || !hasMetrics) return null;
@@ -228,10 +227,9 @@ function Day1BtcMetricsPanel({ data }: { data?: DailyBriefEditorialSnapshot }) {
     { label: "周线 RSI", value: fixed(metrics.weeklyRsi, 1), signal: metrics.weeklyRsi === null ? "待更新" : metrics.weeklyRsi >= 70 ? "周线偏热" : metrics.weeklyRsi <= 30 ? "周线偏冷" : "正常区间" },
     { label: "24H 成交量", value: metricUsd(metrics.volume24h), signal: metrics.volumeChangePercent === null ? "待更新" : `${metrics.volumeChangePercent >= 0 ? "+" : ""}${fixed(metrics.volumeChangePercent, 0)}% vs 30D` },
   ];
-  const rows = tab === "flow" ? flowRows : onchainRows;
+  const rows = [...flowRows, ...onchainRows];
   return <section className="editorial-day1-metrics" aria-label="Day1 Global BTC 指标">
     <header><strong>BTC 关键指标</strong><a href={metrics.sourceUrl} target="_blank" rel="noreferrer">DAY1 · LIVE</a></header>
-    <div className="editorial-day1-tabs" role="tablist" aria-label="BTC 指标分类"><button className={tab === "flow" ? "is-active" : ""} onClick={() => setTab("flow")} role="tab" aria-selected={tab === "flow"}>资金流 / 情绪</button><button className={tab === "onchain" ? "is-active" : ""} onClick={() => setTab("onchain")} role="tab" aria-selected={tab === "onchain"}>链上 / 技术</button></div>
     <div className="editorial-day1-column-head"><span>指标</span><span>当前</span><span>信号</span></div>
     <div className="editorial-day1-rows">{rows.map((row) => <div className="editorial-day1-row" key={row.label}><b>{row.label}</b><strong className={row.tone ? `is-${row.tone}` : ""}>{row.value}</strong><span>{row.signal}</span></div>)}</div>
   </section>;
