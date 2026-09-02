@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Check, KeyRound, NotebookPen, PlugZap, Save } from 'lucide-react';
+import { Check, KeyRound, PlugZap, Save } from 'lucide-react';
 import {
   aiProviders,
   defaultIntegrationSettings,
   getProviderConfig,
-  loadIntegrationSettings,
+  loadLocalIntegrationSettings,
   saveIntegrationSettings,
   type AiProviderId,
   type IntegrationSettings
@@ -18,17 +18,46 @@ type IntegrationSettingsProps = {
 export function IntegrationSettingsPanel({ compact = false, onChange }: IntegrationSettingsProps) {
   const [settings, setSettings] = useState<IntegrationSettings>(defaultIntegrationSettings);
   const [saved, setSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
-    const loaded = loadIntegrationSettings();
-    setSettings(loaded);
-    onChange?.(loaded);
+    let active = true;
+    void loadLocalIntegrationSettings().then((loaded) => {
+      if (!active) return;
+      setSettings(loaded);
+      onChange?.(loaded);
+    });
+    return () => { active = false; };
   }, [onChange]);
 
   const updateSettings = (next: IntegrationSettings) => {
     setSettings(next);
     setSaved(false);
+    setConnected(false);
     onChange?.(next);
+  };
+
+  const testConnection = async () => {
+    setIsTesting(true);
+    setConnected(false);
+    setSaveError('');
+    try {
+      const response = await fetch('/api/integration-settings/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ ai: settings.ai }),
+      });
+      const payload = await response.json().catch(() => ({})) as { detail?: string; connected?: boolean };
+      if (!response.ok || !payload.connected) throw new Error(payload.detail || `连接测试失败（${response.status}）`);
+      setConnected(true);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '连接测试失败');
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   const updateProvider = (providerId: AiProviderId) => {
@@ -44,10 +73,20 @@ export function IntegrationSettingsPanel({ compact = false, onChange }: Integrat
     });
   };
 
-  const save = () => {
-    saveIntegrationSettings(settings);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1600);
+  const save = async () => {
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      const persisted = await saveIntegrationSettings(settings);
+      setSettings(persisted);
+      onChange?.(persisted);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1600);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '保存本地配置失败');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const provider = getProviderConfig(settings.ai.provider);
@@ -59,17 +98,29 @@ export function IntegrationSettingsPanel({ compact = false, onChange }: Integrat
           <PlugZap size={17} className="text-[#8ad7ff]" />
           <h2 className="text-base font-semibold text-white">集成设置</h2>
         </div>
-        <button
-          type="button"
-          onClick={save}
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/12 bg-white/[0.045] px-3 text-xs font-semibold text-white/72 transition hover:border-[#8ad7ff]/38 hover:text-white"
-        >
-          {saved ? <Check size={14} /> : <Save size={14} />}
-          {saved ? '已保存' : '保存'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void testConnection()}
+            disabled={isTesting || isSaving}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#8ad7ff]/25 bg-[#8ad7ff]/[0.055] px-3 text-xs font-semibold text-[#b9e9ff] transition hover:border-[#8ad7ff]/55 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {connected ? <Check size={14} /> : <PlugZap size={14} />}
+            {connected ? '已连通' : isTesting ? '检测中…' : '测试连接'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={isSaving || isTesting}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/12 bg-white/[0.045] px-3 text-xs font-semibold text-white/72 transition hover:border-[#8ad7ff]/38 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {saved ? <Check size={14} /> : <Save size={14} />}
+            {saved ? '已保存' : isSaving ? '保存中…' : '保存'}
+          </button>
+        </div>
       </div>
 
-      <div className={`grid gap-3 ${compact ? '' : 'lg:grid-cols-2'}`}>
+      <div className="grid gap-3">
         <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
           <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#8ad7ff]/72">
             <KeyRound size={14} />
@@ -96,7 +147,7 @@ export function IntegrationSettingsPanel({ compact = false, onChange }: Integrat
               onChange={(event) => updateSettings({ ...settings, ai: { ...settings.ai, apiKey: event.target.value } })}
               type="password"
               className="mt-2 h-10 w-full rounded-md border border-white/10 bg-black/60 px-3 text-sm text-white outline-none placeholder:text-white/28 focus:border-[#8ad7ff]/50"
-              placeholder="只保存在本机浏览器"
+              placeholder="保存到本地配置文件"
             />
           </label>
           <label className="mt-3 block text-xs text-white/42">
@@ -128,38 +179,9 @@ export function IntegrationSettingsPanel({ compact = false, onChange }: Integrat
           </label>
         </div>
 
-        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
-          <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#b9ffdc]/72">
-            <NotebookPen size={14} />
-            Obsidian
-          </div>
-          <label className="block text-xs text-white/42">
-            Vault 本地路径
-            <input
-              value={settings.obsidian.vaultPath}
-              onChange={(event) =>
-                updateSettings({ ...settings, obsidian: { ...settings.obsidian, vaultPath: event.target.value } })
-              }
-              className="mt-2 h-10 w-full rounded-md border border-white/10 bg-black/60 px-3 text-sm text-white outline-none placeholder:text-white/28 focus:border-[#b9ffdc]/50"
-              placeholder="例如 C:\\Users\\happy\\Documents\\MyVault"
-            />
-          </label>
-          <label className="mt-3 block text-xs text-white/42">
-            写入文件夹
-            <input
-              value={settings.obsidian.folder}
-              onChange={(event) =>
-                updateSettings({ ...settings, obsidian: { ...settings.obsidian, folder: event.target.value } })
-              }
-              className="mt-2 h-10 w-full rounded-md border border-white/10 bg-black/60 px-3 text-sm text-white outline-none placeholder:text-white/28 focus:border-[#b9ffdc]/50"
-              placeholder="SparkFlow/星图情报"
-            />
-          </label>
-          <p className="mt-3 text-xs leading-5 text-white/42">
-            没装 Obsidian 也没关系。等你创建 vault 后，把 vault 文件夹路径填进来，SparkFlow 就会直接写入 Markdown。
-          </p>
-        </div>
       </div>
+      <p className="mt-3 text-xs leading-5 text-white/42">保存后会写入本机 <code className="text-white/58">.sparkflow/integration-settings.json</code>；再次打开设置会直接读取该文件。</p>
+      {saveError ? <p className="mt-2 text-xs text-rose-300">{saveError}</p> : null}
     </section>
   );
 }

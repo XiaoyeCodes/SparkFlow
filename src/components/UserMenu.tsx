@@ -78,7 +78,7 @@ export function UserMenu() {
                 当前能力
               </div>
               <p className="text-sm leading-6 text-white/56">
-                新闻源分流、AI 模型配置、Obsidian 写入都会使用这里的本地设置。API Key 仅保存在你的浏览器 localStorage。
+                新闻源分流和 AI 模型配置都会使用这里的本地设置。API Key 保存到 SparkFlow 的本地配置文件中。
               </p>
             </div>
           ) : null}

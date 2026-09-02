@@ -105,8 +105,45 @@ export function loadIntegrationSettings(): IntegrationSettings {
   }
 }
 
-export function saveIntegrationSettings(settings: IntegrationSettings) {
+function cacheIntegrationSettings(settings: IntegrationSettings) {
+  if (typeof window === 'undefined') return;
   window.localStorage.setItem(storageKey, JSON.stringify(settings));
+}
+
+export async function loadLocalIntegrationSettings(): Promise<IntegrationSettings> {
+  if (typeof window === 'undefined') return defaultIntegrationSettings;
+  try {
+    const response = await fetch('/api/integration-settings', { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`读取本地配置失败（${response.status}）`);
+    const payload = await response.json() as Partial<IntegrationSettings>;
+    const settings: IntegrationSettings = {
+      ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
+      obsidian: { ...defaultIntegrationSettings.obsidian, ...(payload.obsidian || {}) },
+    };
+    cacheIntegrationSettings(settings);
+    return settings;
+  } catch {
+    return loadIntegrationSettings();
+  }
+}
+
+export async function saveIntegrationSettings(settings: IntegrationSettings): Promise<IntegrationSettings> {
+  const response = await fetch('/api/integration-settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ ai: settings.ai }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as { detail?: string };
+    throw new Error(payload.detail || `保存本地配置失败（${response.status}）`);
+  }
+  const payload = await response.json() as Partial<IntegrationSettings>;
+  const saved: IntegrationSettings = {
+    ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
+    obsidian: defaultIntegrationSettings.obsidian,
+  };
+  cacheIntegrationSettings(saved);
+  return saved;
 }
 
 export function buildAiPayload(settings: IntegrationSettings, prompt: string) {

@@ -2,7 +2,7 @@ import react from '@vitejs/plugin-react';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, readFileSync, readdirSync } from 'node:fs';
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { get as httpsGet } from 'node:https';
 import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
@@ -42,6 +42,7 @@ const foreignProxyUrl = 'http://127.0.0.1:7890';
 const foreignProxyAgent = new ProxyAgent(foreignProxyUrl);
 const vibeTradingRoot = process.env.VIBE_TRADING_ROOT || path.join(rootDir, 'services', 'vibe-trading');
 const sparkflowStateDir = path.join(rootDir, '.sparkflow');
+const integrationSettingsFile = path.join(sparkflowStateDir, 'integration-settings.json');
 const vibePortFile = path.join(sparkflowStateDir, 'vibe.port');
 const vibePidFile = path.join(sparkflowStateDir, 'vibe.pid');
 const vibePortRange = Array.from({ length: 101 }, (_, index) => 8899 + index);
@@ -52,6 +53,76 @@ const ibkrBridgeScript = path.join(rootDir, 'scripts', 'ibkr-readonly-snapshot.p
 let cachedVibeBaseUrl = '';
 let vibeStartupPromise: Promise<string> | null = null;
 const ibkrBridgePromises = new Map<'status' | 'snapshot', Promise<unknown>>();
+
+type LocalAiIntegrationSettings = {
+  ai: {
+    provider: 'openai' | 'zhipu' | 'deepseek' | 'qwen' | 'custom';
+    apiKey: string;
+    model: string;
+    baseUrl: string;
+    useProxy: boolean;
+  };
+};
+
+const localAiDefaults: LocalAiIntegrationSettings = {
+  ai: { provider: 'openai', apiKey: '', model: '', baseUrl: 'https://api.openai.com/v1', useProxy: true },
+};
+
+const localAiProviderDefaults: Record<LocalAiIntegrationSettings['ai']['provider'], { baseUrl: string; useProxy: boolean }> = {
+  openai: { baseUrl: 'https://api.openai.com/v1', useProxy: true },
+  zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', useProxy: false },
+  deepseek: { baseUrl: 'https://api.deepseek.com', useProxy: false },
+  qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', useProxy: false },
+  custom: { baseUrl: '', useProxy: false },
+};
+
+function boundedText(value: unknown, limit: number) {
+  return typeof value === 'string' ? value.trim().slice(0, limit) : '';
+}
+
+function normalizeLocalIntegrationSettings(value: unknown): LocalAiIntegrationSettings {
+  const candidate = value && typeof value === 'object' ? (value as { ai?: Record<string, unknown> }).ai : undefined;
+  const requestedProvider = boundedText(candidate?.provider, 20);
+  const provider = requestedProvider in localAiProviderDefaults ? requestedProvider as LocalAiIntegrationSettings['ai']['provider'] : localAiDefaults.ai.provider;
+  const fallback = localAiProviderDefaults[provider];
+  const requestedBaseUrl = boundedText(candidate?.baseUrl, 512) || fallback.baseUrl;
+  let baseUrl = requestedBaseUrl;
+  if (baseUrl) {
+    try {
+      const parsed = new URL(baseUrl);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('unsupported protocol');
+      baseUrl = parsed.toString().replace(/\/$/, '');
+    } catch {
+      baseUrl = fallback.baseUrl;
+    }
+  }
+  return {
+    ai: {
+      provider,
+      apiKey: boundedText(candidate?.apiKey, 1_024),
+      model: boundedText(candidate?.model, 160),
+      baseUrl,
+      useProxy: typeof candidate?.useProxy === 'boolean' ? candidate.useProxy : fallback.useProxy,
+    },
+  };
+}
+
+async function readLocalIntegrationSettings(): Promise<LocalAiIntegrationSettings> {
+  try {
+    return normalizeLocalIntegrationSettings(JSON.parse(await readFile(integrationSettingsFile, 'utf8')));
+  } catch {
+    return localAiDefaults;
+  }
+}
+
+async function writeLocalIntegrationSettings(value: unknown): Promise<LocalAiIntegrationSettings> {
+  const settings = normalizeLocalIntegrationSettings(value);
+  await mkdir(sparkflowStateDir, { recursive: true });
+  const temporary = `${integrationSettingsFile}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  await rename(temporary, integrationSettingsFile);
+  return settings;
+}
 
 type MarketSource = {
   label: string;
@@ -8964,6 +9035,27 @@ async function callAiAnalysis(body: {
   return payload.choices?.[0]?.message?.content || '模型没有返回文本。';
 }
 
+async function testAiConnection(body: {
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+  useProxy?: boolean;
+}) {
+  if (!body.baseUrl || !body.apiKey || !body.model) {
+    throw new Error('请先填写 API Key、模型和 Base URL');
+  }
+  const init: RequestInit & { dispatcher?: any } = {
+    headers: { Authorization: `Bearer ${body.apiKey}`, Accept: 'application/json' },
+  };
+  if (body.useProxy) init.dispatcher = foreignProxyAgent;
+  const response = await fetch(`${body.baseUrl.replace(/\/+$/, '')}/models`, init);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as any;
+    throw new Error(payload?.error?.message || payload?.message || `AI 接口返回 HTTP ${response.status}`);
+  }
+  return { connected: true };
+}
+
 const aiProviderDefaults: Record<string, { label: string; baseUrl: string; protocol: 'chat' | 'responses'; useProxy: boolean }> = {
   openai: {
     label: 'OpenAI',
@@ -11802,6 +11894,34 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/news-feed') {
             sendJson(res, 200, await getNewsFeed(url.searchParams.get('refresh') === '1'));
+            return;
+          }
+
+          if (url.pathname === '/api/integration-settings') {
+            res.setHeader('Cache-Control', 'no-store');
+            if (req.method === 'GET') {
+              sendJson(res, 200, await readLocalIntegrationSettings());
+              return;
+            }
+            if (req.method === 'PUT') {
+              const body = JSON.parse(await getRequestBody(req));
+              sendJson(res, 200, await writeLocalIntegrationSettings(body));
+              return;
+            }
+            sendJson(res, 405, { detail: '仅支持 GET 或 PUT' });
+            return;
+          }
+
+          if (url.pathname === '/api/integration-settings/test' && req.method === 'POST') {
+            const body = JSON.parse(await getRequestBody(req));
+            const ai = getAiRequestBody(body.ai || body);
+            if (!ai.apiKey || !ai.model || !ai.baseUrl) {
+              sendJson(res, 400, { detail: '请先填写 API Key、模型和 Base URL' });
+              return;
+            }
+            await testAiConnection(ai);
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, { connected: true });
             return;
           }
 
