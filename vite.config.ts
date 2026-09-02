@@ -5,6 +5,7 @@ import { closeSync, existsSync, openSync, readFileSync, readdirSync } from 'node
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { get as httpsGet } from 'node:https';
 import { createServer as createNetServer } from 'node:net';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { ProxyAgent } from 'undici';
 import { defineConfig, loadEnv, type ViteDevServer } from 'vite';
@@ -42,7 +43,9 @@ const foreignProxyUrl = 'http://127.0.0.1:7890';
 const foreignProxyAgent = new ProxyAgent(foreignProxyUrl);
 const vibeTradingRoot = process.env.VIBE_TRADING_ROOT || path.join(rootDir, 'services', 'vibe-trading');
 const sparkflowStateDir = path.join(rootDir, '.sparkflow');
-const integrationSettingsFile = path.join(sparkflowStateDir, 'integration-settings.json');
+const legacyIntegrationSettingsFile = path.join(sparkflowStateDir, 'integration-settings.json');
+const integrationSettingsDir = path.join(homedir(), '.SparkFlow', 'apikey');
+const integrationSettingsFile = path.join(integrationSettingsDir, 'integration-settings.json');
 const vibePortFile = path.join(sparkflowStateDir, 'vibe.port');
 const vibePidFile = path.join(sparkflowStateDir, 'vibe.pid');
 const vibePortRange = Array.from({ length: 101 }, (_, index) => 8899 + index);
@@ -111,13 +114,20 @@ async function readLocalIntegrationSettings(): Promise<LocalAiIntegrationSetting
   try {
     return normalizeLocalIntegrationSettings(JSON.parse(await readFile(integrationSettingsFile, 'utf8')));
   } catch {
-    return localAiDefaults;
+    try {
+      const legacy = normalizeLocalIntegrationSettings(JSON.parse(await readFile(legacyIntegrationSettingsFile, 'utf8')));
+      await writeLocalIntegrationSettings(legacy);
+      await unlink(legacyIntegrationSettingsFile);
+      return legacy;
+    } catch {
+      return localAiDefaults;
+    }
   }
 }
 
 async function writeLocalIntegrationSettings(value: unknown): Promise<LocalAiIntegrationSettings> {
   const settings = normalizeLocalIntegrationSettings(value);
-  await mkdir(sparkflowStateDir, { recursive: true });
+  await mkdir(integrationSettingsDir, { recursive: true });
   const temporary = `${integrationSettingsFile}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
   await rename(temporary, integrationSettingsFile);

@@ -180,7 +180,7 @@ export function IntegrationSettingsPanel({ compact = false, onChange }: Integrat
         </div>
 
       </div>
-      <p className="mt-3 text-xs leading-5 text-white/42">保存后会写入本机 <code className="text-white/58">.sparkflow/integration-settings.json</code>；再次打开设置会直接读取该文件。</p>
+      <p className="mt-3 text-xs leading-5 text-white/42">保存后会写入本机用户目录 <code className="text-white/58">.SparkFlow/apikey/integration-settings.json</code>；再次打开设置会直接读取该文件。</p>
       {saveError ? <p className="mt-2 text-xs text-rose-300">{saveError}</p> : null}
     </section>
   );
