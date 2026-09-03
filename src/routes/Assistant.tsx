@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import { motion } from 'framer-motion';
 import {
   Bot,
-  BookMarked,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -11,6 +10,7 @@ import {
   Circle,
   CircleStop,
   Copy,
+  FileDown,
   History,
   Loader2,
   PanelLeftClose,
@@ -24,7 +24,7 @@ import remarkGfm from 'remark-gfm';
 import { useLocation } from 'react-router-dom';
 import { Strands } from '../components/Strands';
 import { ResearchHistoryItem } from '../components/ResearchHistoryItem';
-import { loadIntegrationSettings } from '../lib/integrations';
+import { exportSparkFlowResearchPdf } from '../lib/exportResearchPdf';
 
 type AssistantRouteState = {
   starmapContext?: string;
@@ -346,7 +346,7 @@ export function Assistant() {
   const [historyCollapsed, setHistoryCollapsed] = useState(() => window.localStorage.getItem(sidebarStorageKey) === 'true');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [copiedId, setCopiedId] = useState('');
-  const [savedId, setSavedId] = useState('');
+  const [exportedId, setExportedId] = useState('');
   const eventSourcesRef = useRef(new Map<string, EventSource>());
   const viewingSessionRef = useRef('');
   const activeAttemptRef = useRef('');
@@ -1002,27 +1002,13 @@ export function Assistant() {
     window.setTimeout(() => setCopiedId(''), 1400);
   };
 
-  const saveReport = async (message: ResearchMessage) => {
-    const settings = loadIntegrationSettings();
-    if (!settings.obsidian.vaultPath) {
-      setError('请先从右上角头像进入“设置”，填写 Obsidian Vault 本地路径。');
-      return;
-    }
+  const exportReport = async (message: ResearchMessage) => {
     try {
-      await requestJson('/api/obsidian-note', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vaultPath: settings.obsidian.vaultPath,
-          folder: settings.obsidian.folder,
-          title: 'AI 深度研究报告',
-          markdown: message.content,
-        }),
-      });
-      setSavedId(message.id);
-      window.setTimeout(() => setSavedId(''), 1400);
+      await exportSparkFlowResearchPdf(message.content);
+      setExportedId(message.id);
+      window.setTimeout(() => setExportedId(''), 1400);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : 'PDF 导出失败，请重试。');
     }
   };
 
@@ -1238,12 +1224,12 @@ export function Assistant() {
                             </button>
                             <button
                               type="button"
-                              title="写入 Obsidian"
-                              aria-label="写入 Obsidian"
-                              onClick={() => void saveReport(message)}
+                              title="导出 PDF 报告"
+                              aria-label="导出 PDF 报告"
+                              onClick={() => void exportReport(message)}
                               className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white/36 transition hover:bg-white/[0.06] hover:text-white"
                             >
-                              {savedId === message.id ? <Check size={15} /> : <BookMarked size={15} />}
+                              {exportedId === message.id ? <Check size={15} /> : <FileDown size={15} />}
                             </button>
                           </div>
                         </div>
