@@ -176,7 +176,7 @@ function pageStyle() {
     box-sizing:border-box; width:${pageWidth}px; height:${pageHeight}px; overflow:hidden; position:relative;
     color:#dbe8ea; background:#071018;
     font-family:"SF Pro Display","PingFang SC","Microsoft YaHei",Arial,sans-serif;
-    background-image:radial-gradient(ellipse at 96% -6%,rgba(71,202,180,.28),transparent 39%),radial-gradient(ellipse at -16% 91%,rgba(37,94,148,.23),transparent 43%),linear-gradient(142deg,#0d1b25 0%,#08131b 48%,#05090e 100%);
+    background-image:linear-gradient(142deg,#0f2632 0%,rgba(12,40,46,.92) 31%,rgba(8,20,29,.96) 61%,#05090e 100%),linear-gradient(90deg,rgba(77,207,184,.14),transparent 42%,rgba(72,122,184,.14));
   `;
 }
 
