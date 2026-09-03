@@ -51,6 +51,7 @@ const NEWS_PORTALS = [
 ] as const;
 
 const CHINESE_TEXT_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+const PINNED_SOURCE_IDS = ['readhub', 'zhihu', 'tencent', 'wallstreetcn', 'weibo'];
 
 function isChineseNewsItem(item: NewsItem) {
   return CHINESE_TEXT_PATTERN.test(item.title);
@@ -86,19 +87,27 @@ export function Signals() {
   const markdown = useMemo(() => buildNewsMarkdown(visibleItems), [visibleItems]);
   const categories = useMemo(() => newsCategoryCounts(newsForSource(languageItems, sourceFilter, now)), [languageItems, sourceFilter, now]);
   const selectedSource = feed?.sources.find((source) => source.id === sourceFilter);
-  const sourceOptions = useMemo<SourceSelectOption[]>(() => [
-    { value: 'all', label: '全部来源 · 聚合去重', tone: 'aggregate' },
-    { value: 'international', label: '国际媒体 · 聚合去重', tone: 'aggregate' },
-    ...(sourceFilter !== 'all' && sourceFilter !== 'international' && !selectedSource
-      ? [{ value: sourceFilter, label: '未知来源', tone: 'warning' as const }]
-      : []),
-    ...(feed?.sources.map((source) => ({
+  const sourceOptions = useMemo<SourceSelectOption[]>(() => {
+    const sources = feed?.sources || [];
+    const pinnedSources = PINNED_SOURCE_IDS.flatMap((id) => sources.filter((source) => source.id === id));
+    const remainingSources = sources.filter((source) => !PINNED_SOURCE_IDS.includes(source.id));
+    const toOption = (source: (typeof sources)[number]) => ({
       value: source.id,
       label: source.label,
       meta: source.stale ? '缓存' : !source.ok ? '暂不可用' : undefined,
       tone: source.stale || !source.ok ? 'warning' as const : 'source' as const
-    })) || [])
-  ], [feed?.sources, selectedSource, sourceFilter]);
+    });
+
+    return [
+      { value: 'all', label: '全部来源 · 聚合去重', tone: 'aggregate' },
+      { value: 'international', label: '国际媒体 · 聚合去重', tone: 'aggregate' },
+      ...pinnedSources.map(toOption),
+      ...(sourceFilter !== 'all' && sourceFilter !== 'international' && !selectedSource
+        ? [{ value: sourceFilter, label: '未知来源', tone: 'warning' as const }]
+        : []),
+      ...remainingSources.map(toOption)
+    ];
+  }, [feed?.sources, selectedSource, sourceFilter]);
   const dailyMissing = !onlyChinese && selectedSource?.delivery === 'official-daily' && !newsForSource(currentItems, sourceFilter, now).length;
   const sourceEmptyMessage = selectedSource?.ok && !newsForSource(currentItems, sourceFilter, now).length ? selectedSource.emptyMessage : undefined;
   const displayedItems = visibleItems.slice(0, displayLimit);
