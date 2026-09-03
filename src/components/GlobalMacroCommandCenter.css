@@ -1055,48 +1055,48 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-fed-card footer .macro-fed-countdown { align-items: flex-start; flex-direction: column; gap: 2px; }
 .macro-fed-countdown small { color: var(--macro-muted); font: 500 7px "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
 .macro-fed-countdown b { color: var(--macro-cyan); font: 650 10px "JetBrains Mono", monospace; letter-spacing: .04em; text-shadow: 0 0 10px rgba(34,211,238,.22); }
-.macro-liquidity-card {
-  --liquidity-accent: #71849a;
+.macro-conditions-card {
+  --conditions-accent: #94acba;
   position: relative;
   display: grid;
-  height: 170px;
-  max-height: 170px;
-  box-sizing: border-box;
-  grid-template-rows: auto 58px auto;
+  grid-template-rows: auto auto 44px auto auto;
   gap: 6px;
   padding: 12px;
-  overflow: hidden;
   border: 1px solid var(--macro-border);
   border-radius: 8px;
-  background:
-    radial-gradient(circle at 86% 22%, color-mix(in srgb, var(--liquidity-accent) 13%, transparent), transparent 36%),
-    linear-gradient(145deg, color-mix(in srgb, var(--liquidity-accent) 4%, transparent), rgba(255,255,255,.012));
-  color: inherit;
-  text-decoration: none;
-  transition: border-color .2s ease, background .2s ease, transform .2s ease;
+  color: var(--macro-text);
+  overflow: hidden;
 }
-.macro-liquidity-card::before { position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--liquidity-accent); content: ''; }
-.macro-liquidity-card::after { position: absolute; top: 12px; right: -28px; width: 108px; height: 108px; border: 1px solid color-mix(in srgb, var(--liquidity-accent) 16%, transparent); border-radius: 50%; content: ''; pointer-events: none; }
-.macro-liquidity-card.injection { --liquidity-accent: #52e0b5; }
-.macro-liquidity-card.contraction { --liquidity-accent: #ff5d7d; }
-.macro-liquidity-card:hover { border-color: color-mix(in srgb, var(--liquidity-accent) 42%, var(--macro-border)); transform: translateY(-1px); }
-.macro-liquidity-card:focus-visible { outline: 2px solid var(--liquidity-accent); outline-offset: 2px; }
-.macro-liquidity-head { position: relative; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.macro-liquidity-head > span { display: flex; min-width: 0; flex-direction: column; }
-.macro-liquidity-head small { color: var(--macro-muted); font: 8px "JetBrains Mono", monospace; letter-spacing: .07em; }
-.macro-liquidity-head strong { margin-top: 6px; color: var(--macro-text); font: 650 24px/1 "JetBrains Mono", monospace; letter-spacing: -.035em; }
-.macro-liquidity-head > b { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 5px 7px; border: 1px solid color-mix(in srgb, var(--liquidity-accent) 28%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--liquidity-accent) 9%, transparent); color: var(--liquidity-accent); font-size: 9px; font-weight: 650; }
-.macro-liquidity-chart { position: relative; z-index: 1; align-self: stretch; width: 100%; height: 58px; min-height: 58px; overflow: hidden; opacity: .96; }
-.macro-liquidity-line { overflow: hidden; }
-.macro-liquidity-gridline { stroke: rgba(113, 132, 154, .13); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.macro-liquidity-line-glow { stroke-width: 4; opacity: .12; filter: blur(2px); stroke-linecap: round; stroke-linejoin: round; }
-.macro-liquidity-last-point { stroke: rgba(7, 15, 29, .92); stroke-width: 1.5; filter: drop-shadow(0 0 3px var(--liquidity-accent)); }
-.macro-liquidity-chart .macro-line-empty { justify-content: center; color: var(--macro-dim); font-size: 8px; }
-.macro-liquidity-card footer { position: relative; z-index: 2; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; padding-top: 6px; border-top: 1px solid color-mix(in srgb, var(--liquidity-accent) 16%, transparent); color: var(--macro-muted); font-size: 8px; }
-.macro-liquidity-card footer > span { display: flex; align-items: center; gap: 4px; }
-.macro-liquidity-card footer > span:first-child { align-items: flex-start; flex-direction: column; gap: 2px; }
-.macro-liquidity-card footer small { color: var(--macro-dim); font-size: 8px; }
-.macro-liquidity-card footer b { color: var(--liquidity-accent); font: 650 10px "JetBrains Mono", monospace; }
+.macro-conditions-card::before { position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--conditions-accent); content: ''; }
+.macro-conditions-card.tightening { --conditions-accent: #ff7689; }
+.macro-conditions-card.easing { --conditions-accent: #52e0b5; }
+.macro-conditions-card a { color: inherit; text-decoration: none; }
+.macro-conditions-card a:hover { color: var(--macro-cyan); }
+.macro-conditions-card a:focus-visible { outline: 2px solid var(--macro-cyan); outline-offset: 3px; border-radius: 3px; }
+.macro-conditions-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.macro-conditions-head > a { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.macro-conditions-head small { display: flex; align-items: center; gap: 4px; color: var(--macro-muted); font-size: 8px; letter-spacing: .035em; }
+.macro-conditions-head strong { color: var(--macro-text); font: 650 26px/1.1 "JetBrains Mono", monospace; letter-spacing: -.04em; }
+.macro-conditions-change { display: flex; flex-shrink: 0; align-items: flex-end; flex-direction: column; gap: 5px; }
+.macro-conditions-change b { padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--conditions-accent) 28%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--conditions-accent) 8%, transparent); color: var(--conditions-accent); font-size: 9px; font-weight: 650; }
+.macro-conditions-change small { color: var(--conditions-accent); font: 500 9px "JetBrains Mono", monospace; }
+.macro-conditions-context { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 3px 8px; color: var(--macro-muted); font-size: 8px; }
+.macro-conditions-chart { height: 44px; min-width: 0; color: var(--conditions-accent); }
+.macro-conditions-chart svg { width: 100%; height: 100%; overflow: visible; }
+.macro-conditions-gridline { stroke: rgba(113, 132, 154, .13); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.macro-conditions-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--macro-muted); font-size: 9px; }
+.macro-conditions-credit { --credit-accent: #94acba; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; padding-top: 8px; border-top: 1px solid var(--macro-border); }
+.macro-conditions-credit.tightening { --credit-accent: #ff7689; }
+.macro-conditions-credit.easing { --credit-accent: #52e0b5; }
+.macro-conditions-credit > a { display: flex; align-items: center; gap: 10px; }
+.macro-conditions-credit a > span { font-size: 9px; }
+.macro-conditions-credit a > span small { display: inline-flex; align-items: center; gap: 3px; color: var(--macro-muted); font: 7px "JetBrains Mono", monospace; }
+.macro-conditions-credit strong { white-space: nowrap; font: 650 14px "JetBrains Mono", monospace; }
+.macro-conditions-credit strong small { color: var(--macro-muted); font-size: 8px; }
+.macro-conditions-credit > span { color: var(--credit-accent); font: 8px "JetBrains Mono", monospace; }
+.macro-conditions-card footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 3px 8px; color: var(--macro-muted); font: 7px "JetBrains Mono", monospace; }
+.macro-conditions-card footer em, .macro-conditions-notice { color: var(--macro-gold); font-style: normal; }
+.macro-conditions-notice { font-size: 8px; }
 .macro-fx-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .macro-fx-card {
   --fx-accent: #58ddc0;
@@ -1516,7 +1516,7 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-core-index-card,
 .macro-treasury-card,
 .macro-fed-card,
-.macro-liquidity-card,
+.macro-conditions-card,
 .macro-fx-card,
 .macro-crypto-row,
 .macro-next-event,
@@ -1544,7 +1544,7 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-core-index-card { --macro-card-accent: #50dfb1; }
 .macro-treasury-card { --macro-card-accent: #52e0b5; }
 .macro-fed-card { --macro-card-accent: var(--macro-cyan); }
-.macro-liquidity-card { --macro-card-accent: var(--liquidity-accent); }
+.macro-conditions-card { --macro-card-accent: var(--conditions-accent); }
 .macro-fx-card { --macro-card-accent: var(--fx-accent); }
 .macro-crypto-row { --macro-card-accent: var(--macro-gold); }
 

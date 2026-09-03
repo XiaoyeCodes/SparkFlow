@@ -323,7 +323,7 @@
 .signals-ticker-badge { display: flex; flex: none; align-items: center; gap: 7px; color: #e76b60; font: 10px "SFMono-Regular", Consolas, monospace; letter-spacing: 1.3px; }
 .signals-ticker-badge > span { width: 5px; height: 5px; border-radius: 50%; background: #e76b60; box-shadow: 0 0 7px #e76b6040; }
 .signals-ticker-window { flex: 1; min-width: 0; overflow: hidden; }
-.signals-ticker-track { display: flex; width: max-content; animation: signals-scroll 85s linear infinite; }
+.signals-ticker-track { display: flex; width: max-content; animation: signals-scroll 72s linear infinite; }
 .signals-ticker-group { display: flex; flex-shrink: 0; align-items: center; gap: 38px; padding-right: 38px; white-space: nowrap; color: #9aa6b4; font-size: 11px; }
 .signals-ticker-group b { margin-right: 9px; color: var(--signals-accent); font-weight: 500; }
 .signals-ticker-group a:hover { color: var(--signals-text); }
@@ -331,7 +331,8 @@
 .signals-ticker > button { display: grid; flex: none; width: 28px; height: 28px; place-items: center; border: 1px solid var(--signals-line); border-radius: 4px; color: var(--signals-muted); }
 .signals-ticker > button:hover { color: var(--signals-accent); border-color: #3dd6c855; }
 .signals-ticker:hover .signals-ticker-track, .signals-ticker.is-paused .signals-ticker-track { animation-play-state: paused; }
-.signals-ticker-window:focus-within { overflow-x: auto; }
+.signals-ticker-window:focus-within { overflow-x: auto; -ms-overflow-style: none; scrollbar-width: none; }
+.signals-ticker-window:focus-within::-webkit-scrollbar { display: none; }
 .signals-ticker-window:focus-within .signals-ticker-track { animation: none; }
 .signals-spin { animation: signals-spin 1s linear infinite; }
 @keyframes signals-scroll { to { transform: translateX(-50%); } }

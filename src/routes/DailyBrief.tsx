@@ -322,6 +322,7 @@ export function DailyBrief() {
   const sideNewsRef = useRef<HTMLDivElement>(null);
   const assetGroupsRef = useRef<HTMLDivElement>(null);
   const [sideNewsFillHeight, setSideNewsFillHeight] = useState<number>();
+  const [sideDockHeight, setSideDockHeight] = useState(0);
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true);
@@ -418,10 +419,16 @@ export function DailyBrief() {
     const sideNews = sideNewsRef.current;
     if (!leftDock || !rightDock || !sideNews) return;
     const syncHeight = () => {
+      if (!window.matchMedia("(min-width: 1800px)").matches) {
+        setSideDockHeight((current) => current === 0 ? current : 0);
+        return;
+      }
       const leftHeight = leftDock.getBoundingClientRect().height;
       const rightHeight = rightDock.getBoundingClientRect().height;
       const newsHeight = sideNews.getBoundingClientRect().height;
       if (!leftHeight || !rightHeight || !newsHeight) return;
+      const longestDock = Math.ceil(Math.max(leftHeight, rightHeight));
+      setSideDockHeight((current) => current === longestDock ? current : longestDock);
       const target = Math.max(210, Math.round(leftHeight - (rightHeight - newsHeight)));
       setSideNewsFillHeight((current) => current === target ? current : target);
     };
@@ -429,8 +436,12 @@ export function DailyBrief() {
     observer.observe(leftDock);
     observer.observe(rightDock);
     observer.observe(sideNews);
+    window.addEventListener("resize", syncHeight);
     syncHeight();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", syncHeight);
+    };
   }, [assetGroups, snapshot?.news]);
 
   useLayoutEffect(() => {
@@ -465,7 +476,7 @@ export function DailyBrief() {
     };
   }, [assetGroups]);
 
-  return <div className="daily-brief-editorial">
+  return <div className="daily-brief-editorial" style={{ "--editorial-side-dock-height": `${sideDockHeight}px` } as CSSProperties}>
     {assetGroups.length ? <>
       <aside className="editorial-side-dock is-left" aria-label="市场数据左侧轨道" ref={leftDockRef}><Mag7DataPanel data={data} />{leftAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}</aside>
       <aside className="editorial-side-dock is-right" aria-label="市场数据右侧轨道" ref={rightDockRef}>{rightAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}<CryptoDataPanel data={data} btc={btc} /><Day1BtcMetricsPanel data={data} /><div ref={sideNewsRef}><SideNewsPanel news={snapshot?.news || []} fillHeight={sideNewsFillHeight} /></div></aside>

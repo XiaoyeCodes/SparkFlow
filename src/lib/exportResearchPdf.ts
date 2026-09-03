@@ -174,6 +174,7 @@ function reportDate() {
 function pageStyle() {
   return `
     box-sizing:border-box; width:${pageWidth}px; height:${pageHeight}px; overflow:hidden; position:relative;
+    display:flex;flex-direction:column;padding-bottom:58px;
     color:#dbe8ea; background:#071018;
     font-family:"SF Pro Display","PingFang SC","Microsoft YaHei",Arial,sans-serif;
   `;
@@ -191,15 +192,16 @@ function createPage(pageNumber: number, title: string, first: boolean): PdfPage 
   const pageGlow = document.createElement('div');
   pageGlow.style.cssText = 'position:absolute;right:-92px;top:112px;width:255px;height:255px;border:1px solid rgba(103,226,202,.15);border-radius:50%;box-shadow:0 0 88px rgba(69,207,185,.11);pointer-events:none;';
   const header = document.createElement('header');
-  header.style.cssText = 'height:148px;box-sizing:border-box;padding:42px 52px 20px;position:relative;overflow:hidden;';
+  header.style.cssText = 'min-height:148px;flex-shrink:0;box-sizing:border-box;padding:32px 52px 22px;position:relative;';
   header.innerHTML = `
     <div style="position:absolute;left:52px;right:52px;bottom:0;height:1px;background:rgba(123,220,206,.52);"></div>
-    <div style="display:flex;align-items:center;gap:11px;font:700 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:2px;color:#91ead8;"><span style="display:inline-flex;width:21px;height:21px;align-items:center;justify-content:center;border:1px solid rgba(145,234,216,.62);border-radius:6px;color:#e0fffa;font-size:11px;letter-spacing:0;">S</span>SPARKFLOW</div>
-    <div style="margin-top:12px;font:600 16px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.8px;color:#f0f8f8;">${first ? 'AI RESEARCH REPORT' : `SECTION ${String(pageNumber).padStart(2, '0')} / CONTINUED`}</div>
+    <div style="font-size:23px;line-height:30px;font-weight:700;letter-spacing:-.8px;color:#f0f8f8;">Spark<span style="color:#91dccc;font-weight:500;">Flow</span></div>
+    <div style="margin-top:10px;font:600 ${first ? '16px' : '9px'}/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;color:${first ? '#f0f8f8' : '#8faeb7'};">${first ? 'AI RESEARCH REPORT' : `PAGE ${String(pageNumber).padStart(2, '0')} / CONTINUED`}</div>
+    ${first ? '' : `<div style="margin-top:10px;font-size:16px;line-height:1.45;font-weight:600;letter-spacing:.1px;color:#e0edee;overflow-wrap:anywhere;">${escapeHtml(title)}</div>`}
     <div style="position:absolute;right:52px;top:46px;text-align:right;"><div style="font:700 8px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.5px;color:#8cb0c7;">${first ? 'INTELLIGENCE NOTE' : 'RESEARCH CONTINUATION'}</div><div style="margin-top:8px;font:700 11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;color:#dcebef;">PAGE ${String(pageNumber).padStart(2, '0')}</div></div>
   `;
   const body = document.createElement('div');
-  body.style.cssText = 'height:917px;box-sizing:border-box;overflow:hidden;padding:32px 52px 20px;';
+  body.style.cssText = 'flex:1;min-height:0;box-sizing:border-box;overflow:hidden;padding:32px 52px 20px;';
   if (first) {
     const intro = document.createElement('section');
     intro.style.cssText = 'margin:0 0 25px;padding:20px 24px 22px;border:1px solid rgba(172,221,219,.16);border-radius:14px;background:rgba(24,51,62,.66);box-shadow:inset 0 1px 0 rgba(227,255,252,.07);';
@@ -209,11 +211,6 @@ function createPage(pageNumber: number, title: string, first: boolean): PdfPage 
       <div style="display:flex;gap:12px;align-items:center;font:500 10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.4px;color:#adc5c6;"><span>GENERATED ${reportDate()}</span><span style="color:#87e4d1;">●</span><span>RESEARCH REFERENCE ONLY</span></div>
     `;
     body.appendChild(intro);
-  } else {
-    const continuation = document.createElement('div');
-    continuation.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:0 0 22px;padding:13px 16px;border-left:3px solid #82decf;border-radius:0 10px 10px 0;background:rgba(42,90,94,.24);font:600 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.1px;color:#b7d8d2;';
-    continuation.innerHTML = `<span>${escapeHtml(title)}</span><span style="color:#78b9da;">CONTINUED</span>`;
-    body.appendChild(continuation);
   }
   const footer = document.createElement('footer');
   footer.style.cssText = 'position:absolute;left:52px;right:52px;bottom:0;height:58px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(178,223,222,.18);font:500 8px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;color:#8fa7aa;';

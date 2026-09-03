@@ -12,6 +12,7 @@
     "logos:global:verify": "node scripts/verify-global-heatmap-logos.mjs",
     "test:macro-cards": "node scripts/verify-us-macro-cards.mjs",
     "test:fed-liquidity": "node scripts/verify-fed-net-liquidity.mjs",
+    "test:financial-conditions": "node --no-warnings --experimental-strip-types scripts/verify-financial-conditions.mjs",
     "test:isolated-market-data": "node --no-warnings --experimental-strip-types scripts/verify-isolated-market-resources.mjs",
     "test:market-cache": "node --no-warnings --experimental-strip-types scripts/verify-daily-market-cache.mjs",
     "test:daily-brief": "node --no-warnings --experimental-strip-types scripts/verify-daily-briefing.mjs",

@@ -1219,8 +1219,8 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.42 }}>
               <IndexStrip indices={activeIndices} />
 
-               <div className="market-primary-grid mt-5 grid min-h-[650px] xl:grid-cols-[minmax(0,2fr)_minmax(430px,1fr)]">
-                <section className="market-heatmap-shell flex min-h-[560px] flex-col overflow-hidden">
+              <div className="market-primary-grid mt-5 grid">
+                <section className="market-heatmap-shell flex min-w-0 flex-col overflow-hidden">
                   <div className="market-heatmap-head flex min-h-[68px] shrink-0 flex-wrap items-center gap-3 px-4 py-3 sm:flex-nowrap sm:px-5">
                     <div className="shrink-0">
                       <div className="flex items-center gap-2 text-sm font-semibold">
@@ -1268,7 +1268,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
                       <ArrowUpRight size={17} />
                     </a>
                   </div>
-                  <div className="min-h-[500px] flex-1">
+                  <div className="market-heatmap-content min-h-0 flex-1">
                     {activeMarket === 'china' ? (
                       <ChinaMarketHeatmap />
                     ) : activeMarket === 'hongkong' ? (
@@ -1393,7 +1393,7 @@ function VibeResearchPanel({
   }, [mode]);
 
   return (
-    <aside className="market-research-panel flex min-h-[650px] flex-col">
+    <aside className="market-research-panel min-w-0">
       <div className="market-research-head px-5 py-5">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -1514,7 +1514,7 @@ function VibeResearchPanel({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 px-5 py-5">
+      <div className="market-research-body min-h-0 px-5 py-5">
         {state.sessionId ? (
           <div className="flex h-full min-h-52 flex-col">
             <div className="flex items-start gap-3 border-b border-white/10 pb-5">

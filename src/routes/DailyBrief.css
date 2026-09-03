@@ -492,6 +492,7 @@
 }
 
 @media (min-width: 1800px) {
+  .daily-brief-editorial { min-height: max(100vh, calc(var(--editorial-side-dock-height, 0px) + var(--nav-height) + 50px)); }
   .editorial-side-dock {
     position: absolute;
     z-index: 20;

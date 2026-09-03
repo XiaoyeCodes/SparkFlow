@@ -212,6 +212,7 @@
 .market-index-delta.is-flat { background: rgba(140, 160, 181, .1); }
 
 .market-primary-grid {
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   gap: 24px;
   border: 0;
@@ -227,6 +228,7 @@
 }
 
 .market-heatmap-shell {
+  height: clamp(660px, 80vh, 1040px);
   background: rgba(5, 13, 15, .84);
   backdrop-filter: blur(14px) saturate(108%);
 }
@@ -252,12 +254,24 @@
 .market-terminal-icon-link:hover { color: var(--market-signal); }
 
 .market-research-panel {
-  position: sticky;
-  top: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
 }
 
 .market-research-head { background: rgba(6, 16, 18, .96); }
+.market-research-head,
+.market-research-body { min-width: 0; }
+
+@media (min-width: 1024px) {
+  .market-research-panel { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+  .market-research-head {
+    border-bottom: 0;
+    border-right: 1px solid var(--market-line);
+  }
+  .market-research-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .market-research-body { align-self: center; padding: 28px; }
+}
 
 .market-research-eyebrow {
   font-family: "JetBrains Mono", monospace;
@@ -528,6 +542,7 @@
   .market-index-strip { gap: 10px; overflow-x: auto; }
   .market-index-card { min-height: 136px; padding: 18px; border-radius: 16px; }
   .market-heatmap-shell, .market-research-panel { border-radius: 18px; }
+  .market-heatmap-shell { height: clamp(540px, 80svh, 700px); }
   .market-lower-section,
   .market-terminal .market-temperature-section,
   .market-terminal .market-bitcoin-cycle,

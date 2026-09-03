@@ -39,6 +39,8 @@ import {
 } from './ChinaMarketHeatmap';
 import { MacroAiAnalyst, type MacroAiRunState } from './MacroAiAnalyst';
 import { requestIsolatedJson } from '../lib/isolatedResource';
+import { FinancialConditionsCard } from './FinancialConditionsCard';
+import type { FinancialConditionsPayload, FinancialConditionsSnapshot } from '../lib/financialConditionsTypes';
 import './GlobalMacroCommandCenter.css';
 
 export type GlobalMarketMode = 'china' | 'hongkong' | 'us' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk' | 'crypto';
@@ -208,27 +210,6 @@ type FedRateExpectation = {
   method: string;
   status: 'delayed' | 'unavailable';
 };
-type FedNetLiquidity = {
-  id: 'fed-net-liquidity';
-  value: number;
-  display: string;
-  change30d: number;
-  changeDisplay: string;
-  regime: 'injection' | 'contraction';
-  regimeLabel: '流动性投放' | '流动性收缩';
-  updatedAt: string;
-  sourceUrl: string;
-  status: 'delayed';
-  history: HistoryPoint[];
-  chartHistory: HistoryPoint[];
-  chartMethod: '5D EMA';
-  components: {
-    totalAssets: number;
-    treasuryGeneralAccount: number;
-    overnightReverseRepo: number;
-  };
-};
-type FedNetLiquidityPayload = { generatedAt: string; liquidity: FedNetLiquidity };
 type OfficialMacroRelease = {
   id: string;
   family: 'ppi' | 'cpi' | 'employment' | 'pce';
@@ -645,8 +626,8 @@ function WorldClockBar({ onRefresh }: { onRefresh: () => void }) {
     <div className="macro-clock">
       <span>纽约 <WorldClockTime timeZone="America/New_York" /></span>
       <span>伦敦 <WorldClockTime timeZone="Europe/London" /></span>
-      <span>东京 <WorldClockTime timeZone="Asia/Tokyo" /></span>
       <span>上海 <WorldClockTime timeZone="Asia/Shanghai" /></span>
+      <span>东京 <WorldClockTime timeZone="Asia/Tokyo" /></span>
       <button type="button" onClick={onRefresh} title="刷新真实数据"><RefreshCw size={15} /></button>
     </div>
   );
@@ -892,7 +873,7 @@ function buildMacroAiSnapshot({
   global,
   macroMetrics,
   fedRateExpectation,
-  liquidity,
+  financialConditions,
   indices,
   markets,
   marketSignals,
@@ -904,7 +885,7 @@ function buildMacroAiSnapshot({
   global: Quote | null;
   macroMetrics: Metric[];
   fedRateExpectation: FedRateExpectation | null;
-  liquidity: FedNetLiquidity | null;
+  financialConditions: FinancialConditionsSnapshot | null;
   indices: CoreIndex[];
   markets: Quote[];
   marketSignals: KeySignal[];
@@ -925,11 +906,12 @@ function buildMacroAiSnapshot({
     '## 宏观指标（美国）',
     ...(macroMetrics.length ? macroMetrics.map(metricSnapshotLine) : ['- 当前无可用宏观指标']),
     '',
-    '## 利率与流动性',
+    '## 利率、金融条件与信用利差',
     ...(fedRateExpectation ? [
       `- 下次 FOMC: ${fedRateExpectation.meetingLabel}；当前利率 ${fedRateExpectation.currentRate.toFixed(2)}%；隐含利率 ${fedRateExpectation.impliedRate.toFixed(2)}%；预期变化 ${fedRateExpectation.expectedChangeBps > 0 ? '+' : ''}${fedRateExpectation.expectedChangeBps.toFixed(1)}bp；维持/加息/降息概率以页面分布为准：${fedRateExpectation.distribution.map((item) => `${item.label} ${item.probability.toFixed(1)}%`).join('，')}`,
     ] : ['- FOMC 预期待更新']),
-    ...(liquidity ? [`- Fed 净流动性: ${liquidity.display}；30 日变化 ${liquidity.changeDisplay}；状态 ${liquidity.regimeLabel}${historySnapshot(liquidity.chartHistory, 20)}`] : ['- Fed 净流动性待更新']),
+    ...(financialConditions?.nfci ? [`- 芝加哥联储 NFCI: ${financialConditions.nfci.value}；周变化 ${financialConditions.nfci.changeWeek ?? '待更新'}（指数点）；负值比历史均值宽松，周变化为正代表本周收紧，两者不可混淆；数据日期 ${financialConditions.nfci.observedAt.slice(0, 10)}${financialConditions.nfci.stale ? '；缓存数据' : ''}${historySnapshot(financialConditions.nfci.history, 20)}`] : ['- 金融条件指数待更新']),
+    ...(financialConditions?.creditSpread ? [`- ICE BofA 美国高收益债 OAS: ${(financialConditions.creditSpread.value * 100).toFixed(0)}bp；周变化 ${financialConditions.creditSpread.changeWeek === null ? '待更新' : `${(financialConditions.creditSpread.changeWeek * 100).toFixed(1)}bp`}；上升代表信用利差走阔；数据日期 ${financialConditions.creditSpread.observedAt.slice(0, 10)}${financialConditions.creditSpread.stale ? '；缓存数据' : ''}`] : ['- 信用利差待更新']),
     '',
     '## 全球股指',
     ...(global ? [`- VT 全球股票代理: ${formatNumber(global.price)} (${signed(global.changePercent)})`] : []),
@@ -2148,7 +2130,8 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [isolatedFxRates, setIsolatedFxRates] = useState<Partial<Record<IsolatedFxRateId, Metric>>>({});
   const [isolatedMarketAssets, setIsolatedMarketAssets] = useState<Partial<Record<IsolatedMarketAssetId, Metric>>>({});
   const [isolatedFedRateExpectation, setIsolatedFedRateExpectation] = useState<FedRateExpectation | null>(null);
-  const [fedNetLiquidity, setFedNetLiquidity] = useState<FedNetLiquidity | null>(null);
+  const [financialConditions, setFinancialConditions] = useState<FinancialConditionsSnapshot | null>(null);
+  const [financialConditionsFailed, setFinancialConditionsFailed] = useState(false);
   const [riskSentiment, setRiskSentiment] = useState<RiskSentimentPayload['metrics'] | null>(null);
   const lastFastQuoteFrameRef = useRef('');
   const worldHeatmapWarmupStartedRef = useRef(false);
@@ -2269,10 +2252,11 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     return payload.card;
   }, []);
 
-  const refreshFedNetLiquidity = useCallback(async () => {
-    const payload = await request<FedNetLiquidityPayload>('/api/fed-net-liquidity');
-    setFedNetLiquidity(payload.liquidity);
-    return payload.liquidity;
+  const refreshFinancialConditions = useCallback(async () => {
+    const payload = await request<FinancialConditionsPayload>('/api/financial-conditions');
+    setFinancialConditions(payload.conditions);
+    setFinancialConditionsFailed(false);
+    return payload.conditions;
   }, []);
 
   const load = useCallback(async (
@@ -2337,9 +2321,10 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     const refresh = async () => {
       if (disposed) return;
       try {
-        await refreshFedNetLiquidity();
+        await refreshFinancialConditions();
         if (!disposed) timer = window.setTimeout(refresh, 15 * 60_000);
       } catch {
+        if (!disposed) setFinancialConditionsFailed(true);
         if (!disposed) timer = window.setTimeout(refresh, 60_000);
       }
     };
@@ -2348,7 +2333,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       disposed = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [refreshFedNetLiquidity]);
+  }, [refreshFinancialConditions]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2642,7 +2627,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     global: data?.global || null,
     macroMetrics: [...macroRiskMetrics, ...(usPmiMetric ? [usPmiMetric] : []), ...(usPceMetric ? [usPceMetric] : [])],
     fedRateExpectation,
-    liquidity: fedNetLiquidity,
+    financialConditions,
     indices: coreIndices,
     markets,
     marketSignals: rightMarketSignals,
@@ -2939,7 +2924,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             <TreasurySpreadCard item={treasurySpread} />
           </section>
           <FedRateExpectationCard expectation={fedRateExpectation} />
-          <FedNetLiquidityCard liquidity={fedNetLiquidity} />
+          <FinancialConditionsCard conditions={financialConditions} failed={financialConditionsFailed} />
         </aside>
 
         <footer className="macro-news macro-panel">
@@ -3041,51 +3026,6 @@ function UsMacroIndicatorCard({ kind, item }: { kind: 'pmi' | 'pce'; item?: Metr
     </a>
   );
 }
-
-function SmoothMiniLine({ history, color }: { history: HistoryPoint[]; color: string }) {
-  const values = history.filter((item) => Number.isFinite(item.value)).slice(-36);
-  if (values.length < 2) return <div className="macro-line-empty">等待序列更新</div>;
-  const width = 320;
-  const height = 72;
-  const insetX = 4;
-  const insetTop = 7;
-  const insetBottom = 9;
-  const min = Math.min(...values.map((item) => item.value));
-  const max = Math.max(...values.map((item) => item.value));
-  const rawSpan = Math.max(max - min, 0.0001);
-  const scalePadding = rawSpan * 0.12;
-  const scaleMin = min - scalePadding;
-  const scaleMax = max + scalePadding;
-  const span = scaleMax - scaleMin;
-  const points = values.map((item, index) => ({
-    x: insetX + (index / (values.length - 1)) * (width - insetX * 2),
-    y: insetTop + (1 - ((item.value - scaleMin) / span)) * (height - insetTop - insetBottom),
-  }));
-  const linePath = points.slice(1).reduce((path, point, index) => {
-    const previous = points[index];
-    const middle = (previous.x + point.x) / 2;
-    return `${path} C ${middle.toFixed(2)} ${previous.y.toFixed(2)}, ${middle.toFixed(2)} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-  }, `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`);
-  const areaBottom = height - 2;
-  const areaPath = `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${areaBottom} L ${points[0].x.toFixed(2)} ${areaBottom} Z`;
-  const latest = points[points.length - 1];
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="macro-line macro-liquidity-line" aria-hidden="true">
-      <defs>
-        <linearGradient id="fed-liquidity-smooth-gradient" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor={color} stopOpacity="0.22" />
-          <stop offset="1" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[18, 36, 54].map((y) => <line key={y} x1={insetX} y1={y} x2={width - insetX} y2={y} className="macro-liquidity-gridline" />)}
-      <path d={areaPath} fill="url(#fed-liquidity-smooth-gradient)" />
-      <path d={linePath} className="macro-liquidity-line-glow" fill="none" stroke={color} vectorEffect="non-scaling-stroke" />
-      <path d={linePath} fill="none" stroke={color} strokeWidth="1.35" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={latest.x} cy={latest.y} r="2.6" fill={color} className="macro-liquidity-last-point" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
 function CoreIndexCard({ item }: { item: CoreIndex }) {
   const available = item.changePercent !== null && Number.isFinite(item.changePercent);
   const color = !available || Math.abs(item.changePercent || 0) <= 0.03
@@ -3227,40 +3167,6 @@ function FedRateExpectationCard({ expectation }: { expectation: FedRateExpectati
         <footer title={expectation ? `${expectation.method} · ${expectation.contractSymbol}` : '等待会议月 ZQ 期货与 FRED 数据'}>
           <span className="macro-fed-countdown"><small>距 FOMC 决议</small><b>{countdown}</b></span>
           <span>CME 方法说明 <ExternalLink size={9} /></span>
-        </footer>
-      </a>
-    </section>
-  );
-}
-
-function FedNetLiquidityCard({ liquidity }: { liquidity: FedNetLiquidity | null }) {
-  const tone = liquidity?.regime || 'unavailable';
-  const chartColor = tone === 'injection' ? '#52e0b5' : tone === 'contraction' ? '#ff5d7d' : '#71849a';
-  const updatedLabel = liquidity?.updatedAt
-    ? new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', timeZone: 'UTC' }).format(new Date(liquidity.updatedAt))
-    : '待更新';
-  const sourceUrl = liquidity?.sourceUrl || 'https://fred.stlouisfed.org/series/WALCL';
-
-  return (
-    <section className="macro-terminal-section macro-liquidity-section">
-      <p className="macro-section-title">美联储净流动性</p>
-      <a
-        className={`macro-liquidity-card ${tone}`}
-        href={sourceUrl}
-        target="_blank"
-        rel="noreferrer"
-        aria-label={`美联储净流动性 ${liquidity?.display || '等待数据'}，${liquidity?.regimeLabel || '状态待更新'}`}
-      >
-        <div className="macro-liquidity-head">
-          <span><small>FED NET LIQUIDITY · 30D · {liquidity?.chartMethod || '5D EMA'}</small><strong>{liquidity?.display || '待更新'}</strong></span>
-          <b><Droplets size={12} />{liquidity?.regimeLabel || '状态待更新'}</b>
-        </div>
-        <div className="macro-liquidity-chart">
-          <SmoothMiniLine history={liquidity?.chartHistory || liquidity?.history || []} color={chartColor} />
-        </div>
-        <footer>
-          <span><small>30日变化</small><b>{liquidity?.changeDisplay || '待更新'}</b></span>
-          <span>总资产 − TGA − ON RRP · {updatedLabel} <ExternalLink size={9} /></span>
         </footer>
       </a>
     </section>

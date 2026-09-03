@@ -21,6 +21,7 @@ import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, parseSyndication, type 
 import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from './server/newsSubscriptions';
 import { dailyHotPlugin } from './server/dailyhotPlugin';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
+import { createFinancialConditionsService } from './server/financialConditions';
 import type {
   DailyBriefEditorialMetric,
   DailyBriefEditorialSnapshot,
@@ -43,6 +44,7 @@ const foreignProxyUrl = 'http://127.0.0.1:7890';
 const foreignProxyAgent = new ProxyAgent(foreignProxyUrl);
 const vibeTradingRoot = process.env.VIBE_TRADING_ROOT || path.join(rootDir, 'services', 'vibe-trading');
 const sparkflowStateDir = path.join(rootDir, '.sparkflow');
+const financialConditionsService = createFinancialConditionsService({ stateDir: sparkflowStateDir, getSeries: getFredSeries });
 const legacyIntegrationSettingsFile = path.join(sparkflowStateDir, 'integration-settings.json');
 const integrationSettingsDir = path.join(homedir(), '.SparkFlow', 'apikey');
 const integrationSettingsFile = path.join(integrationSettingsDir, 'integration-settings.json');
@@ -12178,6 +12180,15 @@ function allWeatherApiPlugin() {
             sendJson(res, 200, {
               generatedAt: new Date().toISOString(),
               liquidity: await getFedNetLiquidity(url.searchParams.get('fresh') === '1'),
+            });
+            return;
+          }
+
+          if (url.pathname === '/api/financial-conditions') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, {
+              generatedAt: new Date().toISOString(),
+              conditions: await financialConditionsService.get(url.searchParams.get('fresh') === '1'),
             });
             return;
           }
