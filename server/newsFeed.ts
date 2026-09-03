@@ -27,7 +27,7 @@ export type NewsSource = {
 type Candidate = Partial<NewsItem> & Pick<NewsItem, 'title' | 'url'>;
 type Transport = (source: NewsSource) => Promise<{ text: string; route: 'direct' | 'proxy' }>;
 
-export const NEWS_RANKING_VERSION = 'signals-v3';
+export const NEWS_RANKING_VERSION = 'signals-v4';
 export const NEWS_CATEGORY_LABELS: Record<NewsCategory, string> = {
   tech: '科技 / AI', finance: '金融 / 商业', society: '社会', livelihood: '民生 / 政策', world: '国际'
 };
@@ -522,7 +522,7 @@ export function createNewsFeedService(
           const date = validNewsDate(item.publishedAt, clock());
           return date && clock() - Date.parse(date) <= source.maxAgeHours! * 3600_000;
         });
-        candidates = candidates.slice(0, source.id === 'wallstreetcn' ? 40 : 30);
+        candidates = candidates.slice(0, source.id === 'wallstreetcn' ? 20 : 30);
         const at = clock();
         cached = { items: candidates.map((item, index) => ({ ...item, sourceOrder: item.sourceOrder ?? index + 1, observedAt: new Date(at).toISOString(), route })), at, route };
         sourceCache.set(source.id, cached);

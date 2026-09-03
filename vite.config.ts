@@ -587,7 +587,7 @@ const newsSources: NewsSourceConfig[] = [
   { id: 'ithome', label: 'IT之家', category: 'tech', sourceWeight: 66, origin: 'domestic', route: 'direct', url: 'https://www.ithome.com/rss/', kind: 'rss' },
   { id: '36kr', label: '36氪', category: 'finance', sourceWeight: 68, origin: 'domestic', route: 'direct', url: 'https://36kr.com/feed', kind: 'rss' },
   { id: 'huxiu', label: '虎嗅', category: 'tech', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://rss.huxiu.com/', kind: 'rss' },
-  { id: 'wallstreetcn', label: '华尔街见闻', category: 'finance', sourceWeight: 78, origin: 'domestic', route: 'direct', url: 'https://dedicated.wallstreetcn.com/rss.xml', kind: 'rss' },
+  { id: 'wallstreetcn', label: '华尔街见闻', category: 'finance', sourceWeight: 72, origin: 'domestic', route: 'direct', url: 'https://dedicated.wallstreetcn.com/rss.xml', kind: 'rss' },
   { id: 'chinanews-finance', label: '中新财经', category: 'finance', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/finance.xml', kind: 'rss' },
   { id: 'gov-cn', label: '中国政府网', category: 'livelihood', sourceWeight: 86, origin: 'domestic', route: 'direct', url: 'https://www.gov.cn/pushinfo/v150203/rss.xml', kind: 'rss' },
   { id: 'stats-release', label: '国家统计局', category: 'finance', sourceWeight: 94, origin: 'domestic', route: 'direct', url: 'https://www.stats.gov.cn/sj/zxfb/rss.xml', kind: 'rss' },
@@ -629,7 +629,7 @@ function enrichNewsItem(
   const keywordScore = getKeywordScore(item.title, item.summary);
   const importance = clampScore(source.sourceWeight * 0.58 + keywordScore * 0.42);
   const heatScore = clampScore(heat);
-  const weight = clampScore(recency * 0.35 + importance * 0.45 + heatScore * 0.2);
+  const weight = clampScore(recency * 0.25 + importance * 0.55 + heatScore * 0.2);
 
   return {
     ...item,
@@ -645,7 +645,7 @@ function enrichNewsItem(
 
 function parseRssItems(xml: string, source: NewsSourceConfig): NewsItem[] {
   const blocks = xml.match(/<item[\s\S]*?<\/item>|<entry[\s\S]*?<\/entry>/gi) || [];
-  const itemLimit = source.id === 'wallstreetcn' ? 40 : 12;
+  const itemLimit = source.id === 'wallstreetcn' ? 20 : 12;
   return blocks.slice(0, itemLimit).map((block, index) => {
     const title = stripTags(pickXml(block, 'title')) || `${source.label} #${index + 1}`;
     const linkFromTag = pickXml(block, 'link');

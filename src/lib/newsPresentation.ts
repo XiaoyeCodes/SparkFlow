@@ -55,8 +55,41 @@ export function newsForSource(items: NewsItem[], source = 'all', now = Date.now(
   });
 }
 
+function sortByDiversifiedWeight(items: NewsItem[]) {
+  const pending = [...items];
+  const sourceCounts = new Map<string, number>();
+  const result: NewsItem[] = [];
+  while (pending.length) {
+    let bestIndex = 0;
+    let bestScore = -Infinity;
+    for (let index = 0; index < pending.length; index += 1) {
+      const item = pending[index];
+      const source = item.sourceId || item.source || '__unknown__';
+      const priorCount = sourceCounts.get(source) || 0;
+      const diversityPenalty = priorCount < 2 ? 0 : Math.min(22, 6 + (priorCount - 2) * 4);
+      const score = item.weight - diversityPenalty;
+      const best = pending[bestIndex];
+      if (
+        score > bestScore ||
+        (score === bestScore && item.weight > best.weight) ||
+        (score === bestScore && item.weight === best.weight && newsTimestamp(item.publishedAt) > newsTimestamp(best.publishedAt))
+      ) {
+        bestIndex = index;
+        bestScore = score;
+      }
+    }
+    const [next] = pending.splice(bestIndex, 1);
+    const source = next.sourceId || next.source || '__unknown__';
+    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+    result.push(next);
+  }
+  return result;
+}
+
 export function selectNewsItems(items: NewsItem[], category: NewsCategoryFilter, sort: NewsSortMode, source = 'all', now = Date.now()) {
-  return newsForSource(items, source, now).filter((item) => category === 'all' || item.category === category).sort((a, b) => {
+  const filtered = newsForSource(items, source, now).filter((item) => category === 'all' || item.category === category);
+  if (sort === 'weight' && source === 'all') return sortByDiversifiedWeight(filtered);
+  return filtered.sort((a, b) => {
     const timeDifference = newsTimestamp(b.publishedAt) - newsTimestamp(a.publishedAt);
     if (sort === 'source') {
       const sourceDifference = (a.sourceId || a.source).localeCompare(b.sourceId || b.source, 'zh-CN');
