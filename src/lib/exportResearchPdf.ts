@@ -174,45 +174,48 @@ function reportDate() {
 function pageStyle() {
   return `
     box-sizing:border-box; width:${pageWidth}px; height:${pageHeight}px; overflow:hidden; position:relative;
-    color:#d7f2e9; background:#061011;
+    color:#dbe8ea; background:#071018;
     font-family:"SF Pro Display","PingFang SC","Microsoft YaHei",Arial,sans-serif;
-    background-image:linear-gradient(rgba(109,227,199,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(109,227,199,.04) 1px,transparent 1px),radial-gradient(circle at 78% 5%,rgba(92,237,203,.17),transparent 25%);
-    background-size:28px 28px,28px 28px,auto;
+    background-image:radial-gradient(ellipse at 96% -6%,rgba(71,202,180,.28),transparent 39%),radial-gradient(ellipse at -16% 91%,rgba(37,94,148,.23),transparent 43%),linear-gradient(142deg,#0d1b25 0%,#08131b 48%,#05090e 100%);
   `;
 }
 
 function createPage(pageNumber: number, title: string, first: boolean): PdfPage {
   const element = document.createElement('div');
   element.style.cssText = pageStyle();
+  const frame = document.createElement('div');
+  frame.style.cssText = 'position:absolute;inset:22px;border:1px solid rgba(185,222,222,.12);border-radius:18px;pointer-events:none;';
+  const pageGlow = document.createElement('div');
+  pageGlow.style.cssText = 'position:absolute;right:-92px;top:112px;width:255px;height:255px;border:1px solid rgba(103,226,202,.15);border-radius:50%;box-shadow:0 0 88px rgba(69,207,185,.11);pointer-events:none;';
   const header = document.createElement('header');
-  header.style.cssText = 'height:142px; box-sizing:border-box; padding:42px 52px 20px; border-bottom:1px solid rgba(128,237,210,.22); position:relative;';
+  header.style.cssText = 'height:148px;box-sizing:border-box;padding:42px 52px 20px;position:relative;overflow:hidden;';
   header.innerHTML = `
-    <div style="position:absolute;right:52px;top:38px;width:58px;height:58px;border:1px solid rgba(122,239,208,.35);border-radius:50%;box-shadow:0 0 24px rgba(92,237,203,.16) inset;"></div>
-    <div style="font:700 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:2px;color:#6ee5c7;">SPARKFLOW // RESEARCH TERMINAL</div>
-    <div style="margin-top:10px;font:600 15px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.5px;color:#f0faf7;">${first ? 'AI DEEP RESEARCH REPORT' : 'CONTINUED RESEARCH REPORT'}</div>
-    <div style="position:absolute;right:52px;bottom:21px;font:600 9px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.2px;color:#78aa9c;">PAGE ${String(pageNumber).padStart(2, '0')}</div>
+    <div style="position:absolute;left:52px;right:52px;bottom:0;height:1px;background:linear-gradient(90deg,rgba(116,235,209,.75),rgba(166,204,246,.28),transparent);"></div>
+    <div style="display:flex;align-items:center;gap:11px;font:700 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:2px;color:#91ead8;"><span style="display:inline-flex;width:21px;height:21px;align-items:center;justify-content:center;border:1px solid rgba(145,234,216,.62);border-radius:6px;color:#e0fffa;font-size:11px;letter-spacing:0;">S</span>SPARKFLOW</div>
+    <div style="margin-top:12px;font:600 16px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.8px;color:#f0f8f8;">${first ? 'AI RESEARCH REPORT' : `SECTION ${String(pageNumber).padStart(2, '0')} / CONTINUED`}</div>
+    <div style="position:absolute;right:52px;top:46px;text-align:right;"><div style="font:700 8px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.5px;color:#8cb0c7;">${first ? 'INTELLIGENCE NOTE' : 'RESEARCH CONTINUATION'}</div><div style="margin-top:8px;font:700 11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;color:#dcebef;">PAGE ${String(pageNumber).padStart(2, '0')}</div></div>
   `;
   const body = document.createElement('div');
-  body.style.cssText = 'height:923px; box-sizing:border-box; overflow:hidden; padding:32px 52px 20px;';
+  body.style.cssText = 'height:917px;box-sizing:border-box;overflow:hidden;padding:32px 52px 20px;';
   if (first) {
     const intro = document.createElement('section');
-    intro.style.cssText = 'margin:0 0 24px; padding:0 0 22px; border-bottom:1px solid rgba(128,237,210,.25);';
+    intro.style.cssText = 'margin:0 0 25px;padding:20px 24px 22px;border:1px solid rgba(172,221,219,.16);border-radius:14px;background:linear-gradient(112deg,rgba(30,82,87,.34),rgba(22,36,57,.42) 58%,rgba(13,20,30,.22));box-shadow:inset 0 1px 0 rgba(227,255,252,.07);';
     intro.innerHTML = `
-      <div style="font:700 9px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.8px;color:#82d7ff;">SIGNAL SYNTHESIS / VERIFIED RESEARCH</div>
-      <h1 style="max-width:660px;margin:14px 0 11px;font-size:26px;line-height:1.26;letter-spacing:-.45px;color:#f4fffb;">${inlineMarkdown(title)}</h1>
-      <div style="display:flex;gap:12px;align-items:center;font:500 10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.4px;color:#86aa9e;"><span>GENERATED ${reportDate()}</span><span style="color:#6ee5c7;">●</span><span>REFERENCE ONLY</span></div>
+      <div style="font:700 9px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.8px;color:#8dcff2;">SIGNAL SYNTHESIS / VERIFIED RESEARCH</div>
+      <h1 style="max-width:620px;margin:15px 0 12px;font-size:27px;line-height:1.26;letter-spacing:-.55px;color:#f5fbfb;">${inlineMarkdown(title)}</h1>
+      <div style="display:flex;gap:12px;align-items:center;font:500 10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.4px;color:#adc5c6;"><span>GENERATED ${reportDate()}</span><span style="color:#87e4d1;">●</span><span>RESEARCH REFERENCE ONLY</span></div>
     `;
     body.appendChild(intro);
   } else {
     const continuation = document.createElement('div');
-    continuation.style.cssText = 'margin:0 0 18px;font:600 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.2px;color:#79ab9d;';
-    continuation.textContent = title;
+    continuation.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:0 0 22px;padding:13px 16px;border-left:3px solid #82decf;border-radius:0 10px 10px 0;background:linear-gradient(90deg,rgba(90,203,185,.15),rgba(37,65,93,.17),transparent);font:600 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.1px;color:#b7d8d2;';
+    continuation.innerHTML = `<span>${escapeHtml(title)}</span><span style="color:#78b9da;">CONTINUED</span>`;
     body.appendChild(continuation);
   }
   const footer = document.createElement('footer');
-  footer.style.cssText = 'position:absolute;left:52px;right:52px;bottom:0;height:58px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(128,237,210,.20);font:500 8px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;color:#6d978a;';
-  footer.innerHTML = '<span>SPARKFLOW INTELLIGENCE SYSTEM</span><span>FOR RESEARCH REFERENCE ONLY</span>';
-  element.append(header, body, footer);
+  footer.style.cssText = 'position:absolute;left:52px;right:52px;bottom:0;height:58px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(178,223,222,.18);font:500 8px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;color:#8fa7aa;';
+  footer.innerHTML = `<span>SPARKFLOW INTELLIGENCE SYSTEM</span><span style="color:#7edbc7;">${String(pageNumber).padStart(2, '0')}</span><span>FOR RESEARCH REFERENCE ONLY</span>`;
+  element.append(frame, pageGlow, header, body, footer);
   return { element, body };
 }
 
@@ -227,12 +230,12 @@ function createBlockElement(block: ReportBlock) {
     return element;
   }
   if (block.type === 'paragraph') {
-    element.style.cssText += 'margin:0 0 14px; font-size:13px; line-height:1.9; color:#d0e4de; letter-spacing:.1px;';
+    element.style.cssText += 'margin:0 0 14px;font-size:13px;line-height:1.9;color:#d7e4e6;letter-spacing:.1px;';
     element.innerHTML = `<p style="margin:0;">${inlineMarkdown(block.text)}</p>`;
     return element;
   }
   if (block.type === 'quote') {
-    element.style.cssText += 'margin:0 0 16px;padding:12px 15px;border-left:2px solid #6ee5c7;background:rgba(110,229,199,.07);font-size:13px;line-height:1.75;color:#d5f5eb;';
+    element.style.cssText += 'margin:0 0 16px;padding:12px 15px;border-left:3px solid #85dfcd;border-radius:0 10px 10px 0;background:rgba(95,201,185,.10);font-size:13px;line-height:1.75;color:#e0f0ee;';
     element.innerHTML = inlineMarkdown(block.text);
     return element;
   }
@@ -307,7 +310,7 @@ export async function exportSparkFlowResearchPdf(markdown: string) {
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     const canvases = await Promise.all(pages.map((pageItem) => html2canvas(pageItem.element, {
       scale: 2,
-      backgroundColor: '#061011',
+      backgroundColor: '#071018',
       useCORS: true,
       logging: false,
     })));
