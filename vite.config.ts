@@ -9113,6 +9113,15 @@ function getAiRequestBody(body: any) {
   };
 }
 
+async function getStoredAiRequestBody() {
+  const settings = await readLocalIntegrationSettings();
+  const ai = getAiRequestBody(settings.ai);
+  if (!ai.apiKey || !ai.model || !ai.baseUrl) {
+    throw new Error('请先在“设置”中保存 API Key、模型和 Base URL');
+  }
+  return ai;
+}
+
 function finiteNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -9241,13 +9250,13 @@ async function generateDailyBriefAiSummary(input: {
   fallback: DailyBriefSummary;
   context?: unknown;
 }, configuredAi?: ReturnType<typeof getAiRequestBody>) {
-  const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
-  const env = loadEnv(mode, rootDir, '');
-  const provider = configuredAi?.provider || String(process.env.DAILY_BRIEF_AI_PROVIDER || env.DAILY_BRIEF_AI_PROVIDER || 'openai');
+  const storedAi = configuredAi || await getStoredAiRequestBody().catch(() => null);
+  if (!storedAi) return null;
+  const provider = storedAi.provider;
   const defaults = aiProviderDefaults[provider] || aiProviderDefaults.custom;
-  const apiKey = String(configuredAi?.apiKey || process.env.DAILY_BRIEF_AI_API_KEY || env.DAILY_BRIEF_AI_API_KEY || '').trim();
-  const model = String(configuredAi?.model || process.env.DAILY_BRIEF_AI_MODEL || env.DAILY_BRIEF_AI_MODEL || '').trim();
-  const baseUrl = String(configuredAi?.baseUrl || process.env.DAILY_BRIEF_AI_BASE_URL || env.DAILY_BRIEF_AI_BASE_URL || defaults.baseUrl).trim();
+  const apiKey = storedAi.apiKey.trim();
+  const model = storedAi.model.trim();
+  const baseUrl = storedAi.baseUrl.trim() || defaults.baseUrl;
   if (!apiKey || !model || !baseUrl) return null;
   const prompt = [
     '你是 SparkFlow 的机构级跨资产每日策略编辑。只依据下方带时间戳的数据生成一份高信息密度的中文结论，不预测具体点位，不给出短线买卖指令，不编造数据。',
@@ -9261,11 +9270,11 @@ async function generateDailyBriefAiSummary(input: {
   const raw = await callAiAnalysis({
     provider,
     baseUrl,
-    protocol: configuredAi?.protocol || defaults.protocol,
+    protocol: storedAi.protocol || defaults.protocol,
     apiKey,
     model,
     prompt,
-    useProxy: configuredAi?.useProxy ?? defaults.useProxy,
+    useProxy: storedAi.useProxy ?? defaults.useProxy,
   });
   const jsonText = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   return normalizeSummary(JSON.parse(jsonText), input.fallback);
@@ -10505,7 +10514,7 @@ async function syncVibeLlmSettings(baseUrl: string, body: any) {
 
 async function prepareVibeResearchSession(body: any) {
   const baseUrl = await ensureVibeTradingServer();
-  const settings = await syncVibeLlmSettings(baseUrl, body);
+  const settings = await syncVibeLlmSettings(baseUrl, { ...body, ...(await getStoredAiRequestBody()) });
   const prompt = String(body.prompt || '').trim();
   if (!prompt) throw new Error('研究问题不能为空');
   if (prompt.length > 5000) throw new Error('研究问题不能超过 5000 个字符');
@@ -11961,12 +11970,8 @@ function allWeatherApiPlugin() {
           }
 
           if (url.pathname === '/api/daily-brief/ai-summary' && req.method === 'POST') {
-            const body = JSON.parse(await getRequestBody(req));
-            const aiConfig = getAiRequestBody(body);
-            if (!aiConfig.apiKey || !aiConfig.model || !aiConfig.baseUrl) {
-              sendJson(res, 400, { detail: '请先在右上角“设置”中填写 AI API Key、模型名称和 Base URL。' });
-              return;
-            }
+            await getRequestBody(req);
+            const aiConfig = await getStoredAiRequestBody();
             const current = await dailyBriefService.get();
             const snapshot = current.snapshot;
             const summary = await generateDailyBriefAiSummary({
@@ -12539,13 +12544,15 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/ai-analysis' && req.method === 'POST') {
             const body = JSON.parse(await getRequestBody(req));
-            sendJson(res, 200, { text: await callAiAnalysis(body) });
+            const ai = await getStoredAiRequestBody();
+            sendJson(res, 200, { text: await callAiAnalysis({ ...ai, prompt: String(body.prompt || '') }) });
             return;
           }
 
           if (url.pathname === '/api/ai-chat' && req.method === 'POST') {
-            const body = getAiRequestBody(JSON.parse(await getRequestBody(req)));
-            sendJson(res, 200, { text: await callAiAnalysis(body), provider: body.provider, model: body.model });
+            const body = JSON.parse(await getRequestBody(req));
+            const ai = await getStoredAiRequestBody();
+            sendJson(res, 200, { text: await callAiAnalysis({ ...ai, prompt: String(body.prompt || '') }), provider: ai.provider, model: ai.model });
             return;
           }
 

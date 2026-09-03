@@ -13,7 +13,6 @@ import type {
   DailyBriefVisualSeries,
 } from "../lib/dailyBriefTypes";
 import { DailyBriefVisualDashboard } from "../components/DailyBriefVisuals";
-import { buildAiPayload, loadIntegrationSettings } from "../lib/integrations";
 import "./DailyBrief.css";
 
 const money = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
@@ -348,13 +347,7 @@ export function DailyBrief() {
 
   useEffect(() => {
     if (!snapshot) return;
-    const settings = loadIntegrationSettings();
-    if (!settings.ai.apiKey.trim() || !settings.ai.model.trim()) {
-      setModelSummary(null);
-      setModelSummaryState("fallback");
-      return;
-    }
-    const cacheKey = `sparkflow.daily-brief.ai-summary.v3:${snapshot.date}:${snapshot.slot}:${settings.ai.provider}:${settings.ai.model}`;
+    const cacheKey = `sparkflow.daily-brief.ai-summary.v3:${snapshot.date}:${snapshot.slot}`;
     try {
       const cached = window.localStorage.getItem(cacheKey);
       if (cached && aiRefreshNonce === 0) {
@@ -374,7 +367,7 @@ export function DailyBrief() {
     void requestJson<{ summary: DailyBriefSummary }>("/api/daily-brief/ai-summary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildAiPayload(settings, "生成每日简报结构化结论")),
+      body: JSON.stringify({ prompt: "生成每日简报结构化结论" }),
       signal: controller.signal,
     }).then((payload) => {
       setModelSummary(payload.summary);

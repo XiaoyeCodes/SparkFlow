@@ -3,7 +3,6 @@ import { ArrowLeft, BrainCircuit, Building2, CalendarDays, Check, ChevronRight, 
 import { Children, isValidElement, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { buildAiPayload, loadIntegrationSettings } from '../lib/integrations';
 import { buildMacroAiPrompt } from '../lib/macroAiPrompt';
 import { buildCountryMarketPrompt, buildEquityResearchPrompt, buildTradingTeamV2Prompt, type AiResearchScope } from '../lib/marketResearchPrompts';
 import { readableError } from '../lib/readableError';
@@ -859,12 +858,6 @@ export function MacroAiAnalyst({
       transitionState('error');
       return;
     }
-    const settings = loadIntegrationSettings();
-    if (!useCozeChannel && Boolean(settings.ai.apiKey.trim()) !== Boolean(settings.ai.model.trim())) {
-      setError('请先在右上角“设置”中同时填写 AI API Key 与模型名称。');
-      transitionState('error');
-      return;
-    }
     const analysisId = `analysis-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const startedAt = new Date().toISOString();
     activeAnalysisIdRef.current = analysisId;
@@ -929,7 +922,7 @@ export function MacroAiAnalyst({
       const prepared = await requestJson<{ sessionId: string }>('/api/vibe/research/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...buildAiPayload(settings, prompt), sessionId: '' }),
+        body: JSON.stringify({ prompt, sessionId: '' }),
       });
       const withSession = { ...runningReport, sessionId: prepared.sessionId };
       const sessionHistory = upsertStoredReport(withSession);

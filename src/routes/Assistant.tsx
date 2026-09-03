@@ -24,7 +24,7 @@ import remarkGfm from 'remark-gfm';
 import { useLocation } from 'react-router-dom';
 import { Strands } from '../components/Strands';
 import { ResearchHistoryItem } from '../components/ResearchHistoryItem';
-import { buildAiPayload, loadIntegrationSettings } from '../lib/integrations';
+import { loadIntegrationSettings } from '../lib/integrations';
 
 type AssistantRouteState = {
   starmapContext?: string;
@@ -843,12 +843,6 @@ export function Assistant() {
     const question = prompt.trim();
     if (!question || isRunning || pendingSubmissionRef.current) return;
 
-    const settings = loadIntegrationSettings();
-    if (Boolean(settings.ai.apiKey.trim()) !== Boolean(settings.ai.model.trim())) {
-      setError('请从右上角头像进入“设置”，同时填写 AI API Key 和模型名称。');
-      return;
-    }
-
     const submission: PendingSubmission = { sessionId, controller: new AbortController(), dispatched: false, stopRequested: false };
     pendingSubmissionRef.current = submission;
     setStoppingSessionId(null);
@@ -868,7 +862,7 @@ export function Assistant() {
       }>('/api/vibe/research/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...buildAiPayload(settings, question), sessionId }),
+        body: JSON.stringify({ prompt: question, sessionId }),
         signal: submission.controller.signal,
       });
       submission.controller.signal.throwIfAborted();

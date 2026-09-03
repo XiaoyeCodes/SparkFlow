@@ -20,9 +20,7 @@ import {
 import { PageTransition } from '../components/PageTransition';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  buildAiPayload,
   buildNewsMarkdown,
-  loadIntegrationSettings,
   type NewsFeed,
   type NewsItem
 } from '../lib/integrations';
@@ -173,12 +171,6 @@ export function Signals() {
 
   const summarizeWithAi = async () => {
     if (!visibleItems.length) return;
-    const settings = loadIntegrationSettings();
-    if (!settings.ai.apiKey || !settings.ai.model) {
-      setError('请先从右上角头像菜单进入“设置”，填写 AI API Key 和模型。');
-      return;
-    }
-
     setAiLoading(true);
     setError('');
     setAiText('');
@@ -192,7 +184,7 @@ export function Signals() {
       const response = await fetch('/api/ai-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildAiPayload(settings, prompt))
+        body: JSON.stringify({ prompt })
       });
       const payload = (await response.json()) as { text?: string; detail?: string };
       if (!response.ok) throw new Error(payload.detail || 'AI 摘要失败');

@@ -33,7 +33,7 @@ import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
 import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper';
 import { PageTransition } from '../components/PageTransition';
 import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
-import { buildAiPayload, loadIntegrationSettings, type NewsItem } from '../lib/integrations';
+import { loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 import './Market.css';
 
@@ -945,11 +945,6 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
 
   const runVibeResearch = async (target: ResearchTarget) => {
     if (!data || activeResearch.running || activeResearch.connecting) return;
-    const settings = loadIntegrationSettings();
-    if (Boolean(settings.ai.apiKey.trim()) !== Boolean(settings.ai.model.trim())) {
-      setActionMessage('请从右上角头像进入“设置”，同时填写 AI API Key 和模型名称。');
-      return;
-    }
     const prompt = buildDeepResearchPrompt(activeMarket, target);
     setActionMessage('');
     updateResearch(activeMarket, () => ({
@@ -963,7 +958,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
       const prepared = await requestJson<{ sessionId: string }>('/api/vibe/research/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildAiPayload(settings, prompt)),
+        body: JSON.stringify({ prompt }),
       });
       updateResearch(activeMarket, (current) => ({ ...current, sessionId: prepared.sessionId }));
       await connectResearchStream(activeMarket, prepared.sessionId);

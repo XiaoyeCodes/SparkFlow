@@ -26,8 +26,6 @@ export type IntegrationSettings = {
 
 export type { NewsCategory, NewsItem, NewsFeed } from './newsTypes';
 
-const storageKey = 'sparkflow.integrations.v1';
-
 export const aiProviders: AiProviderConfig[] = [
   {
     id: 'openai',
@@ -85,29 +83,7 @@ export function getProviderConfig(provider: AiProviderId) {
 }
 
 export function loadIntegrationSettings(): IntegrationSettings {
-  if (typeof window === 'undefined') return defaultIntegrationSettings;
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return defaultIntegrationSettings;
-    const parsed = JSON.parse(raw) as Partial<IntegrationSettings>;
-    return {
-      ai: {
-        ...defaultIntegrationSettings.ai,
-        ...(parsed.ai || {})
-      },
-      obsidian: {
-        ...defaultIntegrationSettings.obsidian,
-        ...(parsed.obsidian || {})
-      }
-    };
-  } catch {
-    return defaultIntegrationSettings;
-  }
-}
-
-function cacheIntegrationSettings(settings: IntegrationSettings) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(storageKey, JSON.stringify(settings));
+  return defaultIntegrationSettings;
 }
 
 export async function loadLocalIntegrationSettings(): Promise<IntegrationSettings> {
@@ -120,10 +96,9 @@ export async function loadLocalIntegrationSettings(): Promise<IntegrationSetting
       ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
       obsidian: { ...defaultIntegrationSettings.obsidian, ...(payload.obsidian || {}) },
     };
-    cacheIntegrationSettings(settings);
     return settings;
   } catch {
-    return loadIntegrationSettings();
+    return defaultIntegrationSettings;
   }
 }
 
@@ -142,20 +117,11 @@ export async function saveIntegrationSettings(settings: IntegrationSettings): Pr
     ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
     obsidian: defaultIntegrationSettings.obsidian,
   };
-  cacheIntegrationSettings(saved);
   return saved;
 }
 
-export function buildAiPayload(settings: IntegrationSettings, prompt: string) {
-  const provider = getProviderConfig(settings.ai.provider);
-  return {
-    provider: settings.ai.provider,
-    apiKey: settings.ai.apiKey,
-    model: settings.ai.model,
-    baseUrl: settings.ai.baseUrl || provider.baseUrl,
-    useProxy: settings.ai.useProxy,
-    prompt
-  };
+export function buildAiPayload(_settings: IntegrationSettings, prompt: string) {
+  return { prompt };
 }
 
 export function buildNewsMarkdown(items: NewsItem[], title = 'SparkFlow 新闻情报') {
