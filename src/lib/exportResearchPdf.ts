@@ -176,7 +176,6 @@ function pageStyle() {
     box-sizing:border-box; width:${pageWidth}px; height:${pageHeight}px; overflow:hidden; position:relative;
     color:#dbe8ea; background:#071018;
     font-family:"SF Pro Display","PingFang SC","Microsoft YaHei",Arial,sans-serif;
-    background-image:linear-gradient(142deg,#0f2632 0%,rgba(12,40,46,.92) 31%,rgba(8,20,29,.96) 61%,#05090e 100%),linear-gradient(90deg,rgba(77,207,184,.14),transparent 42%,rgba(72,122,184,.14));
   `;
 }
 
@@ -185,12 +184,16 @@ function createPage(pageNumber: number, title: string, first: boolean): PdfPage 
   element.style.cssText = pageStyle();
   const frame = document.createElement('div');
   frame.style.cssText = 'position:absolute;inset:22px;border:1px solid rgba(185,222,222,.12);border-radius:18px;pointer-events:none;';
+  const topTint = document.createElement('div');
+  topTint.style.cssText = 'position:absolute;right:0;top:0;width:370px;height:420px;background:rgba(42,125,121,.12);border-radius:0 0 0 260px;pointer-events:none;';
+  const bottomTint = document.createElement('div');
+  bottomTint.style.cssText = 'position:absolute;left:0;bottom:0;width:335px;height:380px;background:rgba(35,77,126,.13);border-radius:0 250px 0 0;pointer-events:none;';
   const pageGlow = document.createElement('div');
   pageGlow.style.cssText = 'position:absolute;right:-92px;top:112px;width:255px;height:255px;border:1px solid rgba(103,226,202,.15);border-radius:50%;box-shadow:0 0 88px rgba(69,207,185,.11);pointer-events:none;';
   const header = document.createElement('header');
   header.style.cssText = 'height:148px;box-sizing:border-box;padding:42px 52px 20px;position:relative;overflow:hidden;';
   header.innerHTML = `
-    <div style="position:absolute;left:52px;right:52px;bottom:0;height:1px;background:linear-gradient(90deg,rgba(116,235,209,.75),rgba(166,204,246,.28),transparent);"></div>
+    <div style="position:absolute;left:52px;right:52px;bottom:0;height:1px;background:rgba(123,220,206,.52);"></div>
     <div style="display:flex;align-items:center;gap:11px;font:700 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:2px;color:#91ead8;"><span style="display:inline-flex;width:21px;height:21px;align-items:center;justify-content:center;border:1px solid rgba(145,234,216,.62);border-radius:6px;color:#e0fffa;font-size:11px;letter-spacing:0;">S</span>SPARKFLOW</div>
     <div style="margin-top:12px;font:600 16px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.8px;color:#f0f8f8;">${first ? 'AI RESEARCH REPORT' : `SECTION ${String(pageNumber).padStart(2, '0')} / CONTINUED`}</div>
     <div style="position:absolute;right:52px;top:46px;text-align:right;"><div style="font:700 8px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.5px;color:#8cb0c7;">${first ? 'INTELLIGENCE NOTE' : 'RESEARCH CONTINUATION'}</div><div style="margin-top:8px;font:700 11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;color:#dcebef;">PAGE ${String(pageNumber).padStart(2, '0')}</div></div>
@@ -199,7 +202,7 @@ function createPage(pageNumber: number, title: string, first: boolean): PdfPage 
   body.style.cssText = 'height:917px;box-sizing:border-box;overflow:hidden;padding:32px 52px 20px;';
   if (first) {
     const intro = document.createElement('section');
-    intro.style.cssText = 'margin:0 0 25px;padding:20px 24px 22px;border:1px solid rgba(172,221,219,.16);border-radius:14px;background:linear-gradient(112deg,rgba(30,82,87,.34),rgba(22,36,57,.42) 58%,rgba(13,20,30,.22));box-shadow:inset 0 1px 0 rgba(227,255,252,.07);';
+    intro.style.cssText = 'margin:0 0 25px;padding:20px 24px 22px;border:1px solid rgba(172,221,219,.16);border-radius:14px;background:rgba(24,51,62,.66);box-shadow:inset 0 1px 0 rgba(227,255,252,.07);';
     intro.innerHTML = `
       <div style="font:700 9px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.8px;color:#8dcff2;">SIGNAL SYNTHESIS / VERIFIED RESEARCH</div>
       <h1 style="max-width:620px;margin:15px 0 12px;font-size:27px;line-height:1.26;letter-spacing:-.55px;color:#f5fbfb;">${inlineMarkdown(title)}</h1>
@@ -208,14 +211,14 @@ function createPage(pageNumber: number, title: string, first: boolean): PdfPage 
     body.appendChild(intro);
   } else {
     const continuation = document.createElement('div');
-    continuation.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:0 0 22px;padding:13px 16px;border-left:3px solid #82decf;border-radius:0 10px 10px 0;background:linear-gradient(90deg,rgba(90,203,185,.15),rgba(37,65,93,.17),transparent);font:600 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.1px;color:#b7d8d2;';
+    continuation.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:0 0 22px;padding:13px 16px;border-left:3px solid #82decf;border-radius:0 10px 10px 0;background:rgba(42,90,94,.24);font:600 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1.1px;color:#b7d8d2;';
     continuation.innerHTML = `<span>${escapeHtml(title)}</span><span style="color:#78b9da;">CONTINUED</span>`;
     body.appendChild(continuation);
   }
   const footer = document.createElement('footer');
   footer.style.cssText = 'position:absolute;left:52px;right:52px;bottom:0;height:58px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(178,223,222,.18);font:500 8px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;color:#8fa7aa;';
   footer.innerHTML = `<span>SPARKFLOW INTELLIGENCE SYSTEM</span><span style="color:#7edbc7;">${String(pageNumber).padStart(2, '0')}</span><span>FOR RESEARCH REFERENCE ONLY</span>`;
-  element.append(frame, pageGlow, header, body, footer);
+  element.append(topTint, bottomTint, frame, pageGlow, header, body, footer);
   return { element, body };
 }
 
@@ -240,7 +243,7 @@ function createBlockElement(block: ReportBlock) {
     return element;
   }
   if (block.type === 'rule') {
-    element.style.cssText += 'height:1px;margin:20px 0;background:linear-gradient(90deg,#6ee5c7,rgba(110,229,199,0));';
+    element.style.cssText += 'height:1px;margin:20px 0;background:rgba(110,229,199,.58);';
     return element;
   }
   if (block.type === 'code') {
