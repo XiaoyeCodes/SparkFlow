@@ -55,9 +55,9 @@ export const ADDITIONAL_NEWS_SOURCES: NewsSource[] = [
   { id: 'x-trends-zh', label: 'X 中文话题（筛选）', category: 'society', sourceWeight: 42, origin: 'foreign', route: 'proxy', url: 'https://trends24.in/', homepage: 'https://trends24.in/', kind: 'x-trends', trendRegion: 'worldwide', trendFilter: 'chinese', delivery: 'third-party', providerName: 'Trends24', rankingKind: '全球原榜 · 中文筛选', mixed: true,
     emptyMessage: '最新全球趋势前 50 名中暂无匹配的中文话题。这不代表 X 上没有中文讨论；筛选不会用日文或旧榜补位。',
     note: '从 Trends24 全球最新时间片前 50 名筛选中文候选，最多展示 30 条，保留全球原榜名次（可能不连续）。按简繁体特征和中文关键词保守筛选，排除含日文假名或韩文的话题；短词可能漏判或误判。不是中国地区榜，也不是完整中文热榜；超过 4 小时不展示。' },
-  { id: 'aibase', label: 'aibase', category: 'tech', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://news.aibase.cn/daily', homepage: 'https://news.aibase.cn/daily', kind: 'aibase', delivery: 'official-daily', todayOnly: false,
+  { id: 'aibase', label: 'AI 新闻 · AIbase 日报', category: 'tech', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://news.aibase.cn/daily', homepage: 'https://news.aibase.cn/daily', kind: 'aibase', delivery: 'official-daily', todayOnly: false,
     emptyMessage: '来源暂未提供可核验的日报，请稍后刷新。',
-    note: '始终展示最新已发布的一期 AI 日报：今天未发布则显示最近一期，周末或停更也不清空。保留实际发布时间与原文链接，不混入普通资讯或热门推荐。' },
+    note: 'AIbase 日报 · 展示最近发布的 5 期，每天一条、最新在前；未发布的日期向前补齐。保留实际发布时间、日报要点与原文链接，不混入普通资讯或热门推荐。' },
   ...[
     ['nyt-world', '纽约时报 · 国际', 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', 'https://www.nytimes.com/section/world', 'world'],
     ['bbc-top', 'BBC · 头条', 'https://feeds.bbci.co.uk/news/rss.xml', 'https://www.bbc.com/news', 'world'],
@@ -267,6 +267,8 @@ export function parseAibaseList(html: string, now = Date.now()): Candidate[] {
   const { data, read } = parseAibaseData(html, 'getDailyNews');
   const list = read(data?.list);
   if (!Array.isArray(list)) throw new Error('aibase 日报列表不可用');
+  const seenDays = new Set<string>();
+  const seenIds = new Set<string>();
   return list.flatMap((ref: unknown) => {
     const row = read(ref);
     const date = aibaseDate(read(row.createTime), now);
@@ -274,7 +276,13 @@ export function parseAibaseList(html: string, now = Date.now()): Candidate[] {
     const title = cleanNewsText(read(row.title));
     if (!date || !/^\d+$/.test(String(id)) || !title.startsWith('AI日报')) return [];
     return [{ id: 'aibase-' + id, title, url: 'https://news.aibase.cn/daily/' + id, publishedAt: date, sourceOrder: 1 }];
-  }).sort((a: Candidate, b: Candidate) => Date.parse(b.publishedAt!) - Date.parse(a.publishedAt!)).slice(0, 1);
+  }).sort((a: Candidate, b: Candidate) => Date.parse(b.publishedAt!) - Date.parse(a.publishedAt!))
+    .filter((daily) => {
+      const day = beijingNewsDay(daily.publishedAt!);
+      if (seenDays.has(day) || seenIds.has(daily.id)) return false;
+      seenDays.add(day); seenIds.add(daily.id);
+      return true;
+    }).slice(0, 5).map((daily, index) => ({ ...daily, sourceOrder: index + 1 }));
 }
 
 export function parseAibaseDetail(html: string, daily: Candidate, now = Date.now()): Candidate[] {
@@ -499,10 +507,12 @@ export function createNewsFeedService(
           }
           const response = source.custom && options.customTransport ? await options.customTransport(source) : source.kind === 'x-trends' ? await loadTrends(source) : await transport(source);
           if (source.kind === 'aibase') {
-            const daily = parseAibaseList(response.text, clock())[0];
-            if (!daily) return { candidates: [], route: response.route };
-            const detail = await transport({ ...source, url: daily.url });
-            return { candidates: parseAibaseDetail(detail.text, daily, clock()), route: detail.route };
+            const dailies = parseAibaseList(response.text, clock());
+            const details = await Promise.all(dailies.map(async (daily) => {
+              const detail = await transport({ ...source, url: daily.url });
+              return { candidates: parseAibaseDetail(detail.text, daily, clock()), route: detail.route };
+            }));
+            return { candidates: details.flatMap((detail) => detail.candidates), route: details[0]?.route || response.route };
           }
           return { candidates: parseAdditionalSource(source, response.text, clock()), route: response.route };
         };

@@ -3,6 +3,9 @@ import type { NewsCategory, NewsItem } from './newsTypes';
 export type NewsSortMode = 'weight' | 'time' | 'heat' | 'importance' | 'source';
 export type NewsCategoryFilter = 'all' | NewsCategory;
 
+// Keep the requested source shortcuts together, after the two aggregate options.
+export const PINNED_NEWS_SOURCE_IDS = ['readhub', 'zhihu', 'tencent', 'wallstreetcn', 'weibo', 'aibase'];
+
 export const newsCategories: Array<[NewsCategoryFilter, string]> = [
   ['all', '全部'],
   ['tech', '科技 / AI'],
@@ -53,6 +56,12 @@ export function newsForSource(items: NewsItem[], source = 'all', now = Date.now(
     if (appearance) return [{ ...item, ...appearance, id: `${item.id}-${source}` }];
     return matches(item) ? [item] : [];
   });
+}
+
+export function formatDailyNewsEdition(publishedAt: string | undefined, now = Date.now()) {
+  const day = publishedAt ? newsDayKey(publishedAt) : '';
+  if (!day || newsTimestamp(publishedAt) > now) return '日报日期待核验';
+  return `${day === newsDayKey(now) ? '今日日报' : '往期日报'} · ${day.replace(/-/g, '/')}`;
 }
 
 function sortByDiversifiedWeight(items: NewsItem[]) {

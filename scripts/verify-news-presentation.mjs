@@ -9,7 +9,7 @@ const { outputText } = ts.transpileModule(source, {
 });
 const {
   formatNewsSync, formatNewsTime, getNewsCategory, newsCategoryCounts,
-  newsPriority, newsTimestamp, selectNewsItems
+  newsPriority, newsTimestamp, selectNewsItems, formatDailyNewsEdition, PINNED_NEWS_SOURCE_IDS
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const items = [
@@ -69,3 +69,14 @@ assert.equal(formatNewsSync('2026-08-28T11:58:00Z', now), '2 分钟前');
 assert.equal(formatNewsSync('2026-08-28T10:00:00Z', now), '2 小时前');
 assert.equal(formatNewsSync('2026-08-26T12:00:00Z', now), '2 天前');
 console.log('News presentation checks passed: sorting, filtering, counts, priority, invalid dates and sync time.');
+
+assert.deepEqual(PINNED_NEWS_SOURCE_IDS, ['readhub', 'zhihu', 'tencent', 'wallstreetcn', 'weibo', 'aibase']);
+assert.equal(new Set(PINNED_NEWS_SOURCE_IDS).size, PINNED_NEWS_SOURCE_IDS.length);
+assert.equal(formatDailyNewsEdition('2026-08-28T08:00:00Z', now), '今日日报 · 2026/08/28');
+assert.equal(formatDailyNewsEdition('2026-08-27T08:00:00Z', now), '往期日报 · 2026/08/27');
+assert.equal(formatDailyNewsEdition('2026-08-28T08:00:00Z', Date.parse('2026-08-28T16:00:00Z')), '往期日报 · 2026/08/28', 'Label changes at Beijing midnight, not UTC midnight');
+assert.equal(formatDailyNewsEdition('2026-08-28T08:00:00Z', Date.parse('2026-08-30T08:00:00Z')), '往期日报 · 2026/08/28');
+assert.equal(formatDailyNewsEdition(undefined, now), '日报日期待核验');
+assert.equal(formatDailyNewsEdition('invalid', now), '日报日期待核验');
+assert.equal(formatDailyNewsEdition('2026-08-29T08:00:00Z', now), '日报日期待核验');
+console.log('AIbase presentation checks passed: directly below Weibo, today/past edition labels, Beijing midnight, weekend and invalid dates.');

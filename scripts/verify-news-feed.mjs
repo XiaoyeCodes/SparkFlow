@@ -316,15 +316,15 @@ function nuxtFixture(data) {
 }
 const dailyRow = (oid, createTime) => ({ oid, title: 'AI日报：测试模型与工具', createTime });
 const dailyList = (rows) => nuxtFixture({ getDailyNews: { code: 200, data: { list: rows } }, getAIHotRank: { code: 200, data: { list: [dailyRow(999, '2026-08-28 16:00:00')] } } });
-const dailyDetail = (createTime) => nuxtFixture({ getDailyNewsDetail: { code: 200, data: {
-  title: 'AI日报：测试模型与工具', createTime, description: 'Daily description',
+const dailyDetail = (createTime, title = 'AI日报：测试模型与工具') => nuxtFixture({ getDailyNewsDetail: { code: 200, data: {
+  title, createTime, description: 'Daily description',
   summary: '<p>Welcome</p><p><strong>1、模型发布</strong></p><p>A summary</p><p><strong>2、工具上线</strong></p>'
 } }, getSimilarAIIArticles: { code: 200, data: [dailyRow(999, '2026-08-28 16:00:00')] } });
 assert.equal(beijingNewsDay('2026-08-28T15:59:59Z'), '2026-08-28');
 assert.equal(beijingNewsDay('2026-08-28T16:00:00Z'), '2026-08-29');
 const todayList = dailyList([dailyRow(1, '2026-08-27 16:00:00'), dailyRow(2, '2026-08-28 16:00:00'), dailyRow(3, '2026-08-29 16:00:00')]);
 const todayDailies = parseAibaseList(todayList, now);
-assert.equal(todayDailies.length, 1);
+assert.equal(todayDailies.length, 2);
 assert.equal(todayDailies[0].url, 'https://news.aibase.cn/daily/2');
 assert.equal(todayDailies[0].publishedAt, '2026-08-28T08:00:00.000Z');
 assert.equal(parseAibaseList(dailyList([dailyRow(1, '2026-08-27 16:00:00')]), now)[0].url, 'https://news.aibase.cn/daily/1', 'Use yesterday when today is unpublished, not the newer hot-rank entries');
@@ -333,6 +333,54 @@ assert.equal(parseAibaseList(dailyList([dailyRow(4, '2026-08-28 20:01:00')]), no
 assert.equal(parseAibaseList(dailyList([dailyRow(1, 'bad')]), now).length, 0);
 assert.equal(parseAibaseList(dailyList([]), now).length, 0);
 assert.throws(() => parseAibaseList('<html>Changed</html>', now), /结构/);
+{
+const recentRows = [
+  dailyRow(16, '2026-08-21 16:00:00'), dailyRow(12, '2026-08-27 16:00:00'),
+  dailyRow(11, '2026-08-28 16:00:00'), dailyRow(13, '2026-08-26 16:00:00'),
+  dailyRow(14, '2026-08-25 16:00:00'), dailyRow(15, '2026-08-24 16:00:00'),
+  dailyRow(17, '2026-08-27 12:00:00'), dailyRow(18, '2026-08-29 16:00:00'),
+  dailyRow(11, '2026-08-28 16:00:00')
+].map(row => ({ ...row, title: `AI日报：模型工具第${row.oid}期` }));
+const recentList = dailyList(recentRows);
+const recentDailies = parseAibaseList(recentList, now);
+assert.deepEqual(recentDailies.map(item => item.id), [11, 12, 13, 14, 15].map(id => `aibase-${id}`), 'Return five published days, newest first, without same-day duplicates or future issues');
+assert.deepEqual(recentDailies.map(item => item.sourceOrder), [1, 2, 3, 4, 5]);
+assert.equal(parseAibaseList(recentList, Date.parse('2026-08-30T08:00:00Z')).length, 5, 'Keep five recent publication days over weekends, not only a five-calendar-day window');
+let recentCalls = 0;
+let activeDetails = 0;
+let peakDetails = 0;
+let failDetail = false;
+let recentClock = now;
+const recentService = createNewsFeedService([], async () => [], '', {
+  additionalSources: [source('aibase')], now: () => recentClock,
+  transport: async s => {
+    recentCalls++;
+    if (s.url.endsWith('/daily')) return { text: recentList, route: 'direct' };
+    const row = recentRows.find(row => s.url.endsWith('/' + row.oid));
+    assert.ok(row);
+    activeDetails++; peakDetails = Math.max(peakDetails, activeDetails);
+    await new Promise(resolve => setImmediate(resolve));
+    activeDetails--;
+    if (failDetail && row.oid === 13) throw new Error('fixture detail unavailable');
+    return { text: dailyDetail(row.createTime, row.title), route: 'direct' };
+  }
+});
+const recentFeed = await recentService();
+assert.equal(recentFeed.items.length, 5);
+assert.equal(recentFeed.sources[0].count, 5);
+assert.equal(recentCalls, 6, 'Fetch one list plus exactly five details');
+assert.equal(peakDetails, 5, 'Read independent daily details concurrently');
+const recentVisible = selectNewsItems(recentFeed.items, 'all', 'source', 'aibase', now);
+assert.deepEqual(recentVisible.map(item => item.publishedAt), recentDailies.map(item => item.publishedAt));
+assert.ok(recentVisible.every(item => item.summary === '1、模型发布；2、工具上线'));
+await recentService();
+assert.equal(recentCalls, 6, 'Repeated reads reuse the feed cache');
+recentClock += 16_000; failDetail = true;
+const recentFallback = await recentService(true);
+assert.equal(recentFallback.sources[0].stale, true);
+assert.equal(recentFallback.items.length, 5, 'A failed detail retains the last complete successful snapshot');
+assert.deepEqual(recentFallback.items.map(item => item.publishedAt), recentFeed.items.map(item => item.publishedAt));
+}
 const daily = parseAibaseDetail(dailyDetail('2026-08-28 16:00:00'), todayDailies[0], now)[0];
 assert.equal(daily.summary, '1、模型发布；2、工具上线');
 assert.equal(daily.sourceRank, undefined, 'A daily digest is not a hot-list rank');
@@ -343,11 +391,11 @@ let dailyCalls = 0;
 let dailyFailure = false;
 const dailyService = createNewsFeedService([], async () => [], '', {
   additionalSources: [source('aibase')], now: () => dailyClock,
-  transport: async (s) => { dailyCalls++; if (dailyFailure) throw new Error('fixture daily unavailable'); return { text: s.url.endsWith('/daily') ? todayList : dailyDetail('2026-08-28 16:00:00'), route: 'direct' }; }
+  transport: async (s) => { dailyCalls++; if (dailyFailure) throw new Error('fixture daily unavailable'); return { text: s.url.endsWith('/daily') ? dailyList([dailyRow(2, '2026-08-28 16:00:00')]) : dailyDetail('2026-08-28 16:00:00'), route: 'direct' }; }
 });
 const beforeMidnight = await dailyService();
 assert.equal(beforeMidnight.items.length, 1);
-assert.equal(beforeMidnight.items[0].source, 'aibase');
+assert.equal(beforeMidnight.items[0].source, 'AI 新闻 · AIbase 日报');
 assert.equal(beforeMidnight.items[0].todayOnly, false);
 assert.equal(dailyCalls, 2, 'Fetch one latest detail after list verification');
 dailyClock += 11_000; dailyFailure = true;
@@ -369,4 +417,4 @@ assert.equal(unpublishedResult.items.length, 1);
 assert.equal(unpublishedResult.items[0].publishedAt, '2026-08-27T08:00:00.000Z');
 assert.equal(unpublishedResult.items[0].stale, false, 'An older publication fetched successfully is not failed-cache content');
 assert.equal(missingCalls, 2, 'Fetch the most recent available detail even if it is yesterday');
-console.log('Community and AIBase checks passed: attribution, original ranks, real timestamps, latest trend card, latest daily fallback, weekend retention, midnight cache and client display.');
+console.log('Community and AIBase checks passed: attribution, original ranks, real timestamps, latest trend card, five daily editions, date deduplication, parallel details, weekend retention, midnight cache and client display.');

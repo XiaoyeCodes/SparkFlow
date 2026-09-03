@@ -25,6 +25,7 @@ import {
   type NewsItem
 } from '../lib/integrations';
 import {
+  formatDailyNewsEdition,
   formatNewsSync,
   formatNewsTime,
   getNewsCategory,
@@ -33,6 +34,7 @@ import {
   newsForSource,
   newsSortOptions,
   newsTimestamp,
+  PINNED_NEWS_SOURCE_IDS,
   selectNewsItems,
   type NewsCategoryFilter,
   type NewsSortMode
@@ -51,7 +53,6 @@ const NEWS_PORTALS = [
 ] as const;
 
 const CHINESE_TEXT_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
-const PINNED_SOURCE_IDS = ['readhub', 'zhihu', 'tencent', 'wallstreetcn', 'weibo'];
 
 function isChineseNewsItem(item: NewsItem) {
   return CHINESE_TEXT_PATTERN.test(item.title);
@@ -89,12 +90,14 @@ export function Signals() {
   const selectedSource = feed?.sources.find((source) => source.id === sourceFilter);
   const sourceOptions = useMemo<SourceSelectOption[]>(() => {
     const sources = feed?.sources || [];
-    const pinnedSources = PINNED_SOURCE_IDS.flatMap((id) => sources.filter((source) => source.id === id));
-    const remainingSources = sources.filter((source) => !PINNED_SOURCE_IDS.includes(source.id));
+    const pinnedSources = PINNED_NEWS_SOURCE_IDS.flatMap((id) => sources.filter((source) => source.id === id));
+    const remainingSources = sources.filter((source) => !PINNED_NEWS_SOURCE_IDS.includes(source.id));
     const toOption = (source: (typeof sources)[number]) => ({
       value: source.id,
       label: source.label,
-      meta: source.stale ? '缓存' : !source.ok ? '暂不可用' : undefined,
+      meta: source.stale ? '缓存' : !source.ok ? '暂不可用' : source.delivery === 'official-daily'
+        ? source.count ? `最近 ${source.count} 期日报 · 最新在前` : '暂无可用日报'
+        : undefined,
       tone: source.stale || !source.ok ? 'warning' as const : 'source' as const
     });
 
@@ -376,7 +379,7 @@ export function Signals() {
               </div>
 
               <div id="signals-news-list" className="signals-list" aria-busy={loading}>
-                {displayedItems.map((item, index) => <NewsRow key={item.id} item={item} index={index} onSelectSource={changeSource} sortMode={sortMode} />)}
+                {displayedItems.map((item, index) => <NewsRow key={item.id} item={item} index={index} onSelectSource={changeSource} sortMode={sortMode} now={now} />)}
                 {loading && !feed ? (
                   <div className="signals-loading">
                     <p role="status"><Loader2 size={16} className="signals-spin" />正在连接新闻源…</p>
@@ -568,7 +571,7 @@ function ActionButton({ onClick, loading, disabled, icon, label, primary = false
   );
 }
 
-function NewsRow({ item, index, onSelectSource, sortMode }: { item: NewsItem; index: number; onSelectSource: (source: string) => void; sortMode: NewsSortMode }) {
+function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsItem; index: number; onSelectSource: (source: string) => void; sortMode: NewsSortMode; now: number }) {
   const reducedMotion = useReducedMotion();
   const priority = newsPriority(item.weight);
   const metricLabel = sortMode === 'importance' ? '重要' : sortMode === 'heat' ? '热度' : sortMode === 'source' ? (item.sourceRank ? '榜序' : '序号') : '权重';
@@ -583,7 +586,7 @@ function NewsRow({ item, index, onSelectSource, sortMode }: { item: NewsItem; in
           <time dateTime={newsTimestamp(item.publishedAt) ? item.publishedAt : undefined}>{formatNewsTime(item.publishedAt)}</time>
           <span className="signals-item-category">{item.categoryLabel}</span>
           <span className="signals-item-source">{item.source}<span> · {item.route === 'proxy' ? 'VPN' : '直连'}</span></span>
-          {item.delivery ? <span className={`signals-delivery ${['google-news', 'third-party'].includes(item.delivery) ? 'is-aggregated' : ''}`}>{item.delivery === 'google-news' ? 'Google News 检索' : item.delivery === 'custom-rss' ? '自定义 RSS' : item.delivery === 'third-party' ? `${item.providerName || '第三方'} 聚合` : item.delivery === 'official-daily' ? '最新 AI 日报' : item.delivery === 'community-rss' ? '社区官方 RSS' : '官方 RSS'}</span> : null}
+          {item.delivery ? <span className={`signals-delivery ${['google-news', 'third-party'].includes(item.delivery) ? 'is-aggregated' : ''}`}>{item.delivery === 'google-news' ? 'Google News 检索' : item.delivery === 'custom-rss' ? '自定义 RSS' : item.delivery === 'third-party' ? `${item.providerName || '第三方'} 聚合` : item.delivery === 'official-daily' ? formatDailyNewsEdition(item.publishedAt, now) : item.delivery === 'community-rss' ? '社区官方 RSS' : '官方 RSS'}</span> : null}
           {item.boardObservedAt ? <span title="榜单采样时间，不是话题发布时间">榜单采样 {formatNewsTime(item.boardObservedAt)}</span> : null}
           {item.sourceRank ? <button type="button" className="signals-original-rank" onClick={() => item.sourceId && onSelectSource(item.sourceId)} title="按该来源原榜顺序查看">{item.sourceRankLabel} #{item.sourceRank}</button> : null}
           {item.stale ? <span className="signals-cached" title={`上次成功获取：${formatNewsTime(item.observedAt)}`}>缓存</span> : null}
