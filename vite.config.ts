@@ -7,7 +7,7 @@ import { get as httpsGet } from 'node:https';
 import { createServer as createNetServer } from 'node:net';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { ProxyAgent } from 'undici';
+import { Agent, ProxyAgent, fetch as undiciFetch } from 'undici';
 import { defineConfig, loadEnv, type ViteDevServer } from 'vite';
 import {
   getMarketHalfDay,
@@ -22,6 +22,7 @@ import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from '
 import { dailyHotPlugin } from './server/dailyhotPlugin';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
 import { createFinancialConditionsService } from './server/financialConditions';
+import { parseEmploymentHeadline, parseMacroMarketCalendar, macroComparison, assertMacroPeriodNotRegressed, type MacroMarketContext } from './server/usMacroRelease';
 import type {
   DailyBriefEditorialMetric,
   DailyBriefEditorialSnapshot,
@@ -42,6 +43,18 @@ const rootDir = process.cwd();
 const allWeatherDataDir = path.join(rootDir, 'public', 'allweather', 'data');
 const foreignProxyUrl = 'http://127.0.0.1:7890';
 const foreignProxyAgent = new ProxyAgent(foreignProxyUrl);
+// Keep release requests independent of the dashboard's long-lived market/news connections.
+const macroDirectAgent = new Agent({ connections: 4 });
+const macroProxyAgent = new ProxyAgent({ uri: foreignProxyUrl, connections: 4 });
+async function fetchMacroSourceText(url: string, route: 'direct' | 'proxy', timeoutMs: number) {
+  const response = await undiciFetch(url, {
+    dispatcher: route === 'proxy' ? macroProxyAgent : macroDirectAgent,
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: { 'User-Agent': 'Mozilla/5.0 SparkFlow', Accept: 'text/html,text/plain,*/*' },
+  });
+  if (!response.ok) { await response.body?.cancel(); throw new Error(`HTTP ${response.status}`); }
+  return response.text();
+}
 const vibeTradingRoot = process.env.VIBE_TRADING_ROOT || path.join(rootDir, 'services', 'vibe-trading');
 const sparkflowStateDir = path.join(rootDir, '.sparkflow');
 const financialConditionsService = createFinancialConditionsService({ stateDir: sparkflowStateDir, getSeries: getFredSeries });
@@ -5434,7 +5447,7 @@ function findBlsTableRow(raw: string, tableStart: string, tableEnd: string, rowL
     .sort((left, right) => right.length - left.length)[0];
 }
 
-function parseBlsEmploymentPrevious(raw: string) {
+function parseBlsEmploymentPrevious(raw: string, period: string) {
   const unemploymentRow = findBlsTableRow(raw, 'Table A-1\\.', 'Table A-2\\.', /^Unemployment rate$/i);
   const unemploymentValues = (unemploymentRow || []).slice(1).flatMap((cell) => {
     const value = asFiniteNumber(cell.replace(/,/g, '').match(/[-+]?\d+(?:\.\d+)?/)?.[0]);
@@ -5446,10 +5459,14 @@ function parseBlsEmploymentPrevious(raw: string) {
     const value = asFiniteNumber(cell.replace(/,/g, '').match(/[-+]?\d+(?:\.\d+)?/)?.[0]);
     return value === undefined ? [] : [value];
   });
-  const previousNonfarm = nonfarmValues.length >= 4
+  const tablePreviousNonfarm = nonfarmValues.length >= 4
     ? nonfarmValues[nonfarmValues.length - 3] - nonfarmValues[nonfarmValues.length - 4]
     : undefined;
 
+  const previousMonth = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(Number(period.slice(0, 4)), Number(period.slice(5, 7)) - 2, 1)));
+  const revision = stripTags(raw).replace(/\s+/g, ' ').match(new RegExp(`(?:change for|employment for) ${previousMonth} was revised (?:up|down) by [\\d,]+,? from [+-]?[\\d,]+ to ([+-]?[\\d,]+)`, 'i'));
+  const previousNonfarm = revision ? Number(revision[1].replace(/,/g, '')) / 1000 : tablePreviousNonfarm;
   return {
     unemploymentPrevious: unemploymentValues.length >= 2 ? unemploymentValues[unemploymentValues.length - 2] : undefined,
     nonfarmPrevious: previousNonfarm,
@@ -5462,17 +5479,22 @@ async function fetchBlsReleaseReport(family: BlsReleaseReportSnapshot['family'])
     : family === 'cpi'
       ? 'https://www.bls.gov/news.release/cpi.nr0.htm'
       : 'https://www.bls.gov/news.release/empsit.htm';
-  let html: string;
-  try {
-    html = await fetchRoutedText(sourceUrl, 'direct', 1500, 'text/html,application/xhtml+xml,*/*');
-  } catch {
-    html = await fetchRoutedText(
-      `https://r.jina.ai/http://www.bls.gov${new URL(sourceUrl).pathname}`,
-      'proxy',
-      8_000,
-      'text/plain,text/markdown,*/*',
-    );
+  const attempts = [
+    () => fetchMacroSourceText(sourceUrl, 'direct', 3500),
+    () => fetchMacroSourceText(sourceUrl, 'proxy', 8000),
+    () => fetchMacroSourceText(`https://r.jina.ai/http://www.bls.gov${new URL(sourceUrl).pathname}`, 'proxy', 12000),
+    () => fetchMacroSourceText(`https://r.jina.ai/https://www.bls.gov${new URL(sourceUrl).pathname}`, 'proxy', 12000),
+  ];
+  const failures: string[] = [];
+  for (const fetchText of attempts) {
+    try {
+      return parseBlsReleaseReport(await fetchText(), family, sourceUrl);
+    } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
   }
+  throw new Error(`BLS ${family}: ${failures.join('; ')}`);
+}
+
+function parseBlsReleaseReport(html: string, family: BlsReleaseReportSnapshot['family'], sourceUrl: string): BlsReleaseReportSnapshot {
   const titlePeriod = html.match(/<title>[\s\S]*?-\s*(20\d{2})\s+M(0[1-9]|1[0-2])\s+Results/i);
   const text = stripTags(html).replace(/&nbsp;|&#160;/gi, ' ').replace(/\s+/g, ' ');
   const headingPeriod = text.match(/(?:PRODUCER PRICE INDEXES|CONSUMER PRICE INDEX|EMPLOYMENT SITUATION)\s*[-—]\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})/i);
@@ -5487,11 +5509,11 @@ async function fetchBlsReleaseReport(family: BlsReleaseReportSnapshot['family'])
     if (!unchanged && !match) throw new Error('BLS PPI 新闻稿数值无法识别');
     const previousMatch = text.match(/Final demand prices (edged down|decreased|declined|fell|rose|advanced|increased)\s+([\d.]+)\s*percent\s+in\s+[A-Za-z]+/i);
     const yoyMatch = text.match(/index for final demand (increased|rose|advanced|decreased|declined|fell)\s+([\d.]+)\s*percent\s+for the 12 months ended/i);
-    if (!previousMatch || !yoyMatch) throw new Error('BLS PPI 前值或同比值无法识别');
+    if (!yoyMatch) throw new Error('BLS PPI 同比值无法识别');
     return {
       ...base,
       ppi: unchanged ? 0 : signedReleaseValue(match![1], match![2]),
-      ppiPrevious: signedReleaseValue(previousMatch[1], previousMatch[2]),
+      ppiPrevious: previousMatch ? signedReleaseValue(previousMatch[1], previousMatch[2]) : undefined,
       ppiYoy: signedReleaseValue(yoyMatch[1], yoyMatch[2]),
       ppiPreviousYoy: parseBlsPpiPreviousYoy(html, period),
     } satisfies BlsReleaseReportSnapshot;
@@ -5508,41 +5530,34 @@ async function fetchBlsReleaseReport(family: BlsReleaseReportSnapshot['family'])
       cpiYoy: signedReleaseValue(yoyMatch[1], yoyMatch[2]),
     } satisfies BlsReleaseReportSnapshot;
   }
-  const unemploymentMatch = text.match(/unemployment rate(?:,?\s+at|\s*\()\s*([\d.]+)\s*percent/i);
-  const nonfarmMatch = text.match(/Total nonfarm payroll employment[\s\S]{0,120}?\(([-+]?\d[\d,]*)\)/i);
-  const unemployment = asFiniteNumber(unemploymentMatch?.[1]);
-  const nonfarmRaw = asFiniteNumber(nonfarmMatch?.[1]?.replace(/,/g, ''));
-  if (unemployment === undefined || nonfarmRaw === undefined) throw new Error('BLS 就业新闻稿数值无法识别');
-  const previous = parseBlsEmploymentPrevious(html);
+  const { unemployment, nonfarm } = parseEmploymentHeadline(html);
+  const previous = parseBlsEmploymentPrevious(html, period);
   return {
     ...base,
     unemployment,
     unemploymentPrevious: previous.unemploymentPrevious,
-    nonfarm: nonfarmRaw / 1000,
+    nonfarm,
     nonfarmPrevious: previous.nonfarmPrevious,
   } satisfies BlsReleaseReportSnapshot;
 }
 
-async function getBlsReleaseReport(family: BlsReleaseReportSnapshot['family'], forceRefresh = false): Promise<BlsReleaseReportSnapshot> {
+async function getBlsReleaseReport(family: BlsReleaseReportSnapshot['family'], forceRefresh = false, allowStale = true): Promise<BlsReleaseReportSnapshot> {
   const cached = blsReleaseReportCache.get(family);
   const cachedEmploymentIncomplete = family === 'employment'
     && cached
     && (cached.unemploymentPrevious === undefined || cached.nonfarmPrevious === undefined);
   if (!forceRefresh && !cachedEmploymentIncomplete && cached && Date.now() - cached.storedAt < BLS_MACRO_CACHE_TTL_MS) return cached;
   const running = blsReleaseReportInFlight.get(family);
-  if (running) return running;
+  if (running) return running.catch(error => { if (allowStale && cached) return cached; throw error; });
   const request = fetchBlsReleaseReport(family)
     .then((snapshot) => {
+      assertMacroPeriodNotRegressed(snapshot.period, cached?.period);
       blsReleaseReportCache.set(family, snapshot);
       return snapshot;
     })
-    .catch((error) => {
-      if (cached) return cached;
-      throw error;
-    })
     .finally(() => blsReleaseReportInFlight.delete(family));
   blsReleaseReportInFlight.set(family, request);
-  return request;
+  return request.catch(error => { if (allowStale && cached) return cached; throw error; });
 }
 
 async function getBlsReleaseMacroMetric(
@@ -5802,12 +5817,15 @@ async function fetchBeaPceMacroMetric() {
   const sourceUrl = new URL(releaseHref, landingUrl).toString();
   const releaseHtml = await fetchExternalText(sourceUrl, 16000, 'text/html,application/xhtml+xml,*/*');
   const text = stripTags(releaseHtml).replace(/\s+/g, ' ');
-  const match = text.match(/From the preceding month, the PCE price index for ([A-Za-z]+) (increased|decreased|was unchanged)(?:\s+([\d.]+) percent)?/i);
+  const match = text.match(/From the preceding month, the PCE price index (?:for |in )?([A-Za-z]+) (increased|rose|decreased|fell|was unchanged)(?:\s+(?:by )?([\d.]+) percent)?/i);
   if (!match) throw new Error('BEA PCE 月率格式异常');
   const month = monthNameToNumber(match[1]);
-  const year = asFiniteNumber(sourceUrl.match(/\/news\/(20\d{2})\//)?.[1]) || new Date().getUTCFullYear();
+  const heading = text.match(/Personal Income and Outlays[,:]?\s+([A-Za-z]+)\s+(20\d{2})/i);
+  const releaseYear = asFiniteNumber(sourceUrl.match(/\/news\/(20\d{2})\//)?.[1]) || new Date().getUTCFullYear();
+  const year = heading ? Number(heading[2]) : releaseYear - (month === 12 && new Date().getUTCMonth() === 0 ? 1 : 0);
+  if (!month || (!/unchanged/i.test(match[2]) && match[3] === undefined)) throw new Error('BEA PCE 月率数值缺失');
   const magnitude = asFiniteNumber(match[3]) || 0;
-  const value = /decreased/i.test(match[2]) ? -magnitude : /unchanged/i.test(match[2]) ? 0 : magnitude;
+  const value = /decreased|fell/i.test(match[2]) ? -magnitude : /unchanged/i.test(match[2]) ? 0 : magnitude;
   const updatedAt = cpiPeriodTime(year, month);
   return {
     id: 'us-pce-mom',
@@ -5823,25 +5841,22 @@ async function fetchBeaPceMacroMetric() {
   };
 }
 
-async function getBeaPceMacroMetric(forceRefresh = false) {
+async function getBeaPceMacroMetric(forceRefresh = false, allowStale = true) {
   if (!forceRefresh && beaPceSnapshotCache && Date.now() - beaPceSnapshotCache.storedAt < BLS_MACRO_CACHE_TTL_MS) {
     return beaPceSnapshotCache;
   }
-  if (beaPceSnapshotInFlight) return beaPceSnapshotInFlight;
+  if (beaPceSnapshotInFlight) return beaPceSnapshotInFlight.catch(error => { if (allowStale && beaPceSnapshotCache) return beaPceSnapshotCache; throw error; });
   beaPceSnapshotInFlight = fetchBeaPceMacroMetric()
     .then((metric) => {
+      assertMacroPeriodNotRegressed(metric.updatedAt, beaPceSnapshotCache?.updatedAt);
       const snapshot = { ...metric, storedAt: Date.now() };
       beaPceSnapshotCache = snapshot;
       return snapshot;
     })
-    .catch((error) => {
-      if (beaPceSnapshotCache) return beaPceSnapshotCache;
-      throw error;
-    })
     .finally(() => {
       beaPceSnapshotInFlight = undefined;
     });
-  return beaPceSnapshotInFlight;
+  return beaPceSnapshotInFlight.catch(error => { if (allowStale && beaPceSnapshotCache) return beaPceSnapshotCache; throw error; });
 }
 
 async function getUsCpiMetricFromBlsReport(forceRefresh = false): Promise<GlobalCpiMetric> {
@@ -6014,13 +6029,17 @@ type IsolatedUsMacroCard = {
   label: string;
   value: number;
   display: string;
-  change: number;
+  change: number | null;
   changeDisplay: string;
   updatedAt: string;
   sourceUrl: string;
   status: 'delayed';
   history: Array<{ time: string; value: number }>;
   stats: Array<{ label: string; display: string }>;
+  stale?: boolean;
+  checkedAt?: string;
+  lastSuccessAt?: string;
+  refreshError?: string;
 };
 const ISOLATED_US_MACRO_CARD_IDS: IsolatedUsMacroCardId[] = ['ppi', 'cpi', 'unemployment', 'nonfarm', 'pmi', 'pce'];
 const ISOLATED_US_MACRO_CARD_TTL_MS = 60_000;
@@ -6045,13 +6064,13 @@ function signedCardValue(value: number, digits: number, suffix: string) {
   return `${value > 0 ? '+' : ''}${value.toFixed(digits)}${suffix}`;
 }
 
-function isolatedCardHistory(period: string, previous: number, actual: number) {
+function isolatedCardHistory(period: string, previous: number | undefined, actual: number) {
   const currentTime = `${period}-01T00:00:00.000Z`;
   const previousDate = new Date(currentTime);
   previousDate.setUTCMonth(previousDate.getUTCMonth() - 1);
   return {
     currentTime,
-    history: [{ time: previousDate.toISOString(), value: previous }, { time: currentTime, value: actual }],
+    history: [...(previous === undefined ? [] : [{ time: previousDate.toISOString(), value: previous }]), { time: currentTime, value: actual }],
   };
 }
 
@@ -6065,64 +6084,125 @@ function persistIsolatedUsMacroCards() {
     .catch(() => undefined);
 }
 
+const isolatedMarketSources = {
+  nonfarm: ['non-farm-payrolls', 'Non Farm Payrolls', /^Non\s*Farm Payrolls$/i],
+  unemployment: ['unemployment-rate', 'Unemployment Rate', /Unemployment Rate/i],
+  cpi: ['inflation-cpi', 'Inflation Rate', /Inflation Rate YoY/i],
+  ppi: ['producer-prices-change', 'Producer Prices Change', /Producer Prices Change|PPI YoY/i],
+  pmi: ['business-confidence', 'Business Confidence', /ISM Manufacturing PMI/i],
+  pce: ['pce-price-index-monthly-change', 'PCE Price Index Monthly Change', /PCE Price Index MoM/i],
+} as const;
+const isolatedMarketRequests = new Map<IsolatedUsMacroCardId, Promise<MacroMarketContext>>();
+const isolatedMarketLastGood = new Map<IsolatedUsMacroCardId, MacroMarketContext>();
+
+async function getIsolatedMarketContext(id: IsolatedUsMacroCardId): Promise<MacroMarketContext> {
+  const running = isolatedMarketRequests.get(id);
+  if (running) return running;
+  const [slug, category, event] = isolatedMarketSources[id];
+  const sourceUrl = `https://tradingeconomics.com/united-states/${slug}`;
+  const request = (async () => {
+    let failure: unknown;
+    for (const fetchText of [
+      () => fetchMacroSourceText(sourceUrl, 'direct', 3500),
+      () => fetchMacroSourceText(sourceUrl, 'proxy', 8000),
+      () => fetchMacroSourceText(`https://r.jina.ai/http://tradingeconomics.com/united-states/${slug}`, 'proxy', 12000),
+    ]) {
+      try { return parseMacroMarketCalendar(await fetchText(), category, event, sourceUrl); }
+      catch (error) { failure = error; }
+    }
+    throw failure;
+  })().then(context => {
+    assertMacroPeriodNotRegressed(context.period, isolatedMarketLastGood.get(id)?.period);
+    isolatedMarketLastGood.set(id, context);
+    return context;
+  }).finally(() => isolatedMarketRequests.delete(id));
+  isolatedMarketRequests.set(id, request);
+  return request;
+}
+
+// A slow/missing consensus must not hold back an official release.
+async function optionalMacroContext(id: IsolatedUsMacroCardId) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      getIsolatedMarketContext(id).catch(() => isolatedMarketLastGood.get(id)),
+      new Promise<MacroMarketContext | undefined>(resolve => { timer = setTimeout(() => resolve(isolatedMarketLastGood.get(id)), 3000); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
 async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<IsolatedUsMacroCard> {
+  const cached = isolatedUsMacroCardCache.get(id)?.data;
+  const priorHistory = cached?.history || [];
+  const optionalDisplay = (value: number | undefined | null, digits: number, suffix: string, signed = true) =>
+    value === undefined || value === null ? '—' : signed ? signedCardValue(value, digits, suffix) : `${value.toFixed(digits)}${suffix}`;
   if (id === 'pmi') {
-    const context = await getPmiMarketContext(true);
-    const { currentTime, history } = isolatedCardHistory(context.period, context.previous, context.actual);
-    const change = context.actual - context.previous;
+    const context = await getIsolatedMarketContext(id);
+    const { previous, change } = macroComparison(context.period, context.actual, undefined, context, priorHistory);
+    const { currentTime, history } = isolatedCardHistory(context.period, previous, context.actual);
     return {
       id,
       label: 'PMI',
       value: context.actual,
       display: context.actual.toFixed(2),
       change,
-      changeDisplay: signedCardValue(change, 2, 'p'),
+      changeDisplay: optionalDisplay(change, 2, 'p'),
       updatedAt: currentTime,
       sourceUrl: context.sourceUrl,
       status: 'delayed',
       history,
       stats: [
-        { label: '前值', display: context.previous.toFixed(2) },
-        { label: '预期', display: context.consensus.toFixed(2) },
+        { label: '前值', display: optionalDisplay(previous, 2, '', false) },
+        { label: '预期', display: optionalDisplay(context.consensus, 2, '', false) },
       ],
     };
   }
 
   if (id === 'pce') {
-    const context = await getPceMarketContext(true);
-    const { currentTime, history } = isolatedCardHistory(context.period, context.previous, context.actual);
-    const change = context.actual - context.previous;
+    const [official, optionalMarket] = await Promise.all([
+      getBeaPceMacroMetric(true, false).catch(() => undefined),
+      optionalMacroContext(id),
+    ]);
+    const market = optionalMarket || (!official ? await getIsolatedMarketContext(id).catch(() => undefined) : undefined);
+    const officialPeriod = official?.updatedAt.slice(0, 7);
+    const context = official && officialPeriod && (!market || officialPeriod >= market.period)
+      ? { period: officialPeriod, actual: official.value, sourceUrl: official.sourceUrl }
+      : market;
+    if (!context) throw new Error('BEA 和 PCE 市场数据均获取失败');
+    const { previous, consensus, change } = macroComparison(context.period, context.actual, undefined, market, priorHistory);
+    const { currentTime, history } = isolatedCardHistory(context.period, previous, context.actual);
     return {
       id,
       label: 'PCE',
       value: context.actual,
       display: `${context.actual.toFixed(2)}%`,
       change,
-      changeDisplay: signedCardValue(change, 2, 'p'),
+      changeDisplay: optionalDisplay(change, 2, 'p'),
       updatedAt: currentTime,
       sourceUrl: context.sourceUrl,
       status: 'delayed',
       history,
       stats: [
         { label: 'PCE实际', display: `${context.actual.toFixed(2)}%` },
-        { label: 'PCE前值', display: `${context.previous.toFixed(2)}%` },
-        { label: 'PCE变化', display: signedCardValue(change, 2, 'p') },
-        { label: 'PCE预期', display: `${context.consensus.toFixed(2)}%` },
+        { label: 'PCE前值', display: optionalDisplay(previous, 2, '%', false) },
+        { label: 'PCE变化', display: optionalDisplay(change, 2, 'p') },
+        { label: 'PCE预期', display: optionalDisplay(consensus, 2, '%', false) },
       ],
     };
   }
 
   if (id === 'ppi' || id === 'cpi') {
     const [report, context] = await Promise.all([
-      getBlsReleaseReport(id, true),
-      id === 'ppi' ? getPpiMarketContext(true) : getCpiMarketContext(true),
+      getBlsReleaseReport(id, true, false),
+      optionalMacroContext(id),
     ]);
     const actual = id === 'ppi' ? report.ppiYoy : report.cpiYoy;
     const monthly = id === 'ppi' ? report.ppi : report.cpi;
-    if (actual === undefined || monthly === undefined || context.period !== report.period || Math.abs(actual - context.actual) > 0.051) {
-      throw new Error(`${id.toUpperCase()} 官方值与市场日历未完成同周期校验`);
+    if (actual === undefined || monthly === undefined) {
+      throw new Error(`${id.toUpperCase()} 官方实际值缺失`);
     }
-    const { currentTime, history } = isolatedCardHistory(report.period, context.previous, actual);
+    const { previous, consensus } = macroComparison(report.period, actual, id === 'ppi' ? report.ppiPreviousYoy : undefined, context, priorHistory);
+    const { currentTime, history } = isolatedCardHistory(report.period, previous, actual);
     return {
       id,
       label: id.toUpperCase(),
@@ -6137,24 +6217,25 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
       stats: [
         { label: '环比', display: signedCardValue(monthly, 1, '%') },
         { label: '同比值', display: signedCardValue(actual, 1, '%') },
-        { label: '预期', display: signedCardValue(context.consensus, 1, '%') },
-        { label: '前值', display: signedCardValue(context.previous, 1, '%') },
+        { label: '预期', display: optionalDisplay(consensus, 1, '%') },
+        { label: '前值', display: optionalDisplay(previous, 1, '%') },
       ],
     };
   }
 
   const [report, context] = await Promise.all([
-    getBlsReleaseReport('employment', true),
-    id === 'nonfarm' ? getNonfarmMarketContext(true) : getUnemploymentMarketContext(true),
+    getBlsReleaseReport('employment', true, false),
+    optionalMacroContext(id),
   ]);
   const actual = id === 'nonfarm' ? report.nonfarm : report.unemployment;
-  if (actual === undefined || context.period !== report.period || Math.abs(actual - context.actual) > (id === 'nonfarm' ? 0.51 : 0.051)) {
-    throw new Error(`${id} 官方值与市场日历未完成同周期校验`);
+  if (actual === undefined) {
+    throw new Error(`${id} 官方实际值缺失`);
   }
-  const { currentTime, history } = isolatedCardHistory(report.period, context.previous, actual);
-  const change = actual - context.previous;
+  const { previous, consensus, change } = macroComparison(report.period, actual,
+    id === 'nonfarm' ? report.nonfarmPrevious : report.unemploymentPrevious, context, priorHistory, id === 'nonfarm' ? 0.51 : 0.051);
+  const { currentTime, history } = isolatedCardHistory(report.period, previous, actual);
   const nonfarm = id === 'nonfarm';
-  const format = (value: number) => nonfarm
+  const format = (value: number | undefined) => value === undefined ? '—' : nonfarm
     ? `${value > 0 ? '+' : ''}${Math.round(value)}K`
     : `${value.toFixed(1)}%`;
   return {
@@ -6163,15 +6244,15 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
     value: actual,
     display: format(actual),
     change,
-    changeDisplay: nonfarm ? `${change > 0 ? '+' : ''}${Math.round(change)}K` : signedCardValue(change, 1, 'p'),
+    changeDisplay: optionalDisplay(change, nonfarm ? 0 : 1, nonfarm ? 'K' : 'p'),
     updatedAt: currentTime,
     sourceUrl: report.sourceUrl,
     status: 'delayed',
     history,
     stats: [
       { label: '实际', display: format(actual) },
-      { label: '预期', display: format(context.consensus) },
-      { label: '前值', display: format(context.previous) },
+      { label: '预期', display: format(consensus) },
+      { label: '前值', display: format(previous) },
     ],
   };
 }
@@ -6181,13 +6262,29 @@ async function refreshIsolatedUsMacroCard(id: IsolatedUsMacroCardId) {
   if (running) return running;
   const request = buildIsolatedUsMacroCard(id)
     .then((data) => {
+      const cached = isolatedUsMacroCardCache.get(id)?.data;
+      assertMacroPeriodNotRegressed(data.updatedAt, cached?.updatedAt);
+      // Preserve same-release enrichment through transient expectation failures only.
+      if (cached?.updatedAt.slice(0, 7) === data.updatedAt.slice(0, 7) && cached.value === data.value) {
+        data.stats = data.stats.map(stat => stat.display === '—' && /预期/.test(stat.label)
+          ? cached.stats.find(previous => previous.label === stat.label) || stat : stat);
+      }
+      data.stale = false;
+      data.checkedAt = new Date().toISOString();
+      data.lastSuccessAt = data.checkedAt;
       isolatedUsMacroCardCache.set(id, { storedAt: Date.now(), data });
       persistIsolatedUsMacroCards();
       return data;
     })
     .catch((error) => {
       const cached = isolatedUsMacroCardCache.get(id);
-      if (cached) return cached.data;
+      console.warn(`[us-macro-card:${id}] refresh failed:`, error instanceof Error ? error.message : String(error));
+      if (cached) {
+        cached.data = { ...cached.data, stale: true, checkedAt: new Date().toISOString(), refreshError: error instanceof Error ? error.message : String(error) };
+        cached.storedAt = Date.now(); // Back off until the next regular poll, retaining the observation period.
+        persistIsolatedUsMacroCards();
+        return cached.data;
+      }
       throw error;
     })
     .finally(() => isolatedUsMacroCardInFlight.delete(id));
@@ -12596,6 +12693,12 @@ export default defineConfig({
   server: {
     watch: {
       ignored: [
+        // Runtime snapshots and browser profiles are generated data, not HMR inputs.
+        '**/.sparkflow/**',
+        '**/output/**',
+        '**/tmp/**',
+        '**/test-results/**',
+        '**/SparkFlow-main/**',
         '**/services/dailyhot/node_modules/**',
         '**/services/dailyhot/web-dist/**',
         '**/services/dailyhot/api-runtime/**',

@@ -18,7 +18,7 @@ function assert(condition, message) {
 }
 
 async function fetchCard(id) {
-  const response = await fetch(`${baseUrl}/api/us-macro-card?id=${encodeURIComponent(id)}`);
+  const response = await fetch(`${baseUrl}/api/us-macro-card?id=${encodeURIComponent(id)}&fresh=1`, { signal: AbortSignal.timeout(60000) });
   assert(response.ok, `${id} HTTP ${response.status}`);
   const payload = await response.json();
   return payload.card;
@@ -31,6 +31,12 @@ const cards = await Promise.all(ids.map(fetchCard));
 cards.forEach((card) => {
   assert(card?.id && ids.includes(card.id), '返回了未知卡片');
   assert(Number.isFinite(card.value), `${card.id} 实际值缺失`);
+  assert(card.stale === false, `${card.id} 刷新失败：${card.refreshError || '缓存未经验证'}`);
+  assert(Number.isFinite(Date.parse(card.checkedAt)), `${card.id} 缺少检查时间`);
+  assert(/^\d{4}-\d{2}-01T/.test(card.updatedAt), `${card.id} 缺少统计期`);
+  if (process.env.SPARKFLOW_EXPECT_EMPLOYMENT_PERIOD && ['nonfarm', 'unemployment'].includes(card.id)) {
+    assert(card.updatedAt.slice(0, 7) === process.env.SPARKFLOW_EXPECT_EMPLOYMENT_PERIOD, `${card.id} 仍是旧统计期 ${card.updatedAt}`);
+  }
   assert(!String(card.display).includes('待更新'), `${card.id} 主值待更新`);
   const stats = new Map((card.stats || []).map((item) => [item.label, item.display]));
   expectedStats[card.id].forEach((label) => {
@@ -41,17 +47,17 @@ cards.forEach((card) => {
   if (['unemployment', 'nonfarm'].includes(card.id)) {
     const actual = numeric(stats.get('实际'));
     const previous = numeric(stats.get('前值'));
-    assert(actual !== null && previous !== null, `${card.id} 无法校验变化值`);
-    assert(Math.abs(card.change - (actual - previous)) < 0.011, `${card.id} 变化值与实际/前值不一致`);
+    assert(actual !== null, `${card.id} 实际值缺失`);
+    assert(previous === null ? card.change === null : Math.abs(card.change - (actual - previous)) < 0.011, `${card.id} 变化值与实际/前值不一致`);
   }
   if (card.id === 'pmi') {
     const previous = numeric(stats.get('前值'));
-    assert(previous !== null && Math.abs(card.change - (card.value - previous)) < 0.011, 'PMI 变化值不一致');
+    assert(previous === null ? card.change === null : Math.abs(card.change - (card.value - previous)) < 0.011, 'PMI 变化值不一致');
   }
   if (card.id === 'pce') {
     const actual = numeric(stats.get('PCE实际'));
     const previous = numeric(stats.get('PCE前值'));
-    assert(actual !== null && previous !== null && Math.abs(card.change - (actual - previous)) < 0.011, 'PCE 变化值不一致');
+    assert(actual !== null && (previous === null ? card.change === null : Math.abs(card.change - (actual - previous)) < 0.011), 'PCE 变化值不一致');
   }
 });
 
@@ -60,6 +66,6 @@ assert(invalid.status === 400, `非法卡片应返回 400，实际为 ${invalid.
 
 console.log(JSON.stringify({
   ok: true,
-  cards: cards.map((card) => ({ id: card.id, display: card.display, change: card.changeDisplay })),
+  cards: cards.map((card) => ({ id: card.id, display: card.display, change: card.changeDisplay, period: card.updatedAt.slice(0, 7), stale: card.stale })),
   elapsedMs: Date.now() - startedAt,
 }, null, 2));
