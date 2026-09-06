@@ -38,7 +38,7 @@
 
 | P2.4a 主动只读对账与来源 | VERIFIED | readonly.py、sdk.py、broker_views.py、schemas.py；SnapshotProvenance.tsx、AccountTables.tsx | unit：7 JS + 26 Python passed；e2e 13 passed；tsc passed；本地 unbound WS 探针 passed | test_reconciliation.py、test_sdk_observations.py：真实 SDK 回调接 fake transport，无 socket／写方法 | 非真实账户验收；更正与历史审计留待 P3 |
 
-| P2.4b 真实账户核对 | BLOCKED | 只读启动与绑定框架已存在 | 未运行 | 需要用户登录、只读连接配置、明确账户绑定及真实 paper 测试范围 | 继续完成其余离线开发 |
+| P2.4b 真实账户核对 | VERIFIED（paper 只读首轮） | 只读启动与绑定框架、market/contracts、market-data | 2026-09-06 本机 Gateway 4002 + 账户服务 8765：session/snapshot 200，`source=ibkr`、`testData=false`、`connection=connected`、账户摘要和 USD 风险字段返回；SPY 合约与 1D/5D/1M 历史 K 线返回 | `docs/design/ibkr/connection-check-2026-09-06.json`、`market-connectivity-2026-09-06.json` | 实时 feed 仅 delayed/过期（IBKR_10089/10167）；paper 下单/撤单需用户精确范围、Gateway 写权限、实时成交报价和当日 PnL |
 
 | P3.1 订单身份／原子预占 | VERIFIED | orders.py、risk.py、audit.py；test_orders.py | 27 离线测试 passed | 20 请求／8 线程／独立 SQLite 连接只预占一笔；重复／重启、同键异体、撤权、陈旧行情、缺数据、卖出超持仓、多策略日限额、集中度、外部挂单预占 | 首步只含 DAY 限价、整股、USD 现金范围；未接 API／券商写入 |
 
