@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "fixture-risk-report-v1",
+  "accountKey": "paper:engineering-report",
+  "mode": "paper",
+  "sessionRevision": 1,
+  "sequence": 3,
+  "source": "fixture",
+  "testData": true,
+  "asOf": "2026-09-05T12:00:00+00:00",
+  "connection": "connected",
+  "state": "ready",
+  "baseCurrency": "USD",
+  "metrics": {
+    "netLiquidation": "1000",
+    "unrealizedPnl": "20",
+    "buyingPower": "200",
+    "maintenanceMargin": "200"
+  },
+  "cash": [{ "currency": "USD", "amount": "200" }],
+  "positions": [
+    { "accountKey": "paper:engineering-report", "conId": 12, "symbol": "AAA-FIXTURE", "currency": "USD", "quantity": "6", "averageCost": "90", "marketValue": "600" },
+    { "accountKey": "paper:engineering-report", "conId": 13, "symbol": "BBB-FIXTURE", "currency": "USD", "quantity": "2", "averageCost": "90", "marketValue": "200" }
+  ],
+  "orders": [],
+  "quotes": [],
+  "capabilities": { "placeOrders": false, "shareWithAi": false },
+  "missing": [],
+  "detail": "工程固定报告样本；不是 IBKR paper 账户",
+  "executions": [],
+  "provenance": {
+    "metrics.netLiquidation": { "source": "fixture.accountSummary", "observedAt": "2026-09-05T12:00:00+00:00", "brokerAsOf": null, "requestCompletedAt": null },
+    "metrics.maintenanceMargin": { "source": "fixture.accountSummary", "observedAt": "2026-09-05T12:00:00+00:00", "brokerAsOf": null, "requestCompletedAt": null }
+  }
+}

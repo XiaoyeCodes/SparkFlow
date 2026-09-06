@@ -1,0 +1,27 @@
+{
+  "checkedAt": "2026-09-06T03:36:48.800940+00:00",
+  "scope": "read-only market connectivity probe; SPY is a data test, no trading selection or order",
+  "errors": [
+    2104,
+    2106,
+    2158,
+    2119,
+    2104,
+    10197,
+    2106,
+    162
+  ],
+  "contractsFound": 1,
+  "quote": {
+    "conId": 756733,
+    "state": "permission-required",
+    "source": "ibkr.reqMktData",
+    "observedAt": null,
+    "brokerAsOf": null,
+    "detail": "IBKR_10197"
+  },
+  "pricePresent": false,
+  "history": {
+    "errorType": "RequestError"
+  }
+}

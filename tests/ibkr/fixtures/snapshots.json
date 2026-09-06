@@ -1,0 +1,277 @@
+{
+  "empty": {
+    "schemaVersion": 1,
+    "snapshotId": "fixture-empty-v1",
+    "accountKey": "paper:engineering-fixture",
+    "mode": "paper",
+    "sessionRevision": 1,
+    "sequence": 1,
+    "source": "fixture",
+    "testData": true,
+    "asOf": "2026-09-04T12:00:00Z",
+    "connection": "connected",
+    "state": "empty",
+    "baseCurrency": "USD",
+    "metrics": {
+      "netLiquidation": "0",
+      "unrealizedPnl": null,
+      "buyingPower": null,
+      "maintenanceMargin": null
+    },
+    "cash": [],
+    "positions": [],
+    "orders": [],
+    "quotes": [],
+    "capabilities": {
+      "placeOrders": false,
+      "shareWithAi": false
+    },
+    "missing": [
+      "quotes"
+    ],
+    "detail": "工程固定样本；不是 IBKR paper 账户"
+  },
+  "disconnected": {
+    "schemaVersion": 1,
+    "snapshotId": "fixture-disconnected-v1",
+    "accountKey": "paper:engineering-fixture",
+    "mode": "paper",
+    "sessionRevision": 1,
+    "sequence": 1,
+    "source": "fixture",
+    "testData": true,
+    "asOf": null,
+    "connection": "disconnected",
+    "state": "error",
+    "baseCurrency": "USD",
+    "metrics": {
+      "netLiquidation": null,
+      "unrealizedPnl": null,
+      "buyingPower": null,
+      "maintenanceMargin": null
+    },
+    "cash": [],
+    "positions": [],
+    "orders": [],
+    "quotes": [],
+    "capabilities": {
+      "placeOrders": false,
+      "shareWithAi": false
+    },
+    "missing": [
+      "account",
+      "quotes"
+    ],
+    "detail": "工程样本：连接断开；账户数据未知"
+  },
+  "delayed": {
+    "schemaVersion": 1,
+    "snapshotId": "fixture-delayed-v1",
+    "accountKey": "paper:engineering-fixture",
+    "mode": "paper",
+    "sessionRevision": 1,
+    "sequence": 1,
+    "source": "fixture",
+    "testData": true,
+    "asOf": "2026-09-04T12:00:00Z",
+    "connection": "connected",
+    "state": "ready",
+    "baseCurrency": "USD",
+    "metrics": {
+      "netLiquidation": "0",
+      "unrealizedPnl": null,
+      "buyingPower": null,
+      "maintenanceMargin": null
+    },
+    "cash": [],
+    "positions": [],
+    "orders": [],
+    "quotes": [
+      {
+        "conId": 9000001,
+        "state": "delayed",
+        "price": "100.25",
+        "asOf": "2026-09-04T11:45:00Z",
+        "source": "fixture"
+      }
+    ],
+    "capabilities": {
+      "placeOrders": false,
+      "shareWithAi": false
+    },
+    "missing": [
+      "quotes"
+    ],
+    "detail": "工程固定样本；不是 IBKR paper 账户"
+  },
+  "multiCurrency": {
+    "schemaVersion": 1,
+    "snapshotId": "fixture-multiCurrency-v1",
+    "accountKey": "paper:engineering-fixture",
+    "mode": "paper",
+    "sessionRevision": 1,
+    "sequence": 1,
+    "source": "fixture",
+    "testData": true,
+    "asOf": "2026-09-04T12:00:00Z",
+    "connection": "connected",
+    "state": "ready",
+    "baseCurrency": "USD",
+    "metrics": {
+      "netLiquidation": null,
+      "unrealizedPnl": null,
+      "buyingPower": null,
+      "maintenanceMargin": null
+    },
+    "cash": [
+      {
+        "currency": "USD",
+        "amount": "1000.25"
+      },
+      {
+        "currency": "HKD",
+        "amount": "2000.50"
+      }
+    ],
+    "positions": [
+      {
+        "accountKey": "paper:engineering-fixture",
+        "conId": 9000001,
+        "symbol": "TEST-ETF",
+        "currency": "USD",
+        "quantity": "5",
+        "averageCost": "99.5",
+        "marketValue": null
+      }
+    ],
+    "orders": [],
+    "quotes": [],
+    "capabilities": {
+      "placeOrders": false,
+      "shareWithAi": false
+    },
+    "missing": [
+      "quotes",
+      "fx",
+      "netLiquidation"
+    ],
+    "detail": "工程固定样本；不是 IBKR paper 账户"
+  },
+  "partialFill": {
+    "schemaVersion": 1,
+    "snapshotId": "fixture-partialFill-v1",
+    "accountKey": "paper:engineering-fixture",
+    "mode": "paper",
+    "sessionRevision": 1,
+    "sequence": 1,
+    "source": "fixture",
+    "testData": true,
+    "asOf": "2026-09-04T12:00:00Z",
+    "connection": "connected",
+    "state": "ready",
+    "baseCurrency": "USD",
+    "metrics": {
+      "netLiquidation": "0",
+      "unrealizedPnl": null,
+      "buyingPower": null,
+      "maintenanceMargin": null
+    },
+    "cash": [],
+    "positions": [],
+    "orders": [
+      {
+        "accountKey": "paper:engineering-fixture",
+        "clientIntentId": "fixture-intent-1",
+        "conId": 9000001,
+        "quantity": "5",
+        "filled": "2",
+        "remaining": "3",
+        "submission": "ACKNOWLEDGED",
+        "execution": "PARTIALLY_FILLED",
+        "managed": true
+      }
+    ],
+    "quotes": [],
+    "capabilities": {
+      "placeOrders": false,
+      "shareWithAi": false
+    },
+    "missing": [
+      "quotes"
+    ],
+    "detail": "工程固定样本；不是 IBKR paper 账户"
+  },
+  "permissionRequired": {
+    "schemaVersion": 1,
+    "snapshotId": "fixture-permissionRequired-v1",
+    "accountKey": "paper:engineering-fixture",
+    "mode": "paper",
+    "sessionRevision": 1,
+    "sequence": 1,
+    "source": "fixture",
+    "testData": true,
+    "asOf": null,
+    "connection": "unconfigured",
+    "state": "permission-required",
+    "baseCurrency": "USD",
+    "metrics": {
+      "netLiquidation": null
+    },
+    "cash": [],
+    "positions": [],
+    "orders": [],
+    "quotes": [],
+    "capabilities": {
+      "placeOrders": false,
+      "shareWithAi": false
+    },
+    "missing": [
+      "account-binding"
+    ],
+    "detail": "工程样本：需要账户绑定与只读权限"
+  },
+  "timeout": {
+    "schemaVersion": 1,
+    "snapshotId": "fixture-timeout-v1",
+    "accountKey": "paper:engineering-fixture",
+    "mode": "paper",
+    "sessionRevision": 1,
+    "sequence": 1,
+    "source": "fixture",
+    "testData": true,
+    "asOf": "2026-09-04T12:00:00Z",
+    "connection": "reconciling",
+    "state": "stale",
+    "baseCurrency": "USD",
+    "metrics": {
+      "netLiquidation": "0",
+      "unrealizedPnl": null,
+      "buyingPower": null,
+      "maintenanceMargin": null
+    },
+    "cash": [],
+    "positions": [],
+    "orders": [
+      {
+        "accountKey": "paper:engineering-fixture",
+        "clientIntentId": "fixture-intent-1",
+        "conId": 9000001,
+        "quantity": "5",
+        "filled": "0",
+        "remaining": "5",
+        "submission": "UNKNOWN",
+        "execution": "PENDING",
+        "managed": true
+      }
+    ],
+    "quotes": [],
+    "capabilities": {
+      "placeOrders": false,
+      "shareWithAi": false
+    },
+    "missing": [
+      "quotes"
+    ],
+    "detail": "工程样本：提交超时，先对账，禁止重发"
+  }
+}

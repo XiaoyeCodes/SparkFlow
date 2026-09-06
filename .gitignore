@@ -20,3 +20,5 @@ services/vibe-trading/agent/.ui_runtime/
 SparkFlow-main.zip
 SparkFlow-main/
 tmp/
+test-results/
+playwright-report/

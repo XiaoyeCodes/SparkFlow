@@ -1,0 +1,874 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-05T09:53:34.132Z",
+  "environment": {
+    "browser": "152.0.7977.82",
+    "viewport": "1440x1000",
+    "productionBuild": true
+  },
+  "workload": {
+    "positions": 50,
+    "orders": 500,
+    "bars": 10000,
+    "fixture": true
+  },
+  "measurements": {
+    "lcpMs": 1112,
+    "chartReadyMs": 2009.7332999999999,
+    "clickFeedbackP95Ms": 76.30149999999958,
+    "scrollFps": 209.46934432769666,
+    "soakMinutes": 60,
+    "heapGrowthBytes": 559892,
+    "maxHeapUsedBytes": 15147796,
+    "requestCount": 40,
+    "consoleErrors": [],
+    "samples": [
+      {
+        "elapsedSeconds": 0,
+        "jsHeapUsedBytes": 14281888,
+        "nodes": 1652,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 30.027,
+        "jsHeapUsedBytes": 14137872,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 60.053,
+        "jsHeapUsedBytes": 14578344,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 90.07,
+        "jsHeapUsedBytes": 14975684,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 120.105,
+        "jsHeapUsedBytes": 14596728,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 150.122,
+        "jsHeapUsedBytes": 14995592,
+        "nodes": 3358,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 180.138,
+        "jsHeapUsedBytes": 14771856,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 210.165,
+        "jsHeapUsedBytes": 15147796,
+        "nodes": 4284,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 240.189,
+        "jsHeapUsedBytes": 14031784,
+        "nodes": 1654,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 270.206,
+        "jsHeapUsedBytes": 14433176,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 300.225,
+        "jsHeapUsedBytes": 14862068,
+        "nodes": 2580,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 330.25,
+        "jsHeapUsedBytes": 14425928,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 360.278,
+        "jsHeapUsedBytes": 14842160,
+        "nodes": 3506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 390.304,
+        "jsHeapUsedBytes": 14589396,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 420.326,
+        "jsHeapUsedBytes": 15006972,
+        "nodes": 4432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 450.346,
+        "jsHeapUsedBytes": 13949400,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 480.365,
+        "jsHeapUsedBytes": 14382160,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 510.381,
+        "jsHeapUsedBytes": 14788060,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 540.408,
+        "jsHeapUsedBytes": 14405152,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 570.423,
+        "jsHeapUsedBytes": 14782692,
+        "nodes": 3358,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 600.445,
+        "jsHeapUsedBytes": 14533340,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 630.471,
+        "jsHeapUsedBytes": 14911308,
+        "nodes": 4284,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 660.492,
+        "jsHeapUsedBytes": 13984736,
+        "nodes": 1654,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 690.507,
+        "jsHeapUsedBytes": 14390284,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 720.534,
+        "jsHeapUsedBytes": 14791560,
+        "nodes": 2580,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 750.555,
+        "jsHeapUsedBytes": 14387252,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 780.574,
+        "jsHeapUsedBytes": 14787112,
+        "nodes": 3506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 810.598,
+        "jsHeapUsedBytes": 14535916,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 840.628,
+        "jsHeapUsedBytes": 14953480,
+        "nodes": 4432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 870.647,
+        "jsHeapUsedBytes": 13958588,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 900.671,
+        "jsHeapUsedBytes": 14382440,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 930.694,
+        "jsHeapUsedBytes": 14749244,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 960.722,
+        "jsHeapUsedBytes": 14365156,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 990.747,
+        "jsHeapUsedBytes": 14750112,
+        "nodes": 3358,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1020.766,
+        "jsHeapUsedBytes": 14526936,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1050.794,
+        "jsHeapUsedBytes": 14895268,
+        "nodes": 4284,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1080.826,
+        "jsHeapUsedBytes": 14673600,
+        "nodes": 4821,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1110.846,
+        "jsHeapUsedBytes": 14113904,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1140.87,
+        "jsHeapUsedBytes": 14561216,
+        "nodes": 2580,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1170.894,
+        "jsHeapUsedBytes": 14902776,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1200.919,
+        "jsHeapUsedBytes": 14582740,
+        "nodes": 3506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1230.938,
+        "jsHeapUsedBytes": 14927900,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1260.967,
+        "jsHeapUsedBytes": 14758632,
+        "nodes": 4432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1290.996,
+        "jsHeapUsedBytes": 15117204,
+        "nodes": 4821,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1321.022,
+        "jsHeapUsedBytes": 14043668,
+        "nodes": 1654,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1351.053,
+        "jsHeapUsedBytes": 14400720,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1381.072,
+        "jsHeapUsedBytes": 14775604,
+        "nodes": 2580,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1411.097,
+        "jsHeapUsedBytes": 14425620,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1441.13,
+        "jsHeapUsedBytes": 14818684,
+        "nodes": 3506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1471.153,
+        "jsHeapUsedBytes": 14583484,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1501.179,
+        "jsHeapUsedBytes": 14958048,
+        "nodes": 4432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1531.208,
+        "jsHeapUsedBytes": 14027876,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1561.231,
+        "jsHeapUsedBytes": 14419232,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1591.249,
+        "jsHeapUsedBytes": 14782616,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1621.266,
+        "jsHeapUsedBytes": 14445652,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1651.289,
+        "jsHeapUsedBytes": 14787480,
+        "nodes": 3358,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1681.311,
+        "jsHeapUsedBytes": 14596660,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1711.332,
+        "jsHeapUsedBytes": 14938580,
+        "nodes": 4284,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1741.357,
+        "jsHeapUsedBytes": 14072492,
+        "nodes": 1654,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1771.377,
+        "jsHeapUsedBytes": 14437732,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1801.4,
+        "jsHeapUsedBytes": 14820740,
+        "nodes": 2580,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1831.423,
+        "jsHeapUsedBytes": 14473056,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1861.437,
+        "jsHeapUsedBytes": 14847120,
+        "nodes": 3506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1891.456,
+        "jsHeapUsedBytes": 14626672,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1921.483,
+        "jsHeapUsedBytes": 15001476,
+        "nodes": 4432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1951.5,
+        "jsHeapUsedBytes": 14027580,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 1981.519,
+        "jsHeapUsedBytes": 14418488,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2011.542,
+        "jsHeapUsedBytes": 14759324,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2041.555,
+        "jsHeapUsedBytes": 14453616,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2071.574,
+        "jsHeapUsedBytes": 14804680,
+        "nodes": 3358,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2101.59,
+        "jsHeapUsedBytes": 14604836,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2131.618,
+        "jsHeapUsedBytes": 14949520,
+        "nodes": 4284,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2161.643,
+        "jsHeapUsedBytes": 14072464,
+        "nodes": 1654,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2191.669,
+        "jsHeapUsedBytes": 14447628,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2221.688,
+        "jsHeapUsedBytes": 14827244,
+        "nodes": 2580,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2251.705,
+        "jsHeapUsedBytes": 14469020,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2281.736,
+        "jsHeapUsedBytes": 14846312,
+        "nodes": 3506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2311.759,
+        "jsHeapUsedBytes": 14631532,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2341.777,
+        "jsHeapUsedBytes": 15026108,
+        "nodes": 4432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2371.802,
+        "jsHeapUsedBytes": 14045812,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2401.818,
+        "jsHeapUsedBytes": 14436760,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2431.832,
+        "jsHeapUsedBytes": 14777576,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2461.855,
+        "jsHeapUsedBytes": 14447996,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2491.87,
+        "jsHeapUsedBytes": 14806992,
+        "nodes": 3358,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2521.89,
+        "jsHeapUsedBytes": 14611396,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2551.912,
+        "jsHeapUsedBytes": 14951396,
+        "nodes": 4284,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2581.939,
+        "jsHeapUsedBytes": 14737424,
+        "nodes": 4821,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2611.957,
+        "jsHeapUsedBytes": 14046468,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2641.971,
+        "jsHeapUsedBytes": 14458964,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2672,
+        "jsHeapUsedBytes": 14799628,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2702.016,
+        "jsHeapUsedBytes": 14470596,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2732.034,
+        "jsHeapUsedBytes": 14811232,
+        "nodes": 3358,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2762.055,
+        "jsHeapUsedBytes": 14623996,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2792.07,
+        "jsHeapUsedBytes": 14982952,
+        "nodes": 4284,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2822.087,
+        "jsHeapUsedBytes": 14081108,
+        "nodes": 1654,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2852.109,
+        "jsHeapUsedBytes": 14436072,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2882.132,
+        "jsHeapUsedBytes": 14813368,
+        "nodes": 2580,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2912.161,
+        "jsHeapUsedBytes": 14467044,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2942.191,
+        "jsHeapUsedBytes": 14861676,
+        "nodes": 3506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 2972.218,
+        "jsHeapUsedBytes": 14618260,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3002.243,
+        "jsHeapUsedBytes": 14993944,
+        "nodes": 4432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3032.262,
+        "jsHeapUsedBytes": 14054208,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3062.278,
+        "jsHeapUsedBytes": 14445000,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3092.305,
+        "jsHeapUsedBytes": 14804656,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3122.334,
+        "jsHeapUsedBytes": 14476968,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3152.358,
+        "jsHeapUsedBytes": 14816904,
+        "nodes": 3358,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3182.386,
+        "jsHeapUsedBytes": 14622140,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3212.414,
+        "jsHeapUsedBytes": 14962940,
+        "nodes": 4284,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3242.429,
+        "jsHeapUsedBytes": 14101980,
+        "nodes": 1654,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3272.449,
+        "jsHeapUsedBytes": 14456960,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3302.471,
+        "jsHeapUsedBytes": 14833416,
+        "nodes": 2580,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3332.487,
+        "jsHeapUsedBytes": 14489100,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3362.514,
+        "jsHeapUsedBytes": 14880788,
+        "nodes": 3506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3392.543,
+        "jsHeapUsedBytes": 14660472,
+        "nodes": 3895,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3422.572,
+        "jsHeapUsedBytes": 15040976,
+        "nodes": 4432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3452.599,
+        "jsHeapUsedBytes": 14069232,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3482.626,
+        "jsHeapUsedBytes": 14460008,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3512.656,
+        "jsHeapUsedBytes": 14804688,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3542.679,
+        "jsHeapUsedBytes": 14501892,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 40
+      },
+      {
+        "elapsedSeconds": 3572.692,
+        "jsHeapUsedBytes": 14841780,
+        "nodes": 3358,
+        "documents": 1,
+        "requestCount": 40
+      }
+    ]
+  },
+  "thresholds": {
+    "lcpMs": 2500,
+    "clickFeedbackP95Ms": 100,
+    "scrollFpsMinimum": 45
+  },
+  "passed": true
+}

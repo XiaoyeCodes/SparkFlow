@@ -1,0 +1,3 @@
+# Supplemental offline test dependencies; production lock remains unchanged.
+pytest==8.4.2
+pytest-socket==0.7.0

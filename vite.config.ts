@@ -20,6 +20,7 @@ import { CozeReportTaskService } from './server/cozeReportTasks';
 import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, parseSyndication, type NewsSource } from './server/newsFeed';
 import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from './server/newsSubscriptions';
 import { dailyHotPlugin } from './server/dailyhotPlugin';
+import { ibkrTerminalProxy } from './server/ibkrTerminalProxy';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
 import { createFinancialConditionsService } from './server/financialConditions';
 import { parseEmploymentHeadline, parseMacroMarketCalendar, macroComparison, assertMacroPeriodNotRegressed, type MacroMarketContext } from './server/usMacroRelease';
@@ -12689,7 +12690,7 @@ function allWeatherApiPlugin() {
 }
 
 export default defineConfig({
-  plugins: [react(), dailyHotPlugin(), allWeatherApiPlugin()],
+  plugins: [react(), ibkrTerminalProxy(), dailyHotPlugin(), allWeatherApiPlugin()],
   server: {
     watch: {
       ignored: [

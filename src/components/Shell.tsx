@@ -6,7 +6,7 @@ import { primaryNavigation } from '../data/navigation';
 
 export function Shell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
-  const autoHideNavigation = pathname === '/terminal';
+  const autoHideNavigation = pathname === '/terminal' || pathname === '/ibkr';
   const [touchNavigation, setTouchNavigation] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(hover: none), (pointer: coarse)').matches || navigator.maxTouchPoints > 0;

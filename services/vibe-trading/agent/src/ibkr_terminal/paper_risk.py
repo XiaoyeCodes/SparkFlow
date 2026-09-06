@@ -1,0 +1,170 @@
+"""Broker evidence for manual paper orders. No invented account numbers."""
+import asyncio
+from datetime import datetime, timezone
+from decimal import Decimal
+from .broker_views import decimal_text
+from .risk import RiskContext, RiskDenied, Holding
+from .order_codec import ResolvedInstrument
+from .reviews import PreviewInput, ReviewBlocked
+
+
+def account_risk(account, values, portfolio, positions, *, daily_pnl):
+    def metric(tag):
+        found = [decimal_text(r.value) for r in values if r.account == account and r.tag == tag and r.currency == 'USD']
+        if len(found) != 1 or found[0] is None or Decimal(found[0]) < 0:
+            raise RiskDenied('MISSING_ACCOUNT_DATA')
+        return found[0]
+    pnl = decimal_text(daily_pnl)
+    if pnl is None:
+        raise RiskDenied('DAILY_PNL_UNAVAILABLE')
+    holdings = []
+    for row in portfolio:
+        if row.account != account:
+            continue
+        quantity, value = decimal_text(row.position), decimal_text(row.marketValue)
+        if quantity is None or value is None or Decimal(quantity) < 0 or Decimal(value) < 0 or row.contract.currency != 'USD':
+            raise RiskDenied('INCOMPLETE_HOLDINGS')
+        if Decimal(quantity):
+            holdings.append(Holding(conId=row.contract.conId, quantity=quantity, marketValue=value, currency='USD'))
+    expected = {p.conId: Decimal(p.quantity) for p in positions if Decimal(p.quantity)}
+    if len({h.conId for h in holdings}) != len(holdings) or {h.conId:Decimal(h.quantity) for h in holdings} != expected:
+        raise RiskDenied('PORTFOLIO_RECONCILIATION_REQUIRED')
+    return dict(settledCash=metric('SettledCash'),totalCash=metric('TotalCashValue'),netLiquidation=metric('NetLiquidation'),
+        dailyLoss=format(max(-Decimal(pnl),Decimal(0)),'f'),holdings=tuple(holdings))
+
+
+class PaperRiskSource:
+    """One selected contract and bounded subscriptions on the account owner loop."""
+    def __init__(self, connection, scope, *, clock=None):
+        self.connection, self.scope = connection, scope
+        self.ib = connection._ib
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.instrument = self.details = self.ticker = self.prepared = None
+        self.quote = None
+        self.pnl_value = self.pnl_at = None
+        self.ib.pnlEvent += self._pnl
+        self.ib.pendingTickersEvent += self._ticks
+        self._pnl_subscribed = False
+        try:
+            self.ib.reqPnL(connection.binding.brokerAccount)
+            self._pnl_subscribed = True
+        except BaseException:
+            self.close()
+            raise
+
+    def _pnl(self, row):
+        if row.account == self.connection.binding.brokerAccount and not row.modelCode:
+            self.pnl_value, self.pnl_at = decimal_text(row.dailyPnL), self.clock()
+
+    def _ticks(self, tickers):
+        if self.ticker is None or self.ticker not in tickers:
+            return
+        # Ordinary initial last-price snapshots carry receipt time, not trade
+        # time. Tick-by-tick Last includes IBKR's actual tick timestamp.
+        trades = [t for t in self.ticker.tickByTicks if getattr(t,'tickType',None) == 1]
+        if trades:
+            tick = trades[-1]
+            price = decimal_text(tick.price)
+            self.quote = (price, tick.time) if (price is not None and Decimal(price)>0
+                and isinstance(tick.time,datetime) and tick.time.tzinfo is not None) else None
+
+    async def resolve(self, symbol=None, con_id=None):
+        from ib_async import Contract
+        contract = Contract(conId=con_id or 0, symbol=symbol or '', secType='STK', exchange='SMART', currency='USD')
+        rows = await asyncio.wait_for(self.ib.reqContractDetailsAsync(contract), 4)
+        if len(rows) != 1:
+            raise RiskDenied('AMBIGUOUS_CONTRACT')
+        detail = rows[0]
+        native = detail.contract
+        if (native.secType != 'STK' or native.currency != 'USD'
+            or native.primaryExchange not in ('NASDAQ','NYSE','ARCA','AMEX','BATS','ISLAND','IEX','NYSEARCA')
+            or native.multiplier not in ('','1')):
+            raise RiskDenied('UNSUPPORTED_CONTRACT')
+        instrument = ResolvedInstrument(conId=native.conId,symbol=native.symbol,secType='STK',currency='USD',
+            exchange='SMART',primaryExchange=native.primaryExchange,multiplier='1',minTick=decimal_text(detail.minTick),minQuantity='1')
+        if self.instrument is None or self.instrument.conId != instrument.conId:
+            if self.ticker is not None:
+                self.ib.cancelTickByTickData(self.ticker.contract, 'Last')
+            self.quote = None
+            self.ticker = self.ib.reqTickByTickData(native, 'Last', 0, False)
+        self.instrument, self.details = instrument, detail
+        return instrument
+
+    async def prepare(self, draft):
+        if not self.connection.healthy() or self.connection.reconciliation_blocked:
+            raise RiskDenied('RECONCILIATION_REQUIRED')
+        if draft.conId not in self.scope.conIds:
+            raise RiskDenied('CONTRACT_SCOPE')
+        if self.instrument is None or self.instrument.conId != draft.conId:
+            await self.resolve(con_id=draft.conId)
+        exchanges = self.details.validExchanges.split(',')
+        rules = self.details.marketRuleIds.split(',')
+        if 'SMART' not in exchanges or len(exchanges) != len(rules):
+            raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
+        rule_id = rules[exchanges.index('SMART')]
+        if not rule_id.isdigit():
+            raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
+        ladder = await self.ib.reqMarketRuleAsync(int(rule_id))
+        applicable = [r for r in ladder or [] if decimal_text(r.lowEdge) is not None and Decimal(str(r.lowEdge)) <= Decimal(draft.limitPrice)]
+        if not applicable:
+            raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
+        tick = decimal_text(max(applicable, key=lambda r:Decimal(str(r.lowEdge))).increment)
+        if tick is None or Decimal(tick) <= 0:
+            raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
+        self.instrument = self.instrument.model_copy(update={'minTick':tick})
+        if not await self.connection.reconcile():
+            raise RiskDenied('RECONCILIATION_REQUIRED')
+        # Account summary and portfolio are separate completed broker reads.
+        raw = await asyncio.wait_for(self.ib.reqAccountSnapshotAsync(self.connection.binding.brokerAccount), 4)
+        values = await asyncio.wait_for(self.ib.reqFreshSummaryAsync(), 4)
+        snapshot = self.connection.session.snapshot()
+        if snapshot.baseCurrency != 'USD' or snapshot.state not in ('ready','empty'):
+            raise RiskDenied('RECONCILIATION_REQUIRED')
+        if snapshot.orders:
+            # Unknown external remaining risk is never silently excluded.
+            raise RiskDenied('EXTERNAL_ORDER_RISK_UNKNOWN')
+        risk = account_risk(self.connection.binding.brokerAccount,values,raw['portfolio'],snapshot.positions,daily_pnl=self.pnl_value)
+        self.prepared = (snapshot, risk, self.clock())
+        return self.load(draft)
+
+    def load(self, draft):
+        if self.prepared is None or self.instrument is None or self.quote is None or self.pnl_at is None:
+            raise ReviewBlocked('MISSING_QUOTE_AND_RISK_PROFILE')
+        if draft.conId != self.instrument.conId or not self.connection.healthy() or self.connection.reconciliation_blocked:
+            raise ReviewBlocked('RECONCILIATION_REQUIRED')
+        snapshot, risk, account_at = self.prepared
+        current = self.connection.session.snapshot()
+        if current.sessionRevision != self.scope.sessionRevision or current.state not in ('ready','empty'):
+            raise ReviewBlocked('RECONCILIATION_REQUIRED')
+        if (current.positions, current.orders) != (snapshot.positions,snapshot.orders):
+            raise ReviewBlocked('PREVIEW_SOURCE_CHANGED')
+        values = self.ib.accountSummary(self.connection.binding.brokerAccount)
+        for tag, key in (('SettledCash','settledCash'),('TotalCashValue','totalCash'),('NetLiquidation','netLiquidation')):
+            latest = [decimal_text(r.value) for r in values if r.account == self.connection.binding.brokerAccount and r.tag == tag and r.currency == 'USD']
+            if len(latest) != 1 or latest[0] != risk[key]:
+                raise ReviewBlocked('PREVIEW_SOURCE_CHANGED')
+        if self.pnl_value is None:
+            raise ReviewBlocked('DAILY_PNL_UNAVAILABLE')
+        risk = {**risk, 'dailyLoss':format(max(-Decimal(self.pnl_value),Decimal(0)),'f')}
+        now = self.clock()
+        try:
+            regular = any(s.start <= now < s.end for s in self.details.liquidSessions())
+        except Exception as error:
+            raise ReviewBlocked('TRADING_HOURS_UNAVAILABLE') from error
+        market_state = 'realtime'  # only the real-time tick-by-tick Last callback above
+        context = RiskContext(accountKey=snapshot.accountKey,mode='paper',sessionRevision=snapshot.sessionRevision,
+            snapshotId=snapshot.snapshotId,source='fixture' if self.connection._fixture else 'ibkr',connected=True,reconciled=True,
+            asOf=min(account_at,self.pnl_at,datetime.fromisoformat(snapshot.provenance['positions'].requestCompletedAt)),
+            quoteAt=self.quote[1],quoteState=market_state,conId=draft.conId,referencePrice=self.quote[0],
+            currency='USD',baseCurrency='USD',market='US',secType='STK',multiplier='1',minTick=self.instrument.minTick,
+            minQuantity='1',regularHours=regular,halted=False,openOrdersComplete=True,**risk)
+        return PreviewInput(context=context,scope=self.scope,symbol=self.instrument.symbol,currency='USD')
+
+    def close(self):
+        self.ib.pnlEvent -= self._pnl
+        self.ib.pendingTickersEvent -= self._ticks
+        if self.ib.isConnected():
+            if self._pnl_subscribed:
+                self.ib.cancelPnL(self.connection.binding.brokerAccount)
+            if self.ticker is not None:
+                self.ib.cancelTickByTickData(self.ticker.contract, 'Last')

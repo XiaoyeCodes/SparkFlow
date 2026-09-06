@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-05T10:28:58.513Z",
+  "environment": {
+    "browser": "152.0.7977.82",
+    "viewport": "1440x1000",
+    "productionBuild": true
+  },
+  "workload": {
+    "positions": 50,
+    "orders": 500,
+    "bars": 10000,
+    "fixture": true
+  },
+  "measurements": {
+    "lcpMs": 928,
+    "chartReadyMs": 1843.758099999999,
+    "eventToPageP95Ms": 4.552700000000186,
+    "clickFeedbackP95Ms": 54.190999999998894,
+    "scrollFps": 240.05851842003239,
+    "soakMinutes": 0.1,
+    "heapGrowthBytes": 0,
+    "maxHeapUsedBytes": 286357036,
+    "requestCount": 42,
+    "streamPatchesSent": 38,
+    "streamDiagnostics": {
+      "streamMessages": 41,
+      "streamPatchesApplied": 38,
+      "streamResyncs": 0,
+      "activeSockets": 1,
+      "maxActiveSockets": 1,
+      "pendingMessages": 0,
+      "maxPendingMessages": 1
+    },
+    "consoleErrors": [],
+    "failedResponses": [],
+    "samples": [
+      {
+        "elapsedSeconds": 0.001,
+        "jsHeapUsedBytes": 286357036,
+        "nodes": 3863,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 34,
+          "streamPatchesApplied": 32,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      }
+    ]
+  },
+  "thresholds": {
+    "lcpMs": 2500,
+    "eventToPageP95Ms": 250,
+    "clickFeedbackP95Ms": 100,
+    "scrollFpsMinimum": 45,
+    "maxActiveSockets": 1,
+    "maxPendingMessages": 1
+  },
+  "passed": true
+}

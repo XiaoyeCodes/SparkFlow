@@ -1,0 +1,24 @@
+{
+  "checkedAt": "2026-09-06T11:19:29.9738154+08:00",
+  "scope": "read-only local HTTP verification; no trading request",
+  "source": "ibkr",
+  "testData": false,
+  "account": "DU***372",
+  "connection": "connected",
+  "state": "empty",
+  "baseCurrency": "USD",
+  "netLiquidationPresent": true,
+  "positionsCount": 0,
+  "ordersCount": 0,
+  "executionsCount": 0,
+  "positionsCompletedAt": "2026-09-06T11:19:05.264059+08:00",
+  "ordersCompletedAt": "2026-09-06T11:19:05.264059+08:00",
+  "executionsCompletedAt": "2026-09-06T11:19:05.264059+08:00",
+  "missing": [
+    "quotes",
+    "execution-history-before-broker-window",
+    "unrealizedPnl"
+  ],
+  "manualPaperEnabled": false,
+  "managedOrdersCount": 0
+}

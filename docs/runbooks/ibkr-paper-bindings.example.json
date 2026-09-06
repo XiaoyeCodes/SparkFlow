@@ -1,0 +1,13 @@
+[
+  {
+    "mode": "paper",
+    "accountKey": "paper:primary",
+    "brokerAccount": "REPLACE_WITH_YOUR_PAPER_ACCOUNT_ID",
+    "confirmed": false,
+    "host": "127.0.0.1",
+    "port": 7497,
+    "clientId": 78,
+    "readonly": true,
+    "baseCurrency": null
+  }
+]

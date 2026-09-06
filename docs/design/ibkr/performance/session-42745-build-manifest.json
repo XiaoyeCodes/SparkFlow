@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 1,
+  "candidate": "session-42745",
+  "capturedAt": "2026-09-05T10:41:07.3255952Z",
+  "note": "Frozen frontend, proxy and dist evidence for the 60-minute fixture soak; excludes later backend-only report changes.",
+  "files": [
+    {
+      "path": "package.json",
+      "sha256": "5dd3748f1320bb149a25b5fa68d36994658a06a4d4ac7a75a165967702679fc8",
+      "bytes": 3302
+    },
+    {
+      "path": "src/lib/ibkr/insights.ts",
+      "sha256": "f2c33b22f1c93e754896f89023e01a19165f80b0e8871a6d2942ae3a386b5fa6",
+      "bytes": 5622
+    },
+    {
+      "path": "src/lib/ibkr/macroEvidence.ts",
+      "sha256": "0c41be813e2af54e7467602aca707416c936b1baee3f709e3712ba2a5b5393e1",
+      "bytes": 1665
+    },
+    {
+      "path": "src/lib/ibkr/marketData.ts",
+      "sha256": "f974f72aff1258dfeea538c6b7d0ccd891892632a582fd94eef9d97af36c597d",
+      "bytes": 2357
+    },
+    {
+      "path": "src/lib/ibkr/newsEvidence.ts",
+      "sha256": "da3c6143b9934767f71e15cb9256fbcee2be4b197dd4ed647eafb9be23203cd9",
+      "bytes": 1596
+    },
+    {
+      "path": "src/lib/ibkr/orderClient.ts",
+      "sha256": "47fa8b532fc4e180c45d74c8cd14b479539f68814b4b037c362b8667ef77af13",
+      "bytes": 3684
+    },
+    {
+      "path": "src/lib/ibkr/reportEvidence.ts",
+      "sha256": "d503fdc58dc7bb2d72b8e1b8220b72c71b8e2a4b535b7655afb5cd35c9b7d748",
+      "bytes": 2850
+    },
+    {
+      "path": "src/lib/ibkr/store.ts",
+      "sha256": "06bc188f07de1d2f7aa5a86ee7b41e166d13c19e23963a819a89ecc74c370ab6",
+      "bytes": 1354
+    },
+    {
+      "path": "src/lib/ibkr/strategyDraft.ts",
+      "sha256": "d657877de4c83e902cac798a6058685509e8e824f3bb8d828584f839568166a8",
+      "bytes": 3149
+    },
+    {
+      "path": "src/lib/ibkr/strategyRuntime.ts",
+      "sha256": "b14b76cd6d52973ff291f68ab2d149de04d68deb41d986721fd87e43ee306b17",
+      "bytes": 2234
+    },
+    {
+      "path": "src/lib/ibkr/events.ts",
+      "sha256": "a4f329674aac103e51224b368e51763ce754ddcee9a32d9ffccb513bda88027e",
+      "bytes": 5658
+    },
+    {
+      "path": "src/lib/ibkr/stream.ts",
+      "sha256": "29bc50e0d29f237010f84c4e501fc9f7ff3478a03c57f148c253456fee4da088",
+      "bytes": 5089
+    },
+    {
+      "path": "dist/assets/ChinaMacroCommandCenter-Bnyfs1Oy.css",
+      "sha256": "4126e81a2a6d9e41c408ead7fee0be6a20ef38c6fce474c3a33d865cfd75a94c",
+      "bytes": 31747
+    },
+    {
+      "path": "dist/assets/ChinaMacroCommandCenter-CFcIAE41.js",
+      "sha256": "722ef3c3e70aaadb12891bb7b78a422bd413c10e001acba7a401933ee926ffb3",
+      "bytes": 3988945
+    },
+    {
+      "path": "dist/assets/GlobalMacroCommandCenter-BUdXYlit.js",
+      "sha256": "d4475a2a7b230814697fb4e905a679dca690915e43b392eb6708a7dc6304fde8",
+      "bytes": 147466
+    },
+    {
+      "path": "dist/assets/GlobalMacroCommandCenter-BvNWcnXy.css",
+      "sha256": "40a0ae611619b02fa0816f883976634677b8f6def608196a99fafece1cd86391",
+      "bytes": 135616
+    },
+    {
+      "path": "dist/assets/html2canvas.esm-QH1iLAAe.js",
+      "sha256": "061c08e50c0dc57b8d5e6531f0b8237a52a68b233260d49ab2f2c2906ad112c4",
+      "bytes": 202379
+    },
+    {
+      "path": "dist/assets/index-CeO1y2zX.js",
+      "sha256": "2064670e24dd161884ee782526514607e3a0dd5bd4984e3026e5456dfa880666",
+      "bytes": 2022049
+    },
+    {
+      "path": "dist/assets/index-CiZ_66hQ.js",
+      "sha256": "f156ca1926c8491811eace675b225d1570a93260cffa523dbcc060d0ade714c8",
+      "bytes": 20491
+    },
+    {
+      "path": "dist/assets/index-DAyUKd8u.css",
+      "sha256": "5f394b15bceb75009517ac609f36622acf50ecc8646cf98a4cc42920b7dc5d3a",
+      "bytes": 249583
+    },
+    {
+      "path": "dist/assets/index.es-B8j47QXt.js",
+      "sha256": "426f648dd9d2365221d5572a575937320177454045b9b019fd01b2f71ced5ebe",
+      "bytes": 159640
+    },
+    {
+      "path": "src/lib/ibkr/types.ts",
+      "sha256": "86efcdb4d8f8d57d8401025bb731ed24460f2dd436f8b3e8bd73c1feb22dcd3a",
+      "bytes": 2137
+    },
+    {
+      "path": "src/lib/ibkr/client.ts",
+      "sha256": "3c36dd61625841fe346ca9679e569bbd83638583809ee646a8d11f28a5d6c6cc",
+      "bytes": 804
+    },
+    {
+      "path": "src/lib/ibkr/backtestClient.ts",
+      "sha256": "1a902e4fa5d82b12165b57c57a6755c7dd7cebefdfb8855c47c2ee0f3f9f8ea6",
+      "bytes": 7749
+    },
+    {
+      "path": "src/components/ibkr/TradingWorkspace.tsx",
+      "sha256": "4c0c69eaa052e24779f946f4a776df97c6615ae68f21cb508f730d27c53447e2",
+      "bytes": 3529
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "6c17f30d5286bf6d9b628f6289200d73f057698394d04a92c2157794a53f99c4",
+      "bytes": 194976
+    },
+    {
+      "path": "vite.config.ts",
+      "sha256": "8bc333a29040ec3f414455644934872cf5d0e2958ce7f6408214e2f26fe36642",
+      "bytes": 635428
+    },
+    {
+      "path": "vite.ibkr-test.config.ts",
+      "sha256": "9a36c1b2c15190216f46c46f1b6fa856bf94518c4e232ed9fdd18aa762f48d32",
+      "bytes": 426
+    },
+    {
+      "path": "scripts/verify-ibkr-performance.mjs",
+      "sha256": "e99818799a4452601bed7d3a4174194ed26e9f06601869afa3314b5f76a28784",
+      "bytes": 13177
+    },
+    {
+      "path": "src/routes/IbkrAccount.tsx",
+      "sha256": "5fa8cadc4cb980d5dd5fb9af83fd3e7f9a6ca949096da307c5165b0a5e2aa848",
+      "bytes": 5206
+    },
+    {
+      "path": "src/routes/IbkrAccount.css",
+      "sha256": "def122ae495739119acaf3278e00c11c95841827db2ae57045c569897e94749b",
+      "bytes": 23208
+    },
+    {
+      "path": "server/ibkrTerminalProxy.ts",
+      "sha256": "5a43db23b102c1427f43dccdedc279f89c8131511cfbdea25f3a841066c3e630",
+      "bytes": 7573
+    },
+    {
+      "path": "server/ibkrAccountContext.ts",
+      "sha256": "3836a8eb74f9404a28709642511317b3b6ca6e88f6b4a8081c9d5f436c494376",
+      "bytes": 669
+    },
+    {
+      "path": "server/ibkrAccountReports.ts",
+      "sha256": "2955df6c65a84c40a681cb8277ac21abb32c7cad067049c70a27c36df1e38570",
+      "bytes": 850
+    },
+    {
+      "path": "src/components/ibkr/AccountAiPanel.tsx",
+      "sha256": "5b73c903450d6f23cadae6353547ac9232c44815279066835cb6af261db78175",
+      "bytes": 7244
+    },
+    {
+      "path": "src/components/ibkr/AccountSidebar.tsx",
+      "sha256": "c9f66601ab8af8466c6b0841c9b5eb993975f4914bf271f494ab676ab3b8a113",
+      "bytes": 2468
+    },
+    {
+      "path": "src/components/ibkr/AccountTables.tsx",
+      "sha256": "c762ccf2babff777b13d362eeeeb3daacb4958b58e319826a94149d86b46c9fd",
+      "bytes": 3719
+    },
+    {
+      "path": "src/components/ibkr/AuthorizationMatrix.tsx",
+      "sha256": "0f8df8247aecaede1962bd2372056385542af6b2d3c4faf7444d4cd0e25fcb75",
+      "bytes": 1638
+    },
+    {
+      "path": "src/components/ibkr/BacktestResults.tsx",
+      "sha256": "9fbbef720936c5b6ed3d57f7021c54ea6d59dfe5c91d610d31970c356a86c5da",
+      "bytes": 2177
+    },
+    {
+      "path": "src/components/ibkr/IntelligencePanel.tsx",
+      "sha256": "a71de3b18977bd78f728b8bd788ff3f7b41e42e7ef33713ef1a4f2a6c69506ff",
+      "bytes": 6899
+    },
+    {
+      "path": "src/components/ibkr/OrderTicket.tsx",
+      "sha256": "5775947af99f7a46bfd5fa37c6356ad765cf37bf2b78319a25d8b91767524617",
+      "bytes": 6931
+    },
+    {
+      "path": "src/components/ibkr/PriceChart.tsx",
+      "sha256": "af4b348ec1484b92962a28a39e31719c0fc8fe273504347e5013d27cf9978749",
+      "bytes": 4130
+    },
+    {
+      "path": "src/components/ibkr/SnapshotProvenance.tsx",
+      "sha256": "fd62d345c60fff37ca938183c437abc16dfb937f920b3cf8f9cef4f0d267a9dc",
+      "bytes": 1324
+    },
+    {
+      "path": "src/components/ibkr/StrategyDraftEditor.tsx",
+      "sha256": "260feccb4863acb1ab5d3b48f30f234cbd731a81d72f1624a5f152f8a22aabdf",
+      "bytes": 3438
+    },
+    {
+      "path": "src/components/ibkr/StrategyWorkspace.tsx",
+      "sha256": "905e3d1b3685c9347a5098ac63e6d7180d2145742c6f89d874937cbcf4d64187",
+      "bytes": 6241
+    },
+    {
+      "path": "src/components/ibkr/TerminalHeader.tsx",
+      "sha256": "9bd7b0de7d231d43a72da09bb5cadde8c179d5ffcf62de2f6ebcce863a3e7840",
+      "bytes": 2872
+    },
+    {
+      "path": "dist/assets/jspdf.es.min-C5wR0W-4.js",
+      "sha256": "7cc989d25e88721ff035075c1fd2531f35c0b4ffa7a537fc6840fdfd47876cbc",
+      "bytes": 390787
+    },
+    {
+      "path": "dist/assets/purify.es-Jn2rvFN8.js",
+      "sha256": "82694b851c25a6fd6769a3358b13c67bd33d735daec137add6602522ccb6a837",
+      "bytes": 28911
+    }
+  ]
+}

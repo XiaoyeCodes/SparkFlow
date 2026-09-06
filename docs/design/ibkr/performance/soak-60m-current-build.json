@@ -1,0 +1,1969 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-05T11:29:54.925Z",
+  "environment": {
+    "browser": "152.0.7977.82",
+    "viewport": "1440x1000",
+    "productionBuild": true
+  },
+  "workload": {
+    "positions": 50,
+    "orders": 500,
+    "bars": 10000,
+    "fixture": true
+  },
+  "measurements": {
+    "lcpMs": 876,
+    "chartReadyMs": 1740.6451000000006,
+    "eventToPageP95Ms": 4.4200999999993655,
+    "clickFeedbackP95Ms": 58.07999999999993,
+    "scrollFps": 240.09044958771577,
+    "soakMinutes": 60,
+    "heapGrowthBytes": -208622024,
+    "maxHeapUsedBytes": 225922184,
+    "requestCount": 42,
+    "streamPatchesSent": 3594,
+    "streamDiagnostics": {
+      "streamMessages": 4494,
+      "streamPatchesApplied": 3594,
+      "streamResyncs": 0,
+      "activeSockets": 1,
+      "maxActiveSockets": 1,
+      "pendingMessages": 0,
+      "maxPendingMessages": 1
+    },
+    "consoleErrors": [],
+    "failedResponses": [],
+    "samples": [
+      {
+        "elapsedSeconds": 0.002,
+        "jsHeapUsedBytes": 225922184,
+        "nodes": 3699,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 34,
+          "streamPatchesApplied": 32,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 30.017,
+        "jsHeapUsedBytes": 15325316,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 71,
+          "streamPatchesApplied": 62,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 60.032,
+        "jsHeapUsedBytes": 16208316,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 109,
+          "streamPatchesApplied": 92,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 90.059,
+        "jsHeapUsedBytes": 16423796,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 146,
+          "streamPatchesApplied": 122,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 120.083,
+        "jsHeapUsedBytes": 16300008,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 183,
+          "streamPatchesApplied": 151,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 150.105,
+        "jsHeapUsedBytes": 15693068,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 220,
+          "streamPatchesApplied": 181,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 180.128,
+        "jsHeapUsedBytes": 16472008,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 258,
+          "streamPatchesApplied": 211,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 210.147,
+        "jsHeapUsedBytes": 16710072,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 294,
+          "streamPatchesApplied": 240,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 240.176,
+        "jsHeapUsedBytes": 16811988,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 332,
+          "streamPatchesApplied": 270,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 270.199,
+        "jsHeapUsedBytes": 16184708,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 369,
+          "streamPatchesApplied": 300,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 300.219,
+        "jsHeapUsedBytes": 16054704,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 406,
+          "streamPatchesApplied": 329,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 330.246,
+        "jsHeapUsedBytes": 16511772,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 443,
+          "streamPatchesApplied": 359,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 360.269,
+        "jsHeapUsedBytes": 16993104,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 481,
+          "streamPatchesApplied": 389,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 390.292,
+        "jsHeapUsedBytes": 15865172,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 517,
+          "streamPatchesApplied": 418,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 420.311,
+        "jsHeapUsedBytes": 16678652,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 554,
+          "streamPatchesApplied": 448,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 450.335,
+        "jsHeapUsedBytes": 16880560,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 592,
+          "streamPatchesApplied": 478,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 480.354,
+        "jsHeapUsedBytes": 16992948,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 629,
+          "streamPatchesApplied": 508,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 510.375,
+        "jsHeapUsedBytes": 16685108,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 666,
+          "streamPatchesApplied": 537,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 540.396,
+        "jsHeapUsedBytes": 16540860,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 703,
+          "streamPatchesApplied": 567,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 570.421,
+        "jsHeapUsedBytes": 17210768,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 741,
+          "streamPatchesApplied": 597,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 600.448,
+        "jsHeapUsedBytes": 17686056,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 777,
+          "streamPatchesApplied": 626,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 630.476,
+        "jsHeapUsedBytes": 16489856,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 815,
+          "streamPatchesApplied": 656,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 660.5,
+        "jsHeapUsedBytes": 17000612,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 852,
+          "streamPatchesApplied": 686,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 690.525,
+        "jsHeapUsedBytes": 17434000,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 889,
+          "streamPatchesApplied": 715,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 720.546,
+        "jsHeapUsedBytes": 17062548,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 926,
+          "streamPatchesApplied": 745,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 750.575,
+        "jsHeapUsedBytes": 16484444,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 964,
+          "streamPatchesApplied": 775,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 780.594,
+        "jsHeapUsedBytes": 16771968,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1000,
+          "streamPatchesApplied": 804,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 810.612,
+        "jsHeapUsedBytes": 17412432,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1038,
+          "streamPatchesApplied": 834,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 840.636,
+        "jsHeapUsedBytes": 17074456,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1075,
+          "streamPatchesApplied": 864,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 870.667,
+        "jsHeapUsedBytes": 16704940,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1113,
+          "streamPatchesApplied": 894,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 900.686,
+        "jsHeapUsedBytes": 16554148,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1149,
+          "streamPatchesApplied": 923,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 930.705,
+        "jsHeapUsedBytes": 17209008,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1187,
+          "streamPatchesApplied": 953,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 960.728,
+        "jsHeapUsedBytes": 17056812,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1224,
+          "streamPatchesApplied": 983,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 990.743,
+        "jsHeapUsedBytes": 16274136,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1261,
+          "streamPatchesApplied": 1012,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1020.768,
+        "jsHeapUsedBytes": 16806308,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1298,
+          "streamPatchesApplied": 1042,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1050.795,
+        "jsHeapUsedBytes": 17222964,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1336,
+          "streamPatchesApplied": 1072,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1080.817,
+        "jsHeapUsedBytes": 17059128,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1372,
+          "streamPatchesApplied": 1101,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1110.838,
+        "jsHeapUsedBytes": 16288420,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1410,
+          "streamPatchesApplied": 1131,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1140.862,
+        "jsHeapUsedBytes": 17020068,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1447,
+          "streamPatchesApplied": 1161,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1170.888,
+        "jsHeapUsedBytes": 17438396,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1484,
+          "streamPatchesApplied": 1190,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1200.91,
+        "jsHeapUsedBytes": 17500444,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1521,
+          "streamPatchesApplied": 1220,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1230.924,
+        "jsHeapUsedBytes": 16318208,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1559,
+          "streamPatchesApplied": 1250,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1260.944,
+        "jsHeapUsedBytes": 16622440,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1595,
+          "streamPatchesApplied": 1279,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1290.966,
+        "jsHeapUsedBytes": 17065388,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1633,
+          "streamPatchesApplied": 1309,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1320.984,
+        "jsHeapUsedBytes": 17527956,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1670,
+          "streamPatchesApplied": 1339,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1351.009,
+        "jsHeapUsedBytes": 16961772,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1707,
+          "streamPatchesApplied": 1368,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1381.031,
+        "jsHeapUsedBytes": 16622412,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1744,
+          "streamPatchesApplied": 1398,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1411.051,
+        "jsHeapUsedBytes": 17241384,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1782,
+          "streamPatchesApplied": 1428,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1441.077,
+        "jsHeapUsedBytes": 17321336,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1818,
+          "streamPatchesApplied": 1457,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1471.104,
+        "jsHeapUsedBytes": 16559876,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1856,
+          "streamPatchesApplied": 1487,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1501.131,
+        "jsHeapUsedBytes": 17056412,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1893,
+          "streamPatchesApplied": 1517,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1531.159,
+        "jsHeapUsedBytes": 17499536,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1930,
+          "streamPatchesApplied": 1546,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1561.184,
+        "jsHeapUsedBytes": 17326540,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 1967,
+          "streamPatchesApplied": 1576,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1591.206,
+        "jsHeapUsedBytes": 16789420,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2005,
+          "streamPatchesApplied": 1606,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1621.225,
+        "jsHeapUsedBytes": 16645476,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2042,
+          "streamPatchesApplied": 1636,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1651.247,
+        "jsHeapUsedBytes": 16887988,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2079,
+          "streamPatchesApplied": 1665,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1681.275,
+        "jsHeapUsedBytes": 17337288,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2116,
+          "streamPatchesApplied": 1695,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1711.303,
+        "jsHeapUsedBytes": 16567120,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2154,
+          "streamPatchesApplied": 1725,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1741.322,
+        "jsHeapUsedBytes": 16873268,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2190,
+          "streamPatchesApplied": 1754,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1771.343,
+        "jsHeapUsedBytes": 17500048,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2228,
+          "streamPatchesApplied": 1784,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1801.358,
+        "jsHeapUsedBytes": 17146764,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2265,
+          "streamPatchesApplied": 1814,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1831.379,
+        "jsHeapUsedBytes": 16761236,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2302,
+          "streamPatchesApplied": 1843,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1861.398,
+        "jsHeapUsedBytes": 16857740,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2339,
+          "streamPatchesApplied": 1873,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1891.416,
+        "jsHeapUsedBytes": 17082640,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2377,
+          "streamPatchesApplied": 1903,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1921.443,
+        "jsHeapUsedBytes": 17616552,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2413,
+          "streamPatchesApplied": 1932,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1951.471,
+        "jsHeapUsedBytes": 16771560,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2451,
+          "streamPatchesApplied": 1962,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 1981.49,
+        "jsHeapUsedBytes": 16671872,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2488,
+          "streamPatchesApplied": 1992,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2011.507,
+        "jsHeapUsedBytes": 16891548,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2525,
+          "streamPatchesApplied": 2021,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2041.524,
+        "jsHeapUsedBytes": 17365648,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2562,
+          "streamPatchesApplied": 2051,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2071.538,
+        "jsHeapUsedBytes": 16571280,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2600,
+          "streamPatchesApplied": 2081,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2101.56,
+        "jsHeapUsedBytes": 17253216,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2636,
+          "streamPatchesApplied": 2110,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2131.58,
+        "jsHeapUsedBytes": 16864828,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2674,
+          "streamPatchesApplied": 2140,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2161.595,
+        "jsHeapUsedBytes": 17110000,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2710,
+          "streamPatchesApplied": 2169,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2191.621,
+        "jsHeapUsedBytes": 16556120,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2748,
+          "streamPatchesApplied": 2199,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2221.642,
+        "jsHeapUsedBytes": 17271696,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2785,
+          "streamPatchesApplied": 2229,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2251.657,
+        "jsHeapUsedBytes": 16897320,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2822,
+          "streamPatchesApplied": 2258,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2281.671,
+        "jsHeapUsedBytes": 17368756,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2859,
+          "streamPatchesApplied": 2288,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2311.692,
+        "jsHeapUsedBytes": 16365888,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2897,
+          "streamPatchesApplied": 2318,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2341.717,
+        "jsHeapUsedBytes": 17086952,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2934,
+          "streamPatchesApplied": 2348,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2371.736,
+        "jsHeapUsedBytes": 17094212,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 2970,
+          "streamPatchesApplied": 2377,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2401.757,
+        "jsHeapUsedBytes": 17567948,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3008,
+          "streamPatchesApplied": 2407,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2431.774,
+        "jsHeapUsedBytes": 16793120,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3045,
+          "streamPatchesApplied": 2437,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2461.799,
+        "jsHeapUsedBytes": 17277032,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3082,
+          "streamPatchesApplied": 2466,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2491.825,
+        "jsHeapUsedBytes": 16894632,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3119,
+          "streamPatchesApplied": 2496,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2521.854,
+        "jsHeapUsedBytes": 17375236,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3157,
+          "streamPatchesApplied": 2526,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2551.881,
+        "jsHeapUsedBytes": 16762624,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3193,
+          "streamPatchesApplied": 2555,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2581.908,
+        "jsHeapUsedBytes": 16651004,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3231,
+          "streamPatchesApplied": 2585,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2611.929,
+        "jsHeapUsedBytes": 17068568,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3268,
+          "streamPatchesApplied": 2615,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2641.952,
+        "jsHeapUsedBytes": 17545096,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3306,
+          "streamPatchesApplied": 2645,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2671.976,
+        "jsHeapUsedBytes": 16776100,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3343,
+          "streamPatchesApplied": 2675,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2702.006,
+        "jsHeapUsedBytes": 17299280,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3380,
+          "streamPatchesApplied": 2704,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2732.025,
+        "jsHeapUsedBytes": 17290516,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3417,
+          "streamPatchesApplied": 2734,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2762.041,
+        "jsHeapUsedBytes": 17169280,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3455,
+          "streamPatchesApplied": 2764,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2792.062,
+        "jsHeapUsedBytes": 16586480,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3491,
+          "streamPatchesApplied": 2793,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2822.08,
+        "jsHeapUsedBytes": 17079196,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3529,
+          "streamPatchesApplied": 2823,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2852.102,
+        "jsHeapUsedBytes": 17103208,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3566,
+          "streamPatchesApplied": 2853,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2882.122,
+        "jsHeapUsedBytes": 17578032,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3604,
+          "streamPatchesApplied": 2883,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2912.144,
+        "jsHeapUsedBytes": 16996740,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3640,
+          "streamPatchesApplied": 2912,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2942.168,
+        "jsHeapUsedBytes": 16690272,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3678,
+          "streamPatchesApplied": 2942,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 2972.191,
+        "jsHeapUsedBytes": 17091408,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3715,
+          "streamPatchesApplied": 2972,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3002.207,
+        "jsHeapUsedBytes": 17581720,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3753,
+          "streamPatchesApplied": 3002,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3032.23,
+        "jsHeapUsedBytes": 16596988,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3789,
+          "streamPatchesApplied": 3031,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3062.246,
+        "jsHeapUsedBytes": 17281920,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3827,
+          "streamPatchesApplied": 3061,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3092.264,
+        "jsHeapUsedBytes": 17303972,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3864,
+          "streamPatchesApplied": 3091,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3122.286,
+        "jsHeapUsedBytes": 17369080,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3901,
+          "streamPatchesApplied": 3120,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3152.315,
+        "jsHeapUsedBytes": 16982616,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3938,
+          "streamPatchesApplied": 3150,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3182.33,
+        "jsHeapUsedBytes": 17066676,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 3976,
+          "streamPatchesApplied": 3180,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3212.355,
+        "jsHeapUsedBytes": 17087300,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4013,
+          "streamPatchesApplied": 3210,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3242.372,
+        "jsHeapUsedBytes": 17353680,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4050,
+          "streamPatchesApplied": 3239,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3272.39,
+        "jsHeapUsedBytes": 16583008,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4087,
+          "streamPatchesApplied": 3269,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3302.416,
+        "jsHeapUsedBytes": 17051696,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4125,
+          "streamPatchesApplied": 3299,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3332.431,
+        "jsHeapUsedBytes": 17272604,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4162,
+          "streamPatchesApplied": 3329,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3362.451,
+        "jsHeapUsedBytes": 17756696,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4199,
+          "streamPatchesApplied": 3358,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3392.476,
+        "jsHeapUsedBytes": 16978132,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4236,
+          "streamPatchesApplied": 3388,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3422.495,
+        "jsHeapUsedBytes": 17283444,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4274,
+          "streamPatchesApplied": 3418,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3452.524,
+        "jsHeapUsedBytes": 17096348,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4310,
+          "streamPatchesApplied": 3447,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3482.545,
+        "jsHeapUsedBytes": 17572796,
+        "nodes": 2969,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4348,
+          "streamPatchesApplied": 3477,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3512.575,
+        "jsHeapUsedBytes": 16384644,
+        "nodes": 1506,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4385,
+          "streamPatchesApplied": 3507,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3542.61,
+        "jsHeapUsedBytes": 16880448,
+        "nodes": 2043,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4423,
+          "streamPatchesApplied": 3537,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      },
+      {
+        "elapsedSeconds": 3572.626,
+        "jsHeapUsedBytes": 17300160,
+        "nodes": 2432,
+        "documents": 1,
+        "requestCount": 42,
+        "stream": {
+          "streamMessages": 4460,
+          "streamPatchesApplied": 3567,
+          "streamResyncs": 0,
+          "activeSockets": 1,
+          "maxActiveSockets": 1,
+          "pendingMessages": 0,
+          "maxPendingMessages": 1
+        }
+      }
+    ]
+  },
+  "thresholds": {
+    "lcpMs": 2500,
+    "eventToPageP95Ms": 250,
+    "clickFeedbackP95Ms": 100,
+    "scrollFpsMinimum": 45,
+    "maxActiveSockets": 1,
+    "maxPendingMessages": 1
+  },
+  "passed": true
+}

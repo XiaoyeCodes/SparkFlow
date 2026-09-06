@@ -1,0 +1,232 @@
+"""Persistent SDK connection with an explicit account and no order methods."""
+from datetime import datetime, timezone
+from decimal import Decimal
+from uuid import uuid4
+import asyncio
+
+from src.trading.connectors.ibkr.local import _account_value_to_dict, _contract_to_dict, _obj_get
+from .schemas import Snapshot, Metrics, Capabilities, Position, CashBalance, SourceStamp
+from .session import AccountSession
+from .broker_views import decimal_text, order_view, execution_view
+from .market_data import fetch_ibkr_historical
+
+
+class ReadonlyConnection:
+    def __init__(self, session: AccountSession, *, sdk=None, clock=None, allow_partial=False):
+        if session.binding is None:
+            raise ValueError('confirmed account binding required')
+        self.session = session
+        self.binding = session.binding
+        self.revision = session.revision
+        self._fixture = sdk is not None
+        if sdk is None:
+            from .sdk import ObservedIB
+            sdk = ObservedIB()
+        self._ib = sdk
+        self._changed = asyncio.Event()
+        self._handlers = []
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._summary_observed = {}
+        self._positions = None
+        self._position_version = 0
+        self._position_events = {}
+        self._orders = ()
+        self._executions = ()
+        self._reconciled_at = None
+        self.allow_partial = allow_partial
+        self.reconciliation_blocked = False
+        self._read_error = None
+        self._reconcile_lock = asyncio.Lock()
+
+    def _on_error(self, req_id, code, *args):
+        if code in (321, 322, 502, 504):
+            self._read_error = f'IBKR_{code}'
+
+    def _on_summary(self, row):
+        if _obj_get(row, 'account') == self.binding.brokerAccount:
+            self._summary_observed[(_obj_get(row, 'tag'), _obj_get(row, 'currency'))] = self._clock().isoformat()
+            self._changed.set()
+
+    def _on_position(self, row):
+        if _obj_get(row, 'account') == self.binding.brokerAccount:
+            self._position_version += 1
+            con_id = _obj_get(_obj_get(row, 'contract'), 'conId')
+            self._position_events[con_id] = (self._position_version, row)
+            if self._positions is not None:
+                self._positions[con_id] = row
+            self._changed.set()
+
+    def healthy(self):
+        return self._ib.isConnected() and self.session.revision == self.revision and self.session.binding == self.binding
+
+    def _on_change(self, *args):
+        self._changed.set()
+
+    def _on_disconnect(self, *args):
+        self.session.disconnected(expected_revision=self.revision)
+        self._changed.set()
+
+    async def wait_for_change(self, timeout):
+        try:
+            await asyncio.wait_for(self._changed.wait(), timeout)
+            self._changed.clear()
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    async def connect(self):
+        from ib_async import StartupFetch
+        try:
+            connect = getattr(self._ib, 'connectReadOnlyAsync', self._ib.connectAsync)
+            await connect(self.binding.host, self.binding.port,
+                clientId=self.binding.clientId, readonly=True, account=self.binding.brokerAccount,
+                timeout=8, raiseSyncErrors=True, fetchFields=StartupFetch.ACCOUNT_UPDATES)
+            if self.binding.brokerAccount not in self._ib.managedAccounts():
+                raise ValueError('configured account not returned by broker')
+            for name, handler in (('accountSummaryEvent', self._on_summary), ('positionEvent', self._on_position), ('disconnectedEvent', self._on_disconnect)):
+                event = getattr(self._ib, name)
+                event += handler
+                self._handlers.append((event, handler))
+            if hasattr(self._ib, 'errorEvent'):
+                self._ib.errorEvent += self._on_error
+                self._handlers.append((self._ib.errorEvent, self._on_error))
+        except BaseException:
+            self.close()
+            raise
+
+    async def reconcile(self):
+        async with self._reconcile_lock:
+            return await self._reconcile_once()
+
+    async def _reconcile_once(self):
+        from ib_async import ExecutionFilter
+        if not self.healthy():
+            return False
+        if self.reconciliation_blocked:
+            return await self.refresh()
+        version = self._position_version
+        try:
+            # Fresh response collections, not positions()/openTrades() caches. Never bind orders.
+            results = await asyncio.gather(
+                asyncio.wait_for(self._ib.reqPositionsAsync(), timeout=8),
+                asyncio.wait_for(self._ib.reqAllOpenOrdersAsync(), timeout=8),
+                asyncio.wait_for(self._ib.reqExecutionsAsync(ExecutionFilter(acctCode=self.binding.brokerAccount)), timeout=8),
+                return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
+            positions, trades, fills = results
+            orders = tuple(order_view(row, self.binding.accountKey) for row in trades if _obj_get(_obj_get(row, 'order'), 'account') == self.binding.brokerAccount)
+            executions = {}
+            for fill in fills:
+                if _obj_get(_obj_get(fill, 'execution'), 'acctNumber') != self.binding.brokerAccount:
+                    continue
+                mapped = execution_view(fill, self.binding.accountKey)
+                if mapped.execId in executions and executions[mapped.execId] != mapped:
+                    raise ValueError('conflicting duplicate execution')
+                executions[mapped.execId] = mapped
+            if not self.healthy():
+                return False
+            fresh = {_obj_get(_obj_get(row, 'contract'), 'conId'): row for row in positions if _obj_get(row, 'account') == self.binding.brokerAccount}
+            fresh.update({con_id: row for con_id, (seen, row) in self._position_events.items() if seen > version})
+            self._positions = fresh
+            self._orders, self._executions = orders, tuple(executions.values())
+            self._reconciled_at = self._clock().isoformat()
+            return await self.refresh()
+        except (TimeoutError, ConnectionError):
+            if self.allow_partial and self._reconciled_at is None and self.healthy():
+                self.reconciliation_blocked = True
+                self._positions = {}
+                return await self.refresh()
+            self.session.disconnected('主动只读对账未完成；保留旧快照并暂停。', expected_revision=self.revision)
+            raise
+        except BaseException:
+            self.session.disconnected('主动只读对账未完成；保留旧快照并暂停。', expected_revision=self.revision)
+            raise
+
+    async def refresh(self):
+        if not self._ib.isConnected():
+            self.session.disconnected(expected_revision=self.revision)
+            return False
+        if self.binding.brokerAccount not in self._ib.managedAccounts():
+            self.close()
+            raise ValueError('configured account no longer returned by broker')
+        rows = [_account_value_to_dict(row) for row in await self._ib.accountSummaryAsync(self.binding.brokerAccount)]
+        rows = [row for row in rows if row['account'] == self.binding.brokerAccount]
+        base = self.binding.baseCurrency
+        if base is None:
+            currencies = {row['currency'] for row in rows if row['tag'] == 'NetLiquidation'
+                and row['currency'] and len(row['currency']) == 3 and row['currency'].isalpha()}
+            if len(currencies) == 1:
+                base = currencies.pop()
+        provenance = {}
+
+        def metric(tag, field):
+            matches = [row for row in rows if row['tag'] == tag and base and row['currency'] in ('BASE', base)]
+            observed = self._summary_observed.get((tag, matches[0]['currency'])) if len(matches) == 1 else None
+            provenance[f'metrics.{field}'] = SourceStamp(source='ibkr.accountSummary', observedAt=observed)
+            return decimal_text(matches[0]['value']) if len(matches) == 1 else None
+
+        positions = []
+        missing = ['quotes', 'execution-history-before-broker-window']
+        if self._reconciled_at is None:
+            missing.extend(['orders', 'executions', 'active-reconciliation'])
+            if self.allow_partial:
+                missing.append('positions')
+        for row in (() if self.allow_partial and self._reconciled_at is None else self._ib.positions() if self._positions is None else self._positions.values()):
+            if _obj_get(row, 'account') != self.binding.brokerAccount:
+                continue
+            contract = _contract_to_dict(_obj_get(row, 'contract'))
+            quantity = decimal_text(_obj_get(row, 'position'))
+            if quantity is not None and Decimal(quantity) == 0:
+                continue
+            if not contract['con_id'] or not contract['currency'] or quantity is None:
+                raise ValueError('incomplete position identity or quantity')
+            positions.append(Position(accountKey=self.binding.accountKey, conId=contract['con_id'], symbol=contract['symbol'] or '', currency=contract['currency'], quantity=quantity, averageCost=decimal_text(_obj_get(row, 'avgCost')), marketValue=None))
+        cash_by_currency = {}
+        for row in rows:
+            if row['tag'] == 'CashBalance' and row['currency'] and row['currency'] != 'BASE':
+                value = decimal_text(row['value'])
+                if value is not None:
+                    cash_by_currency[row['currency']] = CashBalance(currency=row['currency'], amount=value)
+        metrics = Metrics(**{field: metric(tag, field) for field, tag in {'netLiquidation': 'NetLiquidation', 'unrealizedPnl': 'UnrealizedPnL', 'buyingPower': 'BuyingPower', 'maintenanceMargin': 'MaintMarginReq'}.items()})
+        for name in ('positions', 'orders', 'executions'):
+            provenance[name] = SourceStamp(source=f'ibkr.{name}', requestCompletedAt=self._reconciled_at)
+        for row in cash_by_currency.values():
+            provenance[f'cash.{row.currency}'] = SourceStamp(source='ibkr.accountSummary', observedAt=self._summary_observed.get(('CashBalance', row.currency)))
+        if base is None:
+            missing.append('baseCurrency')
+        missing.extend(key for key, value in metrics.model_dump().items() if value is None)
+        partial = self.allow_partial and self._reconciled_at is None
+        detail = '工程 fake broker 样本' if self._fixture else 'IBKR 只读快照；外部订单不可管理，行情尚未接入。'
+        if partial:
+            detail = '已连接 IBKR 并读取账户摘要；持仓／挂单／成交核对未完成，交易不可用。'
+            if self._read_error:
+                detail += f'（{self._read_error}，请核对 Gateway 的 IB API 登录模式及权限。）'
+        snapshot = Snapshot(schemaVersion=1, snapshotId=str(uuid4()), accountKey=self.binding.accountKey, mode=self.binding.mode,
+            sessionRevision=self.revision, sequence=self.session.snapshot().sequence + 1,
+            source='fixture' if self._fixture else 'ibkr', testData=self._fixture, asOf=self._clock().isoformat(),
+            connection='connected', state='permission-required' if partial else 'ready' if positions else 'empty', baseCurrency=base,
+            metrics=metrics, cash=tuple(cash_by_currency.values()), positions=tuple(positions), orders=self._orders, executions=self._executions, provenance=provenance, quotes=(), capabilities=Capabilities(),
+            missing=tuple(missing), detail=detail)
+        return self.session.accept(snapshot)
+
+    async def historical_data(self, con_id, period):
+        if not self.healthy():
+            raise ValueError('readonly broker connection is unavailable')
+        current = self.session.snapshot()
+        result = await fetch_ibkr_historical(self._ib, current, con_id, period,
+            now=self._clock(), test_data=self._fixture,
+            resolved_contract=self.market_watch.contracts.get(con_id) if hasattr(self,'market_watch') else None)
+        if not self.healthy() or self.session.snapshot().sessionRevision != current.sessionRevision:
+            raise ValueError('account snapshot changed during historical request')
+        return result
+
+    def close(self, detail='券商连接断开；缓存不能代表当前账户。'):
+        if hasattr(self,'market_watch'):
+            self.market_watch.close()
+        for event, handler in self._handlers:
+            event -= handler
+        self._handlers.clear()
+        self._ib.disconnect()
+        self.session.disconnected(detail, expected_revision=self.revision)
