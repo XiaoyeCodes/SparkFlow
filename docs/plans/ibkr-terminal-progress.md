@@ -2,9 +2,9 @@
 
 ## 当前阶段与下一步
 
-- 阶段：恢复审计发现仍有授权内软件缺口，撤回先前“软件阶段完成”的总体结论；已有各项测试证据保留，仅证明对应实现。真实账户/用户策略/AI 分享/live 验收仍 BLOCKED，软件工作继续。
+- 阶段：真实 paper 只读连接已恢复并持续运行；账户、合约查询和历史 K 线已从 IBKR 返回。实时报价收到 `IBKR_10089`（API 市场数据需要额外订阅，延迟数据可用）并保持诚实的缺失/过期状态。真实 paper 写入仍未发起，需用户先确认精确测试范围与风险上限。
 
-- 下一条可执行操作：完成本轮行情端点参数修复后的回归，并继续实际 Gateway 行情会话核对；随后验证成交/撤单后的账户证明与预占释放。原生改单、完整外部挂单风险映射及主计划其余策略/AI缺口仍待实现。
+- 下一条可执行操作：在用户确认账户、合约、方向、整股数量、限价、风险上限、有效期和是否允许撤单后，于美股常规交易时段执行一笔受限 paper 下单→回报→撤单→对账；若行情权限或当日 PnL 不足，先记录拒绝证据并不发送订单。随后验证成交/撤单后的账户证明与预占释放。
 
 - 长期目标：用户目标为完整模拟盘下单、撤单、持仓查看与行情接入；当前仍 active，未完成。
 
@@ -102,13 +102,13 @@
 
 ## 恢复信息
 
-- 当前分支／提交：`codex/global-macro-dashboard-v2` / `e276417b441df1e2fca026bdb0c710ede6e61e18`。
+- 当前分支／提交：`codex/global-macro-dashboard-v2` / `ea3c57d878d577de1433d5278ffc6ee342ab7d43`。
 
 - 初始 Git 状态：无 tracked 修改；用户既有未跟踪文件 `docs/plans/2026-09-04-ibkr-codex-goal.md`、主计划及 `output/`，保持原样。
 
 - 本次修改文件：本文件、docs/design/ibkr/、tests/ibkr/、scripts/verify-ibkr-unit.mjs、scripts/verify-ibkr-performance.mjs、playwright.ibkr.config.ts、package.json/lock、.gitignore、services/vibe-trading/requirements-ibkr-test.txt、agent/src/ibkr_terminal/、agent/tests/ibkr_terminal/。
 
-- 运行中的本任务进程：无。session 42745 已正常退出，5190 无监听；用户原有 5180 Vite/dailyhot 进程未修改。未绑定数据库及本地会话令牌保留在已忽略且限制 ACL 的 .sparkflow/ibkr-terminal/。
+- 运行中的本任务进程：Gateway `127.0.0.1:4002` 与 IBKR 账户服务 `127.0.0.1:8765` 当前监听；Vite `127.0.0.1:5180` 保持运行。未绑定数据库及本地会话令牌保留在已忽略且限制 ACL 的 `.sparkflow/ibkr-terminal/`。
 
 - 测试与证据位置：`docs/design/ibkr/`、`tests/ibkr/`；浏览器临时输出 test-results/ 已忽略且现有 Vite watch 已排除。
 
@@ -360,3 +360,5 @@
 - P8 最终长测：session 42745 完整 60 分钟、120 个样本，`passed=true`；LCP 876ms、图表 1740.65ms、事件→页面 p95 4.42ms、点击 p95 58.08ms，headless rAF 240.09 只作卡顿探针。3594/3594 patch 应用，4494 stream messages、重同步 0、活动/峰值 WS 1/1、队列 0/1；请求首尾/峰值均 42，documents 恒为 1，DOM 在 1506/2043/2432/2969/3699 五档随分页循环。启动 heap 225.92MB 随 GC 回落；稳定段 15.33–17.76MB，前后半中位数 16.81/17.09MB，线性趋势约 +0.64MB/h，未见无界增长。结果 `soak-60m-current-build.json` 52,403 bytes，SHA256 `81DCA4F6AADF1314FD382C3B6ACE302F666DF067D5DD9350CE75C8E7EF7D6462`；结束复核构建 48/48 unchanged，5190 及候选子进程已退出。
 
 - P8 最终回归：`npm run test:ibkr:unit` = 14 JS + 186 Python passed（1 条 Starlette/httpx 弃用警告）；`npm run test:ibkr:e2e` = 28 passed；`npm run test:ibkr:stream` 3 心跳、token 403、无 broker；`npx tsc -b --pretty false` 与 `npx vite build` passed，构建仍有 >500kB 警告。`test:macro-release`、`test:market-cache`、`test:isolated-market-data` 通过；复用用户已运行的本工作区 5180 服务执行 `test:macro-cards`，六卡强制刷新 3.378s、全部 stale=false。未终止用户进程，未连接 IBKR，未发订单。
+
+- 2026-09-06 本轮真实 paper 核对：重启并清理重复账户服务后，Gateway `127.0.0.1:4002`、账户服务 `127.0.0.1:8765`、网页 `127.0.0.1:5180` 可用；代理 session/snapshot 返回 `source=ibkr`、`testData=false`、`connection=connected`、`state=empty`、指定账户 `DU***372`、持仓/挂单/成交均为 0（本次查询窗口）。SPY 合约查询返回 conId `756733`；`market-data` 的 `1D`、`5D`、`1M` 均返回 `state=ready`、`source=ibkr.historicalData` 的真实 K 线。实时报价请求先记录 `IBKR_10089`（API 市场数据需额外订阅），随后延迟 feed 返回 `state=delayed`、`last=769.45`、`close=773.17`、`detail=IBKR_10167`；没有把延迟或收盘价当成实时成交证据。`test_market_watch.py` 新增权限错误归属用例后 6 passed；真实 paper 下单/撤单未发送，仍需用户精确范围与实时成交报价/PnL 条件。

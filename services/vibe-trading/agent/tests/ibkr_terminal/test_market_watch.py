@@ -18,7 +18,7 @@ class SDK:
     def reqMktData(self,c,*args):
         assert args==('',False,False)
         self.sent.append(c.conId)
-        return NS(contract=c,last=float('nan'),bid=float('nan'),ask=float('nan'),close=float('nan'),time=None,rtTime=None,marketDataType=1)
+        return NS(reqId=13,contract=c,last=float('nan'),bid=float('nan'),ask=float('nan'),close=float('nan'),time=None,rtTime=None,marketDataType=1)
     def cancelMktData(self,c): self.cancelled.append(c.conId)
     def isConnected(self): return True
 
@@ -61,6 +61,17 @@ def test_competing_broker_session_is_diagnostic_not_endless_loading(api_event_lo
         result=watch.quote(12)
         assert result['state']=='permission-required' and result['detail']=='IBKR_10197'
         assert 'private' not in str(result)
+        watch.close()
+    api_event_loop.run_until_complete(run())
+
+
+def test_market_permission_error_without_contract_is_scoped_to_active_request(api_event_loop):
+    async def run():
+        sdk=SDK();watch=MarketWatch(sdk,clock=lambda:NOW)
+        await watch.search('TEST');watch.quote(12)
+        sdk.errorEvent.emit(13,10089,'subscription required',None)
+        result=watch.quote(12)
+        assert result['state']=='permission-required' and result['detail']=='IBKR_10089'
         watch.close()
     api_event_loop.run_until_complete(run())
 

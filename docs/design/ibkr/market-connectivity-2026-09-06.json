@@ -1,27 +1,23 @@
 {
-  "checkedAt": "2026-09-06T03:36:48.800940+00:00",
+  "checkedAt": "2026-09-06T04:27:32.815554+00:00",
   "scope": "read-only market connectivity probe; SPY is a data test, no trading selection or order",
-  "errors": [
-    2104,
-    2106,
-    2158,
-    2119,
-    2104,
-    10197,
-    2106,
-    162
-  ],
+  "errors": [10089, 10167, 300, 322],
   "contractsFound": 1,
   "quote": {
     "conId": 756733,
-    "state": "permission-required",
+    "state": "delayed",
     "source": "ibkr.reqMktData",
     "observedAt": null,
     "brokerAsOf": null,
-    "detail": "IBKR_10197"
+    "detail": "IBKR_10167",
+    "last": "769.45",
+    "close": "773.17"
   },
-  "pricePresent": false,
+  "pricePresent": true,
   "history": {
-    "errorType": "RequestError"
+    "state": "ready",
+    "source": "ibkr.historicalData",
+    "periods": ["1D", "5D", "1M"],
+    "barsPresent": true
   }
 }
