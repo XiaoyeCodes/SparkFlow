@@ -198,7 +198,7 @@ class ReadonlyConnection:
             missing.append('baseCurrency')
         missing.extend(key for key, value in metrics.model_dump().items() if value is None)
         partial = self.allow_partial and self._reconciled_at is None
-        detail = '工程 fake broker 样本' if self._fixture else 'IBKR 只读快照；外部订单不可管理，行情尚未接入。'
+        detail = '工程 fake broker 样本' if self._fixture else 'IBKR 只读快照；报价与历史行情需通过独立行情权限查询，账户快照不填充报价。'
         if partial:
             detail = '已连接 IBKR 并读取账户摘要；持仓／挂单／成交核对未完成，交易不可用。'
             if self._read_error:
