@@ -410,6 +410,11 @@ test('historical chart renders a source-labelled 10000 bar dataset independently
   await expect(page.getByTestId('historical-chart')).toBeVisible();
   await expect(page.getByLabel('行情图表')).toContainText('fixture.historical · 10,000 根');
   await expect(page.getByLabel('行情图表')).toContainText('工程行情');
+  await expect(page.getByTestId('moving-average-legend')).toContainText('MA5:');
+  await expect(page.getByTestId('moving-average-legend')).toContainText('MA20:');
+  await page.getByTestId('historical-chart').hover({ position: { x: 500, y: 120 } });
+  await expect(page.getByTestId('candle-tooltip')).toContainText('开盘');
+  await expect(page.getByTestId('candle-tooltip')).toContainText('成交额');
 });
 
 test('historical chart preserves a permission-required empty state', async ({ page }) => {
