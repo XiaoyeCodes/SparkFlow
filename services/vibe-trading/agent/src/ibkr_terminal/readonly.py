@@ -168,6 +168,9 @@ class ReadonlyConnection:
             return decimal_text(matches[0]['value']) if len(matches) == 1 else None
 
         positions = []
+        portfolio_rows = getattr(self._ib, 'portfolio', lambda: ())()
+        portfolio = {_obj_get(_obj_get(row, 'contract'), 'conId'): row for row in portfolio_rows
+            if _obj_get(row, 'account') == self.binding.brokerAccount}
         missing = ['quotes', 'execution-history-before-broker-window']
         if self._reconciled_at is None:
             missing.extend(['orders', 'executions', 'active-reconciliation'])
@@ -182,7 +185,16 @@ class ReadonlyConnection:
                 continue
             if not contract['con_id'] or not contract['currency'] or quantity is None:
                 raise ValueError('incomplete position identity or quantity')
-            positions.append(Position(accountKey=self.binding.accountKey, conId=contract['con_id'], symbol=contract['symbol'] or '', currency=contract['currency'], quantity=quantity, averageCost=decimal_text(_obj_get(row, 'avgCost')), marketValue=None))
+            broker_contract = _obj_get(row, 'contract')
+            entry = portfolio.get(contract['con_id'])
+            if entry is not None and decimal_text(_obj_get(entry, 'position')) != quantity:
+                entry = None  # Never combine a position update with an older portfolio valuation.
+            positions.append(Position(accountKey=self.binding.accountKey, conId=contract['con_id'], symbol=contract['symbol'] or '', currency=contract['currency'], quantity=quantity,
+                averageCost=decimal_text(_obj_get(row, 'avgCost')), marketValue=decimal_text(_obj_get(entry, 'marketValue')),
+                assetType=_obj_get(broker_contract, 'secType') or None,
+                exchange=_obj_get(broker_contract, 'primaryExchange') or _obj_get(broker_contract, 'exchange') or None,
+                name=_obj_get(broker_contract, 'localSymbol') or contract['symbol'],
+                unrealizedPnl=decimal_text(_obj_get(entry, 'unrealizedPNL'))))
         cash_by_currency = {}
         for row in rows:
             if row['tag'] == 'CashBalance' and row['currency'] and row['currency'] != 'BASE':

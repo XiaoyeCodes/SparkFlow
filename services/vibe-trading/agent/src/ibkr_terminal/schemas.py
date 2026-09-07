@@ -38,6 +38,10 @@ class Position(Contract):
     quantity: DecimalText
     averageCost: DecimalText | None = None
     marketValue: DecimalText | None = None
+    assetType: str | None = None
+    exchange: str | None = None
+    name: str | None = None
+    unrealizedPnl: DecimalText | None = None
 
 
 class Quote(Contract):

@@ -20,7 +20,8 @@ import { CozeReportTaskService } from './server/cozeReportTasks';
 import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, parseSyndication, type NewsSource } from './server/newsFeed';
 import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from './server/newsSubscriptions';
 import { dailyHotPlugin } from './server/dailyhotPlugin';
-import { ibkrTerminalProxy } from './server/ibkrTerminalProxy';
+import { ibkrWorkbenchPlugin } from './server/ibkrWorkbench';
+import { parseEastmoneyRow } from './server/ibkrMarket';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
 import { createFinancialConditionsService } from './server/financialConditions';
 import { parseEmploymentHeadline, parseMacroMarketCalendar, macroComparison, assertMacroPeriodNotRegressed, type MacroMarketContext } from './server/usMacroRelease';
@@ -2371,13 +2372,13 @@ async function getUsMarketHeatmap() {
   const stocks: ChinaHeatmapStock[] = rows.flatMap((row) => {
     const code = String(row.f12 || '').trim().toUpperCase();
     const name = String(row.f14 || '').trim();
-    const price = asFiniteNumber(row.f2);
-    const changePercent = asFiniteNumber(row.f3);
+    const normalizedQuote = parseEastmoneyRow(row);
+    const price = normalizedQuote.price ?? undefined;
+    const changePercent = normalizedQuote.changePercent ?? undefined;
     const marketCap = asFiniteNumber(row.f20);
     const exchangeCode = String(row.f13 || '');
     const exchange = exchangeCode === '105' ? 'NASDAQ' : exchangeCode === '106' ? 'NYSE' : '';
     if (!code || !name || !exchange || price === undefined || changePercent === undefined || !marketCap || marketCap <= 0) return [];
-    const timestamp = asFiniteNumber(row.f124);
     return [{
       code,
       name,
@@ -2388,7 +2389,7 @@ async function getUsMarketHeatmap() {
       pe: asFiniteNumber(row.f9),
       pb: asFiniteNumber(row.f23),
       industry: String(row.f100 || '其他').trim() || '其他',
-      updatedAt: timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+      updatedAt: normalizedQuote.asOf ?? undefined,
       sourceUrl: `https://quote.eastmoney.com/us/${encodeURIComponent(code)}.html`,
     }];
   });
@@ -12690,7 +12691,12 @@ function allWeatherApiPlugin() {
 }
 
 export default defineConfig({
-  plugins: [react(), ibkrTerminalProxy(), dailyHotPlugin(), allWeatherApiPlugin()],
+  plugins: [
+    react(),
+    ibkrWorkbenchPlugin({ fetchJson: url => fetchJsonWithRetry(url, 2, 12000) }),
+    dailyHotPlugin(),
+    allWeatherApiPlugin(),
+  ],
   server: {
     watch: {
       ignored: [

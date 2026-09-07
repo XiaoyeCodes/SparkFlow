@@ -31,19 +31,3 @@ export function validSnapshot(value: unknown): value is Snapshot {
   return Array.isArray(value.quotes) && value.quotes.every(row => record(row) && integer(row.conId) && Number(row.conId) > 0 && optionalDecimal(row.price)
     && ['realtime', 'delayed', 'frozen', 'disconnected', 'missing'].includes(String(row.state)) && typeof row.source === 'string' && (row.asOf === null || typeof row.asOf === 'string' && Number.isFinite(Date.parse(row.asOf))));
 }
-
-type EventResult = { action: 'ignore' | 'resync' } | { action: 'apply'; snapshot: Snapshot };
-const patchKeys = new Set(['snapshotId', 'source', 'testData', 'asOf', 'connection', 'state', 'baseCurrency', 'metrics', 'cash', 'positions', 'orders', 'quotes', 'capabilities', 'missing', 'detail', 'executions', 'provenance']);
-
-export function applyAccountEvent(snapshot: Snapshot, event: unknown): EventResult {
-  if (!record(event) || !integer(event.sequence) || !integer(event.sessionRevision)) return { action: 'resync' };
-  if (event.mode !== snapshot.mode || event.accountKey !== snapshot.accountKey || Number(event.sessionRevision) < snapshot.sessionRevision) return { action: 'ignore' };
-  if (event.sessionRevision !== snapshot.sessionRevision || event.kind === 'resync-required') return { action: 'resync' };
-  if (event.kind === 'heartbeat') return { action: event.sequence === snapshot.sequence ? 'ignore' : 'resync' };
-  if (event.kind !== 'snapshot.patch') return { action: 'resync' };
-  if (Number(event.sequence) <= snapshot.sequence) return { action: 'ignore' };
-  if (event.previousSequence !== snapshot.sequence || event.sequence !== snapshot.sequence + 1 || !record(event.payload)
-    || Object.keys(event.payload).some(key => !patchKeys.has(key))) return { action: 'resync' };
-  const next = { ...snapshot, ...event.payload, sequence: event.sequence };
-  return validSnapshot(next) ? { action: 'apply', snapshot: next } : { action: 'resync' };
-}

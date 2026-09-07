@@ -4,10 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:ibkr:workbench": "node scripts/verify-ibkr-workbench.mjs",
     "test:ibkr:unit": "node scripts/verify-ibkr-unit.mjs",
     "test:ibkr:e2e": "playwright test --config playwright.ibkr.config.ts",
-    "test:ibkr:stream": "node --experimental-strip-types scripts/verify-ibkr-stream.mjs",
-    "test:ibkr:performance": "node scripts/verify-ibkr-performance.mjs",
     "dailyhot:setup": "node scripts/setup-dailyhot.mjs",
     "test:dailyhot": "node scripts/verify-dailyhot-service.mjs",
     "research:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-vibe-trading.ps1",
@@ -31,6 +30,7 @@
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.8",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@napi-rs/canvas": "^1.0.6",
     "d3-geo": "^3.1.1",
     "d3-hierarchy": "^3.1.2",
@@ -55,7 +55,8 @@
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
     "undici": "^6.21.3",
-    "world-atlas": "^2.0.2"
+    "world-atlas": "^2.0.2",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
