@@ -368,3 +368,69 @@
 - 2026-09-06 本轮实盘页面接入：在受限本机 `.sparkflow/ibkr-terminal/bindings.json` 增加 `live:primary`，使用实盘 Gateway `127.0.0.1:4001`、独立 `clientId=79`、`readonly=true`；完整账户号不进入 Git 或用户可见输出。重启账户服务后 `/api/ibkr-terminal/session` 返回 paper/live 两个只读账户且 `writesEnabled=false`；`/api/ibkr-terminal/snapshot?mode=live&accountKey=live%3Aprimary` 返回 `source=ibkr`、`testData=false`、`connection=connected`、`state=ready`、12 个真实持仓。缺口仍为 `quotes`、券商窗口外历史成交和 `unrealizedPnl`；网页默认仍为模拟盘，需在顶栏切换“实盘只读”。
 
 - 2026-09-06 K 线展示增强：现有 `PriceChart` 保留 IBKR 历史 OHLC 数据源，增加 MA5/MA10/MA20 线、成交量柱、十字光标中文 OHLC/涨跌额/涨跌幅/成交量详情、数据源口径标识和缺失字段说明；成交额与换手率因 IBKR 历史响应未提供，显示 `—`，没有用估算值冒充真实字段。新增浏览器断言验证均线图例与悬浮详情；`npm run test:ibkr:unit` = 16 JS + 275 Python passed，`npm run test:ibkr:e2e` = 31 passed，`npx tsc -b --pretty false`、`npx vite build`、`git diff --check` passed。构建保留既有 >500 kB chunk 警告和 Starlette/httpx 弃用警告。
+
+
+### 2026-09-07 持仓动态 Logo — VERIFIED（展示范围）
+
+- 文件：`server/ibkrCompanyLogos.ts`、`server/ibkrWorkbench.ts`、`vite.config.ts`、`src/components/ibkr/HoldingLogo.tsx`、`AccountWorkbench.tsx`、`AccountWorkbench.css`；保留本地既有紧凑样式调整。
+- 实现：复用热力图本地 Logo；新增股票按代码、币种和交易场所查询 TradingView，ETF 可使用发行方 Logo。外部图片经本机后端和现有代理下载；成功缓存 24 小时，未匹配缓存 60 秒；并发请求合并。账户刷新新增持仓会自动加载，失败保留字母且不随每次账户轮询重试。无账户标识、数量、金额或凭证传到 Logo 来源。
+- RED：新增测试首次运行因 Logo 模块不存在失败；GREEN：`npm run test:ibkr:workbench` 41/41；`npx tsc -b --pretty false` 通过。`npx playwright test --config playwright.ibkr.config.ts workbench.spec.ts --grep 'holding logo|populated report and risk layouts'` 6/6；图片代理完成后重跑 `--grep 'holding logo'` 2/2。离线工程样本截图 `tmp/workbench-qa/holding-logos.png` 已检查。
+- 真实本机 GET 验证：AAPL 本地图片 HTTP 200；QQQ 动态解析 Invesco，SVG HTTP 200、735 bytes；VTI 动态解析 Vanguard，SVG HTTP 200、2264 bytes。原直连 CDN 超时，已通过后端代理解决。
+- 限制：当前覆盖美股及 ETF、港股、A 股；未知市场、歧义代码、无 Logo 或来源中断保留字母。Logo 是展示资料，不是账户或行情证据。外部未知标的不能保证全覆盖；刷新页面可在失败缓存到期后重试。未下单、未变更授权、未提交推送。
+- 下一步：按用户反馈调整展示；这项验收不代表完整交易终端目标完成。既有研究任务测试文案失败见上一阶段说明，本次未修改该逻辑。
+
+
+### 2026-09-07 账户总览补充与参考布局 — VERIFIED（本次展示范围）
+
+- 参考：`F:/下载/ibkr-dashboard-redesign.html` 原样归档至 `docs/design/ibkr/ibkr-dashboard-redesign.reference.html`，两份 SHA256 均为 `5E3465F07F18F50447AFB3C7CC1017B9197FF49E3BF1A84A6B9E9AD76B83B2B9`。HTML 脚本、账户数值、新闻和 71/100 均只作参考，未作为生产事实执行或导入。
+- 文件：新增 `src/components/ibkr/OverviewPanels.tsx` / `.css`、`src/lib/ibkr/overview.ts`；`AccountWorkbench.tsx` 接入主区、次区和资金区；`WorkbenchPanels.tsx` 转出资产表现组件。保留既有紧凑样式与动态 Logo。未修改宏观卡片、账户授权或订单代码。
+- 功能：宽幅资产曲线、右侧刻度、净值／收益与周期切换、同区间基准与原波动率指标、月度 TWR 柱、收益摘要；右侧简报徽标、规则等级半环、组合结构／事件影响／行动条件与可跳转提醒。下方增加前五集中度、前六持仓分布、行业未知／ETF 分类、按币种浮盈浮亏排行、现金／购买力／维持保证金。分布与排行支持打开原持仓详情。
+- 数据边界：月收益按相邻月界实际累计 TWR 复合计算，缺基点月份留空，最新月份标截止日；MWR 不做月度重基，本地净值不推算收益。跨币种估值缺失时整体集中度留空，盈亏按币种分别排行；未生成研究则显示账户事实与待办，不填示例事件或个人风险额度。半环只表达现有等级，不构造百分制分数。
+- RED：新增 `tests/workbench/overview.test.mjs` 首次因模块不存在失败；实现后验证月界、TWR、入金隔离、MWR、无效数据、重复日期及跨币种。GREEN：`npm run test:ibkr:workbench` 44/44；`npx tsc -b --pretty false` 通过；`npx vite build` 通过（保留既有大 bundle 提示）；`git diff --check` 通过。
+- 浏览器：`npx playwright test --config playwright.ibkr.config.ts workbench.spec.ts --grep-invert 'resumed older research'` 17/17，含 1920/1440/808/390 宽度、月收益数值、币种切换、无来源空态、持仓详情／研究跳转以及原授权／报告／Logo 回归。已知旧用例另外单独执行 `--grep 'resumed older research'` 仍失败：预期“持仓覆盖 1/2”，实际 UI 文案为“历史逐仓覆盖”；本次未删除或改写此用例，也未宣称全套通过。
+- 本机真实页面只读检查：`http://127.0.0.1:5180/ibkr` 页面异常 0、横向溢出 false、真实月度收益图 1、总览 5 个 Logo 成功加载。截图 `tmp/workbench-qa/overview-live-redesign.png`（本地账户资料，未纳入 Git）已目视核验；工程截图 `overview-redesign-monthly.png`、各宽度 `overview-*.png`。
+- 剩余限制：账户研究仍未发布完整报告，行业来源缺失继续显示“行业待核实”；历史不足的月份不补数。下一步按用户反馈调整；未提交或推送，本次不代表长期交易目标完成。
+
+
+### 2026-09-07 总览全屏紧凑布局 — VERIFIED（1920×1080）
+
+- 文件：`AccountWorkbench.tsx` 增加仅总览生效的密度类、研究状态组和下方模块容器；`OverviewPanels.css` 收紧桌面顶部、64px 指标卡、面板间距，将收益摘要／月收益并排及宽屏四个明细模块并排；`OverviewPanels.tsx` 的 SVG 根据实际宽高计算坐标，缩小图形仍保留刻度字号。
+- 不通过 zoom、缩放整页、隐藏模块、裁切数据或固定高度滚动容器适配；研究详情可展开，完整 12 个持仓仍由“查看全部”进入。手机保持纵向排列。较窄／矮窗口、长报告或展开详情允许正常滚动。
+- 真实页面验证：1920×1080，页面总高 1080px，无横向溢出；主要明细区底部约 964px，页脚底部约 1030px，全部主要模块同屏。1600×900 总高 1054px，仍需少量滚动，未宣称所有分辨率都能完整同屏；2560×1440 初检同屏。真实截图 `tmp/workbench-qa/dense-live-1920.png` 已目视检查（本地私有账户资料，未纳入 Git）。
+- 验证：新增“full HD overview fits all summary modules while research is pending”浏览器用例检查 12 持仓／待研究／月收益下所有主要模块边界均在 1080px 内，且“查看全部”可显示 12 行。`npx playwright test --config playwright.ibkr.config.ts workbench.spec.ts --grep 'full HD overview|populated report and risk layouts|overview presents|workbench empty layout'` 10/10，通过 1920/1440/808/390 布局和数据交互回归；`npx tsc -b --pretty false`、`git diff --check` 通过。既有研究文案用例未在本步骤重复运行，上节失败记录仍有效。
+- 下一步：按实际窗口使用反馈调整；未改账户／研究授权／订单逻辑，未提交推送。
+
+### 2026-09-07 按绿色标注重排总览 — VERIFIED（本次布局范围）
+
+- 用户参考：`codex-clipboard-0b270afe-851a-4f1f-9252-8e0bb35cddf5.png`。宽屏改为左上资产表现，左下依次为持仓、持仓分布、持仓盈亏排行、资金概况，右侧 AI 账户简报贯穿两行；绿色线条仅为布局标注。四个下方模块和简报底部对齐至页面底部 8px。
+- 文件：`src/components/ibkr/AccountWorkbench.tsx` 新增总览布局容器；`OverviewPanels.css` 使用五列命名网格、窄侧栏纵向简报、矮屏图表高度适配。保留用户要求移除总览研究任务条、底部 AI 输入条与页脚的改动；研究任务和输入仍可在 AI 分析页访问。账户、行情、研究和交易逻辑未改。
+- RED：扩展 `tests/ibkr/workbench.spec.ts` 的全屏几何断言，旧布局右侧简报与底部相差 486px 而失败。GREEN：`npx playwright test --config playwright.ibkr.config.ts workbench.spec.ts --grep 'full HD overview|layout|overview'` 11/11，含 1920/1440/808/390 布局与数据交互，以及 1920×1080 / 1600×900 同屏断言；`npx tsc -b --pretty false` 和 `git diff --check` 通过。
+- 本机页面只读验证：1920×1080 页面高 1080、宽 1920，右栏及底部四卡底边 1072；1600×900 页面高 900、宽 1600，持仓表格可视／滚动宽均为 374px，无横向溢出。截图 `tmp/workbench-qa/green-layout-live-1920.png`、`green-layout-live-1600.png` 已检查；账户图片仅保存在本地忽略目录。
+- 限制：总览持仓仍为前五条，通过“查看全部”查看全部持仓；小屏、长报告、展开详情可正常滚动。不宣称任意数据量和屏幕均同屏。既有研究任务测试本次未运行，先前文案失败仍未解决；任务条已按用户要求移至其他页，其旧总览定位也需随研究流程维护。未提交推送。
+
+### 2026-09-07 全屏按空间补充实际持仓 — VERIFIED（自适应列表范围）
+
+- 文件：新增 `src/components/ibkr/useAdaptiveRows.ts`，`AccountWorkbench.tsx`、`OverviewPanels.tsx` 接入实际卡片高度与行高测量；`tests/ibkr/workbench.spec.ts` 补充窗口伸缩和账户更新回归。
+- 行为：宽屏持仓、持仓分布、盈亏排行不再固定为 5／6／3+3 行。ResizeObserver 和窗口 resize 触发测量，按剩余空间添加真实记录，缩小窗口后减行；盈亏仍按币种、正负分组和原顺序展示。行数以实际记录数为上限，分布颜色循环使用原配色，文案反映实际显示数量。总览不继承完整持仓页的搜索过滤；全部持仓入口保留。
+- RED：扩展全屏测试，2560×1440 预期 12 行、旧实现只有 5 行，失败。GREEN：`npx playwright test --config playwright.ibkr.config.ts workbench.spec.ts --grep 'full HD overview|layout|overview'` 12/12；覆盖两次放大／缩小、三个列表全部 12 条、2→8→0 条账户自动轮询更新、窄屏和现有数据交互。空态过滤修正后再跑 `--grep 'adaptive overview'` 1/1。`npx tsc -b --pretty false`、`npx vite build` 通过（保留既有大 chunk 提示）。
+- 本机真实页面只读核验：2560×1440 三个列表各 12 行；1920×1080 为持仓 7、分布 9、盈亏 9；1600×900 为 5／6／6；返回 2560×1440 恢复各 12。以上页面高宽均等于视口，无页面异常，最后一行及说明均在卡片边界内。截图 `tmp/workbench-qa/adaptive-live-2560.png` 等已目视检查，只保存在本机忽略目录。
+- 限制：全部真实记录已展示后保留剩余空白；盈亏为零、缺失或其他币种的持仓不强行放入当前浮盈／浮亏分组。小屏保留紧凑摘要并可进入全部持仓。未修改账户／交易权限，未下单，未提交推送；既有研究任务测试未在本步运行，之前失败记录仍有效。
+
+### 2026-09-07 资产曲线半透明悬浮详情 — VERIFIED（展示范围）
+
+- 文件：`src/components/ibkr/OverviewPanels.tsx`、`OverviewPanels.css`、`tests/ibkr/workbench.spec.ts`。
+- 功能：鼠标在净值／收益曲线上移动时，十字线定位真实观测点，旁侧半透明详情显示日度日期、净值与币种、区间 TWR（或原始累计 MWR）、较上一观测的 TWR、净值变动以及历史盈亏缺失状态。靠近右边缘自动向左展示；移开、失焦或 Esc 关闭，方向键仍可逐点查看。
+- 数据口径：区间收益率沿用实际累计 TWR 复合计算，说明实际起点和上一观测日期；MWR 不做区间复合。历史接口目前未提供盈亏金额，显示“— 未提供”，不使用当前未实现盈亏填充历史日期，也不把包含资金进出的净值变化当作投资盈亏；没有制造分钟级时间。
+- RED：两个新增悬浮断言在实现前因不存在 tooltip 而失败。GREEN：`npx playwright test --config playwright.ibkr.config.ts workbench.spec.ts --grep 'overview presents|overview never'` 2/2，覆盖入金样本净值变化 +255,000.00 与 TWR +2.04% 分离、无收益来源时不生成收益率、键盘关闭／选择和右侧边界。随后 `--grep 'full HD overview|layout|overview'` 12/12；`npx tsc -b --pretty false`、`git diff --check` 通过。此次未重跑生产构建及既有失败研究任务用例。
+- 本机只读视觉检查：1920×1080 真实页面显示悬浮框，页面仍为 1920×1080，无布局挤占。截图 `tmp/workbench-qa/nav-hover-live.png` 已检查，仅保存在本机忽略目录。未修改账户／交易权限，未提交推送。
+
+### 2026-09-07 独立每日账户简报 — 软件 VERIFIED；真实生成 BLOCKED（模型 HTTP 401）
+
+- 需求：总览右栏展示简短账户分析，每个美股交易日收盘后 30 分钟生成。复用现有后台调度、已开启的 daily 偏好和当前 DeepSeek 模型账户分享授权，不新增 Codex 任务，不改交易权限。
+- 文件：`server/ibkrBrief.ts`（交易日历、脱敏事实、提示词、数字校验）、`server/ibkrWorkbench.ts`（单次生成、预算与去重、归档、状态、POST brief）、`src/lib/ibkr/workbenchTypes.ts`、`OverviewPanels.tsx/.css`、`AccountWorkbench.tsx`。`server/ibkrAi.ts` 和 `scripts/ibkr-ai-analysis.py` 修复子进程失败时吞掉安全错误码的问题；只公开白名单错误码，不输出原始服务响应或密钥。
+- 设计与提示词：`docs/plans/2026-09-07-account-daily-brief-design.md`、`docs/prompts/ibkr-daily-account-brief.md`；运行说明已同步 `docs/runbooks/ibkr-account-workbench.md`。提示词要求约 200～350 字，回答账户现状、主要风险、下一交易日关注事项，缺数据说明。金额和比例使用事实编号，由服务器替换；无搜索和逐仓长报告调用，不推测当日盈亏或新闻归因。
+- 调度：NYSE 官方 2026～2028 日历、纽约时区、提前收盘；普通日收盘后 30 分钟，休市不创建新交易日期。重启只补最新一期，先保存尝试与预算再调用，同一期自动尝试一次。失败保留上期内容，HTTP 401／402／403 暂停后续自动调用，配置修复后手动成功生成即可恢复；未知年份暂停。来源：https://www.nyse.com/trade/hours-calendars 。
+- RED：新模块首次编译缺失失败；新服务四项测试因 generateBrief 尚不存在失败；浏览器新简报断言在旧占位卡片上失败。GREEN：专属测试 9/9，覆盖时间边界、DST、休市、半日市、2027／2028、未知年份、脱敏／数字引用、并发／去重／归档、权限和预算阻断、撤权与重启、401 暂停与人工恢复。
+- 最终验证：`npm run test:ibkr:workbench` 53/53；`npx playwright test --config playwright.ibkr.config.ts workbench.spec.ts --grep 'daily brief|full HD overview|layout|overview'` 13/13；`npx tsc -b --pretty false`、`npx vite build`、`git diff --check` 通过。保留既有大 chunk 提示。工作区其他研究模块与测试的并行现有改动已保留；未删除或弱化其测试。
+- 实际接入：当前账户可同步，模型 deepseek / deepseek-v4-pro 已有分享授权，但生成请求被模型端拒绝。首次错误被旧桥接逻辑统一化，修复诊断后最终明确 `AI_HTTP_401`。本轮保存的简报尝试三次（一次自动补生成、两次用于诊断修复后的显式验证），均未产出有效内容；没有用示例或手写内容冒充生成结果。已停止重试，并向用户请求在原模型设置核对 API 密钥／服务地址，不要求在聊天中提供密钥。
+- 当前本机 GET state 显示简报 blocked、nextRunAt=null，前端显示“模型鉴权或额度不可用，自动简报暂停”；截图 `tmp/workbench-qa/daily-brief-live-auth-blocked.png` 仅本机保存。实际跨交易日自动生成未运行，真实账户简报未生成成功；需修复模型鉴权后完成实测。电脑和 SparkFlow 后台必须运行，静态页面部署不能执行后台任务。未提交推送。

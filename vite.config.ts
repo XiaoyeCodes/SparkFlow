@@ -12693,7 +12693,33 @@ function allWeatherApiPlugin() {
 export default defineConfig({
   plugins: [
     react(),
-    ibkrWorkbenchPlugin({ fetchJson: url => fetchJsonWithRetry(url, 2, 12000) }),
+    ibkrWorkbenchPlugin({
+      fetchJson: url => fetchJsonWithRetry(url, 2, 12000),
+      fetchLogoImage: async url => {
+        for (const route of ['proxy', 'direct'] as const) {
+          try {
+            const response = await undiciFetch(url, { signal: AbortSignal.timeout(5000), redirect: 'error', ...(route === 'proxy' ? { dispatcher: foreignProxyAgent } : {}) });
+            if (!response.ok) throw new Error('Logo image unavailable');
+            return new Uint8Array(await response.arrayBuffer());
+          } catch { /* Bounded fallback; unavailable images retain the symbol placeholder. */ }
+        }
+        throw new Error('Logo image unavailable');
+      },
+      fetchLogoScan: async tickers => {
+        for (const route of ['direct', 'proxy'] as const) {
+          try {
+            const response = await undiciFetch('https://scanner.tradingview.com/global/scan', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://www.tradingview.com' },
+              body: JSON.stringify({ symbols: { tickers, query: { types: [] } }, columns: ['logoid'] }),
+              signal: AbortSignal.timeout(5000), ...(route === 'proxy' ? { dispatcher: foreignProxyAgent } : {}),
+            });
+            if (!response.ok) throw new Error('Logo source unavailable');
+            return await response.json();
+          } catch { /* Try the project's configured proxy once, then retain initials. */ }
+        }
+        throw new Error('Logo source unavailable');
+      },
+    }),
     dailyHotPlugin(),
     allWeatherApiPlugin(),
   ],

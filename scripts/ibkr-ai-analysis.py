@@ -92,5 +92,6 @@ def main():
 if __name__=='__main__':
     try: print(json.dumps(main(),ensure_ascii=False,allow_nan=False))
     except Exception as exc:
-        code=str(exc) if re.fullmatch('[A-Z_]+',str(exc)) else 'TOOL_SOURCE_UNAVAILABLE' if len(sys.argv)>1 and sys.argv[1]=='tool' else 'AI_INVOCATION_FAILED_CHECK_MODEL_SETTINGS'
+        status=getattr(exc,'status_code',None)
+        code=str(exc) if re.fullmatch('[A-Z_]+',str(exc)) else 'TOOL_SOURCE_UNAVAILABLE' if len(sys.argv)>1 and sys.argv[1]=='tool' else f'AI_HTTP_{status}' if isinstance(status,int) and 400<=status<=599 else 'AI_CONNECTION_FAILED' if type(exc).__name__ in ('APIConnectionError','ConnectError','ConnectTimeout') else 'AI_INVOCATION_FAILED_CHECK_MODEL_SETTINGS'
         print(json.dumps({'error':code}));sys.exit(1)

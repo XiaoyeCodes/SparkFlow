@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPARKFLOW / IBKR — 账户总览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg: #080b0a;
+    --surface: #0d1210;
+    --surface-1: #101413;
+    --surface-2: #141a17;
+    --surface-3: #1a211d;
+    --border: #212a25;
+    --border-soft: #1a221e;
+    --mint: #35e0a1;
+    --mint-dim: #1f6e50;
+    --mint-glow: rgba(53,224,161,0.14);
+    --amber: #f0a73c;
+    --amber-dim: rgba(240,167,60,0.14);
+    --coral: #f2685a;
+    --coral-dim: rgba(242,104,90,0.14);
+    --blue: #5b9df0;
+    --text-hi: #eef3f0;
+    --text-mid: #8fa199;
+    --text-low: #55645d;
+    --font-sans: 'Inter', -apple-system, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --radius-lg: 18px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    background: radial-gradient(1200px 700px at 12% -10%, #0d1613 0%, var(--bg) 55%) fixed;
+    color: var(--text-hi);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .app{max-width: 1440px; margin: 0 auto; padding: 0 32px 64px;}
+
+  /* ---------- topbar ---------- */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 22px 0; border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 28px;
+  }
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand-mark{
+    width:26px; height:26px; border-radius:7px;
+    background: linear-gradient(145deg, var(--mint), #1b8f66);
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--font-mono); font-weight:700; font-size:12px; color:#06140f;
+  }
+  .brand-text{font-size:13px; letter-spacing:0.06em; color: var(--text-mid); font-weight:600;}
+  .brand-text b{color: var(--text-hi); font-weight:700;}
+  .nav{display:flex; gap:2px; background: var(--surface-2); border:1px solid var(--border-soft); border-radius: 999px; padding:3px;}
+  .nav a{
+    font-size:13px; color: var(--text-mid); text-decoration:none; padding:7px 16px; border-radius:999px; font-weight:500;
+    transition: color .15s ease, background .15s ease;
+  }
+  .nav a.active{background: var(--surface-3); color: var(--text-hi);}
+  .nav a:hover{color: var(--text-hi);}
+  .sync{display:flex; align-items:center; gap:8px; font-size:12.5px; color: var(--text-mid); font-family: var(--font-mono);}
+  .dot{width:7px; height:7px; border-radius:50%; background: var(--mint); box-shadow: 0 0 0 3px var(--mint-glow);}
+
+  /* ---------- page head ---------- */
+  .page-head{display:flex; justify-content:space-between; align-items:flex-end; gap:24px; margin-bottom:22px; flex-wrap:wrap;}
+  .page-head h1{font-size: 30px; font-weight: 700; letter-spacing:-0.01em; margin-bottom:6px;}
+  .page-head .sub{color: var(--text-mid); font-size: 14px; margin-bottom: 14px;}
+  .meta-row{display:flex; gap:18px; flex-wrap:wrap;}
+  .meta-item{font-family: var(--font-mono); font-size:11.5px; color: var(--text-low);}
+  .meta-item b{color: var(--text-mid); font-weight:500;}
+  .head-actions{display:flex; gap:10px;}
+  .btn{
+    display:flex; align-items:center; gap:7px; font-size:13.5px; font-weight:600; padding:10px 16px;
+    border-radius: 10px; border:1px solid var(--border); cursor:pointer; font-family: var(--font-sans);
+    background: var(--surface-2); color: var(--text-hi); transition: transform .12s ease, border-color .12s ease;
+  }
+  .btn:hover{border-color:#2c3833; transform: translateY(-1px);}
+  .btn-primary{
+    background: linear-gradient(180deg, #3eeaad, var(--mint)); color:#06140f; border: none;
+    box-shadow: 0 8px 20px -8px rgba(53,224,161,0.5);
+  }
+  .btn-primary:hover{transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(53,224,161,0.6);}
+
+  /* ---------- kpi strip ---------- */
+  .kpi-strip{display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; margin-bottom:16px;}
+  .kpi-card{
+    background: var(--surface-2); border:1px solid var(--border-soft); border-radius: var(--radius-lg);
+    padding: 18px 20px 0; position:relative; overflow:hidden;
+  }
+  .kpi-top{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .kpi-label{font-size:12.5px; color: var(--text-mid); font-weight:500;}
+  .kpi-icon{width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center;}
+  .kpi-icon svg{width:15px; height:15px;}
+  .kpi-value-row{display:flex; align-items:baseline; gap:8px; margin-bottom:2px;}
+  .kpi-value{font-family: var(--font-mono); font-size:26px; font-weight:600; letter-spacing:-0.01em;}
+  .kpi-tag{font-size:11px; font-family: var(--font-mono); font-weight:600; padding:2px 6px; border-radius:5px;}
+  .kpi-cap{font-size:11.5px; color: var(--text-low); padding-bottom:14px;}
+  .kpi-spark{height:36px; margin: 4px -20px 0;}
+  .kpi-spark canvas{width:100%; height:100%; display:block;}
+
+  .mint-ic{background: var(--mint-glow); color: var(--mint);}
+  .amber-ic{background: var(--amber-dim); color: var(--amber);}
+  .coral-ic{background: var(--coral-dim); color: var(--coral);}
+  .blue-ic{background: rgba(91,157,240,0.14); color: var(--blue);}
+  .tag-coral{background: var(--coral-dim); color: var(--coral);}
+  .tag-amber{background: var(--amber-dim); color: var(--amber);}
+  .tag-mint{background: var(--mint-glow); color: var(--mint);}
+
+  /* ---------- generic panel ---------- */
+  .panel{
+    background: var(--surface-2); border:1px solid var(--border-soft); border-radius: var(--radius-lg);
+    padding: 22px 22px 20px;
+  }
+  .panel-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; gap:12px; flex-wrap:wrap;}
+  .panel-title{display:flex; align-items:center; gap:9px; font-size:15px; font-weight:700;}
+  .panel-title .count{color: var(--text-low); font-weight:500; font-size:13px; font-family: var(--font-mono);}
+  .seg{display:flex; gap:2px; background: var(--surface-3); border:1px solid var(--border-soft); border-radius:9px; padding:2px;}
+  .seg button{
+    font-family: var(--font-mono); font-size:11.5px; font-weight:500; color: var(--text-mid); background:none; border:none;
+    padding:6px 11px; border-radius:7px; cursor:pointer;
+  }
+  .seg button.active{background: var(--surface-1); color: var(--text-hi);}
+  .link-more{font-size:12.5px; color: var(--text-mid); text-decoration:none; display:flex; align-items:center; gap:4px; font-weight:500;}
+  .link-more:hover{color: var(--mint);}
+
+  /* ---------- main grid ---------- */
+  .grid-main{display:grid; grid-template-columns: 1.85fr 1fr; gap:14px; margin-top:14px;}
+
+  .chart-toggle{display:flex; gap:16px; margin-bottom:2px;}
+  .chart-toggle button{
+    background:none; border:none; color: var(--text-low); font-size:13px; font-weight:600; cursor:pointer; padding:4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  .chart-toggle button.active{color: var(--text-hi); border-bottom-color: var(--mint);}
+  .chart-wrap{height:230px; margin: 14px 0 10px;}
+  .legend-row{display:flex; gap:20px; padding-top:14px; border-top:1px solid var(--border-soft); flex-wrap:wrap;}
+  .legend-item{display:flex; align-items:center; gap:7px; font-size:12.5px; color: var(--text-mid);}
+  .legend-swatch{width:8px; height:8px; border-radius:2px;}
+  .foot-note{font-size:11.5px; color: var(--text-low); margin-top:10px; line-height:1.6;}
+
+  .sub-panel{margin-top:14px;}
+  .bar-chart-wrap{height:130px; margin-top:14px;}
+
+  /* ---------- AI panel ---------- */
+  .panel-ai{
+    background: linear-gradient(165deg, #10241c 0%, var(--surface-2) 45%);
+    border: 1px solid #1c3a2c; display:flex; flex-direction:column; gap:16px;
+  }
+  .ai-badge{
+    display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; color: var(--mint);
+    background: var(--mint-glow); border:1px solid var(--mint-dim); padding:5px 10px; border-radius:999px; width:fit-content;
+  }
+  .ai-badge svg{width:12px; height:12px;}
+  .ai-headline{font-size:19px; font-weight:700; line-height:1.35; letter-spacing:-0.01em;}
+  .gauge-row{display:flex; align-items:center; gap:16px; background: rgba(0,0,0,0.18); border:1px solid var(--border-soft); border-radius: var(--radius-md); padding:14px 16px;}
+  .gauge-wrap{width:84px; height:52px; flex-shrink:0; position:relative;}
+  .gauge-label{}
+  .gauge-title{font-size:11.5px; color: var(--text-mid); margin-bottom:3px;}
+  .gauge-value{font-size:17px; font-weight:700; color: var(--amber); display:flex; align-items:center; gap:6px;}
+  .gauge-sub{font-size:11.5px; color: var(--text-low); margin-top:3px;}
+
+  .insight-list{display:flex; flex-direction:column; gap:10px;}
+  .insight-item{display:flex; gap:11px; align-items:flex-start;}
+  .insight-ic{
+    width:26px; height:26px; border-radius:7px; background: var(--surface-3); border:1px solid var(--border-soft);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;
+  }
+  .insight-ic svg{width:13px; height:13px; color: var(--mint);}
+  .insight-text b{display:block; font-size:13px; font-weight:600; margin-bottom:2px;}
+  .insight-text span{font-size:12.5px; color: var(--text-mid); line-height:1.5;}
+
+  .ai-cta{
+    display:flex; align-items:center; justify-content:center; gap:6px; margin-top:2px;
+    background: var(--surface-1); border:1px solid var(--border); color: var(--text-hi); font-weight:600; font-size:13.5px;
+    padding:11px; border-radius:10px; cursor:pointer; text-decoration:none;
+  }
+  .ai-cta:hover{border-color: var(--mint-dim); color: var(--mint);}
+
+  .risk-flags{display:flex; flex-direction:column; gap:9px; margin-top:2px;}
+  .flag{display:flex; align-items:center; justify-content:space-between; background: var(--surface-1); border:1px solid var(--border-soft); border-radius:9px; padding:9px 11px;}
+  .flag-l{display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:500;}
+  .flag-dot{width:6px; height:6px; border-radius:50%;}
+
+  /* ---------- secondary grid ---------- */
+  .grid-secondary{display:grid; grid-template-columns: 1.85fr 1fr; gap:14px; margin-top:14px;}
+
+  table{width:100%; border-collapse:collapse;}
+  thead th{
+    text-align:left; font-size:11px; font-weight:600; color: var(--text-low); text-transform:none;
+    padding: 0 10px 10px; border-bottom:1px solid var(--border-soft); letter-spacing:0.02em;
+  }
+  thead th.num{text-align:right;}
+  tbody td{padding: 11px 10px; border-bottom:1px solid var(--border-soft); font-size:13px; vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody td.num{text-align:right; font-family: var(--font-mono);}
+  .asset-cell{display:flex; align-items:center; gap:10px;}
+  .asset-dot{width:8px; height:8px; border-radius:2px; flex-shrink:0;}
+  .asset-name b{display:block; font-size:13px; font-weight:600;}
+  .asset-name span{font-size:11.5px; color: var(--text-low); font-family: var(--font-mono);}
+  .qty-cell{font-family: var(--font-mono); font-size:12px; color: var(--text-mid);}
+  .qty-cell small{display:block; color: var(--text-low); font-size:11px;}
+  .weight-cell{display:flex; align-items:center; gap:8px; justify-content:flex-end;}
+  .weight-bar{width:52px; height:5px; border-radius:3px; background: var(--surface-3); overflow:hidden;}
+  .weight-fill{height:100%; border-radius:3px; background: var(--mint);}
+  .weight-pct{font-family: var(--font-mono); font-size:12.5px; width:38px; text-align:right; color:var(--text-mid);}
+  .pnl-pos{color: var(--mint);}
+  .pnl-neg{color: var(--coral);}
+
+  .sector-wrap{height:200px; margin-top:6px;}
+  .sector-legend{display:flex; flex-direction:column; gap:9px; margin-top:14px;}
+  .sector-row{display:flex; align-items:center; justify-content:space-between; font-size:12.5px;}
+  .sector-l{display:flex; align-items:center; gap:8px; color: var(--text-mid); font-weight:500;}
+  .sector-r{font-family: var(--font-mono); color: var(--text-hi); font-weight:500;}
+
+  .divider-mini{height:1px; background: var(--border-soft); margin:16px 0;}
+  .cash-split{display:flex; align-items:center; gap:14px;}
+  .donut-wrap{width:64px; height:64px; flex-shrink:0;}
+  .cash-split-text{font-size:12px; color: var(--text-mid); line-height:1.7;}
+  .cash-split-text b{color: var(--text-hi);}
+
+  @media (max-width: 1080px){
+    .kpi-strip{grid-template-columns: repeat(2,1fr);}
+    .grid-main, .grid-secondary{grid-template-columns: 1fr;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- topbar -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">SF</div>
+      <div class="brand-text"><b>SPARKFLOW</b> / IBKR</div>
+    </div>
+    <div class="nav">
+      <a class="active" href="#">总览</a>
+      <a href="#">持仓</a>
+      <a href="#">研究</a>
+      <a href="#">规则</a>
+      <a href="#">设置</a>
+    </div>
+    <div class="sync"><span class="dot"></span> 账户已同步</div>
+  </div>
+
+  <!-- page head -->
+  <div class="page-head">
+    <div>
+      <h1>账户总览</h1>
+      <div class="sub">你的资产、市场与下一步</div>
+      <div class="meta-row">
+        <div class="meta-item">授权 <b>有效</b></div>
+        <div class="meta-item">账户 <b>2026/9/7 19:57:13</b></div>
+        <div class="meta-item">行情 <b>2026/9/5 04:00:00</b></div>
+        <div class="meta-item">研究 <b>尚未同步</b></div>
+      </div>
+    </div>
+    <div class="head-actions">
+      <button class="btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v6h-6"/></svg>
+        刷新账户
+      </button>
+      <button class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>
+        生成深度分析
+      </button>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">总资产</span>
+        <div class="kpi-icon mint-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 000 4h4v-4z"/></svg></div>
+      </div>
+      <div class="kpi-value-row"><span class="kpi-value">23.49</span><span class="kpi-tag tag-mint">+1.4%</span></div>
+      <div class="kpi-cap">USD · IBKR 账面</div>
+      <div class="kpi-spark"><canvas id="spark-assets"></canvas></div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">未实现盈亏</span>
+        <div class="kpi-icon coral-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 17l-8.5-8.5-5 5L2 7"/><path d="M16 7h6v6"/></svg></div>
+      </div>
+      <div class="kpi-value-row"><span class="kpi-value" style="color:var(--coral)">-0.04</span><span class="kpi-tag tag-coral">-0.2%</span></div>
+      <div class="kpi-cap">USD · IBKR 账面</div>
+      <div class="kpi-spark"><canvas id="spark-pnl"></canvas></div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">可用现金</span>
+        <div class="kpi-icon blue-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg></div>
+      </div>
+      <div class="kpi-value-row"><span class="kpi-value">0.52</span><span class="kpi-tag tag-mint">2.2%</span></div>
+      <div class="kpi-cap">USD · 占总资产比重</div>
+      <div class="kpi-spark"><canvas id="spark-cash"></canvas></div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">规则风险等级</span>
+        <div class="kpi-icon amber-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6z"/></svg></div>
+      </div>
+      <div class="kpi-value-row"><span class="kpi-value" style="font-size:22px; color:var(--amber)">偏高</span></div>
+      <div class="kpi-cap">2 条规则触发 · 查看依据</div>
+      <div class="kpi-spark"><canvas id="spark-risk"></canvas></div>
+    </div>
+  </div>
+
+  <!-- main grid: net worth chart + AI brief -->
+  <div class="grid-main">
+
+    <!-- left: performance -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="chart-toggle">
+          <button class="active">资产净值</button>
+          <button>投资收益</button>
+        </div>
+        <div class="seg">
+          <button>1周</button><button class="active">1月</button><button>3月</button><button>1年</button>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="netWorthChart"></canvas></div>
+      <div class="legend-row">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--mint)"></span>科技 53.3%</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--blue)"></span>半导体 26.7%</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--amber)"></span>消费 14.0%</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:#5c6d65"></span>现金 2.2%</div>
+      </div>
+      <div class="foot-note">IBKR 时间加权收益；基准仅比较共同交易日期。基准来源暂不可用。</div>
+
+      <div class="sub-panel">
+        <div class="panel-head" style="margin-bottom:4px;">
+          <div class="panel-title" style="font-size:13.5px;">月度收益率</div>
+          <span style="font-size:11.5px; color:var(--text-low); font-family:var(--font-mono)">近 6 个月</span>
+        </div>
+        <div class="bar-chart-wrap"><canvas id="monthlyReturnChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- right: AI brief -->
+    <aside class="panel panel-ai">
+      <span class="ai-badge">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.8L20 9.7l-6.1 2L12 17.5l-1.9-5.8L4 9.7l6.1-1.9z"/></svg>
+        AI 账户简报
+      </span>
+      <div class="ai-headline">让持仓与市场背景连起来</div>
+
+      <div class="gauge-row">
+        <div class="gauge-wrap"><canvas id="riskGauge"></canvas></div>
+        <div class="gauge-label">
+          <div class="gauge-title">规则风险评分</div>
+          <div class="gauge-value">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            偏高 · 71/100
+          </div>
+          <div class="gauge-sub">现金缓冲偏低，集中度触发 2 条规则</div>
+        </div>
+      </div>
+
+      <div class="insight-list">
+        <div class="insight-item">
+          <div class="insight-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+          <div class="insight-text"><b>组合结构</b><span>科技与半导体合计占比 80.0%，前五大持仓集中度处于历史高位。</span></div>
+        </div>
+        <div class="insight-item">
+          <div class="insight-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <div class="insight-text"><b>事件影响</b><span>本周 3 家重仓公司公布财报，NVDA 与 AVGO 隐含波动率明显上行。</span></div>
+        </div>
+        <div class="insight-item">
+          <div class="insight-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg></div>
+          <div class="insight-text"><b>行动条件</b><span>若现金比例跌破 2%，或单一持仓超过 22%，建议触发再平衡评估。</span></div>
+        </div>
+      </div>
+
+      <a class="ai-cta" href="#">
+        查看完整分析
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 18l6-6-6-6"/></svg>
+      </a>
+
+      <div class="divider-mini"></div>
+
+      <div class="panel-title" style="font-size:13px; margin-bottom:2px;">机会与风险</div>
+      <div class="risk-flags">
+        <div class="flag">
+          <div class="flag-l"><span class="flag-dot" style="background:var(--amber)"></span>现金缓冲偏低</div>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-low)" stroke-width="2.4"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="flag">
+          <div class="flag-l"><span class="flag-dot" style="background:var(--coral)"></span>行业集中度过高</div>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-low)" stroke-width="2.4"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="flag">
+          <div class="flag-l"><span class="flag-dot" style="background:var(--mint)"></span>财报季波动率溢价</div>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-low)" stroke-width="2.4"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- secondary grid: holdings + sector -->
+  <div class="grid-secondary">
+
+    <!-- holdings table -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title">我的持仓 <span class="count">12</span></div>
+        <a class="link-more" href="#">查看全部
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M9 18l6-6-6-6"/></svg>
+        </a>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>资产</th>
+            <th class="num">数量 / 成本</th>
+            <th class="num">市值 · USD</th>
+            <th class="num">占比</th>
+            <th class="num">券商盈亏</th>
+          </tr>
+        </thead>
+        <tbody id="holdingsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- sector allocation -->
+    <aside class="panel">
+      <div class="panel-head">
+        <div class="panel-title">行业配置</div>
+      </div>
+      <div class="sector-wrap"><canvas id="sectorChart"></canvas></div>
+      <div class="sector-legend">
+        <div class="sector-row"><div class="sector-l"><span class="legend-swatch" style="background:var(--mint)"></span>科技</div><div class="sector-r">53.3%</div></div>
+        <div class="sector-row"><div class="sector-l"><span class="legend-swatch" style="background:var(--blue)"></span>半导体</div><div class="sector-r">26.7%</div></div>
+        <div class="sector-row"><div class="sector-l"><span class="legend-swatch" style="background:var(--amber)"></span>消费</div><div class="sector-r">14.0%</div></div>
+        <div class="sector-row"><div class="sector-l"><span class="legend-swatch" style="background:#7a6bd8"></span>金融</div><div class="sector-r">3.0%</div></div>
+        <div class="sector-row"><div class="sector-l"><span class="legend-swatch" style="background:#5c6d65"></span>现金</div><div class="sector-r">2.2%</div></div>
+      </div>
+
+      <div class="divider-mini"></div>
+
+      <div class="cash-split">
+        <div class="donut-wrap"><canvas id="cashDonut"></canvas></div>
+        <div class="cash-split-text">
+          持仓 <b>97.8%</b><br>
+          现金 <b>2.2%</b><br>
+          <span style="color:var(--text-low)">较建议下限低 0.8pt</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+</div>
+
+<script>
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+Chart.defaults.color = '#8fa199';
+
+const mint = '#35e0a1', blue='#5b9df0', amber='#f0a73c', coral='#f2685a', purple='#7a6bd8', cashClr='#5c6d65';
+
+/* ---------- sparklines ---------- */
+function sparkline(id, data, color){
+  new Chart(document.getElementById(id), {
+    type:'line',
+    data:{ labels:data.map((_,i)=>i), datasets:[{ data, borderColor:color, borderWidth:1.6, pointRadius:0, tension:.4, fill:false }]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      scales:{ x:{display:false}, y:{display:false} },
+      plugins:{ legend:{display:false}, tooltip:{enabled:false} },
+      elements:{ point:{radius:0} }
+    }
+  });
+}
+sparkline('spark-assets', [22.8,22.9,23.0,22.95,23.1,23.2,23.15,23.3,23.25,23.4,23.49], mint);
+sparkline('spark-pnl', [0.02,-0.01,0.03,-0.02,0.01,-0.03,0.00,-0.02,-0.03,-0.01,-0.04], coral);
+sparkline('spark-cash', [0.61,0.58,0.55,0.6,0.57,0.54,0.5,0.53,0.51,0.49,0.52], blue);
+sparkline('spark-risk', [40,44,48,52,55,58,62,65,68,70,71], amber);
+
+/* ---------- main net worth chart ---------- */
+const nwLabels = ['08-10','08-11','08-12','08-13','08-14','08-15','08-16','08-17','08-18','08-19','08-20','08-21','08-22','08-23','08-24','08-25','08-26','08-27','08-28','08-29','09-05','09-07'];
+const nwData = [23.35,23.28,23.10,22.98,23.05,23.18,23.12,23.22,23.45,23.20,23.08,23.02,23.15,23.30,23.58,23.68,23.52,23.46,23.61,23.84,23.58,23.49];
+
+const nwCtx = document.getElementById('netWorthChart').getContext('2d');
+const grad = nwCtx.createLinearGradient(0,0,0,230);
+grad.addColorStop(0, 'rgba(53,224,161,0.32)');
+grad.addColorStop(1, 'rgba(53,224,161,0)');
+
+new Chart(nwCtx, {
+  type:'line',
+  data:{ labels: nwLabels, datasets:[{
+    data: nwData, borderColor: mint, borderWidth:2, pointRadius:0, pointHoverRadius:4,
+    pointHoverBackgroundColor: mint, pointHoverBorderColor:'#06140f', pointHoverBorderWidth:2,
+    tension:.35, fill:true, backgroundColor: grad
+  }]},
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    interaction:{ intersect:false, mode:'index' },
+    scales:{
+      x:{ grid:{display:false}, ticks:{ maxTicksLimit:6, color:'#55645d', font:{size:11} }, border:{color:'#212a25'} },
+      y:{ position:'right', grid:{color:'#161c19', drawTicks:false}, ticks:{ color:'#55645d', font:{size:11}, callback:v=>v.toFixed(2) }, border:{display:false} }
+    },
+    plugins:{ legend:{display:false},
+      tooltip:{ backgroundColor:'#141a17', borderColor:'#212a25', borderWidth:1, titleColor:'#8fa199', bodyColor:'#eef3f0', padding:10, displayColors:false,
+        callbacks:{ label: (ctx)=> ' ' + ctx.parsed.y.toFixed(2) + ' USD' } }
+    }
+  }
+});
+
+/* ---------- monthly return bar chart ---------- */
+const monthLabels = ['4月','5月','6月','7月','8月','9月'];
+const monthData = [2.1, -1.4, 3.6, 1.8, -0.6, 0.9];
+new Chart(document.getElementById('monthlyReturnChart'), {
+  type:'bar',
+  data:{ labels: monthLabels, datasets:[{
+    data: monthData,
+    backgroundColor: monthData.map(v=> v>=0 ? 'rgba(53,224,161,0.75)' : 'rgba(242,104,90,0.75)'),
+    borderRadius:4, maxBarThickness:34
+  }]},
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    scales:{
+      x:{ grid:{display:false}, ticks:{ color:'#55645d', font:{size:11} }, border:{color:'#212a25'} },
+      y:{ grid:{color:'#161c19'}, ticks:{ color:'#55645d', font:{size:11}, callback:v=>v+'%' }, border:{display:false} }
+    },
+    plugins:{ legend:{display:false},
+      tooltip:{ backgroundColor:'#141a17', borderColor:'#212a25', borderWidth:1, bodyColor:'#eef3f0', padding:8, displayColors:false,
+        callbacks:{ label: ctx => (ctx.parsed.y>=0?'+':'') + ctx.parsed.y + '%' } }
+    }
+  }
+});
+
+/* ---------- risk gauge (half doughnut) ---------- */
+new Chart(document.getElementById('riskGauge'), {
+  type:'doughnut',
+  data:{ datasets:[{
+    data:[71, 29],
+    backgroundColor:[amber, '#1a211d'],
+    borderWidth:0, circumference:180, rotation:270, cutout:'72%'
+  }]},
+  options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{enabled:false}} }
+});
+
+/* ---------- sector horizontal bar ---------- */
+new Chart(document.getElementById('sectorChart'), {
+  type:'bar',
+  data:{ labels:['科技','半导体','消费','金融','现金'],
+    datasets:[{ data:[53.3,26.7,14.0,3.0,2.2], backgroundColor:[mint,blue,amber,purple,cashClr], borderRadius:4, maxBarThickness:20 }]
+  },
+  options:{
+    indexAxis:'y', responsive:true, maintainAspectRatio:false,
+    scales:{
+      x:{ grid:{color:'#161c19'}, ticks:{ color:'#55645d', font:{size:10.5}, callback:v=>v+'%' }, border:{display:false} },
+      y:{ grid:{display:false}, ticks:{ color:'#8fa199', font:{size:11.5} }, border:{display:false} }
+    },
+    plugins:{ legend:{display:false},
+      tooltip:{ backgroundColor:'#141a17', borderColor:'#212a25', borderWidth:1, bodyColor:'#eef3f0', padding:8, displayColors:false,
+        callbacks:{ label: ctx => ctx.parsed.x + '%' } }
+    }
+  }
+});
+
+/* ---------- cash donut ---------- */
+new Chart(document.getElementById('cashDonut'), {
+  type:'doughnut',
+  data:{ datasets:[{ data:[97.8,2.2], backgroundColor:[mint, '#1a211d'], borderWidth:0, cutout:'70%' }]},
+  options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{enabled:false}} }
+});
+
+/* ---------- holdings table ---------- */
+const holdings = [
+  {name:'英伟达', sym:'NVDA', color:mint, qty:'2,140', cost:'71.20', mv:4.72, w:20.1, pnl:6.8},
+  {name:'微软', sym:'MSFT', color:mint, qty:'640', cost:'402.10', mv:3.64, w:15.5, pnl:2.1},
+  {name:'苹果', sym:'AAPL', color:mint, qty:'1,180', cost:'182.40', mv:2.98, w:12.7, pnl:-1.3},
+  {name:'Alphabet', sym:'GOOGL', color:mint, qty:'820', cost:'146.80', mv:2.40, w:10.2, pnl:3.4},
+  {name:'亚马逊', sym:'AMZN', color:amber, qty:'690', cost:'178.30', mv:2.04, w:8.7, pnl:-0.6},
+  {name:'Meta', sym:'META', color:mint, qty:'246', cost:'472.00', mv:1.74, w:7.4, pnl:4.9},
+  {name:'博通', sym:'AVGO', color:blue, qty:'420', cost:'186.50', mv:1.55, w:6.6, pnl:8.2},
+  {name:'特斯拉', sym:'TSLA', color:amber, qty:'480', cost:'242.10', mv:1.25, w:5.3, pnl:-4.7},
+  {name:'Salesforce', sym:'CRM', color:mint, qty:'296', cost:'268.40', mv:0.94, w:4.0, pnl:1.0},
+  {name:'甲骨文', sym:'ORCL', color:mint, qty:'214', cost:'168.90', mv:0.82, w:3.5, pnl:2.6},
+  {name:'摩根大通', sym:'JPM', color:purple, qty:'182', cost:'204.60', mv:0.70, w:3.0, pnl:0.4},
+  {name:'现金', sym:'USD', color:cashClr, qty:'—', cost:'—', mv:0.52, w:2.2, pnl:0},
+];
+
+const tbody = document.getElementById('holdingsBody');
+holdings.forEach(h=>{
+  const pnlClass = h.pnl>0 ? 'pnl-pos' : h.pnl<0 ? 'pnl-neg' : '';
+  const pnlText = h.pnl===0 ? '—' : (h.pnl>0?'+':'') + h.pnl.toFixed(1) + '%';
+  const qtyBlock = h.qty==='—' ? '—' : `${h.qty}<small>成本 ${h.cost}</small>`;
+  tbody.insertAdjacentHTML('beforeend', `
+    <tr>
+      <td><div class="asset-cell"><span class="asset-dot" style="background:${h.color}"></span>
+        <div class="asset-name"><b>${h.name}</b><span>${h.sym}</span></div></div></td>
+      <td class="num qty-cell">${qtyBlock}</td>
+      <td class="num">${h.mv.toFixed(2)}</td>
+      <td class="num"><div class="weight-cell"><div class="weight-bar"><div class="weight-fill" style="width:${h.w}%; background:${h.color}"></div></div><span class="weight-pct">${h.w.toFixed(1)}%</span></div></td>
+      <td class="num ${pnlClass}">${pnlText}</td>
+    </tr>
+  `);
+});
+</script>
+</body>
+</html>

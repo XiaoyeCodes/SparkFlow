@@ -8,7 +8,7 @@ import { defaults } from '../../server/ibkrWorkbenchCore.ts';
 
 const model = { provider: 'test-only', model: 'offline-fixture', fingerprint: 'fixture-model', configured: true };
 const legacy = JSON.stringify({ brief: '工程测试报告，非真实投资建议', accountSummary: '摘要', portfolioRisk: '风险', marketContext: '背景', holdings: [], opportunities: [], risks: [], actions: [], gaps: [] });
-const raw=JSON.stringify({headline:'现金等待有依据的配置窗口',briefPoints:['空仓等待。','没有核实新事件。','先观察，出现证据再考虑。'],accountSummary:'空仓',portfolioRisk:'未触发',marketContext:'没有原文证据',opportunities:[],risks:[],evidenceIds:[],gaps:['无外部证据'],reviewedSymbols:[],holdings:[],actions:[]});
+const raw=JSON.stringify({headline:'现金等待有依据的配置窗口',briefPoints:['空仓等待。','没有核实新事件。','先观察，出现证据再考虑。'],accountSummary:'空仓',portfolioRisk:'未触发',benchmarkComparison:'没有足够历史进行基准比较。',marketContext:'没有原文证据',opportunities:[],risks:[],scenarios:[{name:'base',assumptions:'维持现金',accountImpact:'波动较低',response:'观察'},{name:'upside',assumptions:'机会出现',accountImpact:'现金可配置',response:'分批'},{name:'downside',assumptions:'风险上升',accountImpact:'现金缓冲',response:'保持纪律'}],targetAllocation:'保持现金并等待证据。',monitoring:[{indicator:'现金机会成本',warningLine:'出现有证据机会',action:'重新分析'}],limitations:['没有持仓'],disclaimer:'不构成投资建议。',evidenceIds:[],gaps:['无外部证据'],reviewedSymbols:[],holdings:[],actions:[]});
 test('OAuth landing distinguishes authorization from data sync and never reflects untrusted error HTML', () => {
   assert.match(oauthCallbackPage(true, false), /持仓待同步/);
   assert.match(oauthCallbackPage(true, true), /账户已同步/);
@@ -55,33 +55,28 @@ test('rules deduplicate and user-resolved alert does not reappear every sync', a
   } finally { await f.service.close(); }
 });
 
-test('explicit manual resume permits one extra invocation without changing the daily budget', async () => {
+test('a failed single analysis cannot resume into a second model invocation', async () => {
   const f=await fixture();
   try {
-    f.record.preferences.maxAiCalls=1;
+    f.record.preferences.maxAiCalls=3;
     f.service.ai.analyze=async()=>({text:'broken json',finishReason:'stop'});
     const job=await f.service.analyze('manual');await f.service.activeAnalysis;
-    assert.equal(f.record.usage.length,1);assert.equal(job.state,'partial');
-    await assert.rejects(()=>f.service.analyze('manual',undefined,undefined,job.id),/上限/);
+    assert.equal(f.record.usage.length,1);assert.equal(job.state,'failed');
     let calls=0;f.service.ai.analyze=async()=>{calls++;return {text:raw};};
-    await f.service.analyze('manual',undefined,undefined,job.id,true);await f.service.activeAnalysis;
-    assert.equal(calls,1);assert.equal(job.state,'completed');assert.equal(f.record.usage.length,2);
-    assert.equal(f.record.usage[1].kind,'manual-extra');assert.equal(f.record.preferences.maxAiCalls,1);
-    await assert.rejects(()=>f.service.analyze('daily',undefined,undefined,job.id,true),/本人主动/);
+    await assert.rejects(()=>f.service.analyze('manual',undefined,undefined,job.id),/单次分析已经调用过模型/);
+    assert.equal(calls,0);assert.equal(f.record.usage.length,1);
   } finally {await f.service.close();}
 });
 
-test('one extra manual allowance cannot pay for a second repair invocation', async () => {
+test('an explicit retry creates a new one-call report instead of repairing the failed task', async () => {
   const f=await fixture();
   try {
-    f.record.preferences.maxAiCalls=1;
+    f.record.preferences.maxAiCalls=2;
     f.service.ai.analyze=async()=>({text:'broken json',finishReason:'stop'});
-    const job=await f.service.analyze('manual');await f.service.activeAnalysis;
-    // A legacy checkpoint starts a new account-level synthesis with at most one authorized extra call.
-    const c=f.record.research[job.id];delete c.failures.portfolio;delete c.progress.strategy;
-    let calls=0;f.service.ai.analyze=async()=>{calls++;return {text:'broken json',finishReason:'stop'};};
-    await f.service.analyze('manual',undefined,undefined,job.id,true);await f.service.activeAnalysis;
-    assert.equal(calls,1);assert.equal(job.state,'partial');assert.equal(f.record.usage.length,2);assert.equal(f.record.reports.length,0);
+    const failed=await f.service.analyze('manual');await f.service.activeAnalysis;
+    let calls=0;f.service.ai.analyze=async()=>{calls++;return {text:raw};};
+    const retry=await f.service.analyze('manual');await f.service.activeAnalysis;
+    assert.notEqual(retry.id,failed.id);assert.equal(calls,1);assert.equal(failed.state,'failed');assert.equal(retry.state,'completed');assert.equal(f.record.usage.length,2);assert.equal(f.record.reports.length,1);
   } finally {await f.service.close();}
 });
 test('sync failure preserves prior snapshot and schedules exponential backoff', async () => {
