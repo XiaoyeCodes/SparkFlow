@@ -22,9 +22,11 @@
     "src/lib/dailyBriefTypes.ts",
     "src/lib/financialConditionsTypes.ts",
     "src/lib/ibkr/types.ts",
+    "src/lib/ibkr/valuationTypes.ts",
     "src/lib/ibkr/store.ts",
     "src/lib/ibkr/events.ts",
     "src/lib/ibkr/workbenchTypes.ts",
+    "src/lib/ibkr/industryLabels.ts",
     "src/lib/ibkr/workbenchReport.ts",
     "server/**/*.ts",
     "server/**/*.d.ts"

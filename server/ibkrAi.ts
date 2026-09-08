@@ -18,7 +18,7 @@ export function createIbkrAi(root: string) {
       const finish = (error?: Error) => { if (completed) return; completed = true; clearTimeout(timer); children.delete(child); signal?.removeEventListener('abort', abort); if (error) reject(error); else { try { const value = JSON.parse(output); if (value.error) { reject(new Error(/^[A-Z][A-Z0-9_]{1,100}$/.test(value.error) ? value.error : 'AI_RESPONSE_INVALID_OR_MODEL_UNAVAILABLE')); return; } resolve(value); } catch { reject(new Error('AI_RESPONSE_INVALID_OR_MODEL_UNAVAILABLE')); } } };
       const abort = () => { child.kill(); finish(new Error('RESEARCH_CANCELLED')); };
       signal?.addEventListener('abort', abort, { once: true });
-      const timer = setTimeout(() => { child.kill(); finish(new Error('AI_REQUEST_TIMEOUT')); }, action === 'status' ? 20000 : action === 'tool' ? 65000 : 240000);
+      const timer = setTimeout(() => { child.kill(); finish(new Error('AI_REQUEST_TIMEOUT')); }, action === 'status' ? 20000 : action === 'tool' ? 65000 : 600000);
       child.stdout.on('data', chunk => { output += chunk; if (output.length > 1000000) { child.kill(); finish(new Error('AI_RESPONSE_TOO_LARGE')); } });
       child.stderr.resume(); child.on('error', () => finish(new Error('VIBE_RUNTIME_UNAVAILABLE')));
       child.on('close', code => finish(code ? new Error(aiFailureCode(output)) : undefined));
@@ -27,7 +27,7 @@ export function createIbkrAi(root: string) {
     });
   }
   return { async status(fresh = false): Promise<AiModel> { if (!fresh && cache && Date.now() - cache.at < 60000) return cache.value; if (statusFlight) return statusFlight; statusFlight = execute('status').then(value => { cache = { at: Date.now(), value }; return value; }).finally(() => { statusFlight = undefined; }); return statusFlight; },
-    async analyze(prompt: string, model: AiModel, signal?: AbortSignal) { return execute('analyze', { prompt, fingerprint: model.fingerprint }, signal); },
+    async analyze(prompt: string, model: AiModel, signal?: AbortSignal, outputMode: 'json' | 'text' | 'brief-json' = 'json') { return execute('analyze', { prompt, fingerprint: model.fingerprint, outputMode }, signal); },
     async tool(tool: string, args: Record<string, unknown>, signal?: AbortSignal) { const result = await execute('tool', { tool, args }, signal); return result.data; },
     close() { for (const child of children) child.kill(); children.clear(); } };
 }

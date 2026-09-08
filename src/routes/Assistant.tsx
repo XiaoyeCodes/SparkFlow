@@ -25,6 +25,8 @@ import { useLocation } from 'react-router-dom';
 import { Strands } from '../components/Strands';
 import { ResearchHistoryItem } from '../components/ResearchHistoryItem';
 import { exportSparkFlowResearchPdf } from '../lib/exportResearchPdf';
+import { buildPortfolioAnalysisPrompt, displayAssistantPrompt, portfolioAnalysisStarterPrompt } from '../lib/ibkr/assistantPrompt';
+import type { WorkbenchState } from '../lib/ibkr/workbenchTypes';
 
 type AssistantRouteState = {
   starmapContext?: string;
@@ -102,7 +104,7 @@ const progressStoragePrefix = 'sparkflow.vibe.progress.v1.';
 const starterPrompts = [
   '汇总今日市场、资金风向与重要新闻，给出风险优先的投资观察',
   '分析腾讯、阿里、小米和美团的长期投资价值与当前估值吸引力',
-  '用巴菲特、芒格和段永平的框架评估我关注的公司',
+  portfolioAnalysisStarterPrompt,
 ];
 
 const toolLabels: Record<string, string> = {
@@ -470,7 +472,7 @@ export function Assistant() {
             .map((message) => ({
               id: message.message_id,
               role: message.role as 'user' | 'assistant',
-              content: message.content,
+              content: message.role === 'user' ? displayAssistantPrompt(message.content) : message.content,
               attemptId: message.linked_attempt_id,
               restored: true,
             })),
@@ -846,17 +848,22 @@ export function Assistant() {
     const submission: PendingSubmission = { sessionId, controller: new AbortController(), dispatched: false, stopRequested: false };
     pendingSubmissionRef.current = submission;
     setStoppingSessionId(null);
-    setPrompt('');
     setError('');
-    setNotice('正在连接研究引擎');
+    setNotice(question === portfolioAnalysisStarterPrompt ? '正在读取 IBKR 当前持仓' : '正在连接研究引擎');
     setTools([]);
     setLiveText('');
     setRunState('connecting');
-    pendingQuestionScrollRef.current = 'smooth';
-    setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', content: question }]);
 
     let preparedSessionId = '';
     try {
+      const researchPrompt = question === portfolioAnalysisStarterPrompt
+        ? buildPortfolioAnalysisPrompt(await requestJson<WorkbenchState>('/api/ibkr-workbench/state', { signal: submission.controller.signal }))
+        : question;
+      if (researchPrompt.length > 5000) throw new Error('当前持仓数据超过研究引擎的提示词长度限制，请减少持仓后重试。');
+      setPrompt('');
+      setNotice('正在连接研究引擎');
+      pendingQuestionScrollRef.current = 'smooth';
+      setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', content: question }]);
       const prepared = await requestJson<{
         sessionId: string;
       }>('/api/vibe/research/session', {
@@ -886,7 +893,7 @@ export function Assistant() {
       const sent = await requestJson<{ attempt_id: string }>('/api/vibe/research/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: prepared.sessionId, prompt: question }),
+        body: JSON.stringify({ sessionId: prepared.sessionId, prompt: researchPrompt }),
         signal: AbortSignal.timeout(30_000),
       });
       if (completedAttemptsRef.current.has(sent.attempt_id)) return;

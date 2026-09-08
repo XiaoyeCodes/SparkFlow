@@ -32,10 +32,17 @@ async function protect(text: string, decrypt = false): Promise<string> {
     child.stdin.end(text);
   });
 }
+export async function atomicReplace(source:string,target:string,replace=rename) {
+  for(let attempt=0;;attempt++)try{await replace(source,target);return;}catch(e:any){
+    // Windows readers/virus scanners can hold the destination briefly. Never unlink it.
+    if(!['EPERM','EBUSY'].includes(e.code)||attempt>=5)throw e;
+    await new Promise(resolve=>setTimeout(resolve,30*2**attempt));
+  }
+}
 export async function atomicJson(file: string, data: unknown) {
   const temporary = `${file}.${randomBytes(8).toString('hex')}.tmp`;
   await writeFile(temporary, JSON.stringify(data), { mode: 0o600 });
-  await rename(temporary, file);
+  await atomicReplace(temporary, file);
 }
 const unpack = (result: any): any => {
   if (result.isError) throw new Error('MCP_TOOL_READ_FAILED');

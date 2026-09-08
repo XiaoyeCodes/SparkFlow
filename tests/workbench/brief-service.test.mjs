@@ -7,7 +7,7 @@ import { normalizeMcpSnapshot } from '../../server/ibkrMcp.ts';
 import { defaults } from '../../server/ibkrWorkbenchCore.ts';
 
 const model = { provider: 'test-only', model: 'offline-brief', fingerprint: 'brief-fixture', configured: true };
-const raw = JSON.stringify({ headline: '现金充足，保持观察', summary: '账户净值 {{nav}}。', risk: '账户空仓，仍需核对资金需求。', watch: ['核对资金安排。'], gaps: ['未检索新闻。'] });
+const raw = JSON.stringify({ headline: '账户空仓，建立观察基线', summary: '账户净值 {{nav}}，本期结合可取得资料建立观察基线。', insights: [], calendar: [], changes: ['首次建立观察基线。'], gaps: ['当前没有股票持仓。'] });
 async function fixture() {
   await mkdir('tmp/workbench-service', { recursive: true });
   const dir = await mkdtemp(path.resolve('tmp/workbench-service/brief-'));
@@ -17,7 +17,7 @@ async function fixture() {
   const record = { snapshot, preferences: { ...defaults }, alerts: [], reports: [], jobs: [], usage: [], grant: { fingerprint: model.fingerprint } };
   service.saved.selectedKey = snapshot.accountKey; service.saved.records[snapshot.accountKey] = record;
   let calls = 0;
-  service.ai = { status: async () => model, analyze: async () => { calls++; return { text: raw }; }, close: () => {} };
+  service.ai = { status: async () => model, tool: async () => { throw new Error('OFFLINE_SOURCE'); }, analyze: async () => { calls++; return { text: raw }; }, close: () => {} };
   service.nextSync = Date.now() + 86400000;
   return { service, record, dir, calls: () => calls };
 }
@@ -85,5 +85,24 @@ test('revocation during a brief discards the pending output and restart does not
     const restarted = new IbkrWorkbenchService(process.cwd(), f.dir, async () => ({}), async () => ({}));
     try { await restarted.start(); clearTimeout(restarted.timer); assert.equal(restarted.saved.records[f.record.snapshot.accountKey].briefAttempt.state, 'failed'); }
     finally { await restarted.close(); }
+  } finally { await f.service.close(); }
+});
+
+test('cancelling public brief research stops the request before consuming a model call', async () => {
+  const f = await fixture();
+  try {
+    let entered;
+    const ready = new Promise(resolve => { entered = resolve; });
+    f.service.ai.tool = (_name, _args, signal) => new Promise((_resolve, reject) => {
+      entered();
+      signal.addEventListener('abort', () => reject(new Error('CANCELLED')), { once: true });
+      if (signal.aborted) reject(new Error('CANCELLED'));
+    });
+    const attempt = await f.service.generateBrief();
+    await ready;
+    await f.service.cancel(attempt.id);
+    assert.equal(f.calls(), 0); assert.equal(f.record.usage.length, 0);
+    assert.equal(f.record.briefAttempt.state, 'failed');
+    assert.equal(f.record.briefs?.length ?? 0, 0);
   } finally { await f.service.close(); }
 });

@@ -1,0 +1,5 @@
+.account-workbench.awb-valuation-mode{height:100dvh;min-height:0;overflow:hidden}
+.awb-valuation-mode .awb-body{align-self:stretch;margin:0 auto;display:flex;flex-direction:column;height:100dvh;padding-bottom:0}
+.awb-valuation-mode .awb-topbar{flex-shrink:0;margin-bottom:18px}
+.awb-valuation-frame{display:block;width:100%;border:0;flex:1;min-height:0;color-scheme:dark;background:#050a09}
+@media(max-width:620px){.awb-valuation-mode .awb-body{padding-left:12px;padding-right:12px}.awb-valuation-mode .awb-topbar{margin-bottom:14px}}

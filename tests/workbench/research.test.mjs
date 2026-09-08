@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createResearch,runResearch,parseResearchSection,holdingSection,summarySection,portfolioSection} from '../../server/ibkrResearch.ts';
+import {createResearch,runResearch,parseResearchSection,holdingSection,summarySection,portfolioSection,relevantOriginal,structuredFinancialQuote} from '../../server/ibkrResearch.ts';
 import {normalizeMcpSnapshot} from '../../server/ibkrMcp.ts';
 import {defaults} from '../../server/ibkrWorkbenchCore.ts';
 import {normalizePerformance,comparePerformance,simulatePlan,portfolioMetrics,planSchema} from '../../server/ibkrPortfolio.ts';
@@ -19,6 +19,38 @@ test('combined plan conserves cash and prevents stacked recommendations from exc
 test('ETF classifications stay separate without inventing constituent exposure',()=>{const s=snapshot();s.positions[0].sector='Technology';s.positions[1].instrumentType='ETF';const m=portfolioMetrics(s);assert.equal(m.sectors.find(s=>s.name==='Technology').weight,.3);assert.equal(m.sectors.find(s=>s.name.startsWith('ETF')).weight,.4);});
 test('PA validates scope, uses true NAV array rather than start_nav and limits MWR comparison',()=>{const raw={portfolio_measure:'TWR',accounts:{account:{base_currency:'USD',periods:{'1Y':{start_nav:0,nav:[100,150],cps:[0,.01],dates:['20260903','20260904']}}}}};const h=normalizePerformance(raw,'cumulative returns expressed as fractions','USD');assert.equal(h.points[0].nav,100);const v=comparePerformance(h,[{date:'2026-09-03',close:100},{date:'2026-09-04',close:102}],'SPY');assert.ok(Math.abs(v.excessReturn+.01)<1e-7);assert.equal(v.volatilityRatio,null);assert.equal(comparePerformance({...h,returnMethod:'MWR'},[{date:'2026-09-03',close:100},{date:'2026-09-04',close:102}],'SPY').excessReturn,null);assert.throws(()=>normalizePerformance({...raw,accounts:{...raw.accounts,other:raw.accounts.account}},'fractions','USD'));assert.throws(()=>normalizePerformance(raw,'fractions','EUR'));});
 test('output errors distinguish truncation, malformed JSON, fields and fabricated original citations',()=>{assert.throws(()=>parseResearchSection({text:'{}',finishReason:'length'},holdingSection,[],[]),/TRUNCATED/);assert.throws(()=>parseResearchSection({text:'{"holdings":['},holdingSection,[],[]),/JSON/);assert.throws(()=>parseResearchSection({text:'{}'},holdingSection,[],[]),/FIELDS/);const c=checkpoint();c.evidence=[{id:'e',symbols:['AAPL'],read:true,content:sentence}];const h=makeHolding(c,'AAPL');h.support[0].quote='The company doubled its earnings.';assert.throws(()=>parseResearchSection({text:JSON.stringify({holdings:[h],actions:[],gaps:[]})},holdingSection,['AAPL'],c.evidence),/EVIDENCE/);});
+
+test('account-only QQQ holding does not require unrelated web citations',()=>{
+ const c=checkpoint();c.evidence=[{id:'E1',symbols:['QQQ'],read:true,content:'Investor relations page for a different company.'}];
+ const h={...makeHolding(c,'QQQ'),basis:'account',fact:'账户中该持仓占比需要结合现金复核。',support:[],evidenceIds:[]};
+ const result=()=>({text:JSON.stringify({holdings:[h],actions:[],gaps:[]})});
+ assert.equal(parseResearchSection(result(),holdingSection,['QQQ'],c.evidence).holdings.length,1);
+ h.basis='external';assert.throws(()=>parseResearchSection(result(),holdingSection,['QQQ'],c.evidence),/QQQ 外部事实缺少原文摘录/);
+ h.evidenceIds=['E404'];h.support=[{evidenceId:'E404',quote:sentence}];assert.throws(()=>parseResearchSection(result(),holdingSection,['QQQ'],c.evidence),/EVIDENCE/);
+});
+
+test('empty provider content is distinct from malformed JSON and truncation',()=>{
+ assert.throws(()=>parseResearchSection({text:' ',finishReason:'stop'},portfolioSection,[],[]),/OUTPUT_EMPTY/);
+ assert.throws(()=>parseResearchSection({text:'',finishReason:'length'},portfolioSection,[],[]),/OUTPUT_TRUNCATED/);
+ assert.throws(()=>parseResearchSection({text:'{"headline":',finishReason:'stop'},portfolioSection,[],[]),/OUTPUT_JSON/);
+});
+
+test('financial field citations resolve to one original record without combining periods or changing values',()=>{
+ const row={REPORT_DATE:'2026-06-27',FISCAL_YEAR:2026,FISCAL_PERIOD:'Q3',FORM:'10-Q',Revenue:100,NetIncome:20};
+ const source=JSON.stringify({periods:[row,{REPORT_DATE:'2026-03-28',Revenue:90,NetIncome:30}]});
+ assert.equal(structuredFinancialQuote('REPORT_DATE\\":\\"2026-06-27\\"，\\"Revenue\\":100，\\"NetIncome\\":20',source),JSON.stringify(row));
+ assert.equal(structuredFinancialQuote('"REPORT_DATE":"2026-06-27","Revenue":100,"NetIncome":30',source),null);
+ assert.equal(structuredFinancialQuote('"REPORT_DATE":"2026-06-27","Revenue":101',source),null);
+ assert.equal(structuredFinancialQuote('"Revenue":100',source),null);
+ assert.equal(structuredFinancialQuote('"REPORT_DATE":"2026-06-27","Revenue":100',source.slice(0,60)),null);
+});
+
+test('search association requires the company and financial context in the original',()=>{
+ assert.equal(relevantOriginal('QQQ',undefined,'TMX Investor Relations','Quarterly revenue rose.','https://tmx.com/investors'),false);
+ assert.equal(relevantOriginal('TSLA',undefined,'Truck traffic bans','September traffic calendar','https://trafficban.com/2026'),false);
+ assert.equal(relevantOriginal('QQQ',undefined,'QQQ overseas reactions','Gaming discussions','https://example.com/qqq'),false);
+ assert.equal(relevantOriginal('QQQ',undefined,'Invesco QQQ ETF','Fund investment objectives','https://invesco.com/qqq'),true);
+});
 test('research reads original sources, preserves event mechanism and verifies all holdings',async()=>{const c=checkpoint();let calls=0;const content=await runResearch(c,io(c,{reserve:async()=>{calls++;}}),new AbortController().signal);assert.equal(calls,1);assert.equal(c.progress.complete,true);assert.equal(content.briefPoints.length,3);assert.equal(content.holdings.length,2);assert.match(content.holdings[0].invalidation,/利润率/);assert.ok(c.evidence.every(e=>e.read&&e.fetchedAt&&e.url));assert.ok(c.progress.trace.some(t=>t.tool==='read'));});
 test('invalid portfolio output is not repaired with a second model call',async()=>{const c=checkpoint();let reserved=0,calls=0;await assert.rejects(()=>runResearch(c,io(c,{reserve:async()=>{reserved++;},model:async()=>{calls++;return {text:'bad json',finishReason:'stop'};}}),new AbortController().signal),/OUTPUT_JSON/);assert.equal(reserved,1);assert.equal(calls,1);assert.equal(c.progress.modelCalls,1);assert.equal(c.progress.maxCalls,1);assert.ok(c.failures.portfolio);const original=c.progress.searches;await assert.rejects(()=>runResearch(c,io(c,{reserve:async()=>{reserved++;}}),new AbortController().signal),/BUDGET/);assert.equal(reserved,1);assert.equal(c.progress.searches,original);assert.deepEqual(Object.keys(c.sections),[]);});
 

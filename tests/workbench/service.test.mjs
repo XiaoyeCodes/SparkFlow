@@ -75,9 +75,46 @@ test('an explicit retry creates a new one-call report instead of repairing the f
     f.service.ai.analyze=async()=>({text:'broken json',finishReason:'stop'});
     const failed=await f.service.analyze('manual');await f.service.activeAnalysis;
     let calls=0;f.service.ai.analyze=async()=>{calls++;return {text:raw};};
-    const retry=await f.service.analyze('manual');await f.service.activeAnalysis;
+    const prior=f.record.research[failed.id];prior.evidence=[{id:'saved',read:false,title:'Saved source',fetchedAt:new Date().toISOString(),symbols:[],url:'https://example.com'}];
+    let tools=0;f.service.ai.tool=async()=>{tools++;throw new Error('must reuse saved materials');};
+    const retry=await f.service.analyze('manual',undefined,undefined,undefined,failed.id);await f.service.activeAnalysis;
+    assert.equal(tools,0);assert.equal(f.record.research[retry.id].reusedFrom,failed.id);assert.equal(f.record.research[retry.id].evidence[0].id,'saved');
     assert.notEqual(retry.id,failed.id);assert.equal(calls,1);assert.equal(failed.state,'failed');assert.equal(retry.state,'completed');assert.equal(f.record.usage.length,2);assert.equal(f.record.reports.length,1);
   } finally {await f.service.close();}
+});
+
+test('retry cannot reuse another account or expired materials',async()=>{
+ const f=await fixture();try{
+  await assert.rejects(()=>f.service.analyze('manual',undefined,undefined,undefined,'unknown'),/没有可复用/);
+  const job=await f.service.analyze('manual');await f.service.activeAnalysis;
+  const c=f.record.research[job.id];c.progress.startedAt='2020-01-01T00:00:00Z';
+  await assert.rejects(()=>f.service.analyze('manual',undefined,undefined,undefined,job.id),/超过一天/);
+  c.progress.startedAt=new Date().toISOString();c.snapshot.accountKey='live:other';
+  await assert.rejects(()=>f.service.analyze('manual',undefined,undefined,undefined,job.id),/没有可复用/);
+ }finally{await f.service.close();}
+});
+
+test('manual retry after empty JSON mode response changes transport while retaining one-call validation',async()=>{
+ const f=await fixture();try{
+  f.service.ai.analyze=async()=>({text:'',finishReason:'stop'});
+  const failed=await f.service.analyze('manual');await f.service.activeAnalysis;
+  assert.equal(failed.failureCategory,'OUTPUT_EMPTY');
+  let mode,calls=0;f.service.ai.analyze=async(_prompt,_model,_signal,outputMode)=>{mode=outputMode;calls++;return {text:raw};};
+  const retried=await f.service.analyze('manual',undefined,undefined,undefined,failed.id);await f.service.activeAnalysis;
+  assert.equal(mode,'text');assert.equal(calls,1);assert.equal(retried.state,'completed');assert.equal(f.record.usage.length,2);
+ }finally{await f.service.close();}
+});
+
+test('stored output can be revalidated without a model call even at the daily limit',async()=>{
+ const f=await fixture();try{
+  f.record.preferences.maxAiCalls=1;
+  f.service.ai.analyze=async()=>({text:'invalid',finishReason:'stop'});
+  const job=await f.service.analyze('manual');await f.service.activeAnalysis;
+  f.record.research[job.id].failures.portfolio={text:raw,code:'OUTPUT_EVIDENCE',finishReason:'stop'};
+  f.service.ai.analyze=async()=>{throw new Error('revalidation must not invoke the model');};
+  await f.service.analyze('manual',undefined,undefined,job.id,undefined,true);await f.service.activeAnalysis;
+  assert.equal(job.state,'completed');assert.equal(f.record.usage.length,1);assert.equal(f.record.reports.length,1);
+ }finally{await f.service.close();}
 });
 test('sync failure preserves prior snapshot and schedules exponential backoff', async () => {
   const f = await fixture(); const before = f.record.snapshot.asOf;

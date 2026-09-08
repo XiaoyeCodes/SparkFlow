@@ -1,15 +1,17 @@
 import { BRIEF_PROMPT_VERSION, briefInput, briefPrompt, briefSchedule, validateBrief } from './ibkrBrief.ts';
+import { prepareBriefResearch } from './ibkrBriefResearch.ts';
 import type { DailyBrief, DailyBriefStatus } from '../src/lib/ibkr/workbenchTypes.ts';
 import { CompanyLogos, CompanyLogoImages } from './ibkrCompanyLogos.ts';
 import { reportMarkdown } from '../src/lib/ibkr/workbenchReport.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
-import { readFile, open, unlink, access } from 'node:fs/promises';
+import { readFile, open, unlink, access, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { IbkrMcp, atomicJson } from './ibkrMcp.ts';
 import { IbkrMarket, type JsonFetcher } from './ibkrMarket.ts';
+import { IbkrProfiles, type ProfileBatchFetcher } from './ibkrProfiles.ts';
 import { createIbkrAi } from './ibkrAi.ts';
 import { accountRisk, defaults, digest, newYorkClock, preferencesSchema } from './ibkrWorkbenchCore.ts';
 import { createResearch, runResearch, researchFailure, type ResearchCheckpoint } from './ibkrResearch.ts';
@@ -20,10 +22,32 @@ import { validSnapshot } from '../src/lib/ibkr/events.ts';
 import { allowedLocalRequest } from './localRequest.ts';
 import type { AccountSnapshot, Alert, AnalysisJob, AnalysisReport, Evidence, MarketQuote, Preferences, WorkbenchState, AiModel } from '../src/lib/ibkr/workbenchTypes.ts';
 
-type BriefAttempt = { id: string; sessionDate: string | null; state: 'running' | 'completed' | 'failed'; startedAt: string; error?: string };
+type BriefAttempt = { id: string; sessionDate: string | null; state: 'running' | 'completed' | 'failed'; startedAt: string; detail?: string; error?: string };
 type AccountRecord = { briefs?: DailyBrief[]; briefAttempt?: BriefAttempt; snapshot: AccountSnapshot; preferences: Preferences; grant?: { fingerprint: string; at: string }; alerts: Alert[]; reports: AnalysisReport[]; jobs: AnalysisJob[]; usage: { at: string; kind: string }[]; lastDaily?: string; dailyAttempt?: { date: string; at: number }; lastEventSignature?: string; peakNav?: number; research?: Record<string, ResearchCheckpoint>; plans?: AdjustmentPlan[]; history?: PerformancePoint[]; performance?: PortfolioPerformance };
 type Saved = { version: 1; source: 'mcp' | 'gateway'; selectedKey?: string; records: Record<string, AccountRecord> };
 const safeUrl = (url: unknown) => { try { const u = new URL(String(url)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
+export async function readBriefProfileFallback(directory: string, analysisAsOf: string): Promise<Evidence[]> {
+  const cutoff = Date.parse(analysisAsOf); if (!Number.isFinite(cutoff)) return [];
+  const date = new Date(cutoff).toISOString().slice(0, 10), profiles: Evidence[] = [];
+  try {
+    const entries = (await readdir(directory, { withFileTypes: true })).filter(entry => entry.isFile() && /^[a-f0-9-]+\.brief-attempt\.json$/i.test(entry.name));
+    const files = (await Promise.all(entries.map(async entry => { try { const meta = await stat(path.join(directory, entry.name)); return { name: entry.name, at: meta.mtimeMs, size: meta.size }; } catch { return null; } })))
+      .filter((entry): entry is { name: string; at: number; size: number } => entry !== null && entry.size <= 2_000_000).sort((a, b) => b.at - a.at).slice(0, 8);
+    for (const file of files) {
+      try {
+        const attempt = JSON.parse(await readFile(path.join(directory, file.name), 'utf8'));
+        const evidence = attempt.research?.evidence ?? attempt.input?.research?.evidence;
+        for (const item of Array.isArray(evidence) ? evidence : []) {
+          const fetched = Date.parse(item?.fetchedAt);
+          if (item?.kind !== 'profile' || item.read !== true || !Array.isArray(item.symbols) || item.symbols.length !== 1 || typeof item.symbols[0] !== 'string' || typeof item.content !== 'string' || !Number.isFinite(fetched) || fetched > cutoff || new Date(fetched).toISOString().slice(0, 10) !== date) continue;
+          // Whitelist only public Evidence fields; never propagate saved snapshots, prompts, account keys or model configuration.
+          profiles.push({ id: String(item.id ?? ''), kind: 'profile', title: String(item.title ?? ''), summary: String(item.summary ?? ''), url: String(item.url ?? ''), source: String(item.source ?? ''), fetchedAt: item.fetchedAt, publishedAt: typeof item.publishedAt === 'string' ? item.publishedAt : null, symbols: [item.symbols[0]], content: item.content, read: true, cached: true });
+        }
+      } catch { /* A corrupt or incomplete saved attempt does not block fresh public research. */ }
+    }
+  } catch { /* The first run has no saved public materials yet. */ }
+  return profiles;
+}
 export function oauthCallbackPage(authorized: boolean, synced: boolean, error?: string) {
   const title = error ? '授权返回处理未完成' : synced ? 'IBKR 账户已同步' : authorized ? 'IBKR 已授权，持仓待同步' : 'IBKR 授权未完成';
   const detail = error ? '请返回账户工作台查看连接提示；不要刷新此授权回调地址。' : synced ? '真实持仓与账户摘要已读取，可以关闭本窗口。' : '请返回账户工作台点击「刷新账户」，查看读取结果。';
@@ -56,8 +80,8 @@ export class IbkrWorkbenchService {
   private writeQueue = Promise.resolve(); private generation = 0; private disposed = false; private timer?: ReturnType<typeof setTimeout>;
   private researchAbort?: AbortController; private performanceFlight?: Promise<PortfolioPerformance>;
   private connectionDetail = ''; private storageError = ''; private ai; private ownsLease = false;
-  readonly mcp: IbkrMcp; readonly market: IbkrMarket;
-  constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); }
+  readonly mcp: IbkrMcp; readonly market: IbkrMarket; readonly profiles: IbkrProfiles;
+  constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] })) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
   async start() {
     await this.mcp.load();
     const lock = path.join(this.directory, 'worker.lock');
@@ -118,8 +142,9 @@ export class IbkrWorkbenchService {
         this.saved.selectedKey = key;
         let record = this.saved.records[key]; const previous = record?.snapshot;
         if (!record) record = this.saved.records[key] = { snapshot, preferences: { ...defaults }, alerts: [], reports: [], jobs: [], usage: [] };
-        const enriched = record.reports.find(r => r.version === 2)?.snapshot.positions ?? [];
-        snapshot.positions = snapshot.positions.map(p => {const old=enriched.find(h=>h.conId===p.conId);return {...p,sector:old?.sector,industry:old?.industry,instrumentType:old?.instrumentType,profileUrl:old?.profileUrl,name:old?.name||p.name};});
+        const analyzed = record.reports.find(r => r.version === 2)?.snapshot.positions ?? [];
+        snapshot.positions = snapshot.positions.map(p => {const old=previous?.positions.find(h=>h.conId===p.conId&&h.symbol===p.symbol),research=analyzed.find(h=>h.conId===p.conId&&h.symbol===p.symbol);return {...p,sector:old?.sector??research?.sector,industry:old?.industry??research?.industry,instrumentType:old?.instrumentType??research?.instrumentType,profileUrl:old?.profileUrl??research?.profileUrl,name:old?.name??research?.name??p.name};});
+        snapshot.positions = await this.profiles.enrich(snapshot.positions);
         const day = snapshot.asOf!.slice(0,10); record.history = [...(record.history??[]).filter(h=>h.date!==day),{date:day,nav:Number(snapshot.metrics.netLiquidation)||null,cumulativeReturn:null}].slice(-400);
         record.snapshot = snapshot; this.failures = 0; this.connectionDetail = '';
         this.quotes = await this.market.quotes(snapshot.positions);
@@ -182,7 +207,7 @@ export class IbkrWorkbenchService {
     const record = this.record(), schedule = briefSchedule(new Date());
     const latest = record?.briefs?.[0], enabled = Boolean(record?.preferences.daily);
     const base = { latest, enabled, nextRunAt: enabled ? schedule.nextRunAt : null, dueSession: schedule.dueSession, calendarSupported: schedule.calendarSupported };
-    if (record?.briefAttempt?.state === 'running') return { ...base, state: 'running', detail: '正在生成账户简报…' };
+    if (record?.briefAttempt?.state === 'running') return { ...base, state: 'running', detail: record.briefAttempt.detail ?? '正在收集持仓相关资料…' };
     if (!record?.grant || !this.model.configured || record.grant.fingerprint !== this.model.fingerprint) return { ...base, state: 'blocked', detail: '请在设置中授权当前模型读取账户后生成简报。' };
     if (!schedule.calendarSupported) return { ...base, state: 'blocked', detail: '交易日历尚未覆盖当前年份，自动简报暂停。' };
     if (/AI_HTTP_(401|402|403)/.test(record?.briefAttempt?.error ?? '')) return { ...base, nextRunAt: null, state: 'blocked', detail: `模型鉴权或额度不可用，自动简报暂停；请核对 API 配置后手动生成以恢复。${record!.briefAttempt!.error!.match(/AI_HTTP_\d+/)?.[0] ?? ''}` };
@@ -208,29 +233,47 @@ export class IbkrWorkbenchService {
     if (automatic && (!record.preferences.daily || !sessionDate || !schedule.calendarSupported || record.briefAttempt?.sessionDate === sessionDate || record.briefs?.some(b => b.sessionDate === sessionDate))) throw new Error('本期已处理或自动简报尚未到期');
     const today = newYorkClock(new Date()).date;
     if (record.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length >= record.preferences.maxAiCalls) throw new Error('今日 AI 调用已达上限');
-    const frozen = structuredClone(snapshot), input = briefInput(frozen, record.preferences, sessionDate), prompt = briefPrompt(input);
-    const attempt: BriefAttempt = { id: randomUUID(), sessionDate, state: 'running', startedAt: new Date().toISOString() };
+    const frozen = structuredClone(snapshot), preferences = structuredClone(record.preferences), previous = structuredClone(record.briefs?.[0]);
+    const attempt: BriefAttempt = { id: randomUUID(), sessionDate, state: 'running', startedAt: new Date().toISOString(), detail: '正在扫描全部持仓的新闻、财报、估值与事件日历…' };
     record.briefAttempt = attempt;
-    record.usage.push({ at: attempt.startedAt, kind: automatic ? 'daily-brief' : 'manual-brief' });
     const controller = new AbortController(); this.researchAbort = controller;
     let release!: () => void; this.activeAnalysis = new Promise<void>(r => { release = r; });
-    const timeout = setTimeout(() => controller.abort('timeout'), 180000);
+    const timeout = setTimeout(() => controller.abort('timeout'), 900000);
     const allowed = () => !this.disposed && !controller.signal.aborted && generation === this.generation && this.saved.selectedKey === key && record.grant?.fingerprint === model.fingerprint;
     try { await this.persist(); } catch (e) { clearTimeout(timeout); attempt.state = 'failed'; this.researchAbort = undefined; this.activeAnalysis = undefined; release(); throw e; }
     void (async () => {
       try {
         if (!allowed()) throw new Error('BRIEF_CANCELLED');
-        const result = await this.ai.analyze(prompt, model, controller.signal);
+        const fallbackEvidence = await readBriefProfileFallback(this.directory, attempt.startedAt);
+        const research = await prepareBriefResearch(frozen, {
+          tool: (name, args, signal) => this.ai.tool(name, args, signal),
+          progress: async detail => { if (!allowed()) throw new Error('BRIEF_CANCELLED'); attempt.detail = detail; await this.persist(); },
+        }, controller.signal, { analysisAsOf: attempt.startedAt, previousAsOf: previous?.analysisAsOf ?? previous?.generatedAt, fallbackEvidence });
         if (!allowed() || (await this.ai.status(true)).fingerprint !== model.fingerprint) throw new Error('BRIEF_CANCELLED');
+        const input = briefInput(frozen, preferences, sessionDate, research, previous), prompt = briefPrompt(input);
+        const prepared = { id: attempt.id, promptVersion: BRIEF_PROMPT_VERSION, generationMode: 'brief-json', snapshot: frozen, snapshotHash: digest(frozen), input, prompt, model, research };
+        // Keep reviewable materials even if the provider fails or returns invalid content.
+        await atomicJson(path.join(this.directory, `${attempt.id}.brief-attempt.json`), prepared);
+        const callDate = newYorkClock(new Date()).date;
+        if (record.usage.filter(u => newYorkClock(new Date(u.at)).date === callDate).length >= record.preferences.maxAiCalls) throw new Error('BRIEF_BUDGET_EXHAUSTED');
+        record.usage.push({ at: new Date().toISOString(), kind: automatic ? 'daily-brief' : 'manual-brief' });
+        attempt.detail = `已读取 ${input.research?.evidence.length ?? 0} 份资料，正在一次性分析完整账户…`;
+        await this.persist();
+        if (!allowed()) throw new Error('BRIEF_CANCELLED');
+        const result = await this.ai.analyze(prompt, model, controller.signal, 'brief-json');
+        if (!allowed() || (await this.ai.status(true)).fingerprint !== model.fingerprint) throw new Error('BRIEF_CANCELLED');
+        await atomicJson(path.join(this.directory, `${attempt.id}.brief-attempt.json`), { ...prepared, raw: result.text, finishReason: result.finishReason, usage: result.usage });
+        if (!result.text?.trim()) throw new Error('BRIEF_OUTPUT_EMPTY');
+        if (['length', 'max_tokens'].includes(result.finishReason ?? '')) throw new Error('BRIEF_OUTPUT_TRUNCATED');
         const content = validateBrief(result.text, input);
-        const brief: DailyBrief = { id: attempt.id, accountKey: key, snapshotId: frozen.snapshotId, snapshotHash: digest(frozen), snapshotAsOf: frozen.asOf, sessionDate, generatedAt: new Date().toISOString(), provider: model.provider, model: model.model, promptVersion: BRIEF_PROMPT_VERSION, content, facts: input.facts };
+        const brief: DailyBrief = { id: attempt.id, accountKey: key, snapshotId: frozen.snapshotId, snapshotHash: digest(frozen), snapshotAsOf: frozen.asOf, sessionDate, analysisAsOf: input.analysisAsOf, generatedAt: new Date().toISOString(), provider: model.provider, model: model.model, promptVersion: BRIEF_PROMPT_VERSION, content, facts: input.facts, evidence: input.research?.evidence, coverage: research.coverage, researchGaps: research.gaps };
         await atomicJson(path.join(this.directory, `${brief.id}.brief.json`), { ...brief, snapshot: frozen, input, prompt, raw: result.text });
         if (!allowed()) throw new Error('BRIEF_CANCELLED');
         record.briefs = [brief, ...(record.briefs ?? [])].slice(0, 30); attempt.state = 'completed';
       } catch (e) {
         attempt.state = 'failed';
         const code = e instanceof Error ? e.message : '';
-        attempt.error = !allowed() ? controller.signal.reason === 'timeout' ? '简报生成超时；本期不重复自动调用，可手动重试。' : '账户或授权已变化，简报已取消。' : code.startsWith('BRIEF_') || e instanceof z.ZodError || e instanceof SyntaxError ? '简报格式或数字来源未通过校验；保留上期内容，可手动重试。' : `模型服务暂不可用；保留上期简报，可手动重试。${/^AI_[A-Z0-9_]+$/.test(code) ? `（${code}）` : ''}`;
+        attempt.error = !allowed() ? controller.signal.reason === 'timeout' ? '简报生成超时；已保存资料，本期不重复自动调用。' : '账户或授权已变化，简报已取消。' : code.startsWith('BRIEF_') || e instanceof z.ZodError || e instanceof SyntaxError ? `简报结构、数字或原文引用未通过校验；资料与输出已保存，保留上期内容。${/^BRIEF_[A-Z_]+$/.test(code) ? `（${code}）` : ''}` : `研究或模型服务暂不可用；保留上期简报，可手动重试。${/^AI_[A-Z0-9_]+$/.test(code) ? `（${code}）` : ''}`;
       } finally {
         clearTimeout(timeout); this.researchAbort = undefined;
         await this.persist().catch(() => { this.storageError = '本地简报保存失败，自动任务暂停'; });
@@ -248,7 +291,7 @@ export class IbkrWorkbenchService {
     record.grant = { fingerprint: model.fingerprint, at: new Date().toISOString() }; await this.persist();
   }
   async alert(id: string, action: 'read' | 'resolve' | 'watch') { const record = this.record(); const alert = record?.alerts.find(a => a.id === id); if (!alert) throw new Error('提醒不存在'); if (action === 'watch') alert.watched = !alert.watched; else if (action === 'read') alert.read = true; else { alert.read = true; alert.resolved = true; } await this.persist(); }
-  async analyze(kind: AnalysisReport['kind'], question?: string, dateKey?: string, resumeId?: string) {
+  async analyze(kind: AnalysisReport['kind'], question?: string, dateKey?: string, resumeId?: string, reuseId?: string, revalidateStored=false) {
     this.assertAvailable(); if(this.activeAnalysis) throw new Error('已有分析正在运行');
     const record=this.record(), snapshot=record?.snapshot;
     if(!record||!snapshot||snapshot.testData||!['ready','empty'].includes(snapshot.state)||Date.now()-Date.parse(snapshot.asOf??'')>180000)throw new Error('请先同步最新真实账户');
@@ -256,16 +299,31 @@ export class IbkrWorkbenchService {
     if(!model.configured||record.grant?.fingerprint!==model.fingerprint)throw new Error('请先在设置中开启当前模型的账户分析');
     if(this.activeAnalysis)throw new Error('已有分析正在运行');
     const today=newYorkClock(new Date()).date;
-    if(record.usage.filter(u=>newYorkClock(new Date(u.at)).date===today).length>=record.preferences.maxAiCalls)throw new Error('今日 AI 调用已达上限');
+    if(!revalidateStored&&record.usage.filter(u=>newYorkClock(new Date(u.at)).date===today).length>=record.preferences.maxAiCalls)throw new Error('今日 AI 调用已达上限');
     const events=record.jobs.filter(j=>j.kind==='event'&&newYorkClock(new Date(j.startedAt)).date===today);
     if(kind==='event'&&!resumeId&&(events.length>=record.preferences.maxAutomatic||events.some(j=>Date.now()-Date.parse(j.startedAt)<record.preferences.cooldownMinutes*60000)))throw new Error('事件分析处于冷却期或已达上限');
     record.research??={};
     const prior=resumeId?record.jobs.find(j=>j.id===resumeId):undefined;
     const checkpoint=resumeId?record.research[resumeId]:createResearch(snapshot,record.preferences,this.quotes,model,kind==='manual'||kind==='chat',record.alerts.filter(a=>!a.resolved).flatMap(a=>a.symbols),question);
     if(!checkpoint||resumeId&&!prior)throw new Error('该任务没有可恢复的阶段资料');
+    if(reuseId){
+      const previous=record.research[reuseId];
+      if(resumeId||!previous||previous.snapshot.accountKey!==snapshot.accountKey)throw new Error('该账户没有可复用的研究资料');
+      if(Date.now()-Date.parse(previous.progress.startedAt)>86400000)throw new Error('已保存资料超过一天，请生成新分析以更新研究资料');
+      checkpoint.evidence=structuredClone(previous.evidence);
+      checkpoint.materialsPrepared=true;checkpoint.reusedFrom=reuseId;
+      const failedOutput=previous.failures?.portfolio;
+      if(previous.outputMode==='text'||failedOutput&&!failedOutput.text.trim())checkpoint.outputMode='text';
+      for(const h of checkpoint.snapshot.positions){const old=previous.snapshot.positions.find(p=>p.conId===h.conId&&p.symbol===h.symbol);if(old){h.name??=old.name;h.sector??=old.sector;h.industry??=old.industry;h.instrumentType??=old.instrumentType;}}
+      checkpoint.progress.sources=checkpoint.evidence.filter(e=>e.read).length;
+      checkpoint.progress.reads=previous.progress.reads;checkpoint.progress.searches=previous.progress.searches;
+      checkpoint.progress.trace=[...structuredClone(previous.progress.trace.filter(t=>!['model','model-once','model-repair','validation'].includes(t.tool))),{at:new Date().toISOString(),tool:'reuse',target:`复用任务 ${reuseId} 的资料；本次使用最新账户快照`,ok:true}];
+      checkpoint.progress.gaps=[...previous.progress.gaps];
+    }
     if(checkpoint.model.fingerprint!==model.fingerprint)throw new Error('模型已变化，请创建新的研究任务');
     if(prior?.state==='completed')throw new Error('该研究已经完成');
-    if(resumeId&&checkpoint.progress.modelCalls>0)throw new Error('本次单次分析已经调用过模型，请重新发起一份分析');
+    if(revalidateStored){if(!resumeId||!checkpoint.failures?.portfolio?.text)throw new Error('没有可重新校验的模型输出');checkpoint.revalidateStored=true;checkpoint.materialsPrepared=true;}
+    if(resumeId&&checkpoint.progress.modelCalls>0&&!revalidateStored)throw new Error('本次单次分析已经调用过模型，请重新发起一份分析');
     const job:AnalysisJob=prior??{id:randomUUID(),kind,state:'running',startedAt:new Date().toISOString()};
     checkpoint.dateKey??=dateKey;dateKey=checkpoint.dateKey;
     if(!checkpoint.performance&&record.performance?.benchmark===(checkpoint.preferences.benchmark??'SPY'))checkpoint.performance=structuredClone(record.performance);
@@ -280,9 +338,10 @@ export class IbkrWorkbenchService {
     void(async()=>{try{
       const content=await runResearch(checkpoint,{
         tool:(name,args,signal)=>this.ai.tool(name,args,signal),
-        model:(prompt,signal)=>this.ai.analyze(prompt,model,signal),
+        model:(prompt,signal)=>this.ai.analyze(prompt,model,signal,checkpoint.outputMode),
         save:()=>this.persist(),
         reserve:async()=>{
+          if(revalidateStored)throw new Error('重新校验不能调用模型');
           if(this.disposed||controller.signal.aborted||record.grant?.fingerprint!==model.fingerprint||this.saved.selectedKey!==snapshot.accountKey)throw new Error('RESEARCH_CANCELLED');
           const overBudget=record.usage.filter(u=>newYorkClock(new Date(u.at)).date===newYorkClock(new Date()).date).length>=record.preferences.maxAiCalls;
           if(overBudget)throw new Error('RESEARCH_BUDGET');
@@ -299,10 +358,10 @@ export class IbkrWorkbenchService {
         const symbols=frozen.positions.filter(h=>detail.includes(h.symbol)).map(h=>h.symbol);const action=content.actions.find(a=>symbols.includes(a.symbol));const ids=action?.evidenceIds??content.evidenceIds??[];const key=`ai:${type}:${digest([symbols.sort(),[...ids].sort()]).slice(0,20)}`;const existing=record.alerts.find(a=>a.key===key);if(existing){existing.detail=detail;existing.reportId=report.id;continue;}
         record.alerts.unshift({id:randomUUID(),key,kind:type,title:detail.split(/[。；：]/)[0].slice(0,42),detail,symbols:frozen.positions.filter(h=>detail.includes(h.symbol)).map(h=>h.symbol),createdAt:report.generatedAt,read:false,resolved:false,reportId:report.id,evidenceIds:ids,trigger:action?.trigger,invalidation:action?.invalidation});
       }
-    }catch(e){const code=controller.signal.reason==='timeout'?'RESEARCH_TIMEOUT':e instanceof Error?e.message:'RESEARCH_FAILED';job.failureCategory=code.split(':')[0];job.state=code==='RESEARCH_CANCELLED'?'cancelled':checkpoint.progress.modelCalls>0?'failed':'partial';job.error=researchFailure(job.failureCategory);}
+    }catch(e){const code=controller.signal.reason==='timeout'?'RESEARCH_TIMEOUT':e instanceof Error?e.message:'RESEARCH_FAILED';job.failureCategory=code.split(':')[0];job.state=code==='RESEARCH_CANCELLED'?'cancelled':checkpoint.progress.modelCalls>0?'failed':'partial';job.error=researchFailure(job.failureCategory)+(job.failureCategory==='OUTPUT_EVIDENCE'&&code.includes(':')?`：${code.slice(code.indexOf(':')+1).trim().slice(0,160)}`:'');}
     finally{clearTimeout(timeout);this.researchAbort=undefined;await this.persist().catch(()=>{this.storageError='本地研究状态保存失败';});this.activeAnalysis=undefined;release();}})();return job;
   }
-  async cancel(id:string){const job=this.record()?.jobs.find(j=>j.id===id);if(!job||job.state!=='running')throw new Error('任务没有运行');this.researchAbort?.abort();await this.activeAnalysis;}
+  async cancel(id:string){const record=this.record(), job=record?.jobs.find(j=>j.id===id), brief=record?.briefAttempt;if(job?.state!=='running'&&!(brief?.id===id&&brief.state==='running'))throw new Error('任务没有运行');this.researchAbort?.abort('user');await this.activeAnalysis;}
   async research(id:string){const checkpoint=this.record()?.research?.[id];if(!checkpoint)throw new Error('阶段资料不存在');return {progress:checkpoint.progress,evidence:checkpoint.evidence,sections:checkpoint.sections};}
   async savePlan(data:unknown){const record=this.record();if(!record)throw new Error('请先连接账户');const value=planSchema.parse(data);if(value.id&&!record.plans?.some(p=>p.id===value.id))throw new Error('计划不属于当前账户');if(value.reportId&&!(await this.report(value.reportId)))throw new Error('关联报告不存在');if(['watching','triggered'].includes(value.status))simulatePlan(record.snapshot,value.steps,record.preferences.cashFloor);const old=record.plans?.find(p=>p.id===value.id);const plan:AdjustmentPlan={...value,id:value.id??randomUUID(),createdAt:old?.createdAt??new Date().toISOString(),updatedAt:new Date().toISOString(),snapshotId:record.snapshot.snapshotId};record.plans=[plan,...(record.plans??[]).filter(p=>p.id!==plan.id)].slice(0,100);await this.persist();return plan;}
   simulate(data:any){const record=this.record();if(!record||record.snapshot.state==='stale')throw new Error('请先同步账户');const value=planSchema.parse(data.plan);return simulatePlan(record.snapshot,value.steps,record.preferences.cashFloor,data.shock??-.1);}
@@ -332,7 +391,7 @@ export function reportHtml(markdown:string){
  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline'"><title>SparkFlow · 投资组合研究</title><style>body{background:#050a09;color:#dcebe1;font:15px/1.9 system-ui;max-width:960px;margin:50px auto;padding:24px;overflow-wrap:anywhere}h1{font-size:32px;color:#eff8f2}h2{border-top:1px solid #20352d;padding-top:26px;margin-top:35px;color:#70dcba}h3{color:#b5ddc4;margin-top:26px}p,li{white-space:pre-wrap}a{color:#70dcba}blockquote{border-left:2px solid #53755f;padding:12px 20px;color:#9eb5a6;background:#0b1411}ul{padding-left:22px}@media print{body{background:white;color:#18271e;margin:0;font-size:11pt}h1,h2,h3,a{color:#193e2b}h2,h3{break-after:avoid}blockquote{background:#eff4ef}}</style>${content}</html>`;
 }
 async function body(req: IncomingMessage) { if (!req.headers['content-type']?.startsWith('application/json')) throw new Error('只接受 JSON 请求'); let text = ''; for await (const chunk of req) { text += chunk; if (Buffer.byteLength(text) > 32000) throw new Error('请求过大'); } return JSON.parse(text); }
-export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogoScan?: (tickers: string[]) => Promise<unknown>; fetchLogoImage?: (url: string) => Promise<Uint8Array>; stateDir?: string }): Plugin {
+export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogoScan?: (tickers: string[]) => Promise<unknown>; fetchProfileScan?: ProfileBatchFetcher; fetchLogoImage?: (url: string) => Promise<Uint8Array>; stateDir?: string }): Plugin {
   let service: IbkrWorkbenchService | undefined;
   const install = (server: any) => {
     const port = () => { const address = server.httpServer?.address(); return address && typeof address !== 'string' ? address.port : 0; };
@@ -341,7 +400,7 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
     const logos = new CompanyLogos(options.fetchLogoScan ?? (async () => ({ data: [] })), file => access(path.join(root, 'public/stock-logos', file)).then(() => true, () => false));
     service = new IbkrWorkbenchService(root, options.stateDir ?? path.join(root, '.sparkflow/ibkr-workbench'), options.fetchJson, async pathname => {
       const response = await fetch(`http://127.0.0.1:${port()}${pathname}`, { signal: AbortSignal.timeout(30000) }); if (!response.ok) throw new Error('背景数据暂不可用'); return response.json();
-    });
+    }, options.fetchProfileScan);
     const instance = service; const ready = instance.start();
     server.httpServer?.once('close', () => void instance.close());
     server.middlewares.use(async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
@@ -405,6 +464,8 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
         if(endpoint==='simulate')return json(instance.simulate(data));
         if(endpoint==='cancel'){await instance.cancel(z.object({id:z.string().uuid()}).parse(data).id);return json({ok:true});}
         if(endpoint==='resume'){const {id}=z.object({id:z.string().uuid()}).strict().parse(data);const state=await instance.state();const job=state.jobs.find(j=>j.id===id);if(!job)throw new Error('任务不存在');return json(await instance.analyze(job.kind,undefined,undefined,id),202);}
+        if(endpoint==='retry'){const {id}=z.object({id:z.string().uuid()}).strict().parse(data);const state=await instance.state();const job=state.jobs.find(j=>j.id===id);if(!job)throw new Error('任务不存在');return json(await instance.analyze('manual',undefined,undefined,undefined,id),202);}
+        if(endpoint==='revalidate'){const {id}=z.object({id:z.string().uuid()}).strict().parse(data);const state=await instance.state();const job=state.jobs.find(j=>j.id===id);if(!job)throw new Error('任务不存在');return json(await instance.analyze(job.kind,undefined,undefined,id,undefined,true),202);}
         if (endpoint === 'brief') { z.object({}).strict().parse(data); return json(await instance.generateBrief(), 202); }
         if (endpoint === 'analyze') { const v = z.object({ question: z.string().max(2000).optional() }).strict().parse(data); return json(await instance.analyze(v.question ? 'chat' : 'manual', v.question), 202); }
         return json({ error: '接口不存在' }, 404);

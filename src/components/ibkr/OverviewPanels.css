@@ -25,6 +25,55 @@
 .awb-daily-footer{margin-top:auto;padding-top:14px;border-top:1px solid #263b2d}
 .awb-daily-footer>small{display:block;font-size:10px;line-height:1.6;color:#91aa9a;margin:7px 0 12px}
 .account-workbench .awb-daily-footer button{width:100%;margin-top:7px;font-size:12px;padding:8px}
+.awb-daily-session>span{display:block}
+.awb-daily-brief .awb-daily-content{gap:14px;min-width:0}
+.awb-daily-brief .awb-daily-content h3{font-size:12px;margin:0 0 7px}
+.awb-daily-brief .awb-daily-content h4{font-size:13px;line-height:1.65;color:#e0eee5;margin:6px 0;overflow-wrap:anywhere}
+.awb-daily-brief .awb-daily-content h5{font-size:11px;font-weight:600;color:#93bba5;margin:0 0 4px}
+.awb-daily-brief .awb-daily-content p{margin:0;font-size:12px;line-height:1.8}
+.awb-brief-section-title{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.awb-brief-section-title>small{font-size:10px;color:#91aa9a;white-space:nowrap}
+.awb-daily-insight{padding:11px 12px;border:1px solid #2a4033;border-left:2px solid #658b74;border-radius:9px;background:#0b191166;margin-top:8px;min-width:0}
+.awb-daily-insight-risk{border-left-color:#d8aa62}.awb-daily-insight-opportunity{border-left-color:#45d3a2}.awb-daily-insight-mixed{border-left-color:#a59dd1}
+.awb-brief-tags{display:flex;align-items:center;gap:4px 7px;flex-wrap:wrap;color:#8ea99a;font-size:10px;line-height:1.5}
+.awb-brief-tags b{font-size:10px;color:#b9d1c2;font-weight:500;overflow-wrap:anywhere}
+.awb-brief-kind{padding:1px 6px;border-radius:4px;background:#223229;color:#bdcdc3}.awb-brief-kind-risk{background:#49382066;color:#e7ba77}.awb-brief-kind-opportunity{background:#1b573a66;color:#6fddb0}.awb-brief-kind-mixed{background:#38334e80;color:#bbb0e5}
+.awb-brief-change-upgraded{color:#e7ba77}.awb-brief-change-eased{color:#6fddb0}
+.awb-daily-brief .awb-brief-impact{color:#aac7b6}
+.awb-brief-expand{margin-top:8px}
+.awb-daily-brief :is(.awb-brief-expand,.awb-brief-more,.awb-brief-fold)>summary{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;list-style:none;color:#92bca5;font-size:11px;line-height:1.65;padding:3px 0;overflow-wrap:anywhere}
+.awb-daily-brief details>summary::-webkit-details-marker{display:none}
+.awb-daily-brief details>summary svg{flex:none;transition:transform .15s}
+.awb-daily-brief details[open]>summary>svg,.awb-daily-brief .awb-brief-fold[open]>summary>span:last-child>svg{transform:rotate(90deg)}
+.awb-daily-brief details>summary:focus-visible{outline:2px solid #53dfb0;outline-offset:3px;border-radius:3px}
+.awb-brief-expanded{display:flex;flex-direction:column;gap:12px;margin-top:11px;min-width:0}
+.awb-brief-expand[open]{padding-top:7px;border-top:1px solid #263b2e}
+.awb-daily-brief .awb-brief-confidence{font-size:10px;line-height:1.75;color:#8eaa9a}
+.awb-brief-more{margin-top:9px}.awb-brief-more>summary{padding:5px 0}
+.awb-brief-fold{border-top:1px solid #273d2f;padding-top:11px;min-width:0}
+.awb-brief-fold>summary>span{display:flex;align-items:center;gap:6px}.awb-brief-fold>summary>span:last-child{font-size:10px;color:#91aa9a;flex:none}
+.awb-brief-fold>ul{margin-top:10px}
+.awb-brief-calendar+.awb-brief-calendar{padding-top:12px;border-top:1px solid #263b2e}
+.awb-brief-calendar>small{font-size:10px;color:#a4bcb0;line-height:1.7;display:block}
+.awb-brief-calendar .awb-brief-tags{margin:4px 0 10px}
+.awb-daily-brief .awb-brief-calendar h5{margin-top:9px}
+.awb-brief-sources{display:flex;flex-direction:column;gap:10px;min-width:0;font-size:11px;line-height:1.65}
+.awb-brief-sources>small{font-size:10px;color:#91aa9a}
+.awb-brief-calendar>.awb-brief-sources{margin-top:9px}
+.awb-brief-source{padding-top:9px;border-top:1px solid #263b2e;overflow-wrap:anywhere}
+.account-workbench .awb-brief-source>a{display:inline;color:#79ccaa;text-decoration:underline;text-decoration-color:#507b65;text-underline-offset:3px;font-size:11px;line-height:1.7}
+.awb-brief-source>a svg{display:inline;vertical-align:middle;margin-left:4px}
+.awb-brief-source>small{display:block;font-size:10px;line-height:1.7;color:#879f90;margin-top:3px}
+.awb-brief-source>blockquote{padding:7px 9px;margin:8px 0 0;border-left:2px solid #3b6350;background:#0b171180;font-size:10px;line-height:1.75;color:#9eb9a8}
+.awb-daily-brief .awb-brief-coverage-list{list-style:none;padding:0;margin:0}
+.awb-brief-coverage-list>li{padding:8px 0;border-bottom:1px solid #263b2e}
+.awb-brief-coverage-list>li>div{display:flex;align-items:center;justify-content:space-between;gap:9px;font-size:11px}
+.awb-brief-coverage-list>li>small{font-size:10px;color:#829f8e;display:block;margin-top:2px}
+.awb-daily-brief .awb-brief-coverage-list>li>p{font-size:10px;line-height:1.7;margin-top:3px}
+.awb-coverage-complete{color:#6fddb0}.awb-coverage-partial{color:#d7b675}.awb-coverage-failed,.awb-coverage-unsupported{color:#c6a6a0}
+.awb-daily-brief .awb-daily-gaps li{font-size:11px;line-height:1.7;color:#9ab3a3}
+.awb-daily-brief .awb-brief-account-facts{margin:0;font-size:10px}.awb-brief-account-facts>small{display:block;margin-top:7px;overflow-wrap:anywhere}
+@media(max-width:600px){.awb-daily-insight{padding:10px 11px}.awb-daily-brief :is(.awb-brief-expand,.awb-brief-more,.awb-brief-fold)>summary{min-height:34px}.awb-brief-fold>summary{flex-wrap:wrap}}
 .awb-performance-redesign svg.awb-nav-chart{display:block;width:100%;height:245px;max-height:none;margin:8px 0 16px;overflow:visible}.awb-performance-redesign svg text{fill:#81998a;font-size:10px;font-variant-numeric:tabular-nums}
 .awb-performance-redesign .awb-chart-empty{min-height:200px;margin:8px 0 16px;background:none;border-bottom:1px solid #26372c}
 .awb-chart-legend{display:flex;gap:10px 20px;flex-wrap:wrap;border-top:1px solid #26372c;padding-top:13px;font-size:12px;color:#9ab0a2}.awb-chart-legend span{display:flex;align-items:center;gap:6px}.awb-chart-legend i,.awb-sector-summary i{display:inline-block;flex:none;width:7px;height:7px;border-radius:2px}
@@ -192,4 +241,81 @@
   .awb-overview-compact .awb-performance-redesign svg.awb-nav-chart{height:150px}
   .awb-overview-compact .awb-performance-redesign .awb-chart-empty{min-height:150px}
   .awb-overview-compact .awb-performance-redesign svg.awb-month-chart{height:64px}
+}
+.awb-sector-pie{display:block;flex:none;width:min(100%,240px);height:auto;aspect-ratio:1;margin:8px auto 14px;overflow:visible}
+.awb-sector-pie path,.awb-sector-pie circle{stroke:#0b1411;stroke-width:2;transition:opacity .15s}
+.awb-sector-legend{display:flex;flex-direction:column;gap:4px}
+.account-workbench .awb-sector-legend button{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:4px 2px;border:0;border-radius:4px;background:transparent;color:#a9bfb3;text-align:left;font-size:11px}
+.awb-sector-legend i{flex:none;width:8px;height:8px;border-radius:2px}
+.awb-sector-legend span{flex:1;min-width:0}
+.awb-sector-legend b{font-variant-numeric:tabular-nums;color:#d2e5d9;font-weight:600}
+.account-workbench .awb-sector-legend button:hover,.account-workbench .awb-sector-legend button[aria-pressed=true]{background:#14271e}
+.account-workbench .awb-sector-legend button:focus-visible{outline:1px solid #70dcba;outline-offset:2px}
+.awb-funds-total{padding:4px 0 10px;border-bottom:1px solid #26392e}
+.awb-funds-total>span{font-size:11px;color:#91ab9b}
+.awb-funds-total>strong{display:block;margin-top:6px;font-size:26px;line-height:1.2;color:#e0eee5;font-variant-numeric:tabular-nums}
+.awb-funds-total strong small{margin-left:8px;font-size:11px;font-weight:400;color:#91ab9b}
+.awb-funds-panel .awb-funds-values{border-top:1px solid #26392e;margin-top:12px;padding-top:12px}
+.awb-funds-pie-center text{text-anchor:middle;font-variant-numeric:tabular-nums}
+.awb-funds-pie-label{font-size:10px;fill:#91ab9b}
+.awb-funds-pie-value{font-size:19px;font-weight:650}
+.awb-funds-reference-row{display:contents}
+.account-workbench .awb-funds-reference-row button{border:0;padding:0;background:transparent;color:#91ab9b;font-size:inherit;gap:6px;justify-content:flex-start;text-align:left}
+.awb-funds-reference-row button i{display:inline-block;flex:none;width:6px;height:6px;border-radius:50%}
+.account-workbench .awb-funds-reference-row button[aria-pressed=true]{color:#e0eee5}
+.awb-funds-pie [data-funds-ring]{cursor:pointer;transition:opacity .15s}
+.awb-funds-panel .awb-sector-legend b small{font-size:9px;font-weight:400;color:#789786;margin-left:5px}
+.awb-funds-help{margin-top:8px;color:#789786;font-size:10px}
+.awb-funds-help summary{cursor:pointer}
+.awb-pnl-chart-panel{min-width:0}
+.awb-pnl-chart-panel .awb-pnl-subtitle{margin:0 0 12px;color:#92a69c;font-size:11px;line-height:1.5}
+.awb-pnl-ratios{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.awb-pnl-ratios>div:last-child{text-align:right}
+.awb-pnl-ratios span{display:block;font-size:12px}
+.awb-pnl-ratios small{margin-left:6px;font-size:10px;color:#92a69c}
+.awb-pnl-ratios strong{display:block;margin-top:4px;font-size:24px;line-height:1.2;font-weight:650;letter-spacing:-.6px;font-variant-numeric:tabular-nums}
+.awb-pnl-gain{color:#70dcba}
+.awb-pnl-loss{color:#e79084}
+.awb-pnl-sharebar{display:flex;height:8px;overflow:hidden;border-radius:2px;margin:10px 0 12px;background:#20352d}
+.awb-pnl-sharebar span{height:100%}
+.awb-pnl-sharebar .awb-pnl-gain,.awb-pnl-track .awb-pnl-gain{background:#70dcba}
+.awb-pnl-sharebar .awb-pnl-loss,.awb-pnl-track .awb-pnl-loss{background:#e79084}
+.awb-pnl-flat{background:#aec0b7}
+.awb-pnl-missing{background:repeating-linear-gradient(135deg,#42564d 0 2px,#18271f 2px 4px)}
+.awb-pnl-other{display:flex;flex-wrap:wrap;gap:5px 12px;margin:-4px 0 12px;color:#a6b8af;font-size:10px}
+.awb-pnl-other i{display:inline-block;width:7px;height:7px;margin-right:5px}
+.awb-pnl-chart-title{display:flex;justify-content:space-between;gap:8px;padding-top:11px;border-top:1px solid #293a30;color:#b5c7be;font-size:11px}
+.awb-pnl-chart-title small{color:#829b8e;font-size:10px}
+.awb-pnl-axis,.account-workbench .awb-pnl-bar-row{display:grid;grid-template-columns:minmax(38px,.65fr) minmax(35px,1.4fr) minmax(44px,.85fr);gap:6px}
+.awb-pnl-axis{margin-top:10px;color:#829b8e;font-size:9px;align-items:center}
+.awb-pnl-axis>div{position:relative;display:flex;justify-content:space-between;padding-bottom:5px;border-bottom:1px solid #344b3e}
+.awb-pnl-axis b{position:absolute;left:50%;transform:translateX(-50%);font-weight:400;color:#d0ded6}
+.awb-pnl-axis>span:last-child{text-align:right}
+.awb-pnl-bars{max-height:264px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#365747 transparent}
+.account-workbench .awb-pnl-bar-row{width:100%;align-items:center;padding:6px 0;border-radius:0;min-height:26px;font-size:11px}
+.account-workbench .awb-pnl-bar-row:hover{background:#15261e}
+.account-workbench .awb-pnl-bar-row:focus-visible{outline:1px solid #70dcba;outline-offset:-1px;background:#15261e}
+.awb-pnl-symbol{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.awb-pnl-track{position:relative;display:block;height:14px;background:linear-gradient(to right,transparent calc(50% - .5px),#50675b calc(50% - .5px),#50675b calc(50% + .5px),transparent calc(50% + .5px))}
+.awb-pnl-track i{display:block;position:absolute;top:3px;height:8px;border-radius:1px}
+.awb-pnl-track .awb-pnl-zero{left:calc(50% - 2px);top:5px;width:4px;height:4px;border-radius:50%;background:#aec0b7}
+.awb-pnl-bar-row b{font-size:11px;text-align:right;font-weight:600;min-width:0;max-width:100%;overflow-wrap:anywhere}
+.awb-pnl-neutral{color:#a6b8af}
+.awb-pnl-chart-panel .awb-pnl-caption{margin:10px 0 0;font-size:10px;line-height:1.6}
+.awb-pnl-chart-panel .awb-pnl-source{margin:6px 0 0;font-size:10px;line-height:1.6}
+@media(min-width:1500px) and (max-height:950px){.awb-pnl-bars{max-height:200px}}
+@media(min-width:1500px){
+  .awb-overview-compact .awb-funds-pie{width:140px;max-width:100%;margin:4px auto 6px}
+  .awb-overview-compact .awb-funds-pie-label{font-size:14px}
+  .awb-overview-compact .awb-funds-panel .awb-section-heading{margin-bottom:4px}
+  .awb-overview-compact .awb-funds-total{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 0 6px}
+  .awb-overview-compact .awb-funds-total>span{max-width:60px;font-size:10px;line-height:1.3}
+  .awb-overview-compact .awb-funds-total>strong{min-width:0;font-size:20px;margin-top:0;overflow-wrap:anywhere}
+  .awb-overview-compact .awb-funds-panel .awb-sector-legend{gap:0}
+  .awb-overview-compact .awb-funds-panel .awb-sector-legend button{padding:2px;font-size:10px}
+  .awb-overview-compact .awb-funds-panel .awb-funds-values{gap:4px 6px;margin-top:6px;padding-top:6px}
+}
+@media(min-width:1500px) and (max-width:1700px){
+  /* Net liquidation remains visible in the overview's top summary. */
+  .awb-overview-compact .awb-funds-total{display:none}
 }

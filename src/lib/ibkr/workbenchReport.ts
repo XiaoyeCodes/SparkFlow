@@ -1,4 +1,5 @@
 import type { AnalysisReport } from './workbenchTypes';
+import { industryLabel } from './industryLabels';
 export function holdingChanges(previous:AnalysisReport,current:AnalysisReport){const before=new Map(previous.snapshot.positions.map(p=>[p.conId,p]));const after=new Map(current.snapshot.positions.map(p=>[p.conId,p]));return [...new Set([...before.keys(),...after.keys()])].flatMap(id=>{const a=before.get(id),b=after.get(id);return a?.quantity===b?.quantity?[]:[{conId:id,symbol:b?.symbol??a!.symbol,before:a?.quantity??'0',after:b?.quantity??'0'}];});}
 export function reportMarkdown(report:AnalysisReport){
  const c=report.content;const refs=(ids?:string[])=>ids?.map(id=>{const e=report.evidence.find(e=>e.id===id);return e?`[${e.title.replace(/[\[\]]/g,'')}](${e.url})`:'';}).filter(Boolean).join(' · ')??'';
@@ -7,7 +8,7 @@ export function reportMarkdown(report:AnalysisReport){
  `账户快照 ${report.snapshotId} · SHA256 ${report.snapshotHash}`,
  `## ${c.headline??'今日简报'}`,...(c.briefPoints??[c.brief]),refs(c.evidenceIds),
  '## 账户现状诊断',c.accountSummary,'## 组合风险',c.portfolioRisk,
- ...(report.metrics?[`规则等级 ${report.metrics.riskLevel}`, ...report.metrics.reasons, ...report.metrics.sectors.map(s=>`${s.name} ${(s.weight*100).toFixed(1)}%`)]:[]),
+ ...(report.metrics?[`规则等级 ${report.metrics.riskLevel}`, ...report.metrics.reasons, ...report.metrics.sectors.map(s=>`${industryLabel(s.name)} ${(s.weight*100).toFixed(1)}%`)]:[]),
  ...(c.benchmarkComparison?['## 基准比较',c.benchmarkComparison]:[]),
  '## 宏观与周期定位',c.marketContext,
  '## 重点持仓与组合传导',...c.holdings.flatMap(h=>[`### ${h.symbol}`,h.background,h.fact?`**事实** ${h.fact}`:'',h.impact?`**影响机制** ${h.impact}`:'',`**短期** ${h.shortTerm}`,`**长期** ${h.longTerm}`,h.counterEvidence?`**反对证据** ${h.counterEvidence}`:'',h.invalidation?`**失效条件** ${h.invalidation}`:'',...(h.support??[]).map(s=>`> ${s.quote}\n\n${refs([s.evidenceId])}`),refs(h.evidenceIds)]),

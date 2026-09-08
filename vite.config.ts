@@ -21,6 +21,7 @@ import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, parseSyndication, type 
 import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from './server/newsSubscriptions';
 import { dailyHotPlugin } from './server/dailyhotPlugin';
 import { ibkrWorkbenchPlugin } from './server/ibkrWorkbench';
+import { ibkrValuationPlugin } from './server/ibkrValuation';
 import { parseEastmoneyRow } from './server/ibkrMarket';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
 import { createFinancialConditionsService } from './server/financialConditions';
@@ -12693,6 +12694,7 @@ function allWeatherApiPlugin() {
 export default defineConfig({
   plugins: [
     react(),
+    ibkrValuationPlugin(),
     ibkrWorkbenchPlugin({
       fetchJson: url => fetchJsonWithRetry(url, 2, 12000),
       fetchLogoImage: async url => {
@@ -12718,6 +12720,20 @@ export default defineConfig({
           } catch { /* Try the project's configured proxy once, then retain initials. */ }
         }
         throw new Error('Logo source unavailable');
+      },
+      fetchProfileScan: async tickers => {
+        for (const route of ['direct', 'proxy'] as const) {
+          try {
+            const response = await undiciFetch('https://scanner.tradingview.com/global/scan', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://www.tradingview.com' },
+              body: JSON.stringify({ symbols: { tickers, query: { types: [] } }, columns: ['name', 'description', 'sector', 'industry', 'type', 'typespecs'] }),
+              signal: AbortSignal.timeout(20000), ...(route === 'proxy' ? { dispatcher: foreignProxyAgent } : {}),
+            });
+            if (!response.ok) throw new Error('Company profile source unavailable');
+            return await response.json();
+          } catch { /* Try the configured proxy once; unresolved fields retry later. */ }
+        }
+        throw new Error('Company profile source unavailable');
       },
     }),
     dailyHotPlugin(),
