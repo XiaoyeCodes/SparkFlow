@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   ArrowLeft,
   BookOpenText,
   Check,
+  ChevronDown,
   Database,
   Download,
   FileCheck2,
@@ -71,7 +72,7 @@ function disabledReason(state: WorkbenchState, running?: AnalysisJob, busy = fal
   return '';
 }
 
-function ResearchSteps({ progress, running = false, snapshotReady = true }: { progress?: ResearchProgress; running?: boolean; snapshotReady?: boolean }) {
+function ResearchSteps({ progress, running = false, snapshotReady = true, published = false }: { progress?: ResearchProgress; running?: boolean; snapshotReady?: boolean; published?: boolean }) {
   const steps = [
     { label: '账户快照', note: snapshotReady ? '冻结本次账户数据' : '等待账户同步', done: snapshotReady },
     {
@@ -81,24 +82,24 @@ function ResearchSteps({ progress, running = false, snapshotReady = true }: { pr
     },
     {
       label: 'AI 判断',
-      note: (progress?.modelCalls ?? 0) > 0 ? '模型已完成一次调用' : '等待形成账户结论',
-      done: (progress?.modelCalls ?? 0) > 0,
+      note: published || progress?.complete ? '账户结论已完成' : (progress?.modelCalls ?? 0) > 0 ? '模型已调用，等待结果校验' : '等待形成账户结论',
+      done: published || Boolean(progress?.complete),
     },
     {
       label: '发布报告',
-      note: progress?.complete ? '报告已经归档' : running ? '完成后自动归档' : '等待完成分析',
-      done: Boolean(progress?.complete),
+      note: published || progress?.complete ? '报告已经归档' : running ? '完成后自动归档' : '等待完成分析',
+      done: published || Boolean(progress?.complete),
     },
   ];
   const firstOpen = steps.findIndex((step) => !step.done);
   const active = firstOpen < 0 ? steps.length - 1 : firstOpen;
 
   return (
-    <ol className="awb-analysis-steps" aria-label="研究步骤">
+    <ol className={`awb-analysis-steps ${running ? 'is-processing' : ''}`} aria-label="研究步骤">
       {steps.map((step, index) => (
         <li
-          className={step.done ? 'is-done' : index === active ? 'is-active' : ''}
-          aria-current={index === active ? 'step' : undefined}
+          className={step.done ? 'is-done' : index === active && !published ? 'is-active' : ''}
+          aria-current={index === active && !published ? 'step' : undefined}
           key={step.label}
         >
           <span>{step.done ? <Check size={14} /> : String(index + 1).padStart(2, '0')}</span>
@@ -111,6 +112,17 @@ function ResearchSteps({ progress, running = false, snapshotReady = true }: { pr
     </ol>
   );
 }
+
+const questionExamples = [
+  { label: '回调机会', text: '如果市场回调，我应该优先关注哪些持仓？请说明判断依据。' },
+  { label: '集中度风险', text: '我的持仓集中在哪些公司和行业？哪些共同风险最需要留意？' },
+  { label: '估值比较', text: '请比较现有持仓的估值，哪些偏贵、哪些值得继续观察？请注明数据日期和依据。' },
+  { label: '现金安排', text: '结合当前持仓和现金余额，我有哪些可以考虑的资金安排？请说明各自的风险。' },
+  { label: '财报日历', text: '我的持仓近期有哪些财报或重要事件？我应该重点关注什么指标？' },
+  { label: '盈亏复盘', text: '请复盘当前持仓的未实现盈亏，区分可确认的账户事实和仍需核实的原因。' },
+  { label: '市场冲击', text: '如果利率上升或科技股回调，我的哪些持仓可能受影响较大？请说明传导逻辑。' },
+  { label: '本周重点', text: '请结合当前账户，列出本周最值得跟踪的三件事，以及需要重新评估持仓的条件。' },
+];
 
 function QuickQuestion({
   state,
@@ -125,11 +137,21 @@ function QuickQuestion({
   'state' | 'running' | 'busy' | 'canAnalyze' | 'question' | 'onQuestion' | 'onAsk'
 >) {
   const reason = disabledReason(state, running, busy);
+  const [exampleIndex, setExampleIndex] = useState(0);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const hintId = useId();
+  const fillExample = (index: number) => {
+    setExampleIndex(index);
+    onQuestion(questionExamples[index].text);
+    inputRef.current?.focus();
+  };
   return (
     <section className="awb-analysis-card awb-analysis-question">
       <span className="awb-analysis-kicker"><MessageSquareText size={14} />AI 分析对话</span>
-      <h3>你想了解持仓的哪一面？</h3>
-      <p>基于当前账户快照追问持仓、回调情景或风险优先级。</p>
+      <p>结合账户继续提问，回复会保存在右侧历史研究中。</p>
+      <div className="awb-question-examples" role="group" aria-label="示例话题">
+        {questionExamples.map((example, index) => <button type="button" key={example.label} title={example.text} onClick={() => fillExample(index)}>{example.label}</button>)}
+      </div>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -137,34 +159,95 @@ function QuickQuestion({
         }}
       >
         <textarea
+          ref={inputRef}
           aria-label="账户分析问题"
+          aria-describedby={hintId}
           maxLength={2000}
-          placeholder="例如：如果市场回调，我应该优先关注哪些持仓？"
+          placeholder={`例如：${questionExamples[exampleIndex].text}`}
           value={question}
           onChange={(event) => onQuestion(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing && !question.trim()) {
+              event.preventDefault();
+              fillExample(exampleIndex);
+            }
+          }}
         />
-        <button className="primary" disabled={!canAnalyze || !question.trim()} type="submit">
-          提交问题 <ArrowUpRight size={15} />
+        <button className={`primary ${running?.state === 'running' ? 'awb-analysis-submit-running' : ''}`} disabled={!canAnalyze || !question.trim() || running?.state === 'running'} type="submit">
+          {running?.state === 'running' ? <><RotateCcw className="awb-analysis-spinner" size={15} />分析中<span className="awb-analysis-loading-dots" aria-hidden="true"><i /><i /><i /></span></> : <>提交问题 <ArrowUpRight size={15} /></>}
         </button>
       </form>
+      <div className="awb-question-example-hint" id={hintId}>
+        <span>{question.trim() ? '可继续修改，点击「提交问题」后才开始分析。' : <>输入框内按 <kbd>Tab</kbd> 填入示例，或点击上方话题。</>}</span>
+        {!question.trim() && <button type="button" onClick={() => { setExampleIndex(index => (index + 1) % questionExamples.length); inputRef.current?.focus(); }}>换一题 <RotateCcw size={12} /></button>}
+      </div>
       {reason && <small className="awb-analysis-helper">{reason}</small>}
     </section>
   );
 }
 
-function CoverageCard({ state }: { state: WorkbenchState }) {
+function CoverageCard({ state, report }: { state: WorkbenchState; report?: AnalysisReport }) {
+  const snapshot = report?.snapshot ?? state.snapshot;
   return (
     <section className="awb-analysis-card awb-analysis-coverage">
       <span className="awb-analysis-kicker"><Database size={14} />本次研究范围</span>
-      <h3>{state.snapshot.positions.length} 个持仓 · 1 个账户结论</h3>
+      <h3>{snapshot.positions.length} 个持仓 · 1 个账户结论</h3>
+      <p className="awb-analysis-scope-date">{report ? '上方结论采用的账户快照' : '下一次分析采用当前账户快照'}<br/>{time(snapshot.asOf)}</p>
+      <div className="awb-analysis-scope-symbols">{snapshot.positions.slice(0, 12).map(position => <span key={position.conId}>{position.symbol}</span>)}{snapshot.positions.length > 12 && <span>+{snapshot.positions.length - 12}</span>}</div>
       <div className="awb-analysis-coverage-list">
         <span><Check size={14} /><b>账户</b><small>持仓、现金与风险约束</small></span>
         <span><Search size={14} /><b>资料</b><small>市场背景与原始证据</small></span>
         <span><FileCheck2 size={14} /><b>输出</b><small>结论、行动与失效条件</small></span>
       </div>
-      <small>AI 调用 {state.ai.usedToday}/{state.preferences.maxAiCalls} · {state.ai.model || '模型未配置'}</small>
+      <small>{report ? `${report.research?.sources ?? report.evidence.length} 个研究来源 · ${report.model}` : state.ai.model || '模型未配置'}<br/>今日 AI 调用 {state.ai.usedToday}/{state.preferences.maxAiCalls}</small>
     </section>
   );
+}
+
+function ResearchTaskSelect({ tasks, selected, disabled, onSelect }: {
+  tasks: AnalysisJob[]; selected: AnalysisJob; disabled: boolean; onSelect?: (id: string) => void;
+}) {
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(0);
+  const expanded = open && !disabled;
+  const close = () => { setOpen(false); trigger.current?.focus(); };
+  useEffect(() => {
+    if (!expanded) return;
+    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', outside);
+    return () => document.removeEventListener('pointerdown', outside);
+  }, [expanded]);
+  useEffect(() => {
+    if (expanded) root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]')[focused]?.focus();
+  }, [expanded, focused]);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  return <div className="awb-analysis-task-select awb-task-picker" ref={root}
+    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
+    onKeyDown={event => {
+      if (event.key === 'Escape' && expanded) { event.preventDefault(); close(); }
+      if (!disabled && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        if (!expanded) { setFocused(Math.max(0, tasks.findIndex(job => job.id === selected.id))); setOpen(true); }
+        else setFocused(index => event.key === 'Home' ? 0 : event.key === 'End' ? tasks.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + tasks.length) % tasks.length);
+      }
+    }}>
+    <span id={`${id}-label`}>分析任务</span>
+    <div className="awb-task-picker-control">
+      <button ref={trigger} type="button" className="awb-task-picker-trigger" aria-label="研究任务" aria-haspopup="listbox" aria-expanded={expanded} aria-controls={expanded ? id : undefined} disabled={disabled}
+        onClick={() => { setFocused(Math.max(0, tasks.findIndex(job => job.id === selected.id))); setOpen(value => !value); }}>
+        <span>{time(selected.startedAt)} · {jobLabel[selected.state]}</span><ChevronDown size={14} />
+      </button>
+      {expanded && <div id={id} className="awb-task-picker-menu" role="listbox" aria-labelledby={`${id}-label`}>
+        {tasks.map((job, index) => <button type="button" role="option" key={job.id} aria-selected={job.id === selected.id} tabIndex={index === focused ? 0 : -1}
+          onFocus={() => setFocused(index)} onClick={() => { onSelect?.(job.id); close(); }}>
+          <span>{time(job.startedAt)} · {jobLabel[job.state]}</span><Check size={14} style={{ visibility: job.id === selected.id ? 'visible' : 'hidden' }} />
+        </button>)}
+      </div>}
+    </div>
+  </div>;
 }
 
 function ResearchTaskCard({
@@ -172,11 +255,15 @@ function ResearchTaskCard({
   running,
   busy,
   onAction,
+  tasks,
+  onSelectTask,
 }: {
   task: AnalysisJob;
   running?: AnalysisJob;
   busy: boolean;
   onAction: (task: AnalysisJob) => void;
+  tasks?: AnalysisJob[];
+  onSelectTask?: (id: string) => void;
 }) {
   const progress = task.progress;
   const isRunning = task.state === 'running';
@@ -194,25 +281,27 @@ function ResearchTaskCard({
 
   return (
     <section
-      className={`awb-analysis-card awb-analysis-task ${isRunning ? 'is-running' : retry ? 'is-retry' : 'is-recoverable'}`}
+      className={`awb-analysis-card awb-analysis-task awb-analysis-progress-card ${isRunning ? 'is-running' : retry ? 'is-retry' : 'is-recoverable'}`}
+      aria-label="分析进展"
       aria-live="polite"
+      aria-busy={isRunning}
     >
+      {isRunning && <div className="awb-analysis-processing-fx" aria-hidden="true"><span className="awb-analysis-scan" /><span className="awb-analysis-data-flow" /></div>}
       <div className="awb-analysis-task-head">
-        <span className="awb-analysis-state"><i />{jobLabel[task.state]}</span>
-        <small>{time(task.startedAt)}</small>
+        <span className="awb-analysis-kicker">分析进展 <span className="awb-analysis-state"><i />{jobLabel[task.state]}</span></span>
+        <h2>{title}</h2>
+        {tasks && tasks.length > 1 ? <ResearchTaskSelect tasks={tasks} selected={task} disabled={Boolean(running)} onSelect={onSelectTask} /> : <small>{time(task.startedAt)}</small>}
       </div>
-      <span className="awb-analysis-kicker">ACTIVE RESEARCH</span>
-      <h2>{title}</h2>
       <p className={isRunning ? '' : 'awb-analysis-task-message'} role={!isRunning && task.error ? 'alert' : undefined}>
         {isRunning ? progress?.stage ?? '正在汇总账户和市场资料' : task.error ?? '已保存本次账户快照与阶段资料。'}
       </p>
-      <div className="awb-analysis-task-metrics">
+      <ResearchSteps progress={progress} running={isRunning} />
+      <div className="awb-analysis-progress-bottom"><div className="awb-analysis-task-metrics">
         <span><b>{progress?.strategy==='portfolio'?progress.total:`${progress?.covered.length??0}/${progress?.total??0}`}</b><small>{progress?.strategy==='portfolio'?`账户持仓 · ${progress.complete?'已完成校验':'结论待校验'}`:'历史逐仓覆盖'}</small></span>
         <span><b>{progress?.sources ?? 0}</b><small>资料来源</small></span>
         <span><b>{progress?.reads ?? 0}</b><small>原文阅读</small></span>
         <span><b>{progress?.modelCalls ?? 0}/1</b><small>AI 调用</small></span>
       </div>
-      <ResearchSteps progress={progress} running={isRunning} />
       <div className="awb-analysis-task-actions">
         <button
           className={isRunning ? '' : 'primary'}
@@ -223,7 +312,7 @@ function ResearchTaskCard({
           {action}
         </button>
         <ResearchDetails id={task.id} />
-      </div>
+      </div></div>
       {retry && (
         <small className="awb-analysis-helper">使用最新账户快照和一天内已保存资料，新建一次分析；原始资料时间保持可查。</small>
       )}
@@ -243,7 +332,6 @@ function AnalysisEmpty({
       <span className="awb-analysis-kicker"><Sparkles size={14} />ACCOUNT RESEARCH</span>
       <h2>把账户快照，变成可执行的研究结论</h2>
       <p>一次汇总持仓、现金、市场资料与风险约束，形成账户级判断，而不是彼此割裂的个股摘要。</p>
-      <ResearchSteps snapshotReady={Boolean(state.snapshot.snapshotId && ['ready', 'empty'].includes(state.snapshot.state))} />
       <div className="awb-analysis-intro-action">
         <button className="primary" disabled={!canAnalyze} onClick={onStart}>
           <Sparkles size={17} />开始账户分析
@@ -325,6 +413,26 @@ function ActiveTaskStrip({
       <button disabled={busy} onClick={() => onAction(task)}>{isRunning ? <XCircle size={15} /> : <RotateCcw size={15} />}{label}</button>
     </section>
   );
+}
+
+function ConclusionCard({ report, onOpen }: { report: AnalysisReport; onOpen?: () => void }) {
+  const today = new Date(report.generatedAt).toDateString() === new Date().toDateString();
+  return <section className="awb-analysis-card awb-analysis-hero" aria-label="账户研究结论">
+    <div className="awb-analysis-hero-meta"><span className="awb-analysis-kicker"><Sparkles size={14}/>{today ? '今日分析结论' : '最近分析结论'}</span><small>{time(report.generatedAt)}</small></div>
+    <h2>{report.content.headline || report.content.brief || '组合判断与研究结论'}</h2>
+    <div className="awb-analysis-brief-points">{(report.content.briefPoints?.length ? report.content.briefPoints : [report.content.brief]).filter(Boolean).map((point, index) => <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{point}</p>)}</div>
+    {onOpen ? <button className="awb-analysis-open-report" onClick={onOpen}>查看完整报告与依据 <ArrowUpRight size={15}/></button> : <EvidenceLinks report={report} ids={report.content.evidenceIds}/>}
+  </section>;
+}
+
+function HistoryRail({ reports, onSelect, onAll }: { reports: AnalysisReport[]; onSelect: (report: AnalysisReport) => void; onAll: () => void }) {
+  return <section className="awb-analysis-card awb-analysis-history-rail" aria-label="历史研究">
+    <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><BookOpenText size={14}/>历史研究</span><button onClick={onAll}>全部 {reports.length} <ArrowUpRight size={14}/></button></div>
+    <div className="awb-analysis-rail-list">{reports.length ? reports.map(item => <button key={item.id} className="awb-analysis-rail-item" onClick={() => onSelect(item)}>
+      <small>{time(item.generatedAt)} · {item.kind === 'chat' ? '账户问答' : '组合研究'}</small><b>{item.question || item.content.headline || item.content.brief || '组合判断与研究结论'}</b>
+      <span>{item.snapshot.positions.length} 个持仓 · {item.research?.sources ?? item.evidence.length} 个来源 <ArrowUpRight size={13}/></span>
+    </button>) : <p className="awb-analysis-rail-empty">还没有历史研究。<br/>完成分析或提问后会保存在这里。</p>}</div>
+  </section>;
 }
 
 function PriorityActions({ report, onPlan }: { report: AnalysisReport; onPlan: () => void }) {
@@ -519,17 +627,15 @@ export function AnalysisWorkspace({
     }
   };
 
-  const latest = state.reports[0];
+  const orderedReports = [...state.reports].sort((a, b) => Date.parse(b.generatedAt) - Date.parse(a.generatedAt));
+  const latest = orderedReports.find(item => item.kind !== 'chat');
   const showingHistory = Boolean(report) || view === 'history';
   const switchView = (next: 'start' | 'history') => { onCloseReport(); setView(next); setError(''); };
   const startAnalysis = () => { switchView('start'); onStart(); };
 
   return (
     <div className="awb-analysis-workspace">
-      <nav className="awb-analysis-tabs" aria-label="研究视图">
-        <button aria-pressed={!showingHistory} onClick={() => switchView('start')}><Sparkles size={16} />开始分析</button>
-        <button aria-pressed={showingHistory} onClick={() => switchView('history')}><BookOpenText size={16} />历史研究 <small>{state.reports.length}</small></button>
-      </nav>
+      {showingHistory && <button className="awb-analysis-back" onClick={() => switchView('start')}><ArrowLeft size={16}/>返回分析工作台</button>}
       {error && <p className="awb-message error" role="alert">{error}</p>}
       {report ? (
         <>
@@ -569,28 +675,23 @@ export function AnalysisWorkspace({
           </div> : <div className="awb-analysis-history-empty"><BookOpenText size={28} /><h3>还没有历史研究</h3><p>完成首次分析后，报告会自动保存在这里。</p><button onClick={() => switchView('start')}>开始第一份研究 <ArrowUpRight size={15} /></button></div>}
         </section>
       ) : (
-        <div className="awb-analysis-home">
-          {task && unfinished.length > 1 && (
-            <label className="awb-analysis-task-select">分析任务
-              <select aria-label="研究任务" value={task.id} disabled={Boolean(running)} onChange={event => onSelectTask(event.target.value)}>
-                {unfinished.map(job => <option key={job.id} value={job.id}>{time(job.startedAt)} · {jobLabel[job.state]}</option>)}
-              </select>
-            </label>
-          )}
-          <div className="awb-analysis-command-grid">
-            {task ? <ResearchTaskCard task={task} running={running} busy={busy} onAction={onTaskAction} />
-              : <AnalysisEmpty state={state} busy={busy} canAnalyze={canAnalyze} onStart={startAnalysis} />}
-            <CoverageCard state={state} />
+        <div className="awb-analysis-dashboard">
+          <div className="awb-analysis-conclusion-slot">{latest ? <ConclusionCard report={latest} onOpen={() => onSelect(latest)}/> : <AnalysisEmpty state={state} busy={busy} canAnalyze={canAnalyze} onStart={startAnalysis}/>}</div>
+          <CoverageCard state={state} report={latest}/>
+          <div className="awb-analysis-progress-slot">
+            {task ? <ResearchTaskCard task={task} tasks={unfinished} onSelectTask={onSelectTask} running={running} busy={busy || (!running && !canAnalyze)} onAction={onTaskAction}/> : <section className="awb-analysis-card awb-analysis-idle-progress" aria-label="分析进展">
+              <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><FileCheck2 size={14}/>分析进展</span><small>{latest ? `最近报告已归档 · ${time(latest.generatedAt)}` : '等待开始分析'}</small></div>
+              <ResearchSteps progress={latest?.research} published={Boolean(latest)} snapshotReady={Boolean(state.snapshot.snapshotId && ['ready', 'empty'].includes(state.snapshot.state))}/>
+            </section>}
+            {latest && <div className="awb-analysis-start-row"><span>{disabledReason(state, running, busy) || '更新账户判断，或在下方提出具体问题。'}</span><button disabled={!canAnalyze} onClick={startAnalysis}><RotateCcw size={14}/>新建账户分析</button></div>}
           </div>
-          {latest && <button className="awb-analysis-latest" onClick={() => onSelect(latest)}>
-            <span><small>最近研究 · {time(latest.generatedAt)}</small><b>{latest.content.headline || latest.question || '组合判断与研究结论'}</b><span>{(latest.content.briefPoints?.[0] || latest.content.brief || '').slice(0, 140)}</span></span>
-            <span>查看报告 <ArrowUpRight size={16} /></span>
-          </button>}
+          <HistoryRail reports={orderedReports} onSelect={onSelect} onAll={() => switchView('history')}/>
+          <div className="awb-analysis-composer"><QuickQuestion state={state} running={running} busy={busy} canAnalyze={canAnalyze} question={question} onQuestion={onQuestion} onAsk={onAsk}/></div>
         </div>
       )}
-      <div className="awb-analysis-composer">
+      {showingHistory && <div className="awb-analysis-composer">
         <QuickQuestion state={state} running={running} busy={busy} canAnalyze={canAnalyze} question={question} onQuestion={onQuestion} onAsk={onAsk} />
-      </div>
+      </div>}
     </div>
   );
 }

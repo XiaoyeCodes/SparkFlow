@@ -24,6 +24,8 @@ import { ibkrWorkbenchPlugin } from './server/ibkrWorkbench';
 import { ibkrValuationPlugin } from './server/ibkrValuation';
 import { parseEastmoneyRow } from './server/ibkrMarket';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
+import { createMarketCloseService } from './server/marketCloseService';
+import { collectCloseResearch } from './server/marketCloseData';
 import { createFinancialConditionsService } from './server/financialConditions';
 import { parseEmploymentHeadline, parseMacroMarketCalendar, macroComparison, assertMacroPeriodNotRegressed, type MacroMarketContext } from './server/usMacroRelease';
 import type {
@@ -9098,6 +9100,8 @@ async function callAiAnalysis(body: {
   model?: string;
   prompt?: string;
   useProxy?: boolean;
+  signal?: AbortSignal;
+  validateCompletion?: boolean;
 }) {
   if (!body.baseUrl || !body.apiKey || !body.model || !body.prompt) {
     throw new Error('缺少 baseUrl、apiKey、model 或 prompt');
@@ -9120,6 +9124,7 @@ async function callAiAnalysis(body: {
 
   const init: RequestInit & { dispatcher?: any } = {
     method: 'POST',
+    signal: body.signal,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${body.apiKey}`,
@@ -9132,6 +9137,8 @@ async function callAiAnalysis(body: {
   if (!response.ok) {
     throw new Error(payload?.error?.message || payload?.message || `AI 接口返回 HTTP ${response.status}`);
   }
+
+  if (body.validateCompletion && (payload.status === 'incomplete' || ['length', 'max_tokens', 'content_filter'].includes(payload.choices?.[0]?.finish_reason))) throw new Error('AI_OUTPUT_INCOMPLETE');
 
   if (protocol === 'responses') {
     const text =
@@ -10074,6 +10081,22 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
 }
 
 const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot });
+const marketCloseService = createMarketCloseService({
+  stateDir: sparkflowStateDir,
+  collect: (market, date, signal) => collectCloseResearch(market, date, async url => {
+    signal.throwIfAborted();
+    const result = await fetchRoutedText(url, 'direct', 15000, 'text/html,application/json,text/plain,*/*').catch(async error => {
+      signal.throwIfAborted();
+      if (!url.includes('finance.yahoo.com')) throw error;
+      return fetchRoutedText(url, 'proxy', 15000, 'application/json');
+    });
+    signal.throwIfAborted(); return result;
+  }),
+  model: async () => {
+    const config = await getStoredAiRequestBody();
+    return { model: config.model, provider: config.provider, invoke: (prompt, signal) => callAiAnalysis({ ...config, prompt, signal, validateCompletion: true }) };
+  },
+});
 
 const dailyBriefDetailsCache = new Map<'flows' | 'performance', { storedAt: number; data: DailyBriefFlowDetails | DailyBriefPerformanceDetails }>();
 const dailyBriefDetailsInFlight = new Map<'flows' | 'performance', Promise<DailyBriefFlowDetails | DailyBriefPerformanceDetails>>();
@@ -12001,6 +12024,8 @@ function allWeatherApiPlugin() {
         console.error('[daily-brief] scheduled generation failed:', error);
       });
       server.httpServer?.once('close', stopDailyBriefScheduler);
+      const stopMarketCloseScheduler = marketCloseService.schedule();
+      server.httpServer?.once('close', stopMarketCloseScheduler);
       // Warm the slow consensus page without delaying the first dashboard response.
       void getPpiMarketContext(false).catch(() => undefined);
       void getNonfarmMarketContext(false).catch(() => undefined);
@@ -12008,6 +12033,21 @@ function allWeatherApiPlugin() {
       server.middlewares.use(async (req, res, next) => {
         try {
           const url = new URL(req.url || '/', 'http://127.0.0.1');
+          if (url.pathname === '/api/market-close') {
+            res.setHeader('Cache-Control', 'no-store');
+            const market = url.searchParams.get('market');
+            if (market !== 'cn' && market !== 'us') { sendJson(res, 400, { detail: '未知收盘市场' }); return; }
+            if (req.method === 'POST') {
+              if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) { sendJson(res, 403, { detail: '请从本项目页面发起生成' }); return; }
+              const current = await marketCloseService.state(market);
+              if (!current.dueDate || current.attempts >= 3) { sendJson(res, 400, { detail: current.attempts >= 3 ? '本交易日已尝试三次，请检查配置和数据源' : '交易日历不可用，暂不生成' }); return; }
+              const refresh = url.searchParams.get('refresh') === '1';
+              void marketCloseService.generate(market, refresh).catch(() => undefined);
+              sendJson(res, 202, { ...current, status: !refresh && current.report?.date === current.dueDate ? 'complete' : 'running', stage: '任务已开始' }); return;
+            }
+            if (req.method !== 'GET') { sendJson(res, 405, { detail: '仅支持 GET 或 POST' }); return; }
+            sendJson(res, 200, await marketCloseService.state(market)); return;
+          }
           if (url.pathname === '/api/market-context') {
             sendJson(res, 200, await getMarketContext());
             return;

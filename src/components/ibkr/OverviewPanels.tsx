@@ -219,7 +219,7 @@ function DailyAccountBrief({ state, generate, busy, openReport }: { state: Workb
   return <section className="awb-panel awb-brief-redesign awb-daily-brief" aria-label="AI 账户简报">
     <span className="awb-ai-badge"><Sparkles size={13}/>AI 账户简报</span>
     <h2 className="awb-ai-headline">{brief?.content.headline ?? '每日账户简报'}</h2>
-    <small className="awb-daily-session">{brief ? <><span>{brief.analysisAsOf ? `研究截至 ${briefTime(brief.analysisAsOf)}` : `生成于 ${briefTime(brief.generatedAt)}`}（北京时间）</span><span>最近收盘交易日 {brief.sessionDate ?? '未核实'}</span></> : '每个美股交易日收盘后 30 分钟生成'}</small>
+    <small className="awb-daily-session">{brief ? <><span>{brief.analysisAsOf ? `研究截至 ${briefTime(brief.analysisAsOf)}` : `生成于 ${briefTime(brief.generatedAt)}`}（北京时间）</span><span>最近收盘交易日 {brief.sessionDate ?? '未核实'}</span></> : '按设置中的账户简报时间自动生成'}</small>
     {status.state !== 'ready' && <p className="awb-brief-notice" role="status">{status.detail}{brief && running ? ' 当前保留上一份成功简报。' : ''}</p>}
     {brief ? <div className="awb-daily-content">
       {researched ? <DailyResearch brief={brief}/> : <><div><h3><LayoutGrid size={15}/>账户现状</h3><p>{brief.content.summary}</p></div>
@@ -228,7 +228,7 @@ function DailyAccountBrief({ state, generate, busy, openReport }: { state: Workb
       {!!brief.content.gaps.length && <div className="awb-daily-gaps"><h3>数据缺口</h3><p>{brief.content.gaps.join('；')}</p></div>}</>}
       <details className="awb-overview-evidence awb-brief-account-facts"><summary>查看账户事实与来源</summary><small>IBKR 快照 {briefTime(brief.snapshotAsOf)} · 生成于 {briefTime(brief.generatedAt)}（北京时间） · {brief.model}。账户快照与最近收盘交易日分别标注。</small><dl>{Object.entries(brief.facts).map(([id, fact]) => <div key={id}><dt>{fact.label}</dt><dd>{fact.display}<small>{fact.source} · {briefTime(fact.asOf)}（北京时间）</small></dd></div>)}</dl></details>
     </div> : <p className="awb-daily-empty">结合持仓相关的宏观数据、估值、公司新闻和财报，解释对账户的机会与风险，并列出下一步观察条件和可核验来源。</p>}
-    <div className="awb-daily-footer"><p className="awb-overview-note">{status.enabled ? status.nextRunAt ? `下次自动生成：${stamp(status.nextRunAt)}（本地时间）` : '自动生成暂停，等待模型配置或交易日历恢复' : '自动简报已关闭'}</p><small>休市跳过，提前收盘相应提前。本机服务运行时执行，恢复后只补最近一期。</small>
+    <div className="awb-daily-footer"><p className="awb-overview-note">{status.enabled ? status.nextRunAt ? `下次自动生成：${stamp(status.nextRunAt)}（本地时间）` : '自动生成暂停，等待模型配置或交易日历恢复' : '自动简报已关闭'}</p><small>执行时间以设置为准。本机服务运行时执行，恢复后只补最近一次。</small>
       <button className="awb-full primary" onClick={generate} disabled={!generate || busy || running || !ready || !state.ai.enabled || state.ai.usedToday >= state.preferences.maxAiCalls}>{running ? '正在生成简报' : brief ? '重新生成简报' : '生成账户简报'}<Sparkles size={14}/></button>
       <button className="awb-full awb-ai-cta" onClick={openReport}>查看深度研究<ChevronRight size={15}/></button>
     </div>
@@ -309,65 +309,36 @@ export function OverviewPnl({ state, select }: { state: WorkbenchState; select: 
 export function OverviewFunds({ state }: { state: WorkbenchState }) {
   const snapshot = state.snapshot, allocation = overviewAllocation(snapshot);
   const currency = snapshot.baseCurrency ?? '—';
+  const nav = finite(snapshot.metrics.netLiquidation);
   const invested = allocation.excluded === 0 ? allocation.rows.reduce((sum, row) => sum + row.value, 0) : null;
   const pnl = finite(snapshot.metrics.unrealizedPnl);
-  const [active, setActive] = useState<string | null>(null);
-  const [pinned, setPinned] = useState<string | null>(null);
-  const focused = active ?? pinned;
-  const nav = finite(snapshot.metrics.netLiquidation);
-  const references = [
-    { name: '未实现盈亏', value: pnl, color: pnl !== null && pnl < 0 ? '#e79084' : '#70dcba', radius: 86 },
-    { name: '购买力', value: finite(snapshot.metrics.buyingPower), color: '#a08cdd', radius: 99 },
-    { name: '维持保证金', value: finite(snapshot.metrics.maintenanceMargin), color: '#efac48', radius: 112 },
+  const metrics = [
+    { name: '持仓市值', value: invested, color: '#70dcba', detail: '本位币已估值持仓的净市值' },
+    { name: '现金余额', value: allocation.cash, color: '#72cbd6', detail: '本位币现金余额' },
+    { name: '未实现盈亏', value: pnl, color: pnl !== null && pnl < 0 ? '#e79084' : '#70dcba', detail: '券商账面浮动盈亏，已包含在净资产中' },
+    { name: '购买力', value: finite(snapshot.metrics.buyingPower), color: '#b5a3e8', detail: '券商可用购买力，可能包含融资额度' },
+    { name: '维持保证金', value: finite(snapshot.metrics.maintenanceMargin), color: '#e5b96e', detail: '维持当前持仓所需的保证金' },
   ].map(item => ({ ...item, ratio: item.value !== null && nav !== null && nav > 0 ? item.value / nav : null }));
-  // Only nonnegative, fully valued positions and cash can form an asset-composition pie.
-  const canChart = invested !== null && allocation.cash !== null && allocation.cash >= 0 && allocation.rows.every(row => row.value >= 0);
-  const composition = canChart ? [{ name: '持仓市值', value: invested!, color: '#35dba3' }, { name: '现金余额', value: allocation.cash!, color: '#5b9df0' }] : [];
-  const slices = composition.filter(slice => slice.value > 0);
-  const total = slices.reduce((sum, slice) => sum + slice.value, 0);
-  const selected = [...composition, ...references].find(item => item.name === focused);
-  const bindings = (name: string) => ({
-    onMouseEnter: () => setActive(name), onMouseLeave: () => setActive(null),
-    onFocus: () => setActive(name), onBlur: () => setActive(null),
-    onClick: () => setPinned(current => current === name ? null : name),
-  });
-  const referenceTitle = (item: typeof references[number]) => `${item.name} ${amount(item.value)} ${currency} · 占净资产 ${percent(item.ratio)}${item.ratio !== null && Math.abs(item.ratio) > 1 ? '，参考环满环表示达到或超过 100%' : ''}${item.value !== null && item.value < 0 ? '，负值以逆时针显示' : ''}`;
-  let offset = -Math.PI / 2;
-  return <section className="awb-panel awb-funds-panel">
+  // One absolute-amount scale for all rows; signs and NAV ratios remain explicit.
+  const scale = Math.max(nav !== null && nav > 0 ? nav : 0, ...metrics.map(item => Math.abs(item.value ?? 0)));
+  const signedAmount = (item: typeof metrics[number]) => `${item.name === '未实现盈亏' && item.value !== null && item.value > 0 ? '+' : ''}${amount(item.value)}`;
+  return <section className="awb-panel awb-funds-panel awb-funds-hud">
     <div className="awb-section-heading"><h2>资金概况</h2><small>IBKR · {currency}</small></div>
-    <div className="awb-funds-total"><span>总资产 · 净清算值</span><strong>{amount(snapshot.metrics.netLiquidation)}<small>{currency}</small></strong></div>
-    {total > 0 ? <>
-      <svg className="awb-sector-pie awb-funds-pie" viewBox="0 0 240 240" role="img" aria-label="资金构成扇形图，含未实现盈亏、购买力和维持保证金参考环">
-        <title>{slices.map(slice => `${slice.name} ${amount(slice.value)} ${currency}，${percent(slice.value / total)}`).join('；')}；{references.map(referenceTitle).join('；')}</title>
-        {slices.map(slice => {
-          const start = offset, angle = slice.value / total * Math.PI * 2;
-          offset += angle;
-          const x = (r: number) => 120 + 74 * Math.cos(r), y = (r: number) => 120 + 74 * Math.sin(r);
-          const props = { fill: slice.color, opacity: focused && focused !== slice.name ? .35 : 1, ...bindings(slice.name) };
-          const title = `${slice.name} ${amount(slice.value)} ${currency} · ${percent(slice.value / total)}`;
-          return slices.length === 1 ? <circle key={slice.name} cx="120" cy="120" r="74" {...props}><title>{title}</title></circle> : <path key={slice.name} d={`M120,120 L${x(start)},${y(start)} A74,74 0 ${angle > Math.PI ? 1 : 0},1 ${x(offset)},${y(offset)} Z`} {...props}><title>{title}</title></path>;
-        })}
-        {references.map(item => {
-          const circumference = 2 * Math.PI * item.radius;
-          const arc = item.ratio === null ? 0 : Math.min(1, Math.abs(item.ratio)) * circumference;
-          return <g key={item.name} data-funds-ring={item.name} opacity={focused && focused !== item.name ? .35 : 1} {...bindings(item.name)}>
-            <title>{referenceTitle(item)}</title>
-            <circle cx="120" cy="120" r={item.radius} fill="none" style={{ stroke: '#20362a', strokeWidth: 7 }} />
-            {arc > 0 && <circle cx="120" cy="120" r={item.radius} fill="none" strokeDasharray={`${arc} ${circumference - arc}`} transform={`${item.value! < 0 ? 'translate(240 0) scale(-1 1) ' : ''}rotate(-90 120 120)`} style={{ stroke: item.color, strokeWidth: 7 }} />}
-          </g>;
-        })}
-        <circle cx="120" cy="120" r="46" fill="#0b1411" style={{ stroke: '#0b1411', strokeWidth: 2 }} />
-        <g className="awb-funds-pie-center" aria-live="polite" pointerEvents="none">
-          <text x="120" y="108" className="awb-funds-pie-label">{selected?.name ?? '资金构成'}</text>
-          <text x="120" y="130" className="awb-funds-pie-value" style={{ fill: selected?.color ?? '#e0eee5' }} textLength={amount(selected ? selected.value : total).length > 9 ? 80 : undefined} lengthAdjust="spacingAndGlyphs">{amount(selected ? selected.value : total)}</text>
-          <text x="120" y="146" className="awb-funds-pie-label">{currency}</text>
-        </g>
-      </svg>
-      <div className="awb-sector-legend">{composition.map(slice => <button key={slice.name} {...bindings(slice.name)} aria-pressed={pinned === slice.name}><i style={{ background: slice.color }}/><span>{slice.name}</span><b>{amount(slice.value)} <small>{percent(slice.value / total)}</small></b></button>)}</div>
-    </> : <p className="awb-overview-note">{canChart ? '暂无可展示的资金构成。' : '存在负现金、空头或估值缺失，暂不绘制资金扇形图。'}</p>}
-    <dl className="awb-funds-values">{total <= 0 && <div className="awb-funds-reference-row"><dt>持仓市值 · {currency}</dt><dd>{amount(invested)}</dd><dt>现金余额 · {currency}</dt><dd>{amount(allocation.cash)}</dd></div>}{references.map(item => <div key={item.name} className="awb-funds-reference-row"><dt><button {...bindings(item.name)} aria-pressed={pinned === item.name} title={referenceTitle(item)}><i style={{ background: item.color }} />{item.name} · {currency}</button></dt><dd style={{ color: item.color }}>{item.name === '未实现盈亏' && item.value !== null && item.value > 0 ? '+' : ''}{amount(item.value)}</dd></div>)}</dl>
-    {snapshot.cash.filter(c => c.currency !== snapshot.baseCurrency && c.currency !== 'BASE').map(c => <p key={c.currency}>{c.currency} 现金 <b>{amount(c.amount)}</b></p>)}
-    <details className="awb-funds-help"><summary>参考环 · 分别对比净资产</summary><p className="awb-overview-note">主图为持仓与现金。外环由内向外为盈亏、购买力、保证金，各占净资产比例；负值逆时针，超过 100% 满环。{nav === null || nav <= 0 ? '净资产无效，参考环比例暂不显示。' : ''}</p></details>
-    <small>快照 {stamp(snapshot.asOf)}{snapshot.state === 'stale' ? ' · 已过期，待刷新' : ''}</small>
+    <div className="awb-funds-nav"><span><i />净清算值 <small>NET LIQUIDATION</small></span><strong>{amount(nav)}<small>{currency}</small></strong></div>
+    <div className="awb-funds-scale" aria-hidden="true"><span>金额刻度 · {currency}</span><div><span>0</span><span>{scale > 0 ? amount(scale / 2) : '—'}</span><span>{scale > 0 ? amount(scale) : '—'}</span></div></div>
+    <div className="awb-funds-bars" role="group" aria-label="资金指标横向柱状图，统一绝对金额刻度">
+      {metrics.map((item, index) => <div className="awb-funds-bar-item" key={item.name} data-funds-bar={item.name} title={item.detail}>
+        <div className="awb-funds-bar-heading"><span><small>{String(index + 1).padStart(2, '0')}</small>{item.name}</span><b style={{ color: item.color }}>{signedAmount(item)}</b></div>
+        <div className="awb-funds-bar-track" role="img" aria-label={`${item.name} ${signedAmount(item)} ${currency}，占净资产 ${percent(item.ratio)}`}>
+          {item.value !== null && scale > 0 && <i style={{ width: `${Math.abs(item.value) / scale * 100}%`, background: item.color, color: item.color }} />}
+          {item.value === null && <span className="awb-funds-bar-missing">数据未取得</span>}
+        </div>
+        <div className="awb-funds-bar-reading"><span>{item.value !== null && item.value < 0 ? '负值 · 条长按绝对金额' : item.name === '购买力' ? '可用交易额度' : item.name === '维持保证金' ? '当前持仓要求' : '券商账面'}</span><span>占净资产 <b>{percent(item.ratio)}</b></span></div>
+      </div>)}
+    </div>
+    <div className="awb-funds-hud-footer"><p>统一金额刻度；指标有重叠，不相加。</p>{nav === null || nav <= 0 ? <p>净资产无效，占比暂不显示。</p> : null}
+      {snapshot.cash.filter(c => c.currency !== snapshot.baseCurrency && c.currency !== 'BASE').map(c => <p key={c.currency}>{c.currency} 现金 <b>{amount(c.amount)}</b></p>)}
+      <small><i />快照 {stamp(snapshot.asOf)}{snapshot.state === 'stale' ? ' · 已过期，待刷新' : ''}</small>
+    </div>
   </section>;
 }

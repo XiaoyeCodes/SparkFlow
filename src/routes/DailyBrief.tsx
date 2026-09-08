@@ -1,3 +1,4 @@
+import { MarketCloseReading } from '../components/MarketCloseReading';
 import { AlertTriangle, Bitcoin, Radio, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type {
@@ -408,7 +409,7 @@ export function DailyBrief() {
   ].filter((item): item is { title: string; category: string; url?: string } => Boolean(item));
   const aiLines = [["宏观", summary?.highlights[0]], ["加密", summary?.highlights[1]], ["链上", summary?.highlights[2]], ["策略", summary?.regime]].filter((item): item is string[] => Boolean(item[1]));
   const day1Analysis = snapshot?.day1?.analysis;
-  const hasDailyCoreJudgment = Boolean(day1Analysis || modelSummary || snapshot?.summaryMode === "ai");
+
   const assetGroups = data?.assetGroups || [];
   const leftAssetGroups = assetGroups.filter((group) => group.id !== "crypto").sort((left, right) => (left.id === "technology" ? 0 : 1) - (right.id === "technology" ? 0 : 1));
   const rightAssetGroups = assetGroups.filter((group) => group.id === "crypto");
@@ -492,8 +493,8 @@ export function DailyBrief() {
           ["Crypto F&G 变化", fearGreedChangeMetric(data.sentiment.cryptoFearGreed, "Crypto Fear & Greed"), changeClass(data.sentiment.cryptoFearGreed.change).replace("is-", "")],
         ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small className="editorial-tile-status">{metricCurrentStatus(label as string, item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div></div>
         <div className="editorial-added-visuals"><DailyBriefVisualDashboard data={data} analysis={day1Analysis} summary={summary} btc={btc} /></div>
-        {hasDailyCoreJudgment ? <div className="editorial-intelligence">
-          <div className="editorial-intelligence-head"><div><span>AI MARKET READING</span><b>{day1Analysis ? "Day1 Global 深度解读" : "今日核心判断"}</b></div>{day1Analysis ? <a href={snapshot?.day1?.sourceUrl} target="_blank" rel="noreferrer">查看原始简报</a> : <em>AI 生成</em>}</div>
+        <MarketCloseReading>
+
           {day1Analysis ? <>
             <div className="editorial-intelligence-grid">
               <article><header><span>01 / MACRO</span><b>宏观市场</b></header><p><Highlight text={day1Analysis.macroAnalysis} /></p></article>
@@ -502,7 +503,7 @@ export function DailyBrief() {
             {day1Analysis.actionSuggestions ? <article className="editorial-intelligence-action"><header><span>03 / PLAYBOOK</span><b>行动建议</b></header><p><Highlight text={day1Analysis.actionSuggestions} /></p></article> : null}
           </> : <div className="editorial-intelligence-list">{aiLines.map(([label, text], index) => <article key={label}><span>{String(index + 1).padStart(2, "0")}</span><div><b>{label}</b><p><Highlight text={text} /></p></div></article>)}</div>}
           <div className="editorial-intelligence-foot"><span>{day1Analysis ? "新闻与 AI 摘要 · Day1 Global" : `来源 · ${snapshot?.sources.filter((item) => item.ok).length || 0} 组专业接口`}</span><span>生成 · {shanghaiTime(day1Analysis?.generatedAt || snapshot?.generatedAt)}</span></div>
-        </div> : null}
+        </MarketCloseReading>
         <div className="editorial-lead-foot"><AlertTriangle size={13} /><span>以上内容仅用于信息整理与风险检查，不构成任何投资建议。</span></div>
         <div className="editorial-chip-row">{(data?.events || []).slice(0, 5).map((event) => <a href={event.url} target="_blank" rel="noreferrer" key={event.id} title={`${event.date} ${event.title}`}><b>{event.date.slice(5).replace("-", "/")}</b><span>{eventChipLabel(event)}</span></a>)}<button className="editorial-refresh-all" type="button" onClick={() => void load(true)} disabled={loading} title="重新拉取行情、新闻、链上指标与 AI 摘要"><RefreshCw size={15} className={loading ? "is-spinning" : ""} /><span>{loading ? "正在刷新数据" : "刷新全部数据"}</span><small>LIVE</small></button></div>
       </section>

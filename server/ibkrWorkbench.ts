@@ -1,4 +1,6 @@
 import { BRIEF_PROMPT_VERSION, briefInput, briefPrompt, briefSchedule, validateBrief } from './ibkrBrief.ts';
+import { scheduleWindow } from './ibkrSchedules.ts';
+import { accountSchedules } from '../src/lib/ibkr/accountSchedules.ts';
 import { prepareBriefResearch } from './ibkrBriefResearch.ts';
 import type { DailyBrief, DailyBriefStatus } from '../src/lib/ibkr/workbenchTypes.ts';
 import { CompanyLogos, CompanyLogoImages } from './ibkrCompanyLogos.ts';
@@ -23,7 +25,7 @@ import { allowedLocalRequest } from './localRequest.ts';
 import type { AccountSnapshot, Alert, AnalysisJob, AnalysisReport, Evidence, MarketQuote, Preferences, WorkbenchState, AiModel } from '../src/lib/ibkr/workbenchTypes.ts';
 
 type BriefAttempt = { id: string; sessionDate: string | null; state: 'running' | 'completed' | 'failed'; startedAt: string; detail?: string; error?: string };
-type AccountRecord = { briefs?: DailyBrief[]; briefAttempt?: BriefAttempt; snapshot: AccountSnapshot; preferences: Preferences; grant?: { fingerprint: string; at: string }; alerts: Alert[]; reports: AnalysisReport[]; jobs: AnalysisJob[]; usage: { at: string; kind: string }[]; lastDaily?: string; dailyAttempt?: { date: string; at: number }; lastEventSignature?: string; peakNav?: number; research?: Record<string, ResearchCheckpoint>; plans?: AdjustmentPlan[]; history?: PerformancePoint[]; performance?: PortfolioPerformance };
+type AccountRecord = { scheduleRuns?: Record<string, { at: string; error?: string }>; scheduleEffectiveAt?: Partial<Record<'brief' | 'analysis', string>>; briefs?: DailyBrief[]; briefAttempt?: BriefAttempt; snapshot: AccountSnapshot; preferences: Preferences; grant?: { fingerprint: string; at: string }; alerts: Alert[]; reports: AnalysisReport[]; jobs: AnalysisJob[]; usage: { at: string; kind: string }[]; lastDaily?: string; dailyAttempt?: { date: string; at: number }; lastEventSignature?: string; peakNav?: number; research?: Record<string, ResearchCheckpoint>; plans?: AdjustmentPlan[]; history?: PerformancePoint[]; performance?: PortfolioPerformance };
 type Saved = { version: 1; source: 'mcp' | 'gateway'; selectedKey?: string; records: Record<string, AccountRecord> };
 const safeUrl = (url: unknown) => { try { const u = new URL(String(url)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
 export async function readBriefProfileFallback(directory: string, analysisAsOf: string): Promise<Evidence[]> {
@@ -79,6 +81,7 @@ export class IbkrWorkbenchService {
   private nextSync = 0; private nextEvidence = 0; private failures = 0; private syncFlight?: Promise<void>; private activeAnalysis?: Promise<void>;
   private writeQueue = Promise.resolve(); private generation = 0; private disposed = false; private timer?: ReturnType<typeof setTimeout>;
   private researchAbort?: AbortController; private performanceFlight?: Promise<PortfolioPerformance>;
+  private scheduleFlight = false;
   private connectionDetail = ''; private storageError = ''; private ai; private ownsLease = false;
   readonly mcp: IbkrMcp; readonly market: IbkrMarket; readonly profiles: IbkrProfiles;
   constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] })) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
@@ -111,11 +114,52 @@ export class IbkrWorkbenchService {
     if (this.storageError || this.disposed) return;
     if (Date.now() >= this.nextSync && (this.saved.source === 'gateway' || this.saved.selectedKey || this.mcp.status().authorized)) await this.sync();
     const record = this.record(); if (!record || record.snapshot.state === 'stale' || !record.grant) return;
-    if (/AI_HTTP_(401|402|403)/.test(record.briefAttempt?.error ?? '')) return;
-    const due = briefSchedule(new Date()).dueSession;
-    if (record.preferences.daily && due && record.briefAttempt?.sessionDate !== due && !record.briefs?.some(b => b.sessionDate === due) && !this.activeAnalysis) {
-      try { await this.generateBrief(true); } catch { /* Preflight blocks are exposed in dailyBrief status. */ }
-    }
+    await this.runSchedules();
+  }
+
+  private async runSchedules() {
+    if (this.scheduleFlight || this.activeAnalysis) return;
+    this.scheduleFlight = true;
+    try {
+      const record = this.record(), generation = this.generation;
+      const asOf = Date.parse(record?.snapshot.asOf ?? '');
+      if (!record || !record.grant || !['ready', 'empty'].includes(record.snapshot.state) || record.snapshot.connection !== 'connected' || record.snapshot.testData || !Number.isFinite(asOf) || Date.now() - asOf > 180000 || asOf > Date.now() + 60000) return;
+      const model = await this.ai.status(true);
+      if (this.disposed || generation !== this.generation || record !== this.record() || this.activeAnalysis || !model.configured || record.grant?.fingerprint !== model.fingerprint) return;
+      if (record.usage.filter(u => newYorkClock(new Date(u.at)).date === newYorkClock(new Date()).date).length >= record.preferences.maxAiCalls) return;
+      const schedules = accountSchedules(record.preferences), now = new Date();
+      const candidates = (['brief', 'analysis'] as const).flatMap(kind => {
+        const slot = scheduleWindow(schedules[kind], now, record.scheduleEffectiveAt?.[kind]).due;
+        if (!slot || record.scheduleRuns?.[`${kind}:${slot.key}`]) return [];
+        if (kind === 'brief') {
+          if (/AI_HTTP_(401|402|403)/.test(record.briefAttempt?.error ?? '')) return [];
+          // Existing market-close attempts stay deduplicated when upgrading old settings.
+          if (schedules.brief.mode === 'market-close' && (record.briefAttempt?.sessionDate === slot.key.slice(6) || record.briefs?.some(b => b.sessionDate === slot.key.slice(6)))) return [];
+        }
+        return [{ kind, slot }];
+      }).sort((a, b) => a.slot.at.localeCompare(b.slot.at));
+      const due = candidates[0]; if (!due) return;
+      const key = `${due.kind}:${due.slot.key}`;
+      record.scheduleRuns ??= {};
+      record.scheduleRuns[key] = { at: now.toISOString() };
+      // Claim durably before starting any research; failures/restarts never replay the slot.
+      await this.persist();
+      try {
+        const current = scheduleWindow(accountSchedules(record.preferences)[due.kind], new Date(), record.scheduleEffectiveAt?.[due.kind]).due;
+        if (record !== this.record() || generation !== this.generation || current?.key !== due.slot.key) throw new Error('账户或定时设置已更新，本次未启动');
+        if (due.kind === 'brief') await this.generateBrief(true, key);
+        else await this.analyze('daily', undefined, key);
+      } catch (error) { record.scheduleRuns[key].error = error instanceof Error ? error.message : '定时任务启动失败'; await this.persist(); }
+    } finally { this.scheduleFlight = false; }
+  }
+
+  private scheduleStatus(kind: 'brief' | 'analysis') {
+    const record = this.record(); if (!record) return { nextRunAt: null, pendingAt: null, detail: '连接账户后设置' };
+    const config = accountSchedules(record.preferences)[kind], window = scheduleWindow(config, new Date(), record.scheduleEffectiveAt?.[kind]);
+    const handledClose = kind === 'brief' && config.mode === 'market-close' && window.due && (record.briefAttempt?.sessionDate === window.due.key.slice(6) || record.briefs?.some(brief => brief.sessionDate === window.due!.key.slice(6)));
+    const pending = window.due && !handledClose && !record.scheduleRuns?.[`${kind}:${window.due.key}`];
+    const latest = Object.entries(record.scheduleRuns ?? {}).filter(([key]) => key.startsWith(`${kind}:`)).sort((a, b) => b[1].at.localeCompare(a[1].at))[0]?.[1];
+    return { nextRunAt: window.nextRunAt, pendingAt: pending ? window.due!.at : null, detail: !config.enabled ? '已关闭' : !window.calendarSupported ? '交易日历未覆盖，等待更新' : !record.grant || record.grant.fingerprint !== this.model.fingerprint ? '等待开启当前模型的账户 AI 授权' : this.activeAnalysis ? '账户任务执行中，到点任务会依次执行' : latest?.error ? `最近启动失败：${latest.error}` : pending ? '已到点，等待账户、模型与调用额度就绪' : '已启用，等待下次执行' };
   }
 
   async sync() {
@@ -196,7 +240,7 @@ export class IbkrWorkbenchService {
     if (snapshot.asOf && Date.now() - Date.parse(snapshot.asOf) > 180000) snapshot = { ...snapshot, state: 'stale', detail: '最后成功快照已超过三分钟。' };
     const priority = (alert: Alert) => alert.resolved ? 5 : ['margin', 'cash-floor'].includes(alert.key) ? 0 : alert.kind === 'risk' ? 1 : alert.kind === 'change' ? 2 : 3;
     const alerts = [...(record?.alerts ?? [])].sort((a, b) => priority(a) - priority(b) || b.createdAt.localeCompare(a.createdAt));
-    return { source: this.saved.source, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || 'TWS / Gateway 只读服务', tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, dailyBrief: this.briefStatus(), metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
+    return { source: this.saved.source, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || 'TWS / Gateway 只读服务', tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { brief: this.scheduleStatus("brief"), analysis: this.scheduleStatus("analysis") }, dailyBrief: this.briefStatus(), metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
   }
   async select(source: 'mcp' | 'gateway', key?: string) {
     this.researchAbort?.abort(); ++this.generation; await this.syncFlight; this.saved.source = source; this.saved.selectedKey = key;
@@ -205,19 +249,21 @@ export class IbkrWorkbenchService {
   }
   private briefStatus(): DailyBriefStatus {
     const record = this.record(), schedule = briefSchedule(new Date());
-    const latest = record?.briefs?.[0], enabled = Boolean(record?.preferences.daily);
-    const base = { latest, enabled, nextRunAt: enabled ? schedule.nextRunAt : null, dueSession: schedule.dueSession, calendarSupported: schedule.calendarSupported };
+    const config = accountSchedules(record?.preferences ?? defaults).brief;
+    const window = scheduleWindow(config, new Date(), record?.scheduleEffectiveAt?.brief);
+    const latest = record?.briefs?.[0], enabled = config.enabled;
+    const base = { latest, enabled, nextRunAt: window.nextRunAt, dueSession: schedule.dueSession, calendarSupported: window.calendarSupported };
     if (record?.briefAttempt?.state === 'running') return { ...base, state: 'running', detail: record.briefAttempt.detail ?? '正在收集持仓相关资料…' };
     if (!record?.grant || !this.model.configured || record.grant.fingerprint !== this.model.fingerprint) return { ...base, state: 'blocked', detail: '请在设置中授权当前模型读取账户后生成简报。' };
-    if (!schedule.calendarSupported) return { ...base, state: 'blocked', detail: '交易日历尚未覆盖当前年份，自动简报暂停。' };
+    if (!window.calendarSupported) return { ...base, state: 'blocked', detail: '交易日历尚未覆盖当前年份，自动简报暂停。' };
     if (/AI_HTTP_(401|402|403)/.test(record?.briefAttempt?.error ?? '')) return { ...base, nextRunAt: null, state: 'blocked', detail: `模型鉴权或额度不可用，自动简报暂停；请核对 API 配置后手动生成以恢复。${record!.briefAttempt!.error!.match(/AI_HTTP_\d+/)?.[0] ?? ''}` };
     if (record.briefAttempt?.state === 'failed') return { ...base, state: 'failed', detail: record.briefAttempt.error ?? '本期生成失败，保留上期简报，可手动重试。' };
     if (!['ready','empty'].includes(record.snapshot.state) || Date.now() - Date.parse(record.snapshot.asOf ?? '') > 180000) return { ...base, state: 'blocked', detail: '等待账户重新同步，保留已有简报。' };
     if (record.usage.filter(u => newYorkClock(new Date(u.at)).date === newYorkClock(new Date()).date).length >= record.preferences.maxAiCalls) return { ...base, state: 'blocked', detail: '今日 AI 调用已达上限；自动简报等待预算恢复。' };
     if (!enabled) return { ...base, state: 'disabled', detail: '自动简报已关闭，仍可手动生成。' };
-    return { ...base, state: latest ? 'ready' : 'waiting', detail: latest ? '已生成账户简报，每个美股交易日收盘后更新。' : '等待收盘后生成账户简报，也可现在生成。' };
+    return { ...base, state: latest ? 'ready' : 'waiting', detail: latest ? '已有账户简报，按设置的时间更新。' : '等待定时生成账户简报，也可现在生成。' };
   }
-  async generateBrief(automatic = false) {
+  async generateBrief(automatic = false, scheduleKey?: string) {
     this.assertAvailable();
     if (this.activeAnalysis) throw new Error('已有分析正在运行');
     const record = this.record(), snapshot = record?.snapshot;
@@ -230,7 +276,8 @@ export class IbkrWorkbenchService {
     if (this.disposed || generation !== this.generation || this.saved.selectedKey !== key) throw new Error('账户已变化，请重新生成');
     if (Date.now() - asOf > 180000) throw new Error('请先同步最新真实账户');
     const schedule = briefSchedule(new Date()), sessionDate = schedule.dueSession;
-    if (automatic && (!record.preferences.daily || !sessionDate || !schedule.calendarSupported || record.briefAttempt?.sessionDate === sessionDate || record.briefs?.some(b => b.sessionDate === sessionDate))) throw new Error('本期已处理或自动简报尚未到期');
+    if (automatic && !scheduleKey && (!accountSchedules(record.preferences).brief.enabled || !sessionDate || !schedule.calendarSupported || record.briefAttempt?.sessionDate === sessionDate || record.briefs?.some(b => b.sessionDate === sessionDate))) throw new Error('本期已处理或自动简报尚未到期');
+    if (scheduleKey && (!record.scheduleRuns?.[scheduleKey] || !accountSchedules(record.preferences).brief.enabled)) throw new Error('定时任务已关闭或未登记');
     const today = newYorkClock(new Date()).date;
     if (record.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length >= record.preferences.maxAiCalls) throw new Error('今日 AI 调用已达上限');
     const frozen = structuredClone(snapshot), preferences = structuredClone(record.preferences), previous = structuredClone(record.briefs?.[0]);
@@ -282,7 +329,15 @@ export class IbkrWorkbenchService {
     })();
     return { id: attempt.id, state: attempt.state };
   }
-  async preferences(preferences: Preferences) { const record = this.record(); if (!record) throw new Error('请先连接账户'); record.preferences = preferencesSchema.parse(preferences); record.performance=undefined; await this.persist(); }
+  async preferences(preferences: Preferences) {
+    const record = this.record(); if (!record) throw new Error('请先连接账户');
+    const next = preferencesSchema.parse(preferences), before = accountSchedules(record.preferences), after = accountSchedules(next);
+    record.scheduleEffectiveAt ??= {};
+    for (const kind of ['brief', 'analysis'] as const) if (JSON.stringify(before[kind]) !== JSON.stringify(after[kind])) record.scheduleEffectiveAt[kind] = new Date().toISOString();
+    if (next.schedules) next.daily = next.schedules.brief.enabled;
+    if (next.benchmark !== record.preferences.benchmark) record.performance = undefined;
+    record.preferences = next; await this.persist();
+  }
   async grant(enabled: boolean, fingerprint?: string) {
     const record = this.record(); if (!record) throw new Error('请先连接账户');
     if (!enabled) { this.researchAbort?.abort(); record.grant = undefined; await this.persist(); return; }

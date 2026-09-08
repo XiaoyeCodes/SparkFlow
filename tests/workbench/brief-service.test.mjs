@@ -34,6 +34,20 @@ test('brief is one model call, account scoped, archived, and deduplicated for th
     f.service.saved.selectedKey = 'live:another'; assert.equal((await f.service.state()).dailyBrief.latest, undefined);
   } finally { await f.service.close(); }
 });
+test('two scheduled clock slots in one session each generate one brief and archive both', async () => {
+  const f = await fixture();
+  try {
+    f.record.preferences.schedules = { brief: { enabled: true, mode: 'clock', timeZone: 'UTC', times: ['09:00', '18:00'] }, analysis: { enabled: false, mode: 'clock', timeZone: 'UTC', times: ['09:00'] } };
+    f.record.scheduleRuns = { 'brief:slot-one': { at: new Date().toISOString() }, 'brief:slot-two': { at: new Date().toISOString() } };
+    await f.service.generateBrief(true, 'brief:slot-one'); await f.service.activeAnalysis;
+    await f.service.generateBrief(true, 'brief:slot-two'); await f.service.activeAnalysis;
+    assert.equal(f.calls(), 2); assert.equal(f.record.briefs.length, 2);
+    assert.equal(f.record.briefs[0].sessionDate, f.record.briefs[1].sessionDate);
+    assert.notEqual(f.record.briefs[0].id, f.record.briefs[1].id);
+    assert.equal(f.record.usage.length, 2);
+  } finally { await f.service.close(); }
+});
+
 test('failed daily brief keeps previous success and never automatically repeats its model call', async () => {
   const f = await fixture();
   try {

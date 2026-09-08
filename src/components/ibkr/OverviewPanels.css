@@ -99,12 +99,7 @@
 
 /* Desktop overview density: use available width without hiding or clipping data. */
 @media(min-width:1201px){
-  .account-workbench.awb-overview-compact{font-size:12px;line-height:1.4}
-  .awb-overview-compact .awb-body{max-width:none;margin:0;padding:0 16px 8px}
-  .awb-overview-compact .awb-sidebar{width:164px;padding:18px 10px}
-  .awb-overview-compact .awb-sidebar nav{margin-top:24px;gap:6px}
-  .awb-overview-compact .awb-sidebar nav button{padding:10px;font-size:12px;gap:10px}
-  .awb-overview-compact .awb-brand b{font-size:15px}
+  .awb-overview-compact .awb-body{max-width:none;margin:0;padding:0 16px 8px;font-size:12px;line-height:1.4}
   .awb-overview-compact .awb-topbar{height:30px;margin-bottom:5px}
   .awb-overview-compact .awb-page-heading{margin-bottom:5px;gap:10px}
   .awb-overview-compact .awb-page-heading>div:first-child{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
@@ -122,13 +117,13 @@
   .awb-overview-compact .awb-research-details{margin:0;font-size:10px}
   .awb-overview-compact .awb-research-details[open]{grid-column:1/-1}
   .awb-overview-compact .awb-metrics{gap:8px;margin-bottom:8px}
-  .awb-overview-compact .awb-metrics article{min-height:64px;padding:8px 12px;gap:10px;border-radius:8px}
-  .awb-overview-compact .awb-metrics article>div>span{font-size:11px}
+  .awb-overview-compact .awb-metrics article{min-height:72px;padding:10px 12px;gap:10px;border-radius:8px}
+  .awb-overview-compact .awb-metrics article>div>span{font-size:12px}
   .awb-overview-compact .awb-metrics article>div{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:2px 12px}
   .awb-overview-compact .awb-metrics article>div>small,.awb-overview-compact .awb-metrics article>div>details{grid-column:1/-1}
-  .awb-overview-compact .awb-metrics strong{font-size:22px;line-height:1.25}
-  .awb-overview-compact .awb-metrics small,.awb-overview-compact .awb-risk-explain{font-size:10px}
-  .awb-overview-compact .awb-metric-icon{width:30px;height:30px}
+  .awb-overview-compact .awb-metrics strong{font-size:28px;line-height:1.25}
+  .awb-overview-compact .awb-metrics small,.awb-overview-compact .awb-risk-explain{font-size:11px}
+  .awb-overview-compact .awb-metric-icon{width:32px;height:32px}
   .awb-overview-compact .awb-metric-icon svg{width:18px;height:18px}
   .awb-overview-compact .awb-overview-main{grid-template-columns:minmax(0,1.6fr) minmax(360px,1fr);gap:8px;margin-bottom:8px}
   .awb-overview-compact .awb-overview-main>.awb-panel,.awb-overview-compact .awb-overview-secondary>.awb-panel,.awb-overview-compact .awb-overview-bottom>.awb-panel{padding:12px;border-radius:10px}
@@ -136,23 +131,25 @@
   .awb-overview-compact .awb-section-heading h2{font-size:14px}
   .awb-overview-compact .awb-section-heading h3{font-size:12px}
   .awb-overview-compact .awb-chart-toolbar{gap:8px}
-  .awb-overview-compact .awb-chart-tabs button{font-size:12px;padding:3px 0}
+  .awb-overview-compact .awb-chart-tabs button{font-size:14px;padding:4px 0}
   .awb-overview-compact .awb-period-tabs{padding:2px}
-  .awb-overview-compact .awb-period-tabs button{font-size:10px;padding:3px 8px}
-  .awb-overview-compact .awb-chart-reading{margin-top:5px;min-height:15px;font-size:10px}
-  .awb-overview-compact .awb-performance-redesign svg.awb-nav-chart{height:clamp(115px,14vh,160px);margin:4px 0 6px}
+  .awb-overview-compact .awb-period-tabs button{font-size:11px;padding:4px 9px}
+  .awb-overview-compact .awb-chart-reading{margin-top:6px;min-height:17px;font-size:11px}
+  .awb-overview-compact .awb-performance-redesign svg.awb-nav-chart{height:clamp(140px,17vh,190px);margin:6px 0 8px}
+  .awb-overview-compact .awb-performance-redesign svg text{font-size:11px}
   .awb-overview-compact .awb-performance-redesign .awb-chart-empty{min-height:120px;margin:4px 0 6px}
-  .awb-overview-compact .awb-chart-legend{font-size:11px;gap:8px 14px;padding-top:7px}
+  .awb-overview-compact .awb-chart-legend{font-size:12px;gap:9px 16px;padding-top:9px}
   .awb-overview-compact .awb-overview-note{font-size:10px;line-height:1.5;margin-top:5px}
   .awb-overview-compact .awb-performance-bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:12px;border-top:1px solid #25362b;margin-top:8px;padding-top:7px;align-items:center}
   .awb-overview-compact .awb-return-summary{margin:0;padding:0;border:0;gap:7px}
   .awb-overview-compact .awb-return-summary>div+div{padding-left:8px}
-  .awb-overview-compact .awb-return-summary b{font-size:16px;line-height:1.4}
+  .awb-overview-compact .awb-return-summary b{font-size:20px;line-height:1.4}
+  .awb-overview-compact .awb-return-summary small{font-size:12px}
   .awb-overview-compact .awb-monthly{margin:0;padding:0 0 0 12px;border:0;border-left:1px solid #25362b}
   .awb-overview-compact .awb-monthly .awb-section-heading{margin:0}
-  .awb-overview-compact .awb-monthly h3{font-size:12px}
-  .awb-overview-compact .awb-monthly small{font-size:10px;line-height:1.4}
-  .awb-overview-compact .awb-performance-redesign svg.awb-month-chart{height:76px;max-height:none;margin:3px 0 4px}
+  .awb-overview-compact .awb-monthly h3{font-size:14px}
+  .awb-overview-compact .awb-monthly small{font-size:11px;line-height:1.5}
+  .awb-overview-compact .awb-performance-redesign svg.awb-month-chart{height:96px;max-height:none;margin:5px 0 6px}
   .awb-overview-compact .awb-monthly-empty{padding:9px 0;font-size:10px}
   .awb-overview-compact .awb-brief-redesign{gap:6px}
   .awb-overview-compact .awb-ai-badge{font-size:10px;padding:3px 8px}
@@ -208,7 +205,7 @@
 @media(min-width:1500px){
   .awb-overview-compact .awb-overview-layout{
     display:grid;
-    grid-template-columns:minmax(400px,1.5fr) minmax(0,1.15fr) minmax(0,.9fr) minmax(0,1fr) minmax(280px,1.25fr);
+    grid-template-columns:repeat(4,minmax(0,1fr)) minmax(280px,1.25fr);
     grid-template-rows:auto minmax(min-content,1fr);
     grid-template-areas:"performance performance performance performance brief" "holdings allocation pnl funds brief";
     gap:8px;
@@ -223,7 +220,8 @@
   .awb-overview-compact .awb-allocation-panel{grid-area:allocation}
   .awb-overview-compact .awb-pnl-panel{grid-area:pnl}
   .awb-overview-compact .awb-funds-panel{grid-area:funds}
-  .awb-overview-compact .awb-performance-redesign svg.awb-nav-chart{height:clamp(150px,23vh,290px)}
+  .awb-overview-compact :is(.awb-holdings,.awb-allocation-panel,.awb-pnl-panel,.awb-funds-panel){min-width:0;align-self:stretch}
+  .awb-overview-compact .awb-performance-redesign svg.awb-nav-chart{height:clamp(200px,27vh,340px)}
   .awb-overview-compact .awb-performance-redesign .awb-chart-empty{min-height:clamp(150px,23vh,290px)}
   .awb-overview-compact .awb-insight-list{grid-template-columns:1fr;gap:16px}
   .awb-overview-compact .awb-insight-item{display:flex;gap:8px}
@@ -232,15 +230,16 @@
   .awb-overview-compact .awb-overview-flags{margin-top:auto;padding-top:12px}
   .awb-overview-compact .awb-overview-details .awb-pnl-columns{grid-template-columns:1fr;gap:7px}
   .awb-overview-compact .awb-overview-details .awb-pnl-columns>div+div{border-left:0;border-top:1px solid #293a30;padding:7px 0 0}
-  .awb-overview-compact .awb-holdings .awb-symbol{gap:6px}
-  .awb-overview-compact .awb-holdings .awb-symbol small{max-width:100px}
+  .awb-overview-compact .awb-holdings .awb-symbol{gap:6px!important}
+  .awb-overview-compact .awb-holdings .awb-symbol small{max-width:44px}
+  .awb-overview-compact .awb-holdings .awb-company-icon{width:24px;height:24px;flex:0 0 24px}
   .awb-overview-compact .awb-holdings :is(th,td){padding-left:4px;padding-right:4px}
   .awb-overview-compact .awb-funds-panel .awb-section-heading{flex-wrap:wrap}
 }
 @media(min-width:1500px) and (max-height:950px){
-  .awb-overview-compact .awb-performance-redesign svg.awb-nav-chart{height:150px}
+  .awb-overview-compact .awb-performance-redesign svg.awb-nav-chart{height:200px}
   .awb-overview-compact .awb-performance-redesign .awb-chart-empty{min-height:150px}
-  .awb-overview-compact .awb-performance-redesign svg.awb-month-chart{height:64px}
+  .awb-overview-compact .awb-performance-redesign svg.awb-month-chart{height:90px}
 }
 .awb-sector-pie{display:block;flex:none;width:min(100%,240px);height:auto;aspect-ratio:1;margin:8px auto 14px;overflow:visible}
 .awb-sector-pie path,.awb-sector-pie circle{stroke:#0b1411;stroke-width:2;transition:opacity .15s}
@@ -267,6 +266,56 @@
 .awb-funds-panel .awb-sector-legend b small{font-size:9px;font-weight:400;color:#789786;margin-left:5px}
 .awb-funds-help{margin-top:8px;color:#789786;font-size:10px}
 .awb-funds-help summary{cursor:pointer}
+.awb-funds-hud{display:flex;flex-direction:column;min-width:0}
+.awb-funds-nav{padding:12px 0 15px;border-bottom:1px solid #2a4639}
+.awb-funds-nav>span{display:flex;align-items:center;gap:6px;color:#b2c8bb;font-size:11px}
+.awb-funds-nav>span>small{margin-left:auto;color:#628776;font-size:8px;letter-spacing:1px}
+.awb-funds-nav i,.awb-funds-hud-footer i{display:inline-block;width:4px;height:4px;background:#70dcba;box-shadow:0 0 8px #70dcba66}
+.awb-funds-nav>strong{display:block;margin-top:7px;font-size:28px;font-weight:650;line-height:1.2;letter-spacing:-.5px;color:#ddf9ec;font-variant-numeric:tabular-nums;text-shadow:0 0 20px #70dcba25}
+.awb-funds-nav strong small{margin-left:8px;font-size:10px;font-weight:400;letter-spacing:1px;color:#82a593}
+.awb-funds-scale{margin-top:13px;color:#7a9a89;font-size:9px}
+.awb-funds-scale>div{display:flex;justify-content:space-between;padding:7px 0 5px;border-bottom:1px solid #294235;font-variant-numeric:tabular-nums}
+.awb-funds-bars{display:flex;flex-direction:column;flex:1;justify-content:space-evenly;min-height:330px}
+.awb-funds-bar-item{padding:12px 0;min-width:0}
+.awb-funds-bar-heading{display:flex;align-items:baseline;justify-content:space-between;gap:6px;font-size:12px}
+.awb-funds-bar-heading>span{color:#c3dace;white-space:nowrap}
+.awb-funds-bar-heading>span>small{margin-right:8px;font-size:9px;color:#628776;font-variant-numeric:tabular-nums}
+.awb-funds-bar-heading>b{font-size:17px;line-height:1.25;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:right}
+.awb-funds-bar-track{position:relative;height:12px;margin:9px 0 7px;background-color:#14271e;background-image:repeating-linear-gradient(to right,transparent 0,transparent calc(10% - 1px),#37504070 calc(10% - 1px),#37504070 10%);border-left:1px solid #60816e;border-right:1px solid #375040;isolation:isolate}
+.awb-funds-bar-track>i{position:absolute;top:3px;bottom:3px;left:0;display:block;box-shadow:0 0 9px currentColor;opacity:.85}
+.awb-funds-bar-track>i::after{content:"";position:absolute;right:0;top:-2px;width:1px;height:10px;background:currentColor;box-shadow:0 0 6px currentColor}
+.awb-funds-bar-item:hover .awb-funds-bar-track>i{opacity:1}
+.awb-funds-bar-reading{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;color:#799b87;font-size:9px;line-height:1.5}
+.awb-funds-bar-reading b{color:#acc8b8;font-weight:500;font-variant-numeric:tabular-nums}
+.awb-funds-bar-missing{position:absolute;inset:0;text-align:center;color:#91a99b;font-size:9px;line-height:12px}
+.awb-funds-hud-footer{padding-top:10px;border-top:1px solid #2a4639;color:#7d9c8a;font-size:10px;line-height:1.6}
+.awb-funds-hud-footer p{margin:0 0 5px}
+.awb-funds-hud-footer>small{font-size:9px}
+.awb-funds-hud-footer i{margin:0 5px 1px 0;opacity:.65}
+/* Keep the overview table within its card and share spare height across rows. */
+.awb-holdings-summary .awb-table-scroll{scrollbar-width:none}
+.awb-holdings-summary .awb-table-scroll::-webkit-scrollbar{display:none}
+.awb-holdings-summary .awb-table-scroll table{table-layout:fixed;min-width:0;width:100%}
+.awb-holdings-summary th:nth-child(1){width:28%}
+.awb-holdings-summary th:nth-child(2){width:21%}
+.awb-holdings-summary th:nth-child(3){width:15%}
+.awb-holdings-summary th:nth-child(4){width:17%}
+.awb-holdings-summary th:nth-child(5){width:19%}
+.awb-holdings-summary .awb-table-scroll :is(th,td){white-space:normal;overflow-wrap:anywhere;padding-left:2px;padding-right:2px}
+.awb-holdings-summary .awb-symbol{width:100%;min-width:0;gap:4px!important}
+.awb-holdings-summary .awb-symbol>span:last-child{flex:1;min-width:0;overflow:hidden}
+.awb-holdings-summary .awb-symbol :is(b,small){display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%!important}
+.awb-holdings-summary .awb-weight{width:100%;max-width:48px}
+.account-workbench .awb-holdings-summary .awb-company-icon{width:20px;height:20px;flex:0 0 20px}
+@media(min-width:1500px){
+  .awb-overview-compact .awb-holdings-summary{display:flex;flex-direction:column;min-height:0}
+  .awb-overview-compact .awb-holdings-summary .awb-section-heading{flex:none}
+  .awb-overview-compact .awb-holdings-summary .awb-table-scroll{flex:1;min-height:360px;contain:size;overflow-y:auto;overflow-x:hidden}
+  .awb-overview-compact .awb-holdings-summary table{height:100%}
+  .awb-overview-compact .awb-holdings-summary thead{height:25px}
+  .awb-overview-compact .awb-holdings-summary :is(th,td){padding-left:2px;padding-right:2px}
+  .awb-overview-compact .awb-holdings-summary .awb-symbol{gap:4px!important}
+}
 .awb-pnl-chart-panel{min-width:0}
 .awb-pnl-chart-panel .awb-pnl-subtitle{margin:0 0 12px;color:#92a69c;font-size:11px;line-height:1.5}
 .awb-pnl-ratios{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -291,7 +340,7 @@
 .awb-pnl-axis>div{position:relative;display:flex;justify-content:space-between;padding-bottom:5px;border-bottom:1px solid #344b3e}
 .awb-pnl-axis b{position:absolute;left:50%;transform:translateX(-50%);font-weight:400;color:#d0ded6}
 .awb-pnl-axis>span:last-child{text-align:right}
-.awb-pnl-bars{max-height:264px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#365747 transparent}
+.awb-pnl-bars{max-height:max(336px,50dvh);overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#365747 transparent}
 .account-workbench .awb-pnl-bar-row{width:100%;align-items:center;padding:6px 0;border-radius:0;min-height:26px;font-size:11px}
 .account-workbench .awb-pnl-bar-row:hover{background:#15261e}
 .account-workbench .awb-pnl-bar-row:focus-visible{outline:1px solid #70dcba;outline-offset:-1px;background:#15261e}
@@ -303,7 +352,12 @@
 .awb-pnl-neutral{color:#a6b8af}
 .awb-pnl-chart-panel .awb-pnl-caption{margin:10px 0 0;font-size:10px;line-height:1.6}
 .awb-pnl-chart-panel .awb-pnl-source{margin:6px 0 0;font-size:10px;line-height:1.6}
-@media(min-width:1500px) and (max-height:950px){.awb-pnl-bars{max-height:200px}}
+@media(min-width:1500px){
+  .awb-overview-compact .awb-pnl-chart-panel{display:flex;flex-direction:column;min-height:0}
+  .awb-overview-compact .awb-pnl-chart-panel>*{flex-shrink:0}
+  /* Reserve room for twelve normal rows, then use the full shared card height. */
+  .awb-overview-compact .awb-pnl-bars{flex:1 1 0;contain:size;min-height:336px;max-height:none}
+}
 @media(min-width:1500px){
   .awb-overview-compact .awb-funds-pie{width:140px;max-width:100%;margin:4px auto 6px}
   .awb-overview-compact .awb-funds-pie-label{font-size:14px}
@@ -318,4 +372,16 @@
 @media(min-width:1500px) and (max-width:1700px){
   /* Net liquidation remains visible in the overview's top summary. */
   .awb-overview-compact .awb-funds-total{display:none}
+}
+.account-workbench .awb-daily-brief .awb-daily-content :is(p,li),
+.account-workbench .awb-daily-brief .awb-daily-empty{
+  font-family:"SimSun","Songti SC","STSong","Noto Serif SC",serif;
+  font-size:14px;
+  font-weight:400;
+  line-height:1.85;
+  letter-spacing:normal;
+  color:#d5e3da;
+  text-shadow:none;
+  text-rendering:auto;
+  -webkit-font-smoothing:auto;
 }
