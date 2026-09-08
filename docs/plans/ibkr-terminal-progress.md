@@ -434,3 +434,43 @@
 - 最终验证：`npm run test:ibkr:workbench` 53/53；`npx playwright test --config playwright.ibkr.config.ts workbench.spec.ts --grep 'daily brief|full HD overview|layout|overview'` 13/13；`npx tsc -b --pretty false`、`npx vite build`、`git diff --check` 通过。保留既有大 chunk 提示。工作区其他研究模块与测试的并行现有改动已保留；未删除或弱化其测试。
 - 实际接入：当前账户可同步，模型 deepseek / deepseek-v4-pro 已有分享授权，但生成请求被模型端拒绝。首次错误被旧桥接逻辑统一化，修复诊断后最终明确 `AI_HTTP_401`。本轮保存的简报尝试三次（一次自动补生成、两次用于诊断修复后的显式验证），均未产出有效内容；没有用示例或手写内容冒充生成结果。已停止重试，并向用户请求在原模型设置核对 API 密钥／服务地址，不要求在聊天中提供密钥。
 - 当前本机 GET state 显示简报 blocked、nextRunAt=null，前端显示“模型鉴权或额度不可用，自动简报暂停”；截图 `tmp/workbench-qa/daily-brief-live-auth-blocked.png` 仅本机保存。实际跨交易日自动生成未运行，真实账户简报未生成成功；需修复模型鉴权后完成实测。电脑和 SparkFlow 后台必须运行，静态页面部署不能执行后台任务。未提交推送。
+
+### 2026-09-08 机会与风险／持仓页面去除分析状态与提问入口 — VERIFIED（展示范围）
+
+- 需求：机会与风险、持仓页面不显示“已有分析正在运行”提示或研究任务横幅；移除机会与风险页底部“问问 AI”输入栏。后台分析不因展示调整而取消，仍只在 AI 分析页展示进度与取消入口。
+- 文件：`src/components/ibkr/AccountWorkbench.tsx`、`tests/ibkr/workbench.spec.ts`。机会与风险页从研究任务横幅范围中移除，持仓页保持不显示；只抑制这两个页面中的“已有分析正在运行”重复提示，其他错误仍照常显示。删除机会与风险页的 Chat 组件，不修改账户、AI 授权、模型调用、报告或订单逻辑。
+- 验证：新增浏览器回归用例，模拟运行中的账户分析后确认机会与风险、持仓页均无 `.awb-research-strip`、无“账户分析问题”输入框及无对应运行提示；`npm run test:ibkr:workbench` 153/153，`npx tsc -b --pretty false` 通过，`npx playwright test --config playwright.ibkr.config.ts workbench.spec.ts --grep "risk and holdings keep active analysis controls|risk evidence opens archived report"` 2/2。`git diff --check` 无空白错误（仅现有 CRLF 提示）。未提交推送。
+
+### 2026-09-08 统一本地 AI 配置到 Vibe-Trading 与 IBKR — VERIFIED（配置链路）
+
+- 根因：设置页写入用户目录 `.SparkFlow/apikey/integration-settings.json`，而 IBKR 研究桥此前只读取 Vibe-Trading 的 `.env`；因此页面已验证的 `deepseek-v4-flash` 未被账户分析采用，实际仍调用旧 `deepseek-v4-pro` 并出现 `AI_HTTP_401`。
+- 文件：`server/ibkrAi.ts` 在每次只读账户 AI 子进程启动时读取、校验并短生命周期注入设置页的 provider、model、base URL 与密钥；密钥不写日志、响应、报告、Git 或环境文件。Vibe 的研究会话保存同一份配置时会启用全局模型锁，`settings_routes.py` 持久化该锁，`swarm/worker.py` 在锁定时忽略预设中的单个模型覆写，避免同一轮研究混用 Flash 与 Pro。`vite.config.ts` 同步此锁。
+- 验证：真实本机状态接口已返回 `provider=deepseek`、`model=deepseek-v4-flash`、`configured=true`；未发出模型生成请求。新增环境映射单元用例，`npm run test:ibkr:workbench` 154/154、Python `py_compile`、`npx tsc -b --pretty false` 通过，`git diff --check` 无空白错误（仅现有 CRLF 提示）。Vibe 服务当前未运行，下次从 SparkFlow 发起 Vibe 研究时会同步全局模型锁。
+- 权限状态：模型指纹从旧 Pro 变为用户当前 Flash，已有账户数据分享授权已按设计失效（`enabled=false`）；必须由用户在 IBKR「设置」页确认“同意发送上述字段并开启 AI”后，才会向新模型发送账户数据。未自动恢复授权、未发送订单、未提交推送。
+
+### 2026-09-08 简洁每日账户简报 — VERIFIED（离线提示词与校验）
+
+- 需求：每日账户简报仅输出组合变化、最多三项机会／风险、待观察条件和来源；移除长篇宏观、估值、事件日历、价格目标、收益预测及交易指令。
+- 文件：`server/ibkrBriefPrompt.ts` 将实际运行指令改为简洁日报；`server/ibkrBrief.ts` 版本升级为 `portfolio-daily-brief-v3`，限制最多三条提醒并要求 `calendar=[]`；`docs/prompts/ibkr-daily-account-brief.md` 与运行手册同步；`tests/workbench/brief.test.mjs` 新增／更新约束回归。
+- 来源与安全：账户事实仍只能使用服务器占位符，提醒仍必须引用已读取原文的连续摘录和来源编号；提示词默认不写外部数字，减少 `BRIEF_UNSOURCED_NUMBER` 校验失败面。没有充分证据时允许空提醒并报告数据缺口；不下单，不扩大账户数据范围。
+- RED：新增测试在旧版提示词仍允许事件日历和五项提醒时失败。GREEN：`npm run test:ibkr:workbench` 154/154，`npx tsc -b --pretty false` 通过，`git diff --check` 无空白错误（仅现有 CRLF 提示）。未触发真实模型调用，因此最新实盘账户简报尚未重新生成；旧简报不会被覆盖。
+
+### 2026-09-08 简洁日报的可发布降级与本地恢复 — VERIFIED（真实本地结果）
+
+- 触发：用户点击生成后，`portfolio-daily-brief-v3` 已返回三条提醒和空日历，但旧严格校验要求每条都有单标的、逐字证据和所有数字完全匹配，导致整份日报未发布。实际失败记录 `b98c446b-cec1-46c5-a26e-07e5893b9d37` 离线诊断显示：一条组合级提醒无证券归属、两条缺少可核验原文摘录。
+- 调整：保留 JSON、账户事实、账户隔离和来源完整性要求；允许有来源的组合级提醒 `symbols=[]`。缺少可核验来源或持仓归属的单条提醒从展示中剔除并在数据缺口中说明；无法与来源核对的外部数字替换为“未核验数值”。不再因单条不合格而丢弃整份日报。伪造内容不显示，未关闭账户／来源安全边界。
+- 恢复：新增 `POST /api/ibkr-workbench/brief/recover`，只接受当前账户、当前提示词版本、当前模型授权仍匹配的本地尝试；重新校验并发布合格部分，不调用模型、不增加预算。重启本地服务后已恢复上述真实 v3 结果：1 条已核验提醒、0 个日历事件，账户状态 `ready`，AI 当日调用计数仍为 10。
+
+### 2026-09-08 自动持仓风险速览（v4）— VERIFIED（离线）
+
+- 需求：自动读取已同步的 IBKR 持仓快照，将简报改为不超过 200 字的中文账户风险速览；开头列已取得的 TWR／集中度／现金占比，随后列二至三项实际持仓风险和直接相关事件，结尾展示固定免责声明。用户无需粘贴持仓。
+- 实现：`server/ibkrBrief.ts` 升级为 `portfolio-daily-brief-v4`，输入自动注入脱敏持仓、权重、未实现盈亏、现金占比和仅限 `IBKR PortfolioAnalyst` 的 TWR；`server/ibkrWorkbench.ts` 传入已缓存的官方表现数据。纯账户风险提醒需引用对应事实占位符；外部事件继续要求逐字原文与来源。`OverviewPanels.tsx` 显示“账户风险速览”和固定免责声明；提示词、运行手册同步。
+- 验证：RED：旧 v3 恢复夹具因版本不匹配失败；长度限制使旧冗长三条提醒失败。GREEN：更新为 v4 夹具与 200 字紧凑三提醒后，`npm run test:ibkr:workbench` 157/157、`npx tsc -b --pretty false`、`git diff --check` 通过。未触发真实模型调用、未下单、未更改账户授权；下一次用户手动生成或收盘后自动运行将使用 v4。
+
+### 2026-09-08 简报发布降级（v4）— VERIFIED（真实本地结果）
+
+- 触发：真实 v4 简报模型已返回完整 JSON 和三条风险提醒，但没有写入服务器事实占位符，旧逻辑将整份输出标为 `BRIEF_FACT_REFERENCE_REQUIRED`。
+- 调整：事实占位符、200 字目标均由硬失败改为发布后来源提示；没有外部来源的账户风险草稿保留展示。账户隔离、当前模型授权、只读 Gateway、订单禁用、外部事件的原文来源核验和无法解析 JSON 的失败边界保持不变。完成的本地尝试也可通过既有 recover 端点重新发布，不调用模型。
+- 验证：`npm run test:ibkr:workbench` 158/158、`npx tsc -b --pretty false`、`git diff --check` 通过。已用 `POST /api/ibkr-workbench/brief/recover` 从本地原始 v4 输出重新发布：状态 `ready`、三条提醒；恢复前后 AI 当日计数为 11，未产生新增调用。未下单、未改账户授权。
+- 文件：`server/ibkrBrief.ts`、`server/ibkrWorkbench.ts`、`src/components/ibkr/OverviewPanels.tsx`、`tests/workbench/brief.test.mjs`、`tests/workbench/brief-service.test.mjs`、提示词说明。
+- 验证：`npm run test:ibkr:workbench` 156/156；`npx tsc -b --pretty false`、`git diff --check` 通过（仅现有 CRLF 提示）。未发出订单，未新增外部模型调用，未提交推送。

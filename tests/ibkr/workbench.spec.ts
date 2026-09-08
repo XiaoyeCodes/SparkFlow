@@ -92,7 +92,7 @@ test('holding details keep independent quote and book value; drawer closes with 
   expect(await download.failure()).toBe(null);
   await expect(page.getByRole('cell', { name: '21,000.00 USD' })).toBeVisible();
   await expect(page.getByRole('cell', { name: /212.00/ })).toBeVisible();
-  await page.getByRole('button', { name: /AAPL/ }).click();
+  await page.locator('.awb-holdings').getByRole('button', { name: /AAPL/ }).click();
   await expect(page.getByRole('dialog', { name: 'AAPL 持仓详情' })).toBeVisible();
   await expect(page.getByText('Apple · 工程测试 · 科技 · 消费电子', { exact: true })).toBeVisible();
   await expect(page.getByRole('img', { name: 'AAPL 历史收盘价曲线' })).toBeVisible();
@@ -167,6 +167,20 @@ test('risk evidence opens archived report and PDF export produces a download', a
   await page.keyboard.press('Escape'); await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
+test('risk and holdings keep active analysis controls out of their pages', async ({ page }) => {
+  const data = state(true);
+  data.jobs = [{ id: 'active-analysis', kind: 'manual', state: 'running', startedAt: '2026-09-08T08:00:00Z', progress: { strategy: 'portfolio', stage: '正在汇总账户和市场资料', covered: [], total: 2, sources: 0, searches: 0, reads: 0, modelCalls: 0, maxCalls: 1, startedAt: '2026-09-08T08:00:00Z', updatedAt: '2026-09-08T08:00:00Z', complete: false, gaps: [], trace: [] } }];
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: data.quotes }));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=alerts');
+  await expect(page.locator('.awb-research-strip')).toHaveCount(0);
+  await expect(page.getByLabel('账户分析问题')).toHaveCount(0);
+  await expect(page.getByText('已有分析正在运行', { exact: true })).toHaveCount(0);
+  await page.getByRole('navigation').getByRole('button', { name: '持仓', exact: true }).click();
+  await expect(page.locator('.awb-research-strip')).toHaveCount(0);
+  await expect(page.getByLabel('账户分析问题')).toHaveCount(0);
+});
+
 for (const viewport of [{width:1920,height:1080},{ width: 1440, height: 1000 },{width:808,height:986}, { width: 390, height: 844 }]) {
   test(`workbench empty layout ${viewport.width}`, async ({ page }) => {
     await page.setViewportSize(viewport);
@@ -235,11 +249,11 @@ test('overview presents sourced returns, allocation, currency-separated PnL and 
   await page.route('**/api/ibkr-workbench/history?*', r => r.fulfill({ json: { bars: [] } }));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('http://127.0.0.1:5187/ibkr');
-  for (const name of ['持仓分布', '持仓盈亏排行', '资金概况', '月度收益率']) await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+  for (const name of ['行业配置', '持仓盈亏分布', '资金概况', '月度收益率']) await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   await expect(page.getByRole('img', { name: '月度收益率柱状图' })).toBeVisible();
   await expect(page.locator('.awb-month-chart')).toContainText('+10.00%');
   await expect(page.locator('.awb-month-chart')).toContainText('-2.00%');
-  await expect(page.locator('.awb-allocation-panel')).toContainText('整体集中度暂不计算');
+  await expect(page.locator('.awb-allocation-panel')).toContainText('行业资料尚未取得');
   await expect(page.locator('.awb-pnl-panel')).toContainText('+3,000.00');
   await expect(page.locator('.awb-pnl-panel')).not.toContainText('9,000.00');
   await page.getByLabel('盈亏排行币种').selectOption('HKD');
@@ -273,7 +287,7 @@ test('overview presents sourced returns, allocation, currency-separated PnL and 
   await page.getByRole('button', { name: '1周', exact: true }).focus();
   await expect(tooltip).toHaveCount(0);
   await page.screenshot({ path: 'tmp/workbench-qa/overview-redesign-monthly.png', fullPage: true });
-  await page.locator('.awb-distribution-bars').getByRole('button', { name: /AAPL/ }).click();
+  await page.locator('.awb-holdings-summary').getByRole('button', { name: 'AAPL', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'AAPL 持仓详情' })).toBeVisible();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '查看研究状态' }).click();
@@ -306,7 +320,7 @@ test('overview never substitutes NAV changes or reference sample scores for miss
 test('full HD overview fits all summary modules while research is pending', async ({ page }) => {
   const data = state(true);
   data.snapshot.positions = ['AAPL', 'QQQ', 'MSFT', 'NVDA', 'AMZN', 'KO', 'TSLA', 'MCD', 'VTI', 'AMD', 'GOOG', 'META'].map((symbol, i) => ({ ...data.snapshot.positions[0], conId: i + 1, symbol, unrealizedPnl: String(i % 2 ? -100 : 100) }));
-  data.metrics = { investedWeight: .978, cashWeight: .022, topWeight: .33, riskLevel: '偏高', reasons: ['现金比例低于观察线', '单标的仓位超过观察线'], sectors: [{ name: '行业待核实', weight: .978 }], sectorCoverage: 0 };
+  data.metrics = { investedWeight: .978, cashWeight: .022, topWeight: .33, riskLevel: '偏高', reasons: ['现金比例低于观察线', '单标的仓位超过观察线'], sectors: [{ name: 'Technology', weight: .426 }, { name: 'ETF', weight: .215 }, { name: 'Technology Services', weight: .091 }, { name: 'Consumer Defensive', weight: .087 }, { name: 'Retail', weight: .045 }, { name: 'Healthcare', weight: .039 }, { name: 'Consumer Services', weight: .038 }, { name: 'Consumer Durables', weight: .037 }], sectorCoverage: 1 };
   data.jobs = [{ id: 'pending-fixture', kind: 'manual', state: 'partial', startedAt: '2026-09-07', error: '研究服务暂不可用；已保存阶段结果，可继续研究', progress: { strategy: 'portfolio', stage: '待研究', covered: [], total: 12, sources: 4, searches: 4, reads: 4, modelCalls: 2, maxCalls: 2, startedAt: '2026-09-07', updatedAt: '2026-09-07', complete: false, gaps: [], trace: [] } }];
   data.alerts = ['现金缓冲偏低', '单标的仓位集中'].map((title, i) => ({ id: String(i), key: String(i), kind: 'risk', title, detail: '工程测试观察规则', symbols: [], createdAt: '2026-09-07', read: false, resolved: false, evidenceIds: [] }));
   data.performance = { source: 'IBKR PortfolioAnalyst', fetchedAt: '2026-09-07', currency: 'USD', returnMethod: 'TWR', benchmark: 'none', note: '工程测试历史', points: [{ date: '2026-07-31', nav: 100000, cumulativeReturn: 0 }, { date: '2026-08-31', nav: 101000, cumulativeReturn: .01 }, { date: '2026-09-07', nav: 102000, cumulativeReturn: .02 }] };
@@ -315,6 +329,7 @@ test('full HD overview fits all summary modules while research is pending', asyn
   await page.route('**/api/ibkr-workbench/performance', r => r.fulfill({ json: data.performance }));
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('http://127.0.0.1:5187/ibkr');
+  await expect(page.locator('.awb-brand > span')).toHaveCSS('background-image', /sparkflow-signal-mark\.svg/);
   await expect(page.getByRole('img', { name: '月度收益率柱状图' })).toBeVisible();
   await expect(page.locator('.awb-research-strip')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
@@ -342,19 +357,27 @@ test('full HD overview fits all summary modules while research is pending', asyn
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'tmp/workbench-qa/dense-overview-1920.png', fullPage: true });
   await page.setViewportSize({ width: 1600, height: 900 });
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight && document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect.poll(() => page.locator('.awb-funds-panel').evaluate(panel => panel.getBoundingClientRect().height >= 420)).toBe(true);
   await page.screenshot({ path: 'tmp/workbench-qa/dense-overview-1600.png', fullPage: true });
   const compactCount = await page.locator('.awb-holdings tbody tr').count();
   for (let resize = 0; resize < 2; resize++) {
     await page.setViewportSize({ width: 2560, height: 1440 });
     await expect(page.locator('.awb-holdings tbody tr')).toHaveCount(12);
-    await expect(page.locator('.awb-distribution-bars button')).toHaveCount(12);
     await expect(page.locator('.awb-pnl-row')).toHaveCount(12);
-    await expect(page.locator('.awb-allocation-panel')).toContainText('展示前 12 大持仓');
+    await expect(page.getByRole('img', { name: '行业配置扇形图' })).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
     await page.setViewportSize({ width: 1600, height: 900 });
     await expect(page.locator('.awb-holdings tbody tr')).toHaveCount(compactCount);
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    await expect.poll(() => page.locator('.awb-holdings').evaluate(panel => {
+      const bottom = panel.getBoundingClientRect().bottom;
+      return [...panel.querySelectorAll('tbody tr')].every(row => row.getBoundingClientRect().bottom <= bottom + .5);
+    })).toBe(true);
+    for (const selector of ['.awb-allocation-panel', '.awb-pnl-panel', '.awb-funds-panel']) {
+      await expect.poll(() => page.locator(selector).evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
+    }
+    await expect.poll(() => page.locator('.awb-pnl-bars').evaluate(element => getComputedStyle(element).scrollbarWidth === 'none')).toBe(true);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await page.locator('.awb-holdings').getByRole('button', { name: '查看全部' }).click();
   await expect(page.locator('.awb-holdings tbody tr')).toHaveCount(12);
@@ -380,7 +403,6 @@ test('adaptive overview shows only available holdings and follows account update
   for (const count of [2, 8, 0]) {
     setPositions(count);
     await expect(page.locator('.awb-holdings tbody tr')).toHaveCount(count, { timeout: 10000 });
-    await expect(page.locator('.awb-distribution-bars button')).toHaveCount(count);
     await expect(page.locator('.awb-pnl-row')).toHaveCount(count);
   }
   await expect(page.locator('.awb-holdings')).toContainText('当前没有匹配持仓');

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52" fill="none">
+  <defs>
+    <linearGradient id="flow" x1="9" y1="39" x2="42" y2="10" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#39CFA2"/>
+      <stop offset=".58" stop-color="#8AEAD0"/>
+      <stop offset="1" stop-color="#F2C977"/>
+    </linearGradient>
+    <radialGradient id="field" cx="0" cy="0" r="1" gradientTransform="translate(31 16) rotate(128) scale(37)">
+      <stop stop-color="#173A2D"/>
+      <stop offset="1" stop-color="#09120E"/>
+    </radialGradient>
+    <filter id="spark" x="29" y="2" width="23" height="23" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle cx="26" cy="26" r="23" fill="url(#field)" stroke="#315B49"/>
+  <path d="M11 17.5A19 19 0 0 1 40.5 13M41 35A19 19 0 0 1 11.5 39" stroke="#406E5A" stroke-linecap="round" opacity=".75"/>
+  <path d="M10.5 34.5c5.1 7.1 16.5 7.7 21.5.6 4.4-6.2.4-10.8-6.9-10.8-6.4 0-10.2-3.6-7.3-8.3 3.4-5.4 13.8-5.8 19.8.3" stroke="url(#flow)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="10.5" cy="34.5" r="2" fill="#70DCBA"/>
+  <path d="M40.5 6.5c.4 4.7 2.3 6.7 6.8 7.1-4.5.4-6.4 2.4-6.8 7.1-.4-4.7-2.3-6.7-6.8-7.1 4.5-.4 6.4-2.4 6.8-7.1Z" fill="#F2C977" filter="url(#spark)"/>
+</svg>

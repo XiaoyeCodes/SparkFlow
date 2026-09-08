@@ -78,9 +78,9 @@ export class IbkrWorkbenchService {
   private quotes: MarketQuote[] = [];
   private evidence: Evidence[] = [];
   private model: AiModel = { provider: '', model: '', fingerprint: '', configured: false };
-  private nextSync = 0; private nextEvidence = 0; private failures = 0; private syncFlight?: Promise<void>; private activeAnalysis?: Promise<void>;
+  private nextSync = 0; private nextEvidence = 0; private failures = 0; private syncFlight?: Promise<void>; private activeAnalysis?: Promise<void>; private activeBrief?: Promise<void>;
   private writeQueue = Promise.resolve(); private generation = 0; private disposed = false; private timer?: ReturnType<typeof setTimeout>;
-  private researchAbort?: AbortController; private performanceFlight?: Promise<PortfolioPerformance>;
+  private researchAbort?: AbortController; private briefAbort?: AbortController; private performanceFlight?: Promise<PortfolioPerformance>;
   private scheduleFlight = false;
   private connectionDetail = ''; private storageError = ''; private ai; private ownsLease = false;
   readonly mcp: IbkrMcp; readonly market: IbkrMarket; readonly profiles: IbkrProfiles;
@@ -118,14 +118,14 @@ export class IbkrWorkbenchService {
   }
 
   private async runSchedules() {
-    if (this.scheduleFlight || this.activeAnalysis) return;
+    if (this.scheduleFlight) return;
     this.scheduleFlight = true;
     try {
       const record = this.record(), generation = this.generation;
       const asOf = Date.parse(record?.snapshot.asOf ?? '');
       if (!record || !record.grant || !['ready', 'empty'].includes(record.snapshot.state) || record.snapshot.connection !== 'connected' || record.snapshot.testData || !Number.isFinite(asOf) || Date.now() - asOf > 180000 || asOf > Date.now() + 60000) return;
       const model = await this.ai.status(true);
-      if (this.disposed || generation !== this.generation || record !== this.record() || this.activeAnalysis || !model.configured || record.grant?.fingerprint !== model.fingerprint) return;
+      if (this.disposed || generation !== this.generation || record !== this.record() || !model.configured || record.grant?.fingerprint !== model.fingerprint) return;
       if (record.usage.filter(u => newYorkClock(new Date(u.at)).date === newYorkClock(new Date()).date).length >= record.preferences.maxAiCalls) return;
       const schedules = accountSchedules(record.preferences), now = new Date();
       const candidates = (['brief', 'analysis'] as const).flatMap(kind => {
@@ -137,7 +137,7 @@ export class IbkrWorkbenchService {
           if (schedules.brief.mode === 'market-close' && (record.briefAttempt?.sessionDate === slot.key.slice(6) || record.briefs?.some(b => b.sessionDate === slot.key.slice(6)))) return [];
         }
         return [{ kind, slot }];
-      }).sort((a, b) => a.slot.at.localeCompare(b.slot.at));
+      }).filter(candidate => candidate.kind === 'brief' ? !this.activeBrief : !this.activeAnalysis).sort((a, b) => a.slot.at.localeCompare(b.slot.at));
       const due = candidates[0]; if (!due) return;
       const key = `${due.kind}:${due.slot.key}`;
       record.scheduleRuns ??= {};
@@ -159,7 +159,8 @@ export class IbkrWorkbenchService {
     const handledClose = kind === 'brief' && config.mode === 'market-close' && window.due && (record.briefAttempt?.sessionDate === window.due.key.slice(6) || record.briefs?.some(brief => brief.sessionDate === window.due!.key.slice(6)));
     const pending = window.due && !handledClose && !record.scheduleRuns?.[`${kind}:${window.due.key}`];
     const latest = Object.entries(record.scheduleRuns ?? {}).filter(([key]) => key.startsWith(`${kind}:`)).sort((a, b) => b[1].at.localeCompare(a[1].at))[0]?.[1];
-    return { nextRunAt: window.nextRunAt, pendingAt: pending ? window.due!.at : null, detail: !config.enabled ? '已关闭' : !window.calendarSupported ? '交易日历未覆盖，等待更新' : !record.grant || record.grant.fingerprint !== this.model.fingerprint ? '等待开启当前模型的账户 AI 授权' : this.activeAnalysis ? '账户任务执行中，到点任务会依次执行' : latest?.error ? `最近启动失败：${latest.error}` : pending ? '已到点，等待账户、模型与调用额度就绪' : '已启用，等待下次执行' };
+    const active = kind === 'brief' ? this.activeBrief : this.activeAnalysis;
+    return { nextRunAt: window.nextRunAt, pendingAt: pending ? window.due!.at : null, detail: !config.enabled ? '已关闭' : !window.calendarSupported ? '交易日历未覆盖，等待更新' : !record.grant || record.grant.fingerprint !== this.model.fingerprint ? '等待开启当前模型的账户 AI 授权' : active ? `${kind === 'brief' ? '账户简报' : '账户分析'}执行中，到点任务会等待本流程完成` : latest?.error ? `最近启动失败：${latest.error}` : pending ? '已到点，等待账户、模型与调用额度就绪' : '已启用，等待下次执行' };
   }
 
   async sync() {
@@ -243,7 +244,7 @@ export class IbkrWorkbenchService {
     return { source: this.saved.source, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || 'TWS / Gateway 只读服务', tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { brief: this.scheduleStatus("brief"), analysis: this.scheduleStatus("analysis") }, dailyBrief: this.briefStatus(), metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
   }
   async select(source: 'mcp' | 'gateway', key?: string) {
-    this.researchAbort?.abort(); ++this.generation; await this.syncFlight; this.saved.source = source; this.saved.selectedKey = key;
+    this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; await this.syncFlight; this.saved.source = source; this.saved.selectedKey = key;
     this.quotes = []; this.evidence = []; this.nextEvidence = 0; this.nextSync = 0;
     await this.persist(); await this.sync();
   }
@@ -265,14 +266,14 @@ export class IbkrWorkbenchService {
   }
   async generateBrief(automatic = false, scheduleKey?: string) {
     this.assertAvailable();
-    if (this.activeAnalysis) throw new Error('已有分析正在运行');
+    if (this.activeBrief) throw new Error('今日简报正在生成');
     const record = this.record(), snapshot = record?.snapshot;
     const asOf = Date.parse(snapshot?.asOf ?? '');
     if (!record || !snapshot || snapshot.testData || !['ready','empty'].includes(snapshot.state) || snapshot.connection !== 'connected' || !Number.isFinite(asOf) || Date.now() - asOf > 180000 || asOf > Date.now() + 60000) throw new Error('请先同步最新真实账户');
     const generation = this.generation, key = snapshot.accountKey;
     const model = await this.ai.status(true);
     if (!model.configured || record.grant?.fingerprint !== model.fingerprint) throw new Error('请先在设置中开启当前模型的账户分析');
-    if (this.activeAnalysis) throw new Error('已有分析正在运行');
+    if (this.activeBrief) throw new Error('今日简报正在生成');
     if (this.disposed || generation !== this.generation || this.saved.selectedKey !== key) throw new Error('账户已变化，请重新生成');
     if (Date.now() - asOf > 180000) throw new Error('请先同步最新真实账户');
     const schedule = briefSchedule(new Date()), sessionDate = schedule.dueSession;
@@ -283,11 +284,11 @@ export class IbkrWorkbenchService {
     const frozen = structuredClone(snapshot), preferences = structuredClone(record.preferences), previous = structuredClone(record.briefs?.[0]);
     const attempt: BriefAttempt = { id: randomUUID(), sessionDate, state: 'running', startedAt: new Date().toISOString(), detail: '正在扫描全部持仓的新闻、财报、估值与事件日历…' };
     record.briefAttempt = attempt;
-    const controller = new AbortController(); this.researchAbort = controller;
-    let release!: () => void; this.activeAnalysis = new Promise<void>(r => { release = r; });
+    const controller = new AbortController(); this.briefAbort = controller;
+    let release!: () => void; this.activeBrief = new Promise<void>(r => { release = r; });
     const timeout = setTimeout(() => controller.abort('timeout'), 900000);
     const allowed = () => !this.disposed && !controller.signal.aborted && generation === this.generation && this.saved.selectedKey === key && record.grant?.fingerprint === model.fingerprint;
-    try { await this.persist(); } catch (e) { clearTimeout(timeout); attempt.state = 'failed'; this.researchAbort = undefined; this.activeAnalysis = undefined; release(); throw e; }
+    try { await this.persist(); } catch (e) { clearTimeout(timeout); attempt.state = 'failed'; this.briefAbort = undefined; this.activeBrief = undefined; release(); throw e; }
     void (async () => {
       try {
         if (!allowed()) throw new Error('BRIEF_CANCELLED');
@@ -297,7 +298,7 @@ export class IbkrWorkbenchService {
           progress: async detail => { if (!allowed()) throw new Error('BRIEF_CANCELLED'); attempt.detail = detail; await this.persist(); },
         }, controller.signal, { analysisAsOf: attempt.startedAt, previousAsOf: previous?.analysisAsOf ?? previous?.generatedAt, fallbackEvidence });
         if (!allowed() || (await this.ai.status(true)).fingerprint !== model.fingerprint) throw new Error('BRIEF_CANCELLED');
-        const input = briefInput(frozen, preferences, sessionDate, research, previous), prompt = briefPrompt(input);
+        const input = briefInput(frozen, preferences, sessionDate, research, previous, record.performance), prompt = briefPrompt(input);
         const prepared = { id: attempt.id, promptVersion: BRIEF_PROMPT_VERSION, generationMode: 'brief-json', snapshot: frozen, snapshotHash: digest(frozen), input, prompt, model, research };
         // Keep reviewable materials even if the provider fails or returns invalid content.
         await atomicJson(path.join(this.directory, `${attempt.id}.brief-attempt.json`), prepared);
@@ -322,13 +323,33 @@ export class IbkrWorkbenchService {
         const code = e instanceof Error ? e.message : '';
         attempt.error = !allowed() ? controller.signal.reason === 'timeout' ? '简报生成超时；已保存资料，本期不重复自动调用。' : '账户或授权已变化，简报已取消。' : code.startsWith('BRIEF_') || e instanceof z.ZodError || e instanceof SyntaxError ? `简报结构、数字或原文引用未通过校验；资料与输出已保存，保留上期内容。${/^BRIEF_[A-Z_]+$/.test(code) ? `（${code}）` : ''}` : `研究或模型服务暂不可用；保留上期简报，可手动重试。${/^AI_[A-Z0-9_]+$/.test(code) ? `（${code}）` : ''}`;
       } finally {
-        clearTimeout(timeout); this.researchAbort = undefined;
+        clearTimeout(timeout); this.briefAbort = undefined;
         await this.persist().catch(() => { this.storageError = '本地简报保存失败，自动任务暂停'; });
-        this.activeAnalysis = undefined; release();
+        this.activeBrief = undefined; release();
       }
     })();
     return { id: attempt.id, state: attempt.state };
   }
+  async recoverBrief() {
+    this.assertAvailable();
+    const record = this.record(), attempt = record?.briefAttempt;
+    if (!record || !attempt || !['failed', 'completed'].includes(attempt.state)) throw new Error('没有可恢复的简报');
+    const model = await this.ai.status(true);
+    if (!model.configured || record.grant?.fingerprint !== model.fingerprint) throw new Error('请先在设置中开启当前模型的账户分析');
+    const filename = path.join(this.directory, `${attempt.id}.brief-attempt.json`);
+    let saved: any;
+    try { saved = JSON.parse(await readFile(filename, 'utf8')); } catch { throw new Error('未找到可恢复的本地简报资料'); }
+    if (saved?.promptVersion !== BRIEF_PROMPT_VERSION || typeof saved?.raw !== 'string' || !saved?.input || saved?.snapshot?.accountKey !== record.snapshot.accountKey) throw new Error('本地简报资料与当前账户或版本不匹配');
+    const content = validateBrief(saved.raw, saved.input);
+    const brief: DailyBrief = { id: attempt.id, accountKey: record.snapshot.accountKey, snapshotId: String(saved.snapshot?.snapshotId ?? record.snapshot.snapshotId), snapshotHash: String(saved.snapshotHash ?? digest(saved.snapshot)), snapshotAsOf: saved.snapshot?.asOf ?? null, sessionDate: attempt.sessionDate, analysisAsOf: saved.input.analysisAsOf, generatedAt: new Date().toISOString(), provider: model.provider, model: model.model, promptVersion: BRIEF_PROMPT_VERSION, content, facts: saved.input.facts, evidence: saved.input.research?.evidence, coverage: saved.research?.coverage ?? saved.input.research?.coverage, researchGaps: saved.research?.gaps ?? saved.input.research?.gaps };
+    await atomicJson(path.join(this.directory, `${brief.id}.brief.json`), { ...brief, snapshot: saved.snapshot, input: saved.input, prompt: saved.prompt, raw: saved.raw, recovered: true });
+    record.briefs = [brief, ...(record.briefs ?? []).filter(item => item.id !== brief.id)].slice(0, 30);
+    record.briefAttempt = { ...attempt, state: 'completed', detail: '已从本地生成结果重新发布；未再次调用模型。' };
+    delete record.briefAttempt.error;
+    await this.persist();
+    return { id: brief.id, state: 'completed', recovered: true };
+  }
+
   async preferences(preferences: Preferences) {
     const record = this.record(); if (!record) throw new Error('请先连接账户');
     const next = preferencesSchema.parse(preferences), before = accountSchedules(record.preferences), after = accountSchedules(next);
@@ -340,7 +361,7 @@ export class IbkrWorkbenchService {
   }
   async grant(enabled: boolean, fingerprint?: string) {
     const record = this.record(); if (!record) throw new Error('请先连接账户');
-    if (!enabled) { this.researchAbort?.abort(); record.grant = undefined; await this.persist(); return; }
+    if (!enabled) { this.researchAbort?.abort(); this.briefAbort?.abort(); record.grant = undefined; await this.persist(); return; }
     const model = await this.ai.status(true);
     if (!model.configured || fingerprint !== model.fingerprint) throw new Error('模型已变化或未配置，请刷新后重新核对');
     record.grant = { fingerprint: model.fingerprint, at: new Date().toISOString() }; await this.persist();
@@ -416,7 +437,7 @@ export class IbkrWorkbenchService {
     }catch(e){const code=controller.signal.reason==='timeout'?'RESEARCH_TIMEOUT':e instanceof Error?e.message:'RESEARCH_FAILED';job.failureCategory=code.split(':')[0];job.state=code==='RESEARCH_CANCELLED'?'cancelled':checkpoint.progress.modelCalls>0?'failed':'partial';job.error=researchFailure(job.failureCategory)+(job.failureCategory==='OUTPUT_EVIDENCE'&&code.includes(':')?`：${code.slice(code.indexOf(':')+1).trim().slice(0,160)}`:'');}
     finally{clearTimeout(timeout);this.researchAbort=undefined;await this.persist().catch(()=>{this.storageError='本地研究状态保存失败';});this.activeAnalysis=undefined;release();}})();return job;
   }
-  async cancel(id:string){const record=this.record(), job=record?.jobs.find(j=>j.id===id), brief=record?.briefAttempt;if(job?.state!=='running'&&!(brief?.id===id&&brief.state==='running'))throw new Error('任务没有运行');this.researchAbort?.abort('user');await this.activeAnalysis;}
+  async cancel(id:string){const record=this.record(), job=record?.jobs.find(j=>j.id===id), brief=record?.briefAttempt;if(job?.state==='running'){this.researchAbort?.abort('user');await this.activeAnalysis;return;}if(brief?.id===id&&brief.state==='running'){this.briefAbort?.abort('user');await this.activeBrief;return;}throw new Error('任务没有运行');}
   async research(id:string){const checkpoint=this.record()?.research?.[id];if(!checkpoint)throw new Error('阶段资料不存在');return {progress:checkpoint.progress,evidence:checkpoint.evidence,sections:checkpoint.sections};}
   async savePlan(data:unknown){const record=this.record();if(!record)throw new Error('请先连接账户');const value=planSchema.parse(data);if(value.id&&!record.plans?.some(p=>p.id===value.id))throw new Error('计划不属于当前账户');if(value.reportId&&!(await this.report(value.reportId)))throw new Error('关联报告不存在');if(['watching','triggered'].includes(value.status))simulatePlan(record.snapshot,value.steps,record.preferences.cashFloor);const old=record.plans?.find(p=>p.id===value.id);const plan:AdjustmentPlan={...value,id:value.id??randomUUID(),createdAt:old?.createdAt??new Date().toISOString(),updatedAt:new Date().toISOString(),snapshotId:record.snapshot.snapshotId};record.plans=[plan,...(record.plans??[]).filter(p=>p.id!==plan.id)].slice(0,100);await this.persist();return plan;}
   simulate(data:any){const record=this.record();if(!record||record.snapshot.state==='stale')throw new Error('请先同步账户');const value=planSchema.parse(data.plan);return simulatePlan(record.snapshot,value.steps,record.preferences.cashFloor,data.shock??-.1);}
@@ -434,9 +455,9 @@ export class IbkrWorkbenchService {
       result.fetchedAt=new Date().toISOString();record.performance=result;await this.persist();return result;
     })();try{return await this.performanceFlight;}finally{this.performanceFlight=undefined;}
   }
-  async disconnect() { this.researchAbort?.abort(); ++this.generation; await this.syncFlight; const record = this.record(); if (record) { record.grant = undefined; record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: '账户已断开。' }; } await this.mcp.disconnect(); this.saved.selectedKey = undefined; this.quotes = []; this.evidence = []; await this.persist(); }
+  async disconnect() { this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; await this.syncFlight; const record = this.record(); if (record) { record.grant = undefined; record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: '账户已断开。' }; } await this.mcp.disconnect(); this.saved.selectedKey = undefined; this.quotes = []; this.evidence = []; await this.persist(); }
   async report(id: string) { if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error('无效报告标识'); const report = JSON.parse(await readFile(path.join(this.directory, `${id}.report.json`), 'utf8')) as AnalysisReport; if (report.accountKey !== this.saved.selectedKey) throw new Error('报告不属于当前账户'); return report; }
-  async close() { this.disposed = true; this.researchAbort?.abort(); ++this.generation; if (this.timer) clearTimeout(this.timer); this.ai.close(); await this.syncFlight; await this.performanceFlight?.catch(()=>{}); await this.activeAnalysis; await this.writeQueue; await this.mcp.close(); if (this.ownsLease) { this.ownsLease = false; await unlink(path.join(this.directory, 'worker.lock')).catch(() => {}); } }
+  async close() { this.disposed = true; this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; if (this.timer) clearTimeout(this.timer); this.ai.close(); await this.syncFlight; await this.performanceFlight?.catch(()=>{}); await Promise.all([this.activeAnalysis, this.activeBrief]); await this.writeQueue; await this.mcp.close(); if (this.ownsLease) { this.ownsLease = false; await unlink(path.join(this.directory, 'worker.lock')).catch(() => {}); } }
 }
 
 const htmlEscape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -521,6 +542,7 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
         if(endpoint==='resume'){const {id}=z.object({id:z.string().uuid()}).strict().parse(data);const state=await instance.state();const job=state.jobs.find(j=>j.id===id);if(!job)throw new Error('任务不存在');return json(await instance.analyze(job.kind,undefined,undefined,id),202);}
         if(endpoint==='retry'){const {id}=z.object({id:z.string().uuid()}).strict().parse(data);const state=await instance.state();const job=state.jobs.find(j=>j.id===id);if(!job)throw new Error('任务不存在');return json(await instance.analyze('manual',undefined,undefined,undefined,id),202);}
         if(endpoint==='revalidate'){const {id}=z.object({id:z.string().uuid()}).strict().parse(data);const state=await instance.state();const job=state.jobs.find(j=>j.id===id);if(!job)throw new Error('任务不存在');return json(await instance.analyze(job.kind,undefined,undefined,id,undefined,true),202);}
+        if (endpoint === 'brief/recover') { z.object({}).strict().parse(data); return json(await instance.recoverBrief()); }
         if (endpoint === 'brief') { z.object({}).strict().parse(data); return json(await instance.generateBrief(), 202); }
         if (endpoint === 'analyze') { const v = z.object({ question: z.string().max(2000).optional() }).strict().parse(data); return json(await instance.analyze(v.question ? 'chat' : 'manual', v.question), 202); }
         return json({ error: '接口不存在' }, 404);

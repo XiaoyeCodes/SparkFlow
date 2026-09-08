@@ -191,3 +191,22 @@
   .awb-analysis-task-select select{width:100%;min-width:0}
 }
 @media(prefers-reduced-motion:reduce){.awb-analysis-workspace{animation:none}.awb-analysis-toolbar-actions :is(button,a){transition:none}}
+
+/* SparkFlow signal-flow mark: readable at both full and collapsed sidebar sizes. */
+.awb-brand{gap:10px;padding:0 2px;color:#eff8f3!important}
+.awb-brand>span{
+  width:44px;
+  height:44px;
+  flex:none;
+  overflow:visible;
+  border-radius:0;
+  background:transparent url('/brand/sparkflow-signal-mark.svg') center/contain no-repeat;
+  color:transparent;
+  font-size:0;
+  filter:drop-shadow(0 7px 14px #0008);
+  transition:transform .24s ease,filter .24s ease;
+}
+.awb-brand:hover>span{transform:translateY(-1px) rotate(-2deg);filter:drop-shadow(0 8px 18px #38c99a30)}
+.awb-brand b{font-size:17px;line-height:1.05;letter-spacing:-.45px;color:#eff8f3}
+.awb-brand small{margin-top:5px;line-height:1.25;letter-spacing:1.25px;color:#8fa99b}
+@media(prefers-reduced-motion:reduce){.awb-brand>span{transition:none}.awb-brand:hover>span{transform:none}}

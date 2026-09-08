@@ -10,7 +10,7 @@ export function useAdaptiveRows(total: number, minimum: number, selector: string
     let frame = 0;
     const measure = () => {
       if (!window.matchMedia('(min-width:1500px)').matches) {
-        setCapacity(minimum);
+        setCapacity(total);
         return;
       }
       const rows = Array.from(panel.querySelectorAll<HTMLElement>(selector));
@@ -23,7 +23,9 @@ export function useAdaptiveRows(total: number, minimum: number, selector: string
       const step = Math.max(...rows.map(row => row.getBoundingClientRect().height
         + (parseFloat(getComputedStyle(row.parentElement!).rowGap) || 0)));
       if (step <= 0) return;
-      const next = Math.min(total, Math.max(Math.min(minimum, total), rows.length + Math.floor((bottom - end + .5) / step)));
+      // The initial minimum makes the first paint useful, but measurement may
+      // reduce it when even that many rows would leave a clipped final row.
+      const next = Math.min(total, Math.max(total > 0 ? 1 : 0, rows.length + Math.floor((bottom - end + .5) / step)));
       setCapacity(previous => previous === next ? previous : next);
     };
     const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); };

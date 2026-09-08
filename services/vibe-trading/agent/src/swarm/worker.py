@@ -351,8 +351,11 @@ def run_worker(
         include_shell_tools=include_shell_tools,
     )
 
-    # 2. Create LLM
-    llm = ChatLLM(model_name=agent_spec.model_name)
+    # 2. Create LLM. SparkFlow's saved integration setting deliberately wins
+    # over per-agent preset defaults so one account-analysis run cannot mix
+    # models or credentials behind the user's back.
+    locked_model = os.getenv("SPARKFLOW_INTEGRATION_MODEL_LOCK") == "1"
+    llm = ChatLLM(model_name=None if locked_model else agent_spec.model_name)
 
     # 3. Build system prompt with filtered skills
     skills_loader = SkillsLoader()
@@ -507,7 +510,7 @@ def run_worker(
                 """
                 remaining_timeout = max(10, int(timeout - (time.monotonic() - t0)))
                 with HeartbeatTimer(
-                    tool_name=f"llm:{agent_spec.model_name or 'default'}",
+                    tool_name=f"llm:{'default' if locked_model else agent_spec.model_name or 'default'}",
                     interval=_HEARTBEAT_INTERVAL_S,
                     emit=_on_llm_heartbeat,
                 ):

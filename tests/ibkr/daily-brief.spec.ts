@@ -66,6 +66,22 @@ test('daily research brief displays live detail while preserving the latest succ
   const panel = page.getByRole('region', { name: 'AI 账户简报' });
   await expect(panel.getByRole('status')).toContainText('正在读取公司公告，已覆盖 3/12 个持仓…');
   await expect(panel.getByRole('status')).toContainText('当前保留上一份成功简报');
+  await expect(panel.locator('.awb-brief-synthesis')).toContainText('账户快照市场证据观点编排');
   await expect(panel.getByRole('button', { name: '正在生成简报' })).toBeDisabled();
   await expect(panel).toContainText('先验证盈利兑现，宏观数据决定估值空间');
+  await panel.screenshot({ path: 'tmp/workbench-qa/daily-brief-running.png' });
+});
+
+test('a running daily brief stays on the overview and does not block a new account analysis', async ({ page }) => {
+  const data = makeState();
+  data.dailyBrief!.state = 'running';
+  data.dailyBrief!.detail = '正在合成今日账户简报…';
+  await page.route('**/api/ibkr-workbench/**', route => route.fulfill({ json: route.request().url().endsWith('/state') ? data : [] }));
+  await page.goto('http://127.0.0.1:5187/ibkr');
+  await expect(page.getByRole('status', { name: '账户简报生成中' })).toBeVisible();
+  await page.getByRole('button', { name: 'AI 分析', exact: true }).click();
+  await expect(page.getByRole('status', { name: '账户简报生成中' })).toHaveCount(0);
+  await expect(page.getByText('已有分析正在运行', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '开始账户分析' })).toBeEnabled();
+  await expect(page.locator('.awb-analysis-history-item')).toHaveCount(0);
 });

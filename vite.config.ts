@@ -10621,6 +10621,7 @@ async function syncVibeLlmSettings(baseUrl: string, body: any) {
         timeout_seconds: 180,
         max_retries: 2,
         reasoning_effort: '',
+        use_global_model: true,
       }),
     });
   }

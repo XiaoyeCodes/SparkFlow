@@ -194,7 +194,7 @@ function DailyResearch({ brief }: { brief: DailyBrief }) {
   const evidence = brief.evidence ?? [], calendar = brief.content.calendar ?? [], changes = brief.content.changes ?? [];
   const gaps = [...new Set([...brief.content.gaps, ...(brief.researchGaps ?? [])])];
   return <>
-    <div className="awb-daily-judgement"><h3><Sparkles size={15}/>今天对账户意味着什么</h3><p>{brief.content.summary}</p></div>
+    <div className="awb-daily-judgement"><h3><Sparkles size={15}/>账户风险速览</h3><p>{brief.content.summary}</p></div>
     <div className="awb-daily-opportunities"><div className="awb-brief-section-title"><h3><ShieldCheck size={15}/>机会与风险</h3><small>{insights.length} 条提醒</small></div>
       {insights.slice(0, 2).map(insight => <DailyInsight key={insight.id} insight={insight} evidence={evidence}/>)}
       {!insights.length && <p className="awb-overview-note">本期未列出重点提醒，判断范围请结合下方研究覆盖查看。</p>}
@@ -209,7 +209,16 @@ function DailyResearch({ brief }: { brief: DailyBrief }) {
       {brief.coverage?.length ? <ul className="awb-brief-coverage-list">{brief.coverage.map(item => <li key={item.symbol}><div><b>{item.symbol}</b><span className={`awb-coverage-${item.status}`}>{briefCoverage[item.status]}</span></div><small>{item.areas.map(area => briefArea[area] ?? area).join(' · ')}</small>{!!item.gaps.length && <p>{item.gaps.join('；')}</p>}</li>)}</ul> : <p>本期未提供逐标的研究覆盖记录。</p>}
       <BriefSources evidence={evidence} ids={evidence.map(item => item.id)}/>
     </div></details>
+    <p className="awb-overview-note">⚠️ 以上内容仅供参考，不构成任何投资建议，投资有风险，决策需谨慎。</p>
   </>;
+}
+
+function BriefSynthesis({ detail, preservingPrevious }: { detail: string; preservingPrevious: boolean }) {
+  return <section className="awb-brief-synthesis" role="status" aria-label="账户简报生成中">
+    <div className="awb-synthesis-glow" aria-hidden="true"><i/><i/><i/></div>
+    <div className="awb-synthesis-copy"><span>LIVE / SIGNAL SYNTHESIS</span><h3>正在合成今日账户简报</h3><p>{detail}</p>{preservingPrevious && <small>当前保留上一份成功简报，可继续查看。</small>}</div>
+    <div className="awb-synthesis-stages" aria-hidden="true"><b>账户快照</b><b>市场证据</b><b>观点编排</b></div>
+  </section>;
 }
 
 function DailyAccountBrief({ state, generate, busy, openReport }: { state: WorkbenchState; generate?: () => void; busy?: boolean; openReport: () => void }) {
@@ -220,14 +229,14 @@ function DailyAccountBrief({ state, generate, busy, openReport }: { state: Workb
     <span className="awb-ai-badge"><Sparkles size={13}/>AI 账户简报</span>
     <h2 className="awb-ai-headline">{brief?.content.headline ?? '每日账户简报'}</h2>
     <small className="awb-daily-session">{brief ? <><span>{brief.analysisAsOf ? `研究截至 ${briefTime(brief.analysisAsOf)}` : `生成于 ${briefTime(brief.generatedAt)}`}（北京时间）</span><span>最近收盘交易日 {brief.sessionDate ?? '未核实'}</span></> : '按设置中的账户简报时间自动生成'}</small>
-    {status.state !== 'ready' && <p className="awb-brief-notice" role="status">{status.detail}{brief && running ? ' 当前保留上一份成功简报。' : ''}</p>}
+    {running ? <BriefSynthesis detail={status.detail} preservingPrevious={Boolean(brief)}/> : status.state !== 'ready' && <p className="awb-brief-notice" role="status">{status.detail}</p>}
     {brief ? <div className="awb-daily-content">
       {researched ? <DailyResearch brief={brief}/> : <><div><h3><LayoutGrid size={15}/>账户现状</h3><p>{brief.content.summary}</p></div>
       <div><h3><ShieldCheck size={15}/>风险解读</h3><p>{brief.content.risk}</p></div>
       <div><h3><CheckCircle2 size={15}/>下一交易日关注</h3><ul>{brief.content.watch.map((item, i) => <li key={i}>{item}</li>)}</ul></div>
       {!!brief.content.gaps.length && <div className="awb-daily-gaps"><h3>数据缺口</h3><p>{brief.content.gaps.join('；')}</p></div>}</>}
       <details className="awb-overview-evidence awb-brief-account-facts"><summary>查看账户事实与来源</summary><small>IBKR 快照 {briefTime(brief.snapshotAsOf)} · 生成于 {briefTime(brief.generatedAt)}（北京时间） · {brief.model}。账户快照与最近收盘交易日分别标注。</small><dl>{Object.entries(brief.facts).map(([id, fact]) => <div key={id}><dt>{fact.label}</dt><dd>{fact.display}<small>{fact.source} · {briefTime(fact.asOf)}（北京时间）</small></dd></div>)}</dl></details>
-    </div> : <p className="awb-daily-empty">结合持仓相关的宏观数据、估值、公司新闻和财报，解释对账户的机会与风险，并列出下一步观察条件和可核验来源。</p>}
+    </div> : <p className="awb-daily-empty">总结组合变化、最多三项机会或风险、待观察条件与可核验来源。</p>}
     <div className="awb-daily-footer"><p className="awb-overview-note">{status.enabled ? status.nextRunAt ? `下次自动生成：${stamp(status.nextRunAt)}（本地时间）` : '自动生成暂停，等待模型配置或交易日历恢复' : '自动简报已关闭'}</p><small>执行时间以设置为准。本机服务运行时执行，恢复后只补最近一次。</small>
       <button className="awb-full primary" onClick={generate} disabled={!generate || busy || running || !ready || !state.ai.enabled || state.ai.usedToday >= state.preferences.maxAiCalls}>{running ? '正在生成简报' : brief ? '重新生成简报' : '生成账户简报'}<Sparkles size={14}/></button>
       <button className="awb-full awb-ai-cta" onClick={openReport}>查看深度研究<ChevronRight size={15}/></button>

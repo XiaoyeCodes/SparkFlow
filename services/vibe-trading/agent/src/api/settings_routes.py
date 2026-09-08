@@ -71,6 +71,7 @@ class UpdateLLMSettingsRequest(BaseModel):
     timeout_seconds: int = Field(120, ge=1, le=3600)
     max_retries: int = Field(2, ge=0, le=20)
     reasoning_effort: Optional[str] = None
+    use_global_model: bool = False
 
 
 class DataSourceSettingsResponse(BaseModel):
@@ -377,6 +378,7 @@ def register_settings_routes(
             "LANGCHAIN_TEMPERATURE": str(payload.temperature),
             "TIMEOUT_SECONDS": str(payload.timeout_seconds),
             "MAX_RETRIES": str(payload.max_retries),
+            "SPARKFLOW_INTEGRATION_MODEL_LOCK": "1" if payload.use_global_model else "",
         }
         if reasoning_effort or "LANGCHAIN_REASONING_EFFORT" in current_values:
             updates["LANGCHAIN_REASONING_EFFORT"] = reasoning_effort
