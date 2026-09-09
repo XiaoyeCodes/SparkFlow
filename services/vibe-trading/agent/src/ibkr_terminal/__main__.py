@@ -64,7 +64,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--runtime-dir', type=Path, required=True)
     parser.add_argument('--bindings', type=Path)
+    parser.add_argument('--port', type=int, default=8765)
     args = parser.parse_args()
+    if not 1024 <= args.port <= 65535:
+        raise ValueError('bridge port must be between 1024 and 65535')
     bindings = [] if args.bindings is None else [AccountBinding.model_validate(value) for value in json.loads(args.bindings.read_text(encoding='utf-8'))]
     if len({value.mode for value in bindings}) != len(bindings):
         raise ValueError('first phase permits one explicitly configured account per mode')
@@ -85,7 +88,7 @@ def main():
     orders = OrderLedger(args.runtime_dir / 'orders.sqlite')
     orders.recover_inflight()
     strategy_runtime = StrategyRuntime(args.runtime_dir / 'strategy-runtime.sqlite', orders)
-    app = create_app(store=store, session_token=token, strategy_catalog=strategies,
+    app = create_app(store=store, session_token=token, port=args.port, strategy_catalog=strategies,
         backtest_archive=backtests, backtest_jobs=jobs, ai_consents=ai_consents, report_store=reports, report_jobs=report_jobs,
         market_data_store=market_data, strategy_runtime=strategy_runtime, paper_ledger=orders)
 
@@ -121,7 +124,7 @@ def main():
 
     app.router.lifespan_context = lifespan
     try:
-        uvicorn.run(app, host='127.0.0.1', port=8765, access_log=False)
+        uvicorn.run(app, host='127.0.0.1', port=args.port, access_log=False)
     finally:
         lease.close()
 

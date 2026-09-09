@@ -28,19 +28,20 @@ type BriefAttempt = { id: string; sessionDate: string | null; state: 'running' |
 type AccountRecord = { scheduleRuns?: Record<string, { at: string; error?: string }>; scheduleEffectiveAt?: Partial<Record<'brief' | 'analysis', string>>; briefs?: DailyBrief[]; briefAttempt?: BriefAttempt; snapshot: AccountSnapshot; preferences: Preferences; grant?: { fingerprint: string; at: string }; alerts: Alert[]; reports: AnalysisReport[]; jobs: AnalysisJob[]; usage: { at: string; kind: string }[]; lastDaily?: string; dailyAttempt?: { date: string; at: number }; lastEventSignature?: string; peakNav?: number; research?: Record<string, ResearchCheckpoint>; plans?: AdjustmentPlan[]; history?: PerformancePoint[]; performance?: PortfolioPerformance };
 type Saved = { version: 1; source: 'mcp' | 'gateway'; selectedKey?: string; records: Record<string, AccountRecord> };
 const safeUrl = (url: unknown) => { try { const u = new URL(String(url)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
-const gatewayConnectionDetails: Record<string, string> = {
-  GATEWAY_BRIDGE_NOT_STARTED: '未检测到 SparkFlow 本地桥接服务。请先启动 IBKR 只读桥接，页面会每 2 秒自动重试。',
-  GATEWAY_BRIDGE_PORT_CONFLICT: '本机 8765 端口已被其他服务占用，当前服务不是 SparkFlow IBKR 桥接。请释放端口后重新启动桥接。',
-  GATEWAY_BRIDGE_SESSION_MISSING: '已发现本地桥接服务，但当前项目缺少会话令牌。请从 SparkFlow 项目目录重新启动桥接。',
-  GATEWAY_BRIDGE_SESSION_EXPIRED: '本地桥接会话已失效。请重新启动 SparkFlow IBKR 桥接服务。',
-  GATEWAY_BRIDGE_UNAVAILABLE: '无法访问本地桥接服务 127.0.0.1:8765，页面会每 2 秒自动重试。',
-  GATEWAY_BRIDGE_INVALID_RESPONSE: '本地 8765 服务返回了不兼容的数据，请确认运行的是 SparkFlow IBKR 桥接。',
-  GATEWAY_ACCOUNT_UNCONFIGURED: '本地桥接已启动，但尚未绑定当前 Gateway 账户。完成绑定后会自动同步。',
-  GATEWAY_ACCOUNT_OFFLINE: '本地桥接已启动，正在等待 Gateway API Socket 与账户快照。',
-  GATEWAY_LIVE_SNAPSHOT_UNAVAILABLE: 'Gateway 尚未提供可用的实盘账户快照，页面会每 2 秒自动重试。',
-  ACCOUNT_SNAPSHOT_STALE: 'Gateway 账户快照已过期，正在等待最新同步。',
+const gatewayConnectionDetails: Record<string, (port: number) => string> = {
+  GATEWAY_BRIDGE_NOT_STARTED: port => `未检测到 SparkFlow 本地桥接服务（127.0.0.1:${port}）。请先启动 IBKR 只读桥接，页面会每 2 秒自动重试。`,
+  GATEWAY_BRIDGE_PORT_CONFLICT: port => `本机 ${port} 端口已被其他服务占用，当前服务不是 SparkFlow IBKR 桥接。请更换端口或释放占用后重新启动桥接。`,
+  GATEWAY_BRIDGE_SESSION_MISSING: () => '已发现本地桥接服务，但当前项目缺少会话令牌。请从 SparkFlow 项目目录重新启动桥接。',
+  GATEWAY_BRIDGE_SESSION_EXPIRED: () => '本地桥接会话已失效。请重新启动 SparkFlow IBKR 桥接服务。',
+  GATEWAY_BRIDGE_UNAVAILABLE: port => `无法访问本地桥接服务 127.0.0.1:${port}，页面会每 2 秒自动重试。`,
+  GATEWAY_BRIDGE_INVALID_RESPONSE: port => `本地 ${port} 服务返回了不兼容的数据，请确认运行的是 SparkFlow IBKR 桥接。`,
+  GATEWAY_BRIDGE_PORT_INVALID: () => '本地桥接端口配置无效，请设置为 1024–65535 之间的整数。',
+  GATEWAY_ACCOUNT_UNCONFIGURED: () => '本地桥接已启动，但尚未绑定当前 Gateway 账户。完成绑定后会自动同步。',
+  GATEWAY_ACCOUNT_OFFLINE: () => '本地桥接已启动，正在等待 Gateway API Socket 与账户快照。',
+  GATEWAY_LIVE_SNAPSHOT_UNAVAILABLE: () => 'Gateway 尚未提供可用的实盘账户快照，页面会每 2 秒自动重试。',
+  ACCOUNT_SNAPSHOT_STALE: () => 'Gateway 账户快照已过期，正在等待最新同步。',
 };
-const gatewayConnectionDetail = (error: unknown) => gatewayConnectionDetails[error instanceof Error ? error.message : ''] ?? 'Gateway 同步暂不可用，请检查本机桥接与 API Socket。';
+const gatewayConnectionDetail = (error: unknown, port: number) => gatewayConnectionDetails[error instanceof Error ? error.message : '']?.(port) ?? 'Gateway 同步暂不可用，请检查本机桥接与 API Socket。';
 export async function readBriefProfileFallback(directory: string, analysisAsOf: string): Promise<Evidence[]> {
   const cutoff = Date.parse(analysisAsOf); if (!Number.isFinite(cutoff)) return [];
   const date = new Date(cutoff).toISOString().slice(0, 10), profiles: Evidence[] = [];
@@ -129,6 +130,18 @@ export class IbkrWorkbenchService {
     const pending = this.writeQueue.then(() => atomicJson(path.join(this.directory, 'state.json'), value));
     this.writeQueue = pending.catch(() => {}); return pending;
   }
+  private async gatewayBridgePort() {
+    const configured = process.env.SPARKFLOW_IBKR_BRIDGE_PORT;
+    let raw = configured;
+    if (!raw) {
+      try { raw = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/bridge.port'), 'utf8')).trim(); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+    if (!raw) return 8765;
+    const port = Number(raw);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('GATEWAY_BRIDGE_PORT_INVALID');
+    return port;
+  }
   async tick() {
     if (this.storageError || this.disposed) return;
     if (Date.now() >= this.nextSync && (this.saved.source === 'gateway' || this.saved.selectedKey || this.mcp.status().authorized)) await this.sync();
@@ -175,17 +188,20 @@ export class IbkrWorkbenchService {
     if (this.storageError) throw new Error(this.storageError);
     if (this.syncFlight) return this.syncFlight;
     const revision = this.generation;
+    let gatewayPort = 8765;
     this.syncFlight = (async () => {
       try {
         let snapshot: AccountSnapshot;
         if (this.saved.source === 'mcp') snapshot = await this.mcp.snapshot(this.saved.selectedKey);
         else {
+          gatewayPort = await this.gatewayBridgePort();
+          const gatewayBase = `http://127.0.0.1:${gatewayPort}`;
           let token = '';
           try { token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim(); }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
             try {
-              const probe = await fetch('http://127.0.0.1:8765/api/ibkr-terminal/session', { signal: AbortSignal.timeout(1200) });
+              const probe = await fetch(`${gatewayBase}/api/ibkr-terminal/session`, { signal: AbortSignal.timeout(1200) });
               throw new Error(probe.status === 401 || probe.status === 403 ? 'GATEWAY_BRIDGE_SESSION_MISSING' : 'GATEWAY_BRIDGE_PORT_CONFLICT');
             } catch (probeError) {
               if (probeError instanceof Error && /^GATEWAY_/.test(probeError.message)) throw probeError;
@@ -193,7 +209,7 @@ export class IbkrWorkbenchService {
             }
           }
           let response: Response;
-          try { response = await fetch('http://127.0.0.1:8765/api/ibkr-terminal/snapshot?mode=live', { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }); }
+          try { response = await fetch(`${gatewayBase}/api/ibkr-terminal/snapshot?mode=live`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }); }
           catch { throw new Error('GATEWAY_BRIDGE_UNAVAILABLE'); }
           if (response.status === 401 || response.status === 403) throw new Error('GATEWAY_BRIDGE_SESSION_EXPIRED');
           if (response.status === 404) throw new Error('GATEWAY_BRIDGE_PORT_CONFLICT');
@@ -234,7 +250,7 @@ export class IbkrWorkbenchService {
         await this.persist();
       } catch (e) {
         this.failures++;
-        this.connectionDetail = this.saved.source === 'gateway' ? gatewayConnectionDetail(e) : e instanceof Error && /^[A-Z_]+$/.test(e.message) ? e.message : '同步暂不可用，请检查账户连接与本机服务。';
+        this.connectionDetail = this.saved.source === 'gateway' ? gatewayConnectionDetail(e, gatewayPort) : e instanceof Error && /^[A-Z_]+$/.test(e.message) ? e.message : '同步暂不可用，请检查账户连接与本机服务。';
         const record = this.record(); if (record) { record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: this.connectionDetail }; await this.persist(); }
       } finally { this.nextSync = Date.now() + Math.min(60000 * 2 ** Math.min(this.failures, 4), 900000); this.syncFlight = undefined; }
     })(); return this.syncFlight;

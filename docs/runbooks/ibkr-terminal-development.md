@@ -12,7 +12,7 @@
 & ./scripts/start-ibkr-terminal.ps1
 ```
 
-默认不读取连接配置、不连接券商。服务仅绑定 `127.0.0.1:8765`，无账户时返回 unconfigured。脚本为 `.sparkflow/ibkr-terminal` 设置当前 Windows 用户 ACL；SQLite、令牌均位于该目录，不提交 Git。结束该前台进程使用 Ctrl+C。
+默认不读取连接配置、不连接券商。服务默认绑定 `127.0.0.1:8765`，也可用 `-Port 18765` 或环境变量 `SPARKFLOW_IBKR_BRIDGE_PORT` 指定其他本机端口。脚本会把最终端口写入 `.sparkflow/ibkr-terminal/bridge.port`，账户工作台读取同一文件，因此不需要把端口写死在网页配置中。无账户时返回 unconfigured。脚本为 `.sparkflow/ibkr-terminal` 设置当前 Windows 用户 ACL；SQLite、令牌、端口文件均位于该目录，不提交 Git。结束该前台进程使用 Ctrl+C。
 
 另开终端启动已安装依赖的开发网页：
 
@@ -22,7 +22,7 @@ npx vite --host 127.0.0.1 --port 5180
 
 访问 `/ibkr`。Vite 仅代理已保护的只读接口，令牌不进入浏览器，不允许下载 `.sparkflow`。必须使用 127.0.0.1，而不是别名域名。`npm run dev` 仍保留项目原有 predev 准备流程。
 
-真实只读绑定尚待用户在官方客户端登录并提供配置；届时可显式传入 `-BindingFile`。文件为数组，每个模式首期只绑定一个账户，字段为 mode、accountKey、brokerAccount、confirmed:true、host:127.0.0.1、port、clientId（必须 >0）、readonly:true、baseCurrency。不放密码或 MFA。不要以端口或账户前缀推断授权。
+真实只读绑定尚待用户在官方客户端登录并启用 API Socket；届时可显式传入 `-BindingFile`。文件为数组，每个模式首期只绑定一个账户，字段为 mode、accountKey、brokerAccount、confirmed:true、host:127.0.0.1、port、clientId（必须 >0）、readonly:true、baseCurrency。不放密码或 MFA。可在 Gateway 登录完成且 Socket 已监听后运行 `services/vibe-trading/.venv/Scripts/python.exe scripts/configure-ibkr-gateway.py --runtime-dir .sparkflow/ibkr-terminal --gateway-port 4003 --mode live`，由只读 SDK 发现唯一受管账户并写入本机绑定；脚本不会打印账户号。不要以端口或账户前缀推断授权。
 
 live 写入没有可启用的开关。paper 另有受限人工路径：用户先确认当前 paper 账户的风险范围，再对每笔精确订单预览和确认；服务端才会创建原生 SDK dispatcher，并把回报交给受管订单账本。未完成用户确认、账户核对、实时成交报价、当日 PnL 或 Gateway API 写权限时，服务端拒绝发送。切换 LIVE 仍只是查看模式。SDK 的 clientId=0 会自动绑定外部订单，因此服务端禁止。
 
