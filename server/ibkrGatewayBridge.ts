@@ -58,7 +58,7 @@ export async function startSparkFlowBridge(root: string, preferredPort: number) 
   let child: ReturnType<typeof spawn>;
   try {
     child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-BindingFile', bindings, '-Port', String(port)], {
-      cwd: root, detached: true, windowsHide: true, stdio: ['ignore', stdout, stderr],
+      cwd: root, windowsHide: true, stdio: ['ignore', stdout, stderr],
     });
   } finally { closeSync(stdout); closeSync(stderr); }
   child.unref();

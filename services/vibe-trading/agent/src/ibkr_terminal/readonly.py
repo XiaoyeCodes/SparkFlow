@@ -151,8 +151,22 @@ class ReadonlyConnection:
         if self.binding.brokerAccount not in self._ib.managedAccounts():
             self.close()
             raise ValueError('configured account no longer returned by broker')
-        rows = [_account_value_to_dict(row) for row in await self._ib.accountSummaryAsync(self.binding.brokerAccount)]
-        rows = [row for row in rows if row['account'] == self.binding.brokerAccount]
+        summary_rows, account_read = await asyncio.gather(
+            self._ib.accountSummaryAsync(self.binding.brokerAccount),
+            self._ib.reqAccountSnapshotAsync(self.binding.brokerAccount))
+        summary_rows = [_account_value_to_dict(row) for row in summary_rows]
+        account_rows = [_account_value_to_dict(row) for row in account_read['values']]
+        # Account Summary omits CashBalance and does not carry the portfolio
+        # valuation rows. Prefer the scoped Account Updates read where both
+        # transports returned the same tag/currency.
+        merged_rows = {(row['tag'], row['currency']): row for row in summary_rows
+            if row['account'] == self.binding.brokerAccount}
+        merged_rows.update({(row['tag'], row['currency']): row for row in account_rows
+            if row['account'] == self.binding.brokerAccount})
+        rows = list(merged_rows.values())
+        account_keys = {(row['tag'], row['currency']) for row in account_rows
+            if row['account'] == self.binding.brokerAccount}
+        account_read_at = self._clock().isoformat()
         base = self.binding.baseCurrency
         if base is None:
             currencies = {row['currency'] for row in rows if row['tag'] == 'NetLiquidation'
@@ -164,11 +178,13 @@ class ReadonlyConnection:
         def metric(tag, field):
             matches = [row for row in rows if row['tag'] == tag and base and row['currency'] in ('BASE', base)]
             observed = self._summary_observed.get((tag, matches[0]['currency'])) if len(matches) == 1 else None
-            provenance[f'metrics.{field}'] = SourceStamp(source='ibkr.accountSummary', observedAt=observed)
+            from_updates = len(matches) == 1 and (tag, matches[0]['currency']) in account_keys
+            provenance[f'metrics.{field}'] = SourceStamp(source='ibkr.accountUpdates' if from_updates else 'ibkr.accountSummary',
+                observedAt=observed, requestCompletedAt=account_read_at if from_updates else None)
             return decimal_text(matches[0]['value']) if len(matches) == 1 else None
 
         positions = []
-        portfolio_rows = getattr(self._ib, 'portfolio', lambda: ())()
+        portfolio_rows = account_read['portfolio']
         portfolio = {_obj_get(_obj_get(row, 'contract'), 'conId'): row for row in portfolio_rows
             if _obj_get(row, 'account') == self.binding.brokerAccount}
         missing = ['quotes', 'execution-history-before-broker-window']
@@ -196,16 +212,25 @@ class ReadonlyConnection:
                 name=_obj_get(broker_contract, 'localSymbol') or contract['symbol'],
                 unrealizedPnl=decimal_text(_obj_get(entry, 'unrealizedPNL'))))
         cash_by_currency = {}
+        cash_sources = {}
+        cash_priority = {'CashBalance': 1, 'SettledCash': 2, 'TotalCashValue': 3}
         for row in rows:
-            if row['tag'] == 'CashBalance' and row['currency'] and row['currency'] != 'BASE':
+            currency = base if row['currency'] == 'BASE' else row['currency']
+            if row['tag'] in cash_priority and currency and len(currency) == 3 and currency.isalpha():
                 value = decimal_text(row['value'])
-                if value is not None:
-                    cash_by_currency[row['currency']] = CashBalance(currency=row['currency'], amount=value)
-        metrics = Metrics(**{field: metric(tag, field) for field, tag in {'netLiquidation': 'NetLiquidation', 'unrealizedPnl': 'UnrealizedPnL', 'buyingPower': 'BuyingPower', 'maintenanceMargin': 'MaintMarginReq'}.items()})
+                if value is not None and cash_priority[row['tag']] >= cash_priority.get(cash_sources.get(currency), 0):
+                    cash_by_currency[currency] = CashBalance(currency=currency, amount=value)
+                    cash_sources[currency] = row['tag']
+        metric_values = {field: metric(tag, field) for field, tag in {'netLiquidation': 'NetLiquidation', 'unrealizedPnl': 'UnrealizedPnL', 'buyingPower': 'BuyingPower', 'maintenanceMargin': 'MaintMarginReq'}.items()}
+        if metric_values['unrealizedPnl'] is None and positions and base and all(
+                row.currency == base and row.unrealizedPnl is not None for row in positions):
+            metric_values['unrealizedPnl'] = decimal_text(sum(Decimal(row.unrealizedPnl) for row in positions))
+            provenance['metrics.unrealizedPnl'] = SourceStamp(source='ibkr.portfolio', requestCompletedAt=account_read_at)
+        metrics = Metrics(**metric_values)
         for name in ('positions', 'orders', 'executions'):
             provenance[name] = SourceStamp(source=f'ibkr.{name}', requestCompletedAt=self._reconciled_at)
         for row in cash_by_currency.values():
-            provenance[f'cash.{row.currency}'] = SourceStamp(source='ibkr.accountSummary', observedAt=self._summary_observed.get(('CashBalance', row.currency)))
+            provenance[f'cash.{row.currency}'] = SourceStamp(source=f'ibkr.accountUpdates.{cash_sources[row.currency]}', requestCompletedAt=account_read_at)
         if base is None:
             missing.append('baseCurrency')
         missing.extend(key for key, value in metrics.model_dump().items() if value is None)

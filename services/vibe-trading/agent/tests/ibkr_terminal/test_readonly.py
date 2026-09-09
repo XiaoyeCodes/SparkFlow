@@ -26,7 +26,7 @@ class FakeIB:
         self.connects = []
         self.connected = False
         self.accounts = ['TEST-ACCOUNT', 'OTHER-ACCOUNT']
-        self.rows = [Item(account='TEST-ACCOUNT', tag='NetLiquidation', value='1234.56', currency='USD'), Item(account='OTHER-ACCOUNT', tag='NetLiquidation', value='999999', currency='USD'), Item(account='TEST-ACCOUNT', tag='CashBalance', value='100', currency='EUR')]
+        self.rows = [Item(account='TEST-ACCOUNT', tag='NetLiquidation', value='1234.56', currency='USD'), Item(account='OTHER-ACCOUNT', tag='NetLiquidation', value='999999', currency='USD'), Item(account='TEST-ACCOUNT', tag='CashBalance', value='100', currency='EUR'), Item(account='TEST-ACCOUNT', tag='CashBalance', value='90', currency='USD'), Item(account='TEST-ACCOUNT', tag='TotalCashValue', value='594.56', currency='USD')]
         self.accountSummaryEvent = FakeEvent()
         self.positionEvent = FakeEvent()
         self.disconnectedEvent = FakeEvent()
@@ -46,6 +46,11 @@ class FakeIB:
 
     async def accountSummaryAsync(self, account):
         return self.rows
+
+    async def reqAccountSnapshotAsync(self, account):
+        assert account == 'TEST-ACCOUNT'
+        return {'values': self.rows, 'portfolio': [Item(account='TEST-ACCOUNT',
+            contract=Item(conId=12), position=2, marketValue=640, unrealizedPNL=40)]}
 
     def positions(self):
         return [Item(account='TEST-ACCOUNT', contract=Item(conId=12, symbol='TEST', currency='USD'), position=2, avgCost=float('nan'))]
@@ -67,7 +72,11 @@ def test_persistent_connection_is_readonly_filters_account_and_closes(tmp_path, 
         state = session.snapshot()
         assert state.metrics.netLiquidation == '1234.56'
         assert state.positions[0].averageCost is None
+        assert state.positions[0].marketValue == '640'
+        assert state.positions[0].unrealizedPnl == '40'
+        assert state.metrics.unrealizedPnl == '40'
         assert state.cash[0].currency == 'EUR'
+        assert [(row.currency, row.amount) for row in state.cash] == [('EUR', '100'), ('USD', '594.56')]
         assert state.capabilities.placeOrders is False
         assert connection.healthy()
         assert len(fake.accountSummaryEvent.handlers) == 1
