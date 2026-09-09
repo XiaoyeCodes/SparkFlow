@@ -180,6 +180,33 @@ test('account settings submit only chosen preferences and consent fingerprint', 
   expect((sent as any)?.cashFloor).toBe(null);
 });
 
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  test(`authorized account selector uses the rounded terminal treatment at ${viewport.width}px`, async ({ page }) => {
+    const data = state(true);
+    data.connection.accounts = [
+      { key: data.snapshot.accountKey, label: 'IBKR 当前授权账户（账号未提供）' },
+      { key: 'live:secondary', label: 'IBKR 备用账户' },
+    ];
+    await page.setViewportSize(viewport);
+    await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+    await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: data.quotes }));
+    await page.goto('http://127.0.0.1:5187/ibkr');
+    if (viewport.width < 600) await page.getByRole('button', { name: '展开导航' }).click();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const picker = page.getByLabel('已授权账户');
+    const control = page.locator('.awb-account-picker-control');
+    await expect(picker).toBeVisible();
+    await expect(picker).toHaveValue(data.snapshot.accountKey);
+    await expect(control).toHaveCSS('border-radius', '13px');
+    await control.hover();
+    await picker.focus();
+    await expect(picker).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await mkdir('tmp/workbench-qa', { recursive: true });
+    await page.screenshot({ path: `tmp/workbench-qa/account-picker-${viewport.width}.png`, fullPage: true });
+  });
+}
+
 test('risk evidence opens archived report and PDF export produces a download', async ({ page }) => {
   const data = state(true); const id = '12345678-1234-4234-8234-123456789abc';
   const report: AnalysisReport = { id, accountKey: data.snapshot.accountKey, snapshotId: data.snapshot.snapshotId, snapshotHash: 'a'.repeat(64), generatedAt: '2026-09-04T21:00:00Z', provider: 'fixture', model: 'offline-test', kind: 'manual', snapshot: data.snapshot, evidence: [], quotes: data.quotes, content: { brief: '工程测试报告，非真实投资建议。', accountSummary: '账户数据摘要', portfolioRisk: '测试持仓风险', marketContext: '外部证据缺失', holdings: [], opportunities: [], risks: ['需要核对现金缓冲'], actions: [], gaps: ['缺少真实市场证据'] } };

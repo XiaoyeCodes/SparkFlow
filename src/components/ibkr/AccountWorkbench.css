@@ -212,3 +212,22 @@
 .awb-brand b{font-size:17px;line-height:1.05;letter-spacing:-.45px;color:#eff8f3}
 .awb-brand small{margin-top:5px;line-height:1.25;letter-spacing:1.25px;color:#8fa99b}
 @media(prefers-reduced-motion:reduce){.awb-brand>span{transition:none}.awb-brand:hover>span{transform:none}}
+
+/* Authorized account terminal selector. */
+.awb-settings-grid .awb-account-picker{display:grid;gap:8px;margin-top:18px;color:#9fb4a9;font-size:11px}
+.awb-account-picker>span{display:flex;align-items:center;gap:7px;color:#83a496;font:600 10px/1.2 "JetBrains Mono",monospace;letter-spacing:.12em;text-transform:uppercase}
+.awb-account-picker>span:before{content:"";width:14px;height:1px;background:linear-gradient(90deg,var(--analysis-mint),transparent);box-shadow:0 0 8px rgba(53,224,161,.35)}
+.awb-account-picker-control{position:relative;isolation:isolate;overflow:hidden;border:1px solid rgba(72,176,133,.3);border-radius:13px;background:linear-gradient(135deg,rgba(20,45,34,.95),rgba(6,15,11,.98) 54%,rgba(9,27,20,.96));box-shadow:inset 0 0 0 1px rgba(156,255,214,.025),inset 0 12px 30px rgba(27,93,65,.07),0 8px 24px rgba(0,0,0,.18);transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease}
+.awb-account-picker-control:before{content:"";position:absolute;z-index:-1;inset:-80% 65% -80% -20%;background:linear-gradient(105deg,transparent,rgba(80,255,184,.07),transparent);transform:translateX(-80%);transition:transform .55s ease;pointer-events:none}
+.awb-account-picker-control:after{content:"";position:absolute;right:17px;top:50%;width:7px;height:7px;border-right:1.5px solid #77d8af;border-bottom:1.5px solid #77d8af;transform:translateY(-68%) rotate(45deg);pointer-events:none;transition:transform .18s ease,border-color .18s ease}
+.awb-account-picker-control:hover{border-color:rgba(81,220,163,.54);box-shadow:inset 0 0 0 1px rgba(146,255,209,.04),inset 0 12px 30px rgba(27,93,65,.1),0 10px 30px rgba(0,0,0,.22),0 0 18px rgba(53,224,161,.07)}
+.awb-account-picker-control:hover:before{transform:translateX(280%)}
+.awb-account-picker-control:focus-within{border-color:rgba(99,233,178,.82);box-shadow:inset 0 0 0 1px rgba(138,255,206,.11),0 0 0 3px rgba(53,224,161,.09),0 12px 34px rgba(0,0,0,.24),0 0 20px rgba(53,224,161,.09);transform:translateY(-1px)}
+.awb-account-picker-control:focus-within:after{border-color:#a5f8d4;transform:translateY(-35%) rotate(225deg)}
+.awb-account-picker-control select{position:relative;z-index:1;width:100%;height:52px;margin:0;padding:0 46px 0 80px;border:0;border-radius:13px;outline:0;appearance:none;background:transparent;color:#dbeae3;font:600 12px/1.2 "JetBrains Mono",monospace;letter-spacing:.01em;cursor:pointer}
+.awb-account-picker-control select:focus{box-shadow:none}
+.awb-account-picker-control select option{background:#0a1510;color:#dbeae3}
+.awb-account-picker-signal{position:absolute;z-index:2;left:13px;top:50%;display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid rgba(53,224,161,.2);border-radius:999px;background:rgba(53,224,161,.07);color:#62dbaa;font:600 8px/1 "JetBrains Mono",monospace;letter-spacing:.12em;transform:translateY(-50%);pointer-events:none}
+.awb-account-picker-signal i{display:block;width:5px;height:5px;border-radius:50%;background:#4be0a5;box-shadow:0 0 0 3px rgba(75,224,165,.08),0 0 7px rgba(75,224,165,.35)}
+@media(max-width:420px){.awb-account-picker-control select{height:50px;padding-left:74px;font-size:11px}.awb-account-picker-signal{left:10px;padding:5px 7px}}
+@media(prefers-reduced-motion:reduce){.awb-account-picker-control,.awb-account-picker-control:before,.awb-account-picker-control:after{transition:none}.awb-account-picker-control:focus-within{transform:none}}
