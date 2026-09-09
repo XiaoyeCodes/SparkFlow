@@ -48,3 +48,18 @@ test('overview shows truthful manual-or-scheduled empty state and analysis progr
   await expect(panel).toContainText('每日定时未开启');
   await expect(panel.getByRole('button', { name: '查看分析进度' })).toBeVisible();
 });
+
+test('incomplete notice is hidden after a report is completed today and shown for an older report', async ({ page }) => {
+  const data = makeState();
+  data.jobs = [{ id: 'later-incomplete-task', kind: 'manual', state: 'partial', startedAt: new Date(Date.parse(data.reports[0].generatedAt) + 60_000).toISOString() }];
+  await page.route('**/api/ibkr-workbench/**', route => route.fulfill({ json: route.request().url().endsWith('/state') ? data : [] }));
+  await page.goto('http://127.0.0.1:5187/ibkr');
+  const panel = page.getByRole('region', { name: '今日分析结论' });
+  await expect(panel).toContainText('现金缓冲偏低，今天先控制集中度');
+  await expect(panel.locator('.awb-brief-notice')).toHaveCount(0);
+  data.reports[0].generatedAt = new Date(Date.now() - 86_400_000).toISOString();
+  data.jobs = [];
+  await page.reload();
+  await expect(panel.locator('.awb-brief-notice')).toHaveText('今日账户分析尚未完成，可前往 AI 分析继续。');
+  await expect(panel.getByRole('button', { name: '前往 AI 分析' })).toBeVisible();
+});
