@@ -72,3 +72,15 @@ export function normalizePerformance(raw:any, description:string, currency:strin
  return {points,inception,source:'IBKR PortfolioAnalyst',currency,returnMethod:method,benchmark:'SPY',fetchedAt:new Date().toISOString(),note:method==='TWR'?'IBKR 时间加权收益；基准仅比较共同交易日期。':method==='MWR'?'IBKR 资金加权收益；受现金流时点影响，不进行区间重基或基准比较。':'历史净值可用，收益口径尚未核实。'};
 }
 export function localPerformance(points: PerformancePoint[], currency: string|null): PortfolioPerformance {return {points,source:'本地账户快照',currency,returnMethod:null,benchmark:'SPY',fetchedAt:points.at(-1)?.date??null,note:'净值变化包含出入金；收益口径未核实，不计算收益或超额表现。'};}
+export function samePortfolioIdentity(gateway: AccountSnapshot, mcp: AccountSnapshot) {
+ if (!gateway.baseCurrency || gateway.baseCurrency !== mcp.baseCurrency || !gateway.positions.length || gateway.positions.length !== mcp.positions.length) return false;
+ const signature=(snapshot:AccountSnapshot)=>snapshot.positions.map(row=>{
+  const quantity=numeric(row.quantity);
+  return quantity===null?null:`${row.conId}:${row.symbol}:${row.currency}:${quantity}`;
+ }).sort();
+ const left=signature(gateway),right=signature(mcp);
+ if(left.some(value=>value===null)||right.some(value=>value===null)||JSON.stringify(left)!==JSON.stringify(right))return false;
+ const gatewayNav=numeric(gateway.metrics.netLiquidation),mcpNav=numeric(mcp.metrics.netLiquidation);
+ if(gatewayNav===null||mcpNav===null)return false;
+ return Math.abs(gatewayNav-mcpNav)<=Math.max(.05,Math.abs(gatewayNav)*.005);
+}

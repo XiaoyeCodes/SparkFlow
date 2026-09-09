@@ -15,6 +15,24 @@ test('OAuth landing distinguishes authorization from data sync and never reflect
   assert.match(oauthCallbackPage(true, false, 'MCP_ACCOUNTS_TOOL_UNSUPPORTED'), /返回账户工作台/);
   assert.ok(!oauthCallbackPage(false, false, '<script>secret-token</script>').includes('secret-token'));
 });
+test('gateway performance imports PortfolioAnalyst history only after MCP portfolio verification', async () => {
+  const f=await fixture();
+  try{
+    f.service.saved.source='gateway';f.record.preferences.benchmark='none';
+    const position={conId:12,symbol:'AAPL',currency:'USD',position:2,marketValue:500,unrealizedPnl:20};
+    f.record.snapshot=normalizeMcpSnapshot('GATEWAY_ACCOUNT',[position],{baseCurrency:'USD',netLiquidation:1000,cash:[{currency:'USD',amount:500}]});
+    const official=normalizeMcpSnapshot('MCP_ACCOUNT',[position],{baseCurrency:'USD',netLiquidation:1002,cash:[{currency:'USD',amount:502}]});
+    f.service.mcp.snapshot=async()=>official;
+    let performanceKey='';
+    f.service.mcp.performance=async key=>{performanceKey=key;return {description:'cumulative returns expressed as fractions',data:{portfolio_measure:'TWR',accounts:{verified:{base_currency:'USD',start:'20260908',end:'20260909',periods:{'1Y':{start_date:'20260101',start_nav:100,dates:['20260908','20260909'],nav:[1000,1002],cps:[0,.002]}}}}}};};
+    const imported=await f.service.performance();
+    assert.equal(performanceKey,official.accountKey);assert.equal(imported.source,'IBKR PortfolioAnalyst');assert.match(imported.note,/核验一致/);
+    f.record.performance=undefined;performanceKey='';
+    f.service.mcp.snapshot=async()=>({...official,positions:[{...official.positions[0],quantity:'3'}]});
+    const rejected=await f.service.performance();
+    assert.equal(performanceKey,'');assert.equal(rejected.source,'本地账户快照');assert.match(rejected.note,/官方历史暂不可用/);
+  }finally{await f.service.close();}
+});
 async function fixture() {
   await mkdir('tmp/workbench-service', { recursive: true }); const dir = await mkdtemp(path.resolve('tmp/workbench-service/run-'));
   const service = new IbkrWorkbenchService(process.cwd(), dir, async () => ({ data: { diff: [] } }), async () => ({}));

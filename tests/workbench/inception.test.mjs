@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePerformance, comparePerformance, localPerformance } from '../../server/ibkrPortfolio.ts';
+import { normalizePerformance, comparePerformance, localPerformance, samePortfolioIdentity } from '../../server/ibkrPortfolio.ts';
 
 const description = 'cumulative returns expressed as fractions';
 function fixture() {
@@ -35,4 +35,11 @@ test('unknown return units are withheld; MWR and zero returns retain their expli
   assert.match(normalize(raw).inception.note, /资金加权/);
   raw.accounts.account.periods.YTD.cps[1] = raw.accounts.account.periods['1Y'].cps[1] = 0;
   assert.equal(normalize(raw).inception.value, 0);
+});
+test('gateway history can reuse MCP only after current portfolio identity matches', () => {
+  const snapshot=(accountKey,quantity='2',nav='1000')=>({accountKey,baseCurrency:'USD',metrics:{netLiquidation:nav},positions:[{conId:12,symbol:'AAPL',currency:'USD',quantity}]});
+  assert.equal(samePortfolioIdentity(snapshot('gateway'),snapshot('mcp','2','1004.99')),true);
+  assert.equal(samePortfolioIdentity(snapshot('gateway'),snapshot('mcp','3')),false);
+  assert.equal(samePortfolioIdentity(snapshot('gateway'),snapshot('mcp','2','1005.01')),false);
+  assert.equal(samePortfolioIdentity({...snapshot('gateway'),positions:[]},snapshot('mcp')),false);
 });

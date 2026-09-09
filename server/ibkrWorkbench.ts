@@ -17,7 +17,7 @@ import { IbkrProfiles, type ProfileBatchFetcher } from './ibkrProfiles.ts';
 import { createIbkrAi } from './ibkrAi.ts';
 import { accountRisk, defaults, digest, newYorkClock, preferencesSchema } from './ibkrWorkbenchCore.ts';
 import { createResearch, runResearch, researchFailure, type ResearchCheckpoint } from './ibkrResearch.ts';
-import { portfolioMetrics, localPerformance, comparePerformance, normalizePerformance, simulatePlan, planSchema } from './ibkrPortfolio.ts';
+import { portfolioMetrics, localPerformance, comparePerformance, normalizePerformance, samePortfolioIdentity, simulatePlan, planSchema } from './ibkrPortfolio.ts';
 import type { AdjustmentPlan, PortfolioPerformance, PerformancePoint } from '../src/lib/ibkr/workbenchTypes.ts';
 import { emptySnapshot } from '../src/lib/ibkr/store.ts';
 import { validSnapshot } from '../src/lib/ibkr/events.ts';
@@ -506,8 +506,16 @@ export class IbkrWorkbenchService {
     if(record.performance?.inception&&record.performance.fetchedAt&&Date.now()-Date.parse(record.performance.fetchedAt)<900000 && record.performance.source==='IBKR PortfolioAnalyst')return record.performance;
     this.performanceFlight=(async()=>{
       let result=localPerformance(record.history??[],record.snapshot.baseCurrency);
-      if(this.saved.source==='mcp')try{const raw=await this.mcp.performance(record.snapshot.accountKey);const data=raw.data;
+      try{
+        let performanceKey=record.snapshot.accountKey;
+        if(this.saved.source==='gateway'){
+          const official=await this.mcp.snapshot();
+          if(!samePortfolioIdentity(record.snapshot,official))throw new Error('MCP_GATEWAY_ACCOUNT_MISMATCH');
+          performanceKey=official.accountKey;
+        }
+        const raw=await this.mcp.performance(performanceKey);const data=raw.data;
         result=normalizePerformance(data,raw.description??'',record.snapshot.baseCurrency);
+        if(this.saved.source==='gateway')result.note+=' Gateway 与 MCP 当前持仓及净值核验一致。';
       }catch{result.note+=' 官方历史暂不可用，继续积累本地快照。';}
       const benchmark=record.preferences.benchmark??'SPY';result.benchmark=benchmark;
       if(benchmark!=='none'&&result.returnMethod)try{const bm=await this.ai.tool('benchmark',{symbol:benchmark});if(bm.adjusted&&bm.currency===result.currency){result=comparePerformance(result,bm.rows,benchmark);result.benchmarkSource=bm.source;result.benchmarkFetchedAt=new Date().toISOString();}}catch{result.note+=' 基准来源暂不可用。';}
