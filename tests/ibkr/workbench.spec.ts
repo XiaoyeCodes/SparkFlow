@@ -202,6 +202,41 @@ for (const scenario of [
   });
 }
 
+test('gateway settings auto-detect every two seconds and publish the live connection state', async ({ page }) => {
+  const data = state();
+  data.source = 'gateway';
+  data.connection.state = 'unconfigured';
+  data.connection.detail = '未检测到 SparkFlow 本地桥接服务。';
+  const probes: number[] = [];
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/sync', async route => {
+    probes.push(Date.now());
+    await new Promise(resolve => setTimeout(resolve, 800));
+    if (probes.length >= 2) {
+      const connected = state(true);
+      Object.assign(data, connected, { source: 'gateway' });
+      data.connection.detail = '本机只读账户通道工作正常。';
+    }
+    await route.fulfill({ json: data });
+  });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
+  const console = page.locator('.awb-connection-console');
+  await expect.poll(() => probes.length).toBe(1);
+  await expect(console).toHaveAttribute('data-connection-state', 'connecting');
+  await expect(console.getByText('正在检测本机通道', { exact: true })).toBeVisible();
+  await expect(console.getByText('页面停留期间每 2 秒自动检测并同步', { exact: true })).toBeVisible();
+  await expect.poll(() => probes.length, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
+  expect(probes[1] - probes[0]).toBeGreaterThanOrEqual(1900);
+  await expect(console).toHaveAttribute('data-connection-state', 'connected');
+  await expect(console.getByText('Gateway 已连接', { exact: true })).toBeVisible();
+  await expect(console.locator('.awb-connection-badge')).toContainText(/已连接|同步中/);
+  const count = probes.length;
+  await page.getByRole('button', { name: '账户总览', exact: true }).click();
+  await page.waitForTimeout(2300);
+  expect(probes).toHaveLength(count);
+});
+
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
   test(`authorized account selector uses the rounded terminal treatment at ${viewport.width}px`, async ({ page }) => {
     const data = state(true);

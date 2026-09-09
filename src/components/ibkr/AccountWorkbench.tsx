@@ -47,6 +47,9 @@ export function AccountWorkbench() {
   const [error, setError] = useState(''); const [busy, setBusy] = useState(''); const [exporting, setExporting] = useState(false); const [question, setQuestion] = useState(''); const [search, setSearch] = useState('');
   const [holdingSort, setHoldingSort] = useState<HoldingSort | null>(null);
   const [holdingsRange, setHoldingsRange] = useState<HoldingsRange>(90);
+  const [gatewayChecking, setGatewayChecking] = useState(false);
+  const [gatewayCheckedAt, setGatewayCheckedAt] = useState<string | null>(null);
+  const [gatewayProbeError, setGatewayProbeError] = useState('');
   const [menu,setMenu]=useState(false); const [filter,setFilter]=useState('all'); const [chosenAlert,setChosenAlert]=useState<Alert>(); const [chosenPlan,setChosenPlan]=useState<AdjustmentPlan>(); const [reportId,setReportId]=useState<string>();const [planReportId,setPlanReportId]=useState<string>();const [selectedJobId,setSelectedJobId]=useState<string>();
   const revision = useRef(0);
   const refresh = useCallback(async () => { const current = ++revision.current; const value = await request<WorkbenchState>('state'); if (current === revision.current) setState(value); }, []);
@@ -55,6 +58,28 @@ export function AccountWorkbench() {
     const poll = async () => { try { const current = ++revision.current; const value = await request<WorkbenchState>('state', undefined, controller.signal); if (!disposed && current === revision.current) setState(value); if (!document.hidden && value.snapshot.snapshotId) { const quotes = await request<MarketQuote[]>('quotes', undefined, controller.signal); if (!disposed && current === revision.current) setState(previous => previous?.snapshot.accountKey === value.snapshot.accountKey ? { ...previous, quotes } : previous); } } catch (e) { if (!disposed) setError(e instanceof Error ? e.message : '无法连接账户服务'); } finally { if (!disposed) timer = setTimeout(poll, document.hidden ? 15000 : 5000); } };
     void poll(); return () => { disposed = true; ++revision.current; controller.abort(); clearTimeout(timer); };
   }, []);
+  useEffect(() => {
+    if (tab !== 'settings' || state?.source !== 'gateway') { setGatewayChecking(false); return; }
+    const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>; let disposed = false;
+    const probe = async () => {
+      if (disposed) return;
+      if (!document.hidden) {
+        setGatewayChecking(true); setGatewayProbeError('');
+        try {
+          const current = ++revision.current;
+          const value = await request<WorkbenchState>('sync', {}, controller.signal);
+          if (!disposed && current === revision.current) setState(value);
+        } catch (e) {
+          if (!disposed && !controller.signal.aborted) setGatewayProbeError(e instanceof Error ? e.message : '本机通道检测失败');
+        } finally {
+          if (!disposed) { setGatewayChecking(false); setGatewayCheckedAt(new Date().toISOString()); }
+        }
+      }
+      if (!disposed) timer = setTimeout(probe, 2000);
+    };
+    void probe();
+    return () => { disposed = true; controller.abort(); clearTimeout(timer); setGatewayChecking(false); };
+  }, [tab, state?.source]);
   const act = async (name: string, endpoint: string, payload: unknown = {}) => {
     if (busy) return; setBusy(name); setError('');
     try { await request(endpoint, payload); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : '操作失败'); } finally { setBusy(''); }
@@ -108,7 +133,7 @@ export function AccountWorkbench() {
   {tab==='holdings'&&<><HoldingsAnalytics snapshot={state.snapshot} performance={state.performance} range={holdingsRange} onRange={setHoldingsRange}/>{holdingsTable(false)}<div className="awb-secondary-metrics"><span>购买力 <b>{money(snapshot?.metrics.buyingPower)} {currency}</b></span><span>维持保证金 <b>{money(snapshot?.metrics.maintenanceMargin)} {currency}</b></span><span>最大单一仓位 <b>{pct(state.metrics?.topWeight)}</b></span></div></>}
   {tab==='reports'&&<AnalysisWorkspace state={state} report={activeReport} task={task?.state==='completed'?undefined:task} running={running} busy={Boolean(busy)} canAnalyze={canAnalyze} question={question} onQuestion={setQuestion} onAsk={()=>{if(question.trim()){void act('chat','analyze',{question});setQuestion('');}}} onStart={()=>void act('analyze','analyze')} onTaskAction={job=>void act('job',job.state==='running'?'cancel':(job.progress?.modelCalls??0)===0?'resume':'retry',{id:job.id})} onSelectTask={setSelectedJobId} onSelect={r=>setReportId(r.id)} onCloseReport={()=>setReportId(undefined)} onPlan={()=>{setChosenAlert(undefined);setChosenPlan(undefined);setPlanReportId(activeReport?.id);navigate('alerts');}}/>}
   {tab==='alerts'&&<><div className="awb-filter">{[['all','全部'],['opportunity','机会'],['risk','风险'],['watch','已关注'],['resolved','已处理']].map(([key,label])=><button aria-pressed={filter===key} key={key} onClick={()=>setFilter(key)}>{label} <small>{state.alerts.filter(a=>key==='all'||key==='watch'&&a.watched||key==='resolved'&&a.resolved||a.kind===key).length}</small></button>)}</div><div className="awb-risk-grid"><div className="awb-stack">{state.alerts.filter(a=>filter==='all'||filter==='watch'&&a.watched||filter==='resolved'&&a.resolved||a.kind===filter).map(a=><article className={`awb-panel awb-risk-card ${a.resolved?'resolved':''} ${chosenAlert?.id===a.id?'selected':''}`} key={a.id}><span className={`awb-tag ${a.kind==='risk'?'attention':''}`}>{a.kind==='risk'?'优先关注':a.kind==='opportunity'?'机会观察':'事件提醒'}</span><h2>{a.title}</h2><p className="awb-affected">影响资产　{a.symbols.join(' · ')||'整体组合'}</p><p>{a.detail}</p>{a.trigger&&<p>触发条件　{a.trigger}</p>}<div className="awb-risk-card-actions"><small>{a.resolved?'已处理':a.read?'已读':'未读'} · {time(a.createdAt)}</small><button onClick={()=>void act('alert','alerts',{id:a.id,action:'watch'})}>{a.watched?'取消关注':'加入观察'}</button>{!a.resolved&&<button onClick={()=>void act('alert','alerts',{id:a.id,action:'resolve'})}>已处理</button>}<button className="awb-outline" onClick={()=>{setChosenAlert(a);setChosenPlan(undefined);void act('alert','alerts',{id:a.id,action:'read'});}}>查看调整计划</button></div>{a.reportId&&<button onClick={()=>{if(state.reports.some(r=>r.id===a.reportId)){setReportId(a.reportId);navigate('reports');}else void request<AnalysisReport>(`reports/${a.reportId}/json`).then(setReport).catch(()=>setError('报告暂不可用'));}}>查看证据与报告 <ArrowUpRight size={13}/></button>}</article>)}{!state.alerts.length&&<section className="awb-panel awb-empty">暂无提醒，可在右侧制定自己的计划。</section>}{!!state.plans?.length&&<section className="awb-panel"><h2>已保存计划</h2>{state.plans.map(p=><button className="awb-saved-plan" key={p.id} onClick={()=>{setChosenPlan(p);setChosenAlert(undefined);}}><span>{p.title}</span><small>{{watching:'观察中',triggered:'条件满足',handled:'已处理',invalidated:'已失效'}[p.status]}</small><ChevronRight size={14}/></button>)}</section>}</div><aside><PlanPanel key={chosenPlan?.id??chosenAlert?.id??planReportId??'new'} reportId={planReportId} state={state} alert={chosenAlert} existing={chosenPlan} onSaved={refresh}/></aside></div></>}
-  {tab==='settings'&&<WorkbenchSettings state={state} busy={busy} act={act} connect={connect}/>}</>}
+  {tab==='settings'&&<WorkbenchSettings state={state} busy={busy} act={act} connect={connect} gatewayProbe={{checking:gatewayChecking,checkedAt:gatewayCheckedAt,error:gatewayProbeError}}/>}</>}
   {tab!=='overview'&&tab!=='holdings'&&tab!=='valuation'&&<footer className="awb-footer"><span><ShieldCheck size={13}/>真实账户只读 · 操作建议由你审核</span><span>本机服务运行期间持续更新</span></footer>}</div>
   {holding&&<div className="awb-overlay" onClick={()=>setSelected(null)}><aside className="awb-drawer" role="dialog" aria-modal="true" aria-label={`${holding.symbol} 持仓详情`} onClick={e=>e.stopPropagation()}><button className="awb-close" onClick={()=>setSelected(null)} aria-label="关闭持仓详情"><X/></button><span className="awb-eyebrow">HOLDING DETAIL</span><h1>{holding.symbol}</h1><p>{holding.name??holding.symbol} · {holdingIndustryDetails(holding)}</p><div className="awb-detail-metrics"><div><small>持仓数量</small><b>{formatQuantity(holding.quantity)}</b></div><div><small>券商成本</small><b>{money(holding.averageCost)}</b></div><div><small>券商市值</small><b>{money(holding.marketValue)}</b></div></div><HoldingChart holding={holding} quote={state?.quotes.find(q=>q.conId===holding.conId)}/><Fundamentals holding={holding} report={latest}/><HoldingViews holding={holding} report={latest}/><h2>关联证据</h2>{latest?.evidence.filter(e=>e.symbols.includes(holding.symbol)).map(e=><a className="awb-detail-evidence" key={e.id} href={e.url} target="_blank" rel="noreferrer">{e.title}<small>{e.source} · 发布 {e.publishedAt?time(e.publishedAt):'未核实'}</small></a>)}</aside></div>}{report&&<ReportModal report={report} close={()=>setReport(null)}/>}</main>;
 }
@@ -150,7 +175,9 @@ function AccountPicker({ accounts, value, connected, disabled, onChange }: { acc
   </div>;
 }
 
-function ConnectionSettings({ state, busy, act, connect }: { state: WorkbenchState; busy: string; act: (name: string, endpoint: string, data?: unknown) => Promise<void>; connect: () => Promise<void> }) {
+type GatewayProbe = { checking: boolean; checkedAt: string | null; error: string };
+
+function ConnectionSettings({ state, busy, act, connect, gatewayProbe }: { state: WorkbenchState; busy: string; act: (name: string, endpoint: string, data?: unknown) => Promise<void>; connect: () => Promise<void>; gatewayProbe: GatewayProbe }) {
   const connecting = busy === 'connect' || state.connection.state === 'connecting';
   const connected = !connecting && state.connection.state === 'connected';
   const phase = connecting ? 'connecting' : connected ? 'connected' : 'disconnected';
@@ -178,16 +205,36 @@ function ConnectionSettings({ state, busy, act, connect }: { state: WorkbenchSta
       </div>
       {state.connection.accounts.length > 0 ? <AccountPicker accounts={state.connection.accounts} value={state.snapshot.accountKey} connected={connected} disabled={!!busy} onChange={accountKey => void act('source', 'source', { source: 'mcp', accountKey })} /> : connected && <div className="awb-connection-account"><Radio size={14} /><span>只读账户通道已建立</span><b>{state.snapshot.baseCurrency || 'IBKR'}</b></div>}
     </div>}
-    {state.source === 'gateway' && <div className="awb-connection-console is-disconnected"><header className="awb-connection-console-head"><span className="awb-connection-state-icon"><Radio size={20} /></span><div><small>LOCAL READ-ONLY CHANNEL</small><strong>TWS / Gateway</strong><p>请在本机运行原有 IBKR 只读服务并登录实盘账户。账户来源不会自动切换。</p></div><span className="awb-connection-badge"><i />本机通道</span></header></div>}
+    {state.source === 'gateway' && (() => {
+      const gatewayConnected = state.connection.state === 'connected';
+      const gatewayConnecting = !gatewayConnected && (gatewayProbe.checking || state.connection.state === 'connecting');
+      const gatewayPhase = gatewayConnected ? 'connected' : gatewayConnecting ? 'connecting' : 'disconnected';
+      const GatewayIcon = gatewayConnected ? CircleCheck : gatewayConnecting ? LoaderCircle : WifiOff;
+      const gatewayCopy = gatewayConnected
+        ? { kicker: 'LOCAL CHANNEL ONLINE', title: 'Gateway 已连接', badge: gatewayProbe.checking ? '同步中' : '已连接', detail: state.connection.detail || '本机只读账户通道工作正常。' }
+        : gatewayConnecting
+          ? { kicker: 'SCANNING LOCAL CHANNEL', title: '正在检测本机通道', badge: '检测中', detail: '正在检测桥接服务与 Gateway 账户快照，连接成功后会自动同步。' }
+          : { kicker: 'LOCAL CHANNEL OFFLINE', title: 'Gateway 尚未连接', badge: '未连接', detail: gatewayProbe.error || state.connection.detail || '等待本机桥接服务与 Gateway API Socket 就绪。' };
+      return <div className={`awb-connection-console is-${gatewayPhase}`} data-connection-state={gatewayPhase} aria-live="polite">
+        <header className="awb-connection-console-head">
+          <span className="awb-connection-state-icon"><GatewayIcon size={20} className={gatewayProbe.checking ? 'awb-spin' : ''} /></span>
+          <div><small>{gatewayCopy.kicker}</small><strong>{gatewayCopy.title}</strong><p>{gatewayCopy.detail}</p></div>
+          <span className="awb-connection-badge"><i />{gatewayCopy.badge}</span>
+        </header>
+        <div className="awb-connection-route" aria-hidden="true"><span className={gatewayPhase !== 'disconnected' ? 'is-active' : ''}>GATEWAY</span><i className={gatewayPhase !== 'disconnected' ? 'is-active' : ''}/><span className={gatewayPhase === 'connected' ? 'is-active' : gatewayPhase === 'connecting' ? 'is-pending' : ''}>LOCAL BRIDGE</span><i className={gatewayPhase === 'connected' ? 'is-active' : ''}/><span className={gatewayPhase === 'connected' ? 'is-active' : ''}>SPARKFLOW</span></div>
+        <div className="awb-gateway-monitor"><span><Radio size={13}/>页面停留期间每 2 秒自动检测并同步</span><small>{gatewayProbe.checkedAt ? `最近检测 ${new Date(gatewayProbe.checkedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : '准备首次检测'}</small></div>
+        <div className="awb-connection-actions"><button className={`awb-connect-primary ${gatewayPhase === 'disconnected' ? 'primary' : ''}`} disabled={!!busy || gatewayProbe.checking} onClick={() => void act('gateway-sync', 'sync')}><RefreshCw size={15} className={gatewayProbe.checking ? 'awb-spin' : ''}/>{gatewayProbe.checking ? '正在检测…' : '立即检测并同步'}</button></div>
+      </div>;
+    })()}
     <details className="awb-diagnostics"><summary>MCP 接入诊断</summary><p>服务器地址 https://api.ibkr.com/v1/api/mcp-public</p><p>仅申请 mcp.read 与账户标识权限。登录成功后核验工具和字段；不支持的结构会明确显示错误。</p>{state.connection.tools.map(t => <p key={t.name}><code>{t.name}</code> {t.description}</p>)}</details>
   </section>;
 }
 
-function WorkbenchSettings({ state, busy, act, connect }: { state: WorkbenchState; busy: string; act: (name: string, endpoint: string, data?: unknown) => Promise<void>; connect: () => Promise<void> }) {
+function WorkbenchSettings({ state, busy, act, connect, gatewayProbe }: { state: WorkbenchState; busy: string; act: (name: string, endpoint: string, data?: unknown) => Promise<void>; connect: () => Promise<void>; gatewayProbe: GatewayProbe }) {
   const [preferences, setPreferences] = useState<Preferences>(state.preferences);
   useEffect(() => setPreferences(state.preferences), [state.snapshot.accountKey]);
   const field = (key: 'targetWeight' | 'cashFloor' | 'maxDrawdown', label: string) => <label>{label}<div className="awb-input-unit"><input type="number" min="0" max="100" step="1" value={preferences[key] === null ? '' : Number((preferences[key]! * 100).toFixed(2))} placeholder="尚未设置" onChange={e => setPreferences({ ...preferences, [key]: e.target.value === '' ? null : Number(e.target.value) / 100 })} />%</div></label>;
-  return <div className="awb-settings-grid"><ConnectionSettings state={state} busy={busy} act={act} connect={connect} />
+  return <div className="awb-settings-grid"><ConnectionSettings state={state} busy={busy} act={act} connect={connect} gatewayProbe={gatewayProbe} />
     <section className="awb-panel"><h2><Sparkles size={18} />AI 模型与账户数据</h2><dl className="awb-setting-dl"><div><dt>当前模型</dt><dd>{state.ai.model || '尚未配置'}</dd></div><div><dt>提供方</dt><dd>{state.ai.provider || '—'}</dd></div><div><dt>今日调用</dt><dd>{state.ai.usedToday} / {state.preferences.maxAiCalls}</dd></div></dl><div className="awb-research-services"><b>研究服务</b>{state.researchServices?.map(s=><p key={s}>{s}</p>)}<small>系统可先收集公开行情与原文；每份账户报告只把完整账户提交给 AI 一次，不做逐仓模型分析或自动修复调用。</small></div><p>复用 Vibe-Trading 模型配置。一次发送 {state.ai.fields.join('、')}，不含登录凭据和完整券商账号。</p><p className="awb-muted">模型或服务地址改变后，需重新核对并开启分析。关闭后不再发送新请求，已发送的请求无法从提供方收回。</p><button className={state.ai.enabled ? '' : 'primary'} disabled={!!busy || !state.snapshot.snapshotId || (!state.ai.configured && !state.ai.enabled)} onClick={() => void act('consent', 'consent', { enabled: !state.ai.enabled, fingerprint: state.ai.fingerprint })}>{state.ai.enabled ? '关闭账户 AI 分析' : '同意发送上述字段并开启 AI'}</button>{!state.ai.configured && <p className="awb-muted">请在项目现有 AI / Vibe-Trading 设置中配置模型后刷新。</p>}</section>
     <AccountScheduleSettings state={state} busy={!!busy} save={value=>void act('preferences','preferences',value)}/><form className="awb-panel awb-preferences" onSubmit={e => { e.preventDefault(); void act('preferences', 'preferences', { ...preferences, schedules: state.preferences.schedules, daily: false, eventAnalysis: false, maxAutomatic: 0 }); }}><h2><Settings2 size={18} />投资偏好与分析限制</h2><div className="awb-form-grid"><label>投资周期<select value={preferences.horizon} onChange={e => setPreferences({ ...preferences, horizon: e.target.value as Preferences['horizon'] })}><option value="both">短期与长期分别分析</option><option value="long">中长期配置</option><option value="swing">波段交易</option></select></label>{field('targetWeight', '单标的目标仓位上限')}{field('cashFloor', '现金占比底线')}{field('maxDrawdown', '可接受回撤')}<label>比较基准<select value={preferences.benchmark??'SPY'} onChange={e=>setPreferences({...preferences,benchmark:e.target.value as Preferences['benchmark']})}><option value="SPY">SPY</option><option value="QQQ">QQQ</option><option value="none">关闭比较</option></select></label><label>每日 AI 总调用上限<input type="number" min="1" max="100" value={preferences.maxAiCalls} onChange={e => setPreferences({ ...preferences, maxAiCalls: Number(e.target.value) })} /></label></div><p className="awb-muted">AI 只会在你手动发起分析，或已开启的每日定时到点时调用。启动服务、同步持仓和新增事件都不会自动生成分析。</p><button className="primary" disabled={!!busy || !state.snapshot.snapshotId} type="submit">{busy === 'preferences' ? '保存中…' : '保存偏好'}</button></form></div>;
 }

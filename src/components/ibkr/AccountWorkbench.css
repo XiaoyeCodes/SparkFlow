@@ -277,6 +277,9 @@
 .is-connecting .awb-connect-primary:disabled{border-color:rgba(226,181,94,.3);background:rgba(226,181,94,.09);color:#d9ba7c;opacity:1;cursor:wait}
 .awb-connection-actions .awb-disconnect{margin-left:auto;border-color:rgba(225,118,104,.18);background:rgba(225,118,104,.035);color:#b98c84}
 .awb-connection-actions .awb-disconnect:hover:not(:disabled){border-color:rgba(225,118,104,.4);background:rgba(225,118,104,.08);color:#e4a49a}
+.awb-gateway-monitor{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-3px 0 14px;padding:9px 11px;border:1px solid rgba(var(--connection-rgb),.13);border-radius:9px;background:rgba(var(--connection-rgb),.035);color:#8ea89a;font-size:10px}
+.awb-gateway-monitor span{display:inline-flex;align-items:center;gap:7px;color:var(--connection-accent)}
+.awb-gateway-monitor small{font:500 9px/1.3 "JetBrains Mono",monospace;color:#738d7f;text-align:right}
 .awb-connection-console .awb-account-picker{margin:15px 0 0;padding-top:14px;border-top:1px solid rgba(var(--connection-rgb),.14)}
 .awb-account-picker-signal.is-saved{border-color:rgba(226,181,94,.2);background:rgba(226,181,94,.07);color:#c8a665}
 .awb-account-picker-signal.is-saved i{background:#d4ad61;box-shadow:0 0 0 3px rgba(212,173,97,.08)}
@@ -286,5 +289,5 @@
 @keyframes awb-connection-scan{0%,100%{transform:translateX(-25%);opacity:.25}50%{transform:translateX(55%);opacity:.85}}
 @keyframes awb-connection-pulse{0%,100%{opacity:.45;transform:scale(.82)}50%{opacity:1;transform:scale(1.08)}}
 @keyframes awb-route-progress{0%{clip-path:inset(0 100% 0 0)}55%,100%{clip-path:inset(0)}}
-@media(max-width:600px){.awb-connection-console{padding:14px;border-radius:13px}.awb-connection-console-head{grid-template-columns:auto minmax(0,1fr)}.awb-connection-badge{grid-column:2;width:max-content;margin-top:3px}.awb-connection-state-icon{width:38px;height:38px;border-radius:10px}.awb-connection-console-head strong{font-size:14px}.awb-connection-actions{align-items:stretch;flex-direction:column}.awb-connection-actions .awb-connect-primary,.awb-connection-actions .awb-disconnect{width:100%;margin-left:0}.awb-connection-route{padding-inline:9px}.awb-connection-route span{font-size:7px}}
+@media(max-width:600px){.awb-connection-console{padding:14px;border-radius:13px}.awb-connection-console-head{grid-template-columns:auto minmax(0,1fr)}.awb-connection-badge{grid-column:2;width:max-content;margin-top:3px}.awb-connection-state-icon{width:38px;height:38px;border-radius:10px}.awb-connection-console-head strong{font-size:14px}.awb-connection-actions{align-items:stretch;flex-direction:column}.awb-connection-actions .awb-connect-primary,.awb-connection-actions .awb-disconnect{width:100%;margin-left:0}.awb-connection-route{padding-inline:9px}.awb-connection-route span{font-size:7px}.awb-gateway-monitor{align-items:flex-start;flex-direction:column}.awb-gateway-monitor small{text-align:left}}
 @media(prefers-reduced-motion:reduce){.awb-connection-console.is-connecting:after,.is-connecting .awb-connection-badge i,.is-connecting .awb-connection-route i:first-of-type:after{animation:none}}
