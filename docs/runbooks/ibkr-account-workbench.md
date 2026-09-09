@@ -15,7 +15,7 @@
 
 官方响应使用 snake_case 字段，现金中的 `BASE` 是汇总行，不与逐币种现金累加；组合未实现盈亏取券商 BASE 汇总，缺失则留空。接口未返回券商账号，页面明确标为「当前授权账户（账号未提供）」，由用户对照券商持仓确认。使用加密存储中的本地授权标识隔离数据，刷新令牌与服务重启保留该标识；重新完成授权时创建新标识，不把无法确认同一账户的历史记录自动合并。令牌续期和撤销仍需后续实际验证。
 
-如果使用 TWS/Gateway，按原有 `ibkr-live-readiness.md` 配置本地只读服务。默认桥接端口为 8765；端口冲突时可通过启动脚本 `-Port` 参数改用其他端口，工作台会读取 `.sparkflow/ibkr-terminal/bridge.port`。两种来源由用户选择，不自动切换。资产类型无法识别时展示原始持仓，不假设为股票。
+如果使用 TWS/Gateway，按原有 `ibkr-live-readiness.md` 配置本地只读服务。设置页的「智能连接」会先复用当前 SparkFlow 桥接；当前端口被其他程序占用时，从 18765–18865、8765–8865 中选择空闲端口启动，并把实际端口写入 `.sparkflow/ibkr-terminal/bridge.port`，工作台随状态响应同步显示。未连接时页面每两秒静默检测，检测视觉保持稳定；连接成功后停止该轮询。「立即检测并同步」保留在右侧供手动刷新。两种账户来源仍由用户选择，不自动切换。资产类型无法识别时展示原始持仓，不假设为股票。
 
 ## 运行与数据
 
@@ -57,7 +57,7 @@
 接口前缀 `/api/ibkr-workbench/`：
 
 - GET `state`、`quotes`、`history?conId=&period=`、`performance`、`research/{jobId}`、`reports/{id}/{json|markdown|html}`。
-- POST `connect`、`disconnect`、`source`、`sync`、`preferences`、`consent`、`alerts`、`analyze`、`cancel`、`resume`、`plans`、`simulate`。
+- POST `connect`、`disconnect`、`source`、`gateway-connect`、`sync`、`preferences`、`consent`、`alerts`、`analyze`、`cancel`、`resume`、`plans`、`simulate`。`gateway-connect` 仅在用户点击时启动或复用本机只读桥接，并返回最终端口；后台检测不会自行启动进程。
 - GET `oauth/callback` 仅允许带有效 OAuth state 的官方登录返回；其他接口严格检查 loopback Host、Origin 和 Fetch Metadata。
 
 授权令牌不返回前端。断开时尝试远端撤销并清除本地凭据；撤销结果不确定时提示用户在 IBKR Manage Third-Party Consents 核对。关闭 AI 后停止新请求，无法收回已发送给模型提供方的内容。历史报告最多在页面展示最近二十份，原始 JSON 报告继续留存在本地受限目录。

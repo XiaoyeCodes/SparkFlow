@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Home, Gauge, ChartNoAxesCombined, BriefcaseBusiness, Menu, Wallet, TrendingUp, ArrowDownLeft, ArrowUpRight, Bell, Check, ChevronDown, ChevronRight, CircleCheck, Download, FileJson2, Link2, LoaderCircle, Radio, RefreshCw, Settings2, ShieldCheck, Sparkles, Unplug, WifiOff, X } from 'lucide-react';
+import { Home, Gauge, ChartNoAxesCombined, BriefcaseBusiness, Menu, Wallet, TrendingUp, ArrowDownLeft, ArrowUpRight, Bell, Check, ChevronDown, ChevronRight, CircleCheck, Download, FileJson2, Link2, LoaderCircle, PlugZap, Radio, RefreshCw, Settings2, ShieldCheck, Sparkles, Unplug, WifiOff, X } from 'lucide-react';
 import type { AnalysisReport, AdjustmentPlan, Alert, Holding, MarketQuote, Preferences, WorkbenchState } from '../../lib/ibkr/workbenchTypes';
 import { reportMarkdown } from '../../lib/ibkr/workbenchReport';
 import { exportAccountCommandDeckPdf } from '../../lib/ibkr/exportAccountPdf';
@@ -59,27 +59,28 @@ export function AccountWorkbench() {
     void poll(); return () => { disposed = true; ++revision.current; controller.abort(); clearTimeout(timer); };
   }, []);
   useEffect(() => {
-    if (tab !== 'settings' || state?.source !== 'gateway') { setGatewayChecking(false); return; }
+    if (tab !== 'settings' || state?.source !== 'gateway' || state.connection.state === 'connected') { setGatewayChecking(false); return; }
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>; let disposed = false;
+    setGatewayChecking(true); setGatewayProbeError('');
     const probe = async () => {
       if (disposed) return;
       if (!document.hidden) {
-        setGatewayChecking(true); setGatewayProbeError('');
         try {
           const current = ++revision.current;
           const value = await request<WorkbenchState>('sync', {}, controller.signal);
-          if (!disposed && current === revision.current) setState(value);
+          if (!disposed && current === revision.current) {
+            setState(value); setGatewayProbeError(''); setGatewayCheckedAt(new Date().toISOString());
+            if (value.connection.state === 'connected') { setGatewayChecking(false); return; }
+          }
         } catch (e) {
           if (!disposed && !controller.signal.aborted) setGatewayProbeError(e instanceof Error ? e.message : '本机通道检测失败');
-        } finally {
-          if (!disposed) { setGatewayChecking(false); setGatewayCheckedAt(new Date().toISOString()); }
         }
       }
       if (!disposed) timer = setTimeout(probe, 2000);
     };
     void probe();
     return () => { disposed = true; controller.abort(); clearTimeout(timer); setGatewayChecking(false); };
-  }, [tab, state?.source]);
+  }, [tab, state?.source, state?.connection.state === 'connected']);
   const act = async (name: string, endpoint: string, payload: unknown = {}) => {
     if (busy) return; setBusy(name); setError('');
     try { await request(endpoint, payload); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : '操作失败'); } finally { setBusy(''); }
@@ -211,7 +212,7 @@ function ConnectionSettings({ state, busy, act, connect, gatewayProbe }: { state
       const gatewayPhase = gatewayConnected ? 'connected' : gatewayConnecting ? 'connecting' : 'disconnected';
       const GatewayIcon = gatewayConnected ? CircleCheck : gatewayConnecting ? LoaderCircle : WifiOff;
       const gatewayCopy = gatewayConnected
-        ? { kicker: 'LOCAL CHANNEL ONLINE', title: 'Gateway 已连接', badge: gatewayProbe.checking ? '同步中' : '已连接', detail: state.connection.detail || '本机只读账户通道工作正常。' }
+        ? { kicker: 'LOCAL CHANNEL ONLINE', title: 'Gateway 已连接', badge: '已连接', detail: state.connection.detail || '本机只读账户通道工作正常。' }
         : gatewayConnecting
           ? { kicker: 'SCANNING LOCAL CHANNEL', title: '正在检测本机通道', badge: '检测中', detail: '正在检测桥接服务与 Gateway 账户快照，连接成功后会自动同步。' }
           : { kicker: 'LOCAL CHANNEL OFFLINE', title: 'Gateway 尚未连接', badge: '未连接', detail: gatewayProbe.error || state.connection.detail || '等待本机桥接服务与 Gateway API Socket 就绪。' };
@@ -222,8 +223,11 @@ function ConnectionSettings({ state, busy, act, connect, gatewayProbe }: { state
           <span className="awb-connection-badge"><i />{gatewayCopy.badge}</span>
         </header>
         <div className="awb-connection-route" aria-hidden="true"><span className={gatewayPhase !== 'disconnected' ? 'is-active' : ''}>GATEWAY</span><i className={gatewayPhase !== 'disconnected' ? 'is-active' : ''}/><span className={gatewayPhase === 'connected' ? 'is-active' : gatewayPhase === 'connecting' ? 'is-pending' : ''}>LOCAL BRIDGE</span><i className={gatewayPhase === 'connected' ? 'is-active' : ''}/><span className={gatewayPhase === 'connected' ? 'is-active' : ''}>SPARKFLOW</span></div>
-        <div className="awb-gateway-monitor"><span><Radio size={13}/>页面停留期间每 2 秒自动检测并同步</span><small>{gatewayProbe.checkedAt ? `最近检测 ${new Date(gatewayProbe.checkedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : '准备首次检测'}</small></div>
-        <div className="awb-connection-actions"><button className={`awb-connect-primary ${gatewayPhase === 'disconnected' ? 'primary' : ''}`} disabled={!!busy || gatewayProbe.checking} onClick={() => void act('gateway-sync', 'sync')}><RefreshCw size={15} className={gatewayProbe.checking ? 'awb-spin' : ''}/>{gatewayProbe.checking ? '正在检测…' : '立即检测并同步'}</button></div>
+        <div className="awb-gateway-monitor"><span><Radio size={13}/>{gatewayConnected ? '连接成功，自动检测已停止' : '未连接时每 2 秒静默检测'}</span><small>{state.connection.port ? `BRIDGE · 127.0.0.1:${state.connection.port}` : gatewayProbe.checkedAt ? `最近检测 ${new Date(gatewayProbe.checkedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : '自动匹配端口'}</small></div>
+        <div className="awb-connection-actions awb-gateway-actions">
+          <button className="awb-connect-primary primary" disabled={!!busy || gatewayConnected} onClick={() => void act('gateway-connect', 'gateway-connect')}><PlugZap size={15} className={busy === 'gateway-connect' ? 'awb-pulse' : ''}/>{busy === 'gateway-connect' ? '正在智能连接…' : gatewayConnected ? '已智能连接' : '智能连接'}</button>
+          <button className="awb-connect-primary awb-gateway-manual" disabled={!!busy} onClick={() => void act('gateway-sync', 'sync')}><RefreshCw size={15} className={busy === 'gateway-sync' ? 'awb-spin' : ''}/>{busy === 'gateway-sync' ? '正在检测…' : '立即检测并同步'}</button>
+        </div>
       </div>;
     })()}
     <details className="awb-diagnostics"><summary>MCP 接入诊断</summary><p>服务器地址 https://api.ibkr.com/v1/api/mcp-public</p><p>仅申请 mcp.read 与账户标识权限。登录成功后核验工具和字段；不支持的结构会明确显示错误。</p>{state.connection.tools.map(t => <p key={t.name}><code>{t.name}</code> {t.description}</p>)}</details>

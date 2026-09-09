@@ -22,6 +22,7 @@ import type { AdjustmentPlan, PortfolioPerformance, PerformancePoint } from '../
 import { emptySnapshot } from '../src/lib/ibkr/store.ts';
 import { validSnapshot } from '../src/lib/ibkr/events.ts';
 import { allowedLocalRequest } from './localRequest.ts';
+import { startSparkFlowBridge } from './ibkrGatewayBridge.ts';
 import type { AccountSnapshot, Alert, AnalysisJob, AnalysisReport, Evidence, MarketQuote, Preferences, WorkbenchState, AiModel } from '../src/lib/ibkr/workbenchTypes.ts';
 
 type BriefAttempt = { id: string; sessionDate: string | null; state: 'running' | 'completed' | 'failed'; startedAt: string; detail?: string; error?: string };
@@ -29,16 +30,16 @@ type AccountRecord = { scheduleRuns?: Record<string, { at: string; error?: strin
 type Saved = { version: 1; source: 'mcp' | 'gateway'; selectedKey?: string; records: Record<string, AccountRecord> };
 const safeUrl = (url: unknown) => { try { const u = new URL(String(url)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
 const gatewayConnectionDetails: Record<string, (port: number) => string> = {
-  GATEWAY_BRIDGE_NOT_STARTED: port => `未检测到 SparkFlow 本地桥接服务（127.0.0.1:${port}）。请先启动 IBKR 只读桥接，页面会每 2 秒自动重试。`,
+  GATEWAY_BRIDGE_NOT_STARTED: port => `未检测到 SparkFlow 本地桥接服务（127.0.0.1:${port}）。点击“智能连接”即可自动选择端口并启动。`,
   GATEWAY_BRIDGE_PORT_CONFLICT: port => `本机 ${port} 端口已被其他服务占用，当前服务不是 SparkFlow IBKR 桥接。请更换端口或释放占用后重新启动桥接。`,
   GATEWAY_BRIDGE_SESSION_MISSING: () => '已发现本地桥接服务，但当前项目缺少会话令牌。请从 SparkFlow 项目目录重新启动桥接。',
   GATEWAY_BRIDGE_SESSION_EXPIRED: () => '本地桥接会话已失效。请重新启动 SparkFlow IBKR 桥接服务。',
-  GATEWAY_BRIDGE_UNAVAILABLE: port => `无法访问本地桥接服务 127.0.0.1:${port}，页面会每 2 秒自动重试。`,
+  GATEWAY_BRIDGE_UNAVAILABLE: port => `无法访问本地桥接服务 127.0.0.1:${port}，点击“智能连接”可自动恢复。`,
   GATEWAY_BRIDGE_INVALID_RESPONSE: port => `本地 ${port} 服务返回了不兼容的数据，请确认运行的是 SparkFlow IBKR 桥接。`,
   GATEWAY_BRIDGE_PORT_INVALID: () => '本地桥接端口配置无效，请设置为 1024–65535 之间的整数。',
   GATEWAY_ACCOUNT_UNCONFIGURED: () => '本地桥接已启动，但尚未绑定当前 Gateway 账户。完成绑定后会自动同步。',
   GATEWAY_ACCOUNT_OFFLINE: () => '本地桥接已启动，正在等待 Gateway API Socket 与账户快照。',
-  GATEWAY_LIVE_SNAPSHOT_UNAVAILABLE: () => 'Gateway 尚未提供可用的实盘账户快照，页面会每 2 秒自动重试。',
+  GATEWAY_LIVE_SNAPSHOT_UNAVAILABLE: () => 'Gateway 尚未提供可用的账户快照，等待登录完成后会自动重试。',
   ACCOUNT_SNAPSHOT_STALE: () => 'Gateway 账户快照已过期，正在等待最新同步。',
 };
 const gatewayConnectionDetail = (error: unknown, port: number) => gatewayConnectionDetails[error instanceof Error ? error.message : '']?.(port) ?? 'Gateway 同步暂不可用，请检查本机桥接与 API Socket。';
@@ -92,7 +93,7 @@ export class IbkrWorkbenchService {
   private quotes: MarketQuote[] = [];
   private evidence: Evidence[] = [];
   private model: AiModel = { provider: '', model: '', fingerprint: '', configured: false };
-  private nextSync = 0; private nextEvidence = 0; private failures = 0; private syncFlight?: Promise<void>; private activeAnalysis?: Promise<void>; private activeBrief?: Promise<void>;
+  private nextSync = 0; private nextEvidence = 0; private failures = 0; private syncFlight?: Promise<void>; private gatewayStartFlight?: Promise<number>; private activeGatewayBridgePort?: number; private activeAnalysis?: Promise<void>; private activeBrief?: Promise<void>;
   private writeQueue = Promise.resolve(); private generation = 0; private disposed = false; private timer?: ReturnType<typeof setTimeout>;
   private researchAbort?: AbortController; private briefAbort?: AbortController; private performanceFlight?: Promise<PortfolioPerformance>;
   private scheduleFlight = false;
@@ -131,16 +132,30 @@ export class IbkrWorkbenchService {
     this.writeQueue = pending.catch(() => {}); return pending;
   }
   private async gatewayBridgePort() {
-    const configured = process.env.SPARKFLOW_IBKR_BRIDGE_PORT;
-    let raw = configured;
-    if (!raw) {
-      try { raw = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/bridge.port'), 'utf8')).trim(); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    }
+    if (this.activeGatewayBridgePort) return this.activeGatewayBridgePort;
+    let raw = '';
+    try { raw = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/bridge.port'), 'utf8')).trim(); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    if (!raw) raw = process.env.SPARKFLOW_IBKR_BRIDGE_PORT ?? '';
     if (!raw) return 8765;
     const port = Number(raw);
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('GATEWAY_BRIDGE_PORT_INVALID');
     return port;
+  }
+  async connectGateway() {
+    this.assertAvailable();
+    if (this.saved.source !== 'gateway') throw new Error('请先选择 TWS / Gateway 来源。');
+    if (!this.gatewayStartFlight) {
+      this.gatewayStartFlight = (async () => {
+        const preferred = await this.gatewayBridgePort();
+        const bridge = await startSparkFlowBridge(this.root, preferred);
+        this.activeGatewayBridgePort = bridge.port;
+        this.nextSync = 0;
+        await this.sync();
+        return bridge.port;
+      })().finally(() => { this.gatewayStartFlight = undefined; });
+    }
+    return this.gatewayStartFlight;
   }
   async tick() {
     if (this.storageError || this.disposed) return;
@@ -281,7 +296,8 @@ export class IbkrWorkbenchService {
     if (snapshot.asOf && Date.now() - Date.parse(snapshot.asOf) > 180000) snapshot = { ...snapshot, state: 'stale', detail: '最后成功快照已超过三分钟。' };
     const priority = (alert: Alert) => alert.resolved ? 5 : ['margin', 'cash-floor'].includes(alert.key) ? 0 : alert.kind === 'risk' ? 1 : alert.kind === 'change' ? 2 : 3;
     const alerts = [...(record?.alerts ?? [])].sort((a, b) => priority(a) - priority(b) || b.createdAt.localeCompare(a.createdAt));
-    return { source: this.saved.source, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || 'TWS / Gateway 只读服务', tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { analysis: this.scheduleStatus() }, metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
+    const gatewayPort = this.saved.source === 'gateway' ? await this.gatewayBridgePort().catch(() => undefined) : undefined;
+    return { source: this.saved.source, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || 'TWS / Gateway 只读服务', port: gatewayPort, tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { analysis: this.scheduleStatus() }, metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
   }
   async select(source: 'mcp' | 'gateway', key?: string) {
     this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; await this.syncFlight; this.saved.source = source; this.saved.selectedKey = key;
@@ -575,6 +591,7 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
         if (endpoint === 'connect') return json(await instance.mcp.begin(`http://127.0.0.1:${port()}`));
         if (endpoint === 'disconnect') { await instance.disconnect(); return json({ ok: true, detail: instance.mcp.detail }); }
         if (endpoint === 'source') { const value = z.object({ source: z.enum(['mcp', 'gateway']), accountKey: z.string().regex(/^live:[a-zA-Z0-9:_-]+$/).optional() }).strict().parse(data); await instance.select(value.source, value.accountKey); return json({ ok: true }); }
+        if (endpoint === 'gateway-connect') { await instance.connectGateway(); return json(await instance.state()); }
         if (endpoint === 'sync') { await instance.sync(); return json(await instance.state()); }
         if (endpoint === 'preferences') { await instance.preferences(preferencesSchema.parse(data)); return json({ ok: true }); }
         if (endpoint === 'consent') { const v = z.object({ enabled: z.boolean(), fingerprint: z.string().optional() }).strict().parse(data); await instance.grant(v.enabled, v.fingerprint); return json({ ok: true }); }
