@@ -215,22 +215,36 @@
 
 /* Authorized account terminal selector. */
 .awb-settings-grid .awb-account-picker{display:grid;gap:8px;margin-top:18px;color:#9fb4a9;font-size:11px}
-.awb-account-picker>span{display:flex;align-items:center;gap:7px;color:#83a496;font:600 10px/1.2 "JetBrains Mono",monospace;letter-spacing:.12em;text-transform:uppercase}
-.awb-account-picker>span:before{content:"";width:14px;height:1px;background:linear-gradient(90deg,var(--analysis-mint),transparent);box-shadow:0 0 8px rgba(53,224,161,.35)}
-.awb-account-picker-control{position:relative;isolation:isolate;overflow:hidden;border:1px solid rgba(72,176,133,.3);border-radius:13px;background:linear-gradient(135deg,rgba(20,45,34,.95),rgba(6,15,11,.98) 54%,rgba(9,27,20,.96));box-shadow:inset 0 0 0 1px rgba(156,255,214,.025),inset 0 12px 30px rgba(27,93,65,.07),0 8px 24px rgba(0,0,0,.18);transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease}
-.awb-account-picker-control:before{content:"";position:absolute;z-index:-1;inset:-80% 65% -80% -20%;background:linear-gradient(105deg,transparent,rgba(80,255,184,.07),transparent);transform:translateX(-80%);transition:transform .55s ease;pointer-events:none}
-.awb-account-picker-control:after{content:"";position:absolute;right:17px;top:50%;width:7px;height:7px;border-right:1.5px solid #77d8af;border-bottom:1.5px solid #77d8af;transform:translateY(-68%) rotate(45deg);pointer-events:none;transition:transform .18s ease,border-color .18s ease}
-.awb-account-picker-control:hover{border-color:rgba(81,220,163,.54);box-shadow:inset 0 0 0 1px rgba(146,255,209,.04),inset 0 12px 30px rgba(27,93,65,.1),0 10px 30px rgba(0,0,0,.22),0 0 18px rgba(53,224,161,.07)}
-.awb-account-picker-control:hover:before{transform:translateX(280%)}
-.awb-account-picker-control:focus-within{border-color:rgba(99,233,178,.82);box-shadow:inset 0 0 0 1px rgba(138,255,206,.11),0 0 0 3px rgba(53,224,161,.09),0 12px 34px rgba(0,0,0,.24),0 0 20px rgba(53,224,161,.09);transform:translateY(-1px)}
-.awb-account-picker-control:focus-within:after{border-color:#a5f8d4;transform:translateY(-35%) rotate(225deg)}
-.awb-account-picker-control select{position:relative;z-index:1;width:100%;height:52px;margin:0;padding:0 46px 0 80px;border:0;border-radius:13px;outline:0;appearance:none;background:transparent;color:#dbeae3;font:600 12px/1.2 "JetBrains Mono",monospace;letter-spacing:.01em;cursor:pointer}
-.awb-account-picker-control select:focus{box-shadow:none}
-.awb-account-picker-control select option{background:#0a1510;color:#dbeae3}
-.awb-account-picker-signal{position:absolute;z-index:2;left:13px;top:50%;display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid rgba(53,224,161,.2);border-radius:999px;background:rgba(53,224,161,.07);color:#62dbaa;font:600 8px/1 "JetBrains Mono",monospace;letter-spacing:.12em;transform:translateY(-50%);pointer-events:none}
-.awb-account-picker-signal i{display:block;width:5px;height:5px;border-radius:50%;background:#4be0a5;box-shadow:0 0 0 3px rgba(75,224,165,.08),0 0 7px rgba(75,224,165,.35)}
-@media(max-width:420px){.awb-account-picker-control select{height:50px;padding-left:74px;font-size:11px}.awb-account-picker-signal{left:10px;padding:5px 7px}}
-@media(prefers-reduced-motion:reduce){.awb-account-picker-control,.awb-account-picker-control:before,.awb-account-picker-control:after{transition:none}.awb-account-picker-control:focus-within{transform:none}}
+.awb-account-picker>span{display:flex;align-items:center;gap:7px;color:#83a496;font:600 9px/1.2 "JetBrains Mono",monospace;letter-spacing:.14em}
+.awb-account-picker>span:before{content:"";width:14px;height:1px;background:linear-gradient(90deg,#53dca8,transparent);box-shadow:0 0 8px rgba(53,224,161,.25)}
+.awb-account-picker-control{position:relative;min-width:0}
+.account-workbench .awb-account-picker-trigger{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-height:58px;margin:0;padding:8px 12px;border:1px solid rgba(72,176,133,.34);border-radius:13px;background:radial-gradient(circle at 8% 0%,rgba(53,224,161,.11),transparent 37%),linear-gradient(135deg,#10241a,#07110d 68%);color:#dbeae3;text-align:left;box-shadow:inset 0 0 0 1px rgba(156,255,214,.025),0 8px 24px rgba(0,0,0,.18);transition:border-color .18s ease,background .18s ease,box-shadow .18s ease}
+.account-workbench .awb-account-picker-trigger:hover:not(:disabled){border-color:rgba(81,220,163,.58);background:radial-gradient(circle at 8% 0%,rgba(53,224,161,.15),transparent 40%),linear-gradient(135deg,#11291d,#08140f 68%);box-shadow:inset 0 0 0 1px rgba(156,255,214,.04),0 10px 28px rgba(0,0,0,.23),0 0 18px rgba(53,224,161,.055)}
+.account-workbench .awb-account-picker-trigger:focus-visible{outline:0;border-color:rgba(99,233,178,.82);box-shadow:inset 0 0 0 1px rgba(138,255,206,.1),0 0 0 3px rgba(53,224,161,.08),0 10px 28px rgba(0,0,0,.23)}
+.awb-account-picker-signal{display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid rgba(53,224,161,.2);border-radius:999px;background:rgba(53,224,161,.07);color:#62dbaa;font:600 8px/1 "JetBrains Mono",monospace;letter-spacing:.12em;pointer-events:none}
+.awb-account-picker-signal i{display:block;width:5px;height:5px;border-radius:50%;background:#4be0a5;box-shadow:0 0 0 3px rgba(75,224,165,.08),0 0 7px rgba(75,224,165,.3)}
+.awb-account-picker-value{display:block;min-width:0}
+.awb-account-picker-value small{display:block;margin-bottom:3px;color:#638676;font:600 7px/1 "JetBrains Mono",monospace;letter-spacing:.13em}
+.awb-account-picker-value b{display:block;overflow:hidden;color:#dce9e3;font-size:12px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.awb-account-picker-chevron{color:#71caa5;transition:transform .18s ease}
+.is-open .awb-account-picker-chevron{transform:rotate(180deg)}
+.awb-account-picker-menu{display:grid;gap:4px;margin-top:7px;padding:8px;border:1px solid rgba(83,205,156,.32);border-radius:12px;background:linear-gradient(145deg,#0d1b14,#050c09);box-shadow:inset 0 1px rgba(220,255,240,.025),0 16px 38px rgba(0,0,0,.34),0 0 24px rgba(53,224,161,.04);animation:awb-picker-open .16s ease-out}
+.awb-account-picker-menu-head{display:flex;align-items:center;justify-content:space-between;padding:5px 7px 7px;color:#648778;font:600 8px/1 "JetBrains Mono",monospace;letter-spacing:.14em}
+.awb-account-picker-menu-head b{display:grid;place-items:center;min-width:22px;height:18px;border:1px solid #28463a;border-radius:6px;color:#78bfa2;letter-spacing:0}
+.account-workbench .awb-account-picker-menu>button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;width:100%;min-height:50px;margin:0;padding:8px 10px;border-color:transparent;border-radius:9px;background:transparent;color:#adbbb4;text-align:left}
+.account-workbench .awb-account-picker-menu>button:hover,.account-workbench .awb-account-picker-menu>button.is-active{border-color:rgba(83,205,156,.18);background:rgba(53,224,161,.055)}
+.account-workbench .awb-account-picker-menu>button[aria-selected=true]{border-color:rgba(83,205,156,.34);background:linear-gradient(90deg,rgba(53,224,161,.1),rgba(53,224,161,.025));color:#e1eee8}
+.awb-account-picker-menu button>span:nth-child(2){min-width:0}
+.awb-account-picker-menu button b{display:block;overflow:hidden;font-size:11px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.awb-account-picker-menu button small{display:block;margin-top:3px;color:#6e8c7d;font:500 8px/1.2 "JetBrains Mono",monospace}
+.awb-account-picker-menu button>svg{color:#62dbaa}
+.awb-account-option-radio{display:grid;place-items:center;width:24px;height:24px;border:1px solid #2c4a3b;border-radius:7px;background:#0b1711}
+.awb-account-option-radio i{width:5px;height:5px;border-radius:50%;background:#486457}
+[aria-selected=true]>.awb-account-option-radio{border-color:rgba(83,205,156,.45);background:rgba(53,224,161,.07)}
+[aria-selected=true]>.awb-account-option-radio i{background:#59d7a7;box-shadow:0 0 0 4px rgba(53,224,161,.07)}
+@keyframes awb-picker-open{from{opacity:0;transform:translateY(-5px) scale(.99)}to{opacity:1;transform:none}}
+@media(max-width:420px){.account-workbench .awb-account-picker-trigger{grid-template-columns:auto minmax(0,1fr) auto;gap:9px;min-height:55px;padding-inline:9px}.awb-account-picker-signal{padding:5px 7px}.awb-account-picker-value b{font-size:10px}}
+@media(prefers-reduced-motion:reduce){.awb-account-picker-chevron,.awb-account-picker-menu{animation:none;transition:none}}
 
 /* Connection status console: offline, authenticating and online are intentionally distinct. */
 .awb-connection-panel{overflow:hidden}

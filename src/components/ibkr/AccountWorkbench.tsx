@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Home, Gauge, ChartNoAxesCombined, BriefcaseBusiness, Menu, Wallet, TrendingUp, ArrowDownLeft, ArrowUpRight, Bell, ChevronRight, CircleCheck, Download, FileJson2, Link2, LoaderCircle, Radio, RefreshCw, Settings2, ShieldCheck, Sparkles, Unplug, WifiOff, X } from 'lucide-react';
+import { Home, Gauge, ChartNoAxesCombined, BriefcaseBusiness, Menu, Wallet, TrendingUp, ArrowDownLeft, ArrowUpRight, Bell, Check, ChevronDown, ChevronRight, CircleCheck, Download, FileJson2, Link2, LoaderCircle, Radio, RefreshCw, Settings2, ShieldCheck, Sparkles, Unplug, WifiOff, X } from 'lucide-react';
 import type { AnalysisReport, AdjustmentPlan, Alert, Holding, MarketQuote, Preferences, WorkbenchState } from '../../lib/ibkr/workbenchTypes';
 import { reportMarkdown } from '../../lib/ibkr/workbenchReport';
 import { exportAccountCommandDeckPdf } from '../../lib/ibkr/exportAccountPdf';
@@ -112,6 +112,44 @@ export function AccountWorkbench() {
   {tab!=='overview'&&tab!=='holdings'&&tab!=='valuation'&&<footer className="awb-footer"><span><ShieldCheck size={13}/>真实账户只读 · 操作建议由你审核</span><span>本机服务运行期间持续更新</span></footer>}</div>
   {holding&&<div className="awb-overlay" onClick={()=>setSelected(null)}><aside className="awb-drawer" role="dialog" aria-modal="true" aria-label={`${holding.symbol} 持仓详情`} onClick={e=>e.stopPropagation()}><button className="awb-close" onClick={()=>setSelected(null)} aria-label="关闭持仓详情"><X/></button><span className="awb-eyebrow">HOLDING DETAIL</span><h1>{holding.symbol}</h1><p>{holding.name??holding.symbol} · {holdingIndustryDetails(holding)}</p><div className="awb-detail-metrics"><div><small>持仓数量</small><b>{formatQuantity(holding.quantity)}</b></div><div><small>券商成本</small><b>{money(holding.averageCost)}</b></div><div><small>券商市值</small><b>{money(holding.marketValue)}</b></div></div><HoldingChart holding={holding} quote={state?.quotes.find(q=>q.conId===holding.conId)}/><Fundamentals holding={holding} report={latest}/><HoldingViews holding={holding} report={latest}/><h2>关联证据</h2>{latest?.evidence.filter(e=>e.symbols.includes(holding.symbol)).map(e=><a className="awb-detail-evidence" key={e.id} href={e.url} target="_blank" rel="noreferrer">{e.title}<small>{e.source} · 发布 {e.publishedAt?time(e.publishedAt):'未核实'}</small></a>)}</aside></div>}{report&&<ReportModal report={report} close={()=>setReport(null)}/>}</main>;
 }
+function AccountPicker({ accounts, value, connected, disabled, onChange }: { accounts: WorkbenchState['connection']['accounts']; value: string; connected: boolean; disabled: boolean; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(Math.max(0, accounts.findIndex(account => account.key === value)));
+  const root = useRef<HTMLDivElement>(null);
+  const selected = accounts.find(account => account.key === value);
+  useEffect(() => {
+    const close = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, []);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  const choose = (index: number) => { const account = accounts[index]; if (!account) return; setActive(index); setOpen(false); onChange(account.key); };
+  const keyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'Escape') { event.preventDefault(); setOpen(false); return; }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!open) { setOpen(true); setActive(Math.max(0, accounts.findIndex(account => account.key === value))); return; }
+      setActive(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + accounts.length) % accounts.length);
+      return;
+    }
+    if (event.key === 'Enter' && open) { event.preventDefault(); choose(active); }
+  };
+  return <div className="awb-account-picker" ref={root}>
+    <span id="awb-account-picker-label">已授权账户</span>
+    <div className={`awb-account-picker-control ${open ? 'is-open' : ''}`}>
+      <button type="button" className="awb-account-picker-trigger" role="combobox" aria-labelledby="awb-account-picker-label" aria-haspopup="listbox" aria-controls="awb-account-picker-options" aria-expanded={open} data-value={value} disabled={disabled} onKeyDown={keyDown} onClick={() => setOpen(current => !current)}>
+        <span className={`awb-account-picker-signal ${connected ? '' : 'is-saved'}`} aria-hidden="true"><i />{connected ? 'LIVE' : 'SAVED'}</span>
+        <span className="awb-account-picker-value"><small>ACTIVE ACCOUNT</small><b>{selected?.label ?? '选择账户'}</b></span>
+        <ChevronDown className="awb-account-picker-chevron" size={16} aria-hidden="true" />
+      </button>
+      {open && <div className="awb-account-picker-menu" id="awb-account-picker-options" role="listbox" aria-labelledby="awb-account-picker-label">
+        <div className="awb-account-picker-menu-head"><span>SELECT ACCOUNT</span><b>{String(accounts.length).padStart(2, '0')}</b></div>
+        {accounts.map((account, index) => <button type="button" role="option" aria-selected={account.key === value} className={index === active ? 'is-active' : ''} key={account.key} onMouseEnter={() => setActive(index)} onClick={() => choose(index)}><span className="awb-account-option-radio"><i /></span><span><b>{account.label}</b><small>{account.key === value ? '当前使用' : '切换至此账户'}</small></span>{account.key === value && <Check size={15} />}</button>)}
+      </div>}
+    </div>
+  </div>;
+}
+
 function ConnectionSettings({ state, busy, act, connect }: { state: WorkbenchState; busy: string; act: (name: string, endpoint: string, data?: unknown) => Promise<void>; connect: () => Promise<void> }) {
   const connecting = busy === 'connect' || state.connection.state === 'connecting';
   const connected = !connecting && state.connection.state === 'connected';
@@ -138,7 +176,7 @@ function ConnectionSettings({ state, busy, act, connect }: { state: WorkbenchSta
         <button className={`awb-connect-primary ${phase === 'disconnected' ? 'primary' : ''}`} disabled={!!busy || phase === 'connecting'} onClick={() => void connect()}>{phase === 'connected' ? <RefreshCw size={15} /> : phase === 'connecting' ? <LoaderCircle size={15} className="awb-spin" /> : <Link2 size={15} />}{phase === 'connected' ? '重新授权' : phase === 'connecting' ? '正在连接 IBKR…' : authorized ? '重新连接 IBKR' : '连接 IBKR'}</button>
         {(authorized || connected) && <button className="awb-disconnect" disabled={!!busy} onClick={() => void act('disconnect', 'disconnect')}><Unplug size={14} />断开连接</button>}
       </div>
-      {state.connection.accounts.length > 0 ? <label className="awb-account-picker"><span>已授权账户</span><div className="awb-account-picker-control"><span className={`awb-account-picker-signal ${connected ? '' : 'is-saved'}`} aria-hidden="true"><i />{connected ? 'LIVE' : 'SAVED'}</span><select aria-label="已授权账户" value={state.snapshot.accountKey} onChange={e => void act('source', 'source', { source: 'mcp', accountKey: e.target.value })}><option value="live:unbound">选择账户</option>{state.connection.accounts.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}</select></div></label> : connected && <div className="awb-connection-account"><Radio size={14} /><span>只读账户通道已建立</span><b>{state.snapshot.baseCurrency || 'IBKR'}</b></div>}
+      {state.connection.accounts.length > 0 ? <AccountPicker accounts={state.connection.accounts} value={state.snapshot.accountKey} connected={connected} disabled={!!busy} onChange={accountKey => void act('source', 'source', { source: 'mcp', accountKey })} /> : connected && <div className="awb-connection-account"><Radio size={14} /><span>只读账户通道已建立</span><b>{state.snapshot.baseCurrency || 'IBKR'}</b></div>}
     </div>}
     {state.source === 'gateway' && <div className="awb-connection-console is-disconnected"><header className="awb-connection-console-head"><span className="awb-connection-state-icon"><Radio size={20} /></span><div><small>LOCAL READ-ONLY CHANNEL</small><strong>TWS / Gateway</strong><p>请在本机运行原有 IBKR 只读服务并登录实盘账户。账户来源不会自动切换。</p></div><span className="awb-connection-badge"><i />本机通道</span></header></div>}
     <details className="awb-diagnostics"><summary>MCP 接入诊断</summary><p>服务器地址 https://api.ibkr.com/v1/api/mcp-public</p><p>仅申请 mcp.read 与账户标识权限。登录成功后核验工具和字段；不支持的结构会明确显示错误。</p>{state.connection.tools.map(t => <p key={t.name}><code>{t.name}</code> {t.description}</p>)}</details>

@@ -205,6 +205,7 @@ for (const scenario of [
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
   test(`authorized account selector uses the rounded terminal treatment at ${viewport.width}px`, async ({ page }) => {
     const data = state(true);
+    let selectedAccount = '';
     data.connection.accounts = [
       { key: data.snapshot.accountKey, label: 'IBKR 当前授权账户（账号未提供）' },
       { key: 'live:secondary', label: 'IBKR 备用账户' },
@@ -212,20 +213,27 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await page.setViewportSize(viewport);
     await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
     await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: data.quotes }));
+    await page.route('**/api/ibkr-workbench/source', route => { selectedAccount = route.request().postDataJSON().accountKey; return route.fulfill({ json: { ok: true } }); });
     await page.goto('http://127.0.0.1:5187/ibkr');
     if (viewport.width < 600) await page.getByRole('button', { name: '展开导航' }).click();
     await page.getByRole('button', { name: '设置', exact: true }).click();
-    const picker = page.getByLabel('已授权账户');
-    const control = page.locator('.awb-account-picker-control');
+    const picker = page.getByRole('combobox', { name: '已授权账户' });
+    const menu = page.getByRole('listbox', { name: '已授权账户' });
     await expect(picker).toBeVisible();
-    await expect(picker).toHaveValue(data.snapshot.accountKey);
-    await expect(control).toHaveCSS('border-radius', '13px');
-    await control.hover();
-    await picker.focus();
-    await expect(picker).toBeFocused();
+    await expect(picker).toHaveAttribute('data-value', data.snapshot.accountKey);
+    await expect(picker).toHaveCSS('border-radius', '13px');
+    await expect(page.locator('.awb-account-picker select')).toHaveCount(0);
+    await picker.click();
+    await expect(menu).toBeVisible();
+    await expect(menu).toHaveCSS('border-radius', '12px');
+    await expect(menu.getByRole('option', { name: /IBKR 当前授权账户/ })).toHaveAttribute('aria-selected', 'true');
+    await menu.getByRole('option', { name: /IBKR 备用账户/ }).hover();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await mkdir('tmp/workbench-qa', { recursive: true });
     await page.screenshot({ path: `tmp/workbench-qa/account-picker-${viewport.width}.png`, fullPage: true });
+    await menu.getByRole('option', { name: /IBKR 备用账户/ }).click();
+    await expect.poll(() => selectedAccount).toBe('live:secondary');
+    await expect(menu).toHaveCount(0);
   });
 }
 
