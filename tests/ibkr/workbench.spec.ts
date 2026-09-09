@@ -180,6 +180,28 @@ test('account settings submit only chosen preferences and consent fingerprint', 
   expect((sent as any)?.cashFloor).toBe(null);
 });
 
+for (const scenario of [
+  { state: 'unconfigured', connected: false, phase: 'disconnected', title: '尚未连接 IBKR', badge: '未连接' },
+  { state: 'connecting', connected: false, phase: 'connecting', title: '正在建立安全连接', badge: '连接中' },
+  { state: 'connected', connected: true, phase: 'connected', title: 'IBKR 已连接', badge: '已连接' },
+]) {
+  test(`connection console clearly renders the ${scenario.phase} state`, async ({ page }) => {
+    const data = state(scenario.connected);
+    data.connection.state = scenario.state;
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+    await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: data.quotes }));
+    await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
+    const console = page.locator('.awb-connection-console');
+    await expect(console).toHaveAttribute('data-connection-state', scenario.phase);
+    await expect(console.getByText(scenario.title, { exact: true })).toBeVisible();
+    await expect(console.locator('.awb-connection-badge')).toHaveText(scenario.badge);
+    if (scenario.phase === 'connecting') await expect(console.getByRole('button', { name: '正在连接 IBKR…' })).toBeDisabled();
+    await mkdir('tmp/workbench-qa', { recursive: true });
+    await console.screenshot({ path: `tmp/workbench-qa/connection-${scenario.phase}.png` });
+  });
+}
+
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
   test(`authorized account selector uses the rounded terminal treatment at ${viewport.width}px`, async ({ page }) => {
     const data = state(true);
