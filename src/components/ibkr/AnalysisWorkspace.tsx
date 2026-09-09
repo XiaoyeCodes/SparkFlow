@@ -92,7 +92,9 @@ function ResearchSteps({ progress, running = false, snapshotReady = true, publis
     },
   ];
   const firstOpen = steps.findIndex((step) => !step.done);
-  const active = firstOpen < 0 ? steps.length - 1 : firstOpen;
+  // A ready account snapshot is only a prerequisite. Do not present the next
+  // research step as active until the user actually starts an account analysis.
+  const active = running ? (firstOpen < 0 ? steps.length - 1 : firstOpen) : -1;
 
   return (
     <ol className={`awb-analysis-steps ${running ? 'is-processing' : ''}`} aria-label="研究步骤">
@@ -250,6 +252,66 @@ function ResearchTaskSelect({ tasks, selected, disabled, onSelect }: {
   </div>;
 }
 
+function ReportSelect({ reports, selected, onSelect }: {
+  reports: AnalysisReport[];
+  selected: AnalysisReport;
+  onSelect: (report: AnalysisReport) => void;
+}) {
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(0);
+  const label = (item: AnalysisReport) => `${time(item.generatedAt)} · ${item.version === 2 ? '主动研究' : '旧版分析'}`;
+  const close = () => { setOpen(false); trigger.current?.focus(); };
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', outside);
+    return () => document.removeEventListener('pointerdown', outside);
+  }, [open]);
+  useEffect(() => {
+    if (open) root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]')[focused]?.focus();
+  }, [open, focused]);
+
+  return <div className="awb-report-picker awb-task-picker" ref={root}
+    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
+    onKeyDown={event => {
+      if (event.key === 'Escape' && open) { event.preventDefault(); close(); }
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        if (!open) {
+          setFocused(Math.max(0, reports.findIndex(item => item.id === selected.id)));
+          setOpen(true);
+        } else {
+          setFocused(index => event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? reports.length - 1
+              : (index + (event.key === 'ArrowDown' ? 1 : -1) + reports.length) % reports.length);
+        }
+      }
+    }}>
+    <span id={`${id}-label`}>历史报告</span>
+    <div className="awb-task-picker-control">
+      <button ref={trigger} type="button" className="awb-task-picker-trigger" aria-label="历史报告" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined}
+        onClick={() => {
+          setFocused(Math.max(0, reports.findIndex(item => item.id === selected.id)));
+          setOpen(value => !value);
+        }}>
+        <span>{label(selected)}</span><ChevronDown size={14} />
+      </button>
+      {open && <div id={id} className="awb-task-picker-menu" role="listbox" aria-labelledby={`${id}-label`}>
+        {reports.map((item, index) => <button type="button" role="option" key={item.id} aria-selected={item.id === selected.id} tabIndex={index === focused ? 0 : -1}
+          onFocus={() => setFocused(index)} onClick={() => { onSelect(item); close(); }}>
+          <span>{label(item)}</span><Check size={14} style={{ visibility: item.id === selected.id ? 'visible' : 'hidden' }} />
+        </button>)}
+      </div>}
+    </div>
+  </div>;
+}
+
 function ResearchTaskCard({
   task,
   running,
@@ -303,14 +365,14 @@ function ResearchTaskCard({
         <span><b>{progress?.modelCalls ?? 0}/1</b><small>AI 调用</small></span>
       </div>
       <div className="awb-analysis-task-actions">
-        <button
-          className={isRunning ? '' : 'primary'}
-          disabled={busy || (!isRunning && Boolean(running))}
-          onClick={() => onAction(task)}
-        >
-          {isRunning ? <XCircle size={16} /> : retry ? <RotateCcw size={16} /> : <Sparkles size={16} />}
-          {action}
-        </button>
+        {(isRunning || !retry) && <button
+            className={isRunning ? '' : 'primary'}
+            disabled={busy || (!isRunning && Boolean(running))}
+            onClick={() => onAction(task)}
+          >
+            {isRunning ? <XCircle size={16} /> : <Sparkles size={16} />}
+            {action}
+          </button>}
         <ResearchDetails id={task.id} />
       </div></div>
       {retry && (
@@ -361,23 +423,7 @@ function ReportToolbar({
 }) {
   return (
     <div className="awb-analysis-toolbar">
-      <label>
-        <span>历史报告</span>
-        <select
-          aria-label="历史报告"
-          value={report.id}
-          onChange={(event) => {
-            const value = state.reports.find((item) => item.id === event.target.value);
-            if (value) onSelect(value);
-          }}
-        >
-          {state.reports.map((item) => (
-            <option key={item.id} value={item.id}>
-              {time(item.generatedAt)} · {item.version === 2 ? '主动研究' : '旧版分析'}
-            </option>
-          ))}
-        </select>
-      </label>
+      <ReportSelect reports={state.reports} selected={report} onSelect={onSelect} />
       <div className="awb-analysis-toolbar-meta">
         <span>{report.model}</span>
         <span>{report.research?.sources ?? report.evidence.length} 个来源</span>
@@ -472,6 +518,19 @@ function ReportDetails({
   return (
     <div className="awb-analysis-report-grid">
       <main className="awb-stack">
+        <section className="awb-analysis-card awb-analysis-hero">
+          <div className="awb-analysis-hero-meta">
+            <span className="awb-analysis-kicker"><Sparkles size={14} />账户研究结论</span>
+            <small>{time(report.generatedAt)}</small>
+          </div>
+          <h2>{report.content.headline ?? '组合判断与研究结论'}</h2>
+          <div className="awb-analysis-brief-points">
+            {(report.content.briefPoints ?? [report.content.brief]).map((point, index) => (
+              <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{point}</p>
+            ))}
+          </div>
+          <EvidenceLinks report={report} ids={report.content.evidenceIds} />
+        </section>
         <section className="awb-analysis-card awb-analysis-narrative">
           <span className="awb-analysis-kicker"><BookOpenText size={14} />研究脉络</span>
           <div className="awb-analysis-narrative-section">
@@ -511,17 +570,18 @@ function ReportDetails({
             <EvidenceLinks report={report} ids={holding.evidenceIds} />
           </section>
         ))}
+        <section className="awb-analysis-card awb-analysis-scenarios">
+          <h2>情景分析</h2>
+          {report.content.scenarios?.map((scenario) => (
+            <article className="awb-view" key={scenario.name}>
+              <b>{{ base: '基准情景', upside: '乐观情景', downside: '悲观情景' }[scenario.name]}</b>
+              <p>{scenario.assumptions}</p><p>账户影响 · {scenario.accountImpact}</p><p>应对 · {scenario.response}</p>
+            </article>
+          )) ?? <><p>在调整计划中统一模拟目标仓位、现金与价格涨跌情景。</p><p className="awb-muted">不赋予假设情景概率或预测收益；所有建议合并计算后检查资金约束。</p></>}
+        </section>
       </main>
       <aside className="awb-stack">
-        {previous && (
-          <details className="awb-analysis-card awb-analysis-compare">
-            <summary>与上一份报告对比</summary>
-            <p>净资产 {money(previous.snapshot.metrics.netLiquidation)} → {money(report.snapshot.metrics.netLiquidation)}</p>
-            <small>净资产变化包含出入金，不等于投资收益。</small>
-            {holdingChanges(previous, report).map((change) => <p key={change.conId}>{change.symbol} 数量 {change.before} → {change.after}</p>)}
-            <p>上一份结论 · {previous.content.headline ?? previous.content.brief.slice(0, 120)}</p>
-          </details>
-        )}
+        <PriorityActions report={report} onPlan={onPlan} />
         <section className="awb-analysis-card awb-analysis-actions">
           <span className="awb-analysis-kicker">ACTION DETAILS</span>
           <h2>完整行动清单</h2>
@@ -546,47 +606,15 @@ function ReportDetails({
           ))}
           <button className="primary awb-full" onClick={onPlan}>制定整份调整计划 <ArrowUpRight size={15} /></button>
         </section>
-        <section className="awb-analysis-card">
-          <h2>机会与风险</h2>
-          <h3>机会</h3>
-          {report.content.opportunities.map((item, index) => <p className="awb-view" key={`opportunity-${index}`}>{item}</p>)}
-          <h3>风险</h3>
-          {report.content.risks.map((item, index) => <p className="awb-view" key={`risk-${index}`}>{item}</p>)}
-        </section>
-        <section className="awb-analysis-card">
-          <h2>情景分析</h2>
-          {report.content.scenarios?.map((scenario) => (
-            <article className="awb-view" key={scenario.name}>
-              <b>{{ base: '基准情景', upside: '乐观情景', downside: '悲观情景' }[scenario.name]}</b>
-              <p>{scenario.assumptions}</p><p>账户影响 · {scenario.accountImpact}</p><p>应对 · {scenario.response}</p>
-            </article>
-          )) ?? <><p>在调整计划中统一模拟目标仓位、现金与价格涨跌情景。</p><p className="awb-muted">不赋予假设情景概率或预测收益；所有建议合并计算后检查资金约束。</p></>}
-        </section>
-        {report.content.targetAllocation && (
-          <section className="awb-analysis-card">
-            <h2>目标配置框架</h2><p>{report.content.targetAllocation}</p>
-            {report.content.monitoring?.map((monitor, index) => (
-              <div className="awb-view" key={index}><b>{monitor.indicator}</b><p>预警线 · {monitor.warningLine}</p><p>应对 · {monitor.action}</p></div>
-            ))}
-          </section>
-        )}
-        <section className="awb-analysis-card awb-analysis-evidence">
-          <h2>证据与数据缺口</h2>
-          {report.content.gaps.map((gap, index) => <p className="awb-gap" key={`gap-${index}`}>{gap}</p>)}
-          {report.content.limitations?.map((gap, index) => <p className="awb-gap" key={`limit-${index}`}>局限 · {gap}</p>)}
-          {report.content.disclaimer && <p className="awb-muted">{report.content.disclaimer}</p>}
-          <details>
-            <summary>查看研究记录</summary>
-            {report.research?.trace.map((trace, index) => (
-              <p className="awb-trace" key={index}>{trace.ok ? '✓' : '×'} {trace.tool} · {trace.target}<small>{time(trace.at)}</small></p>
-            ))}
+        {previous && (
+          <details className="awb-analysis-card awb-analysis-compare">
+            <summary>与上一份报告对比</summary>
+            <p>净资产 {money(previous.snapshot.metrics.netLiquidation)} → {money(report.snapshot.metrics.netLiquidation)}</p>
+            <small>净资产变化包含出入金，不等于投资收益。</small>
+            {holdingChanges(previous, report).map((change) => <p key={change.conId}>{change.symbol} 数量 {change.before} → {change.after}</p>)}
+            <p>上一份结论 · {previous.content.headline ?? previous.content.brief.slice(0, 120)}</p>
           </details>
-          {report.evidence.map((evidence) => (
-            <a className="awb-detail-evidence" key={evidence.id} href={evidence.url} target="_blank" rel="noreferrer">
-              {evidence.title}<small>{evidence.source} · 发布 {evidence.publishedAt ? time(evidence.publishedAt) : '未核实'}<br />获取 {time(evidence.fetchedAt)} · {evidence.read ? '已阅读' : '摘要线索'}</small>
-            </a>
-          ))}
-        </section>
+        )}
       </aside>
     </div>
   );
@@ -630,34 +658,19 @@ export function AnalysisWorkspace({
   const orderedReports = [...state.reports].sort((a, b) => Date.parse(b.generatedAt) - Date.parse(a.generatedAt));
   const latest = orderedReports.find(item => item.kind !== 'chat');
   const showingHistory = Boolean(report) || view === 'history';
+  const restartableTask = task && task.state !== 'running' && (task.progress?.modelCalls ?? 0) > 0 ? task : undefined;
   const switchView = (next: 'start' | 'history') => { onCloseReport(); setView(next); setError(''); };
   const startAnalysis = () => { switchView('start'); onStart(); };
 
   return (
     <div className="awb-analysis-workspace">
-      {showingHistory && <button className="awb-analysis-back" onClick={() => switchView('start')}><ArrowLeft size={16}/>返回分析工作台</button>}
+      {!report && view === 'history' && <button className="awb-analysis-back" onClick={() => switchView('start')}><ArrowLeft size={16}/>返回分析工作台</button>}
       {error && <p className="awb-message error" role="alert">{error}</p>}
       {report ? (
         <>
-          <button className="awb-analysis-back" onClick={() => switchView('history')}><ArrowLeft size={16} />返回历史研究</button>
+          <button className="awb-analysis-back" onClick={() => switchView(view)}><ArrowLeft size={16} />{view === 'history' ? '返回历史研究' : '返回分析工作台'}</button>
           <ReportToolbar state={state} report={report} exporting={exporting} canAnalyze={canAnalyze} onSelect={onSelect} onStart={startAnalysis} onExport={() => void exportPdf()} />
           {task && <ActiveTaskStrip task={task} busy={busy} onAction={onTaskAction} />}
-          <div className="awb-analysis-command-grid">
-            <section className="awb-analysis-card awb-analysis-hero">
-              <div className="awb-analysis-hero-meta">
-                <span className="awb-analysis-kicker"><Sparkles size={14} />账户研究结论</span>
-                <small>{time(report.generatedAt)}</small>
-              </div>
-              <h2>{report.content.headline ?? '组合判断与研究结论'}</h2>
-              <div className="awb-analysis-brief-points">
-                {(report.content.briefPoints ?? [report.content.brief]).map((point, index) => (
-                  <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{point}</p>
-                ))}
-              </div>
-              <EvidenceLinks report={report} ids={report.content.evidenceIds} />
-            </section>
-            <PriorityActions report={report} onPlan={onPlan} />
-          </div>
           <ReportDetails report={report} previous={previous} onPlan={onPlan} />
         </>
       ) : showingHistory ? (
@@ -678,15 +691,20 @@ export function AnalysisWorkspace({
         <div className="awb-analysis-dashboard">
           <div className="awb-analysis-conclusion-slot">{latest ? <ConclusionCard report={latest} onOpen={() => onSelect(latest)}/> : <AnalysisEmpty state={state} busy={busy} canAnalyze={canAnalyze} onStart={startAnalysis}/>}</div>
           <CoverageCard state={state} report={latest}/>
-          <div className="awb-analysis-progress-slot">
-            {task ? <ResearchTaskCard task={task} tasks={unfinished} onSelectTask={onSelectTask} running={running} busy={busy || (!running && !canAnalyze)} onAction={onTaskAction}/> : <section className="awb-analysis-card awb-analysis-idle-progress" aria-label="分析进展">
-              <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><FileCheck2 size={14}/>分析进展</span><small>{latest ? `最近报告已归档 · ${time(latest.generatedAt)}` : '等待开始分析'}</small></div>
-              <ResearchSteps progress={latest?.research} published={Boolean(latest)} snapshotReady={Boolean(state.snapshot.snapshotId && ['ready', 'empty'].includes(state.snapshot.state))}/>
-            </section>}
-            {latest && <div className="awb-analysis-start-row"><span>{disabledReason(state, running, busy) || '更新账户判断，或在下方提出具体问题。'}</span><button disabled={!canAnalyze} onClick={startAnalysis}><RotateCcw size={14}/>新建账户分析</button></div>}
-          </div>
+          <section className="awb-analysis-card awb-analysis-interaction" aria-label="分析进展与提问">
+            <div className="awb-analysis-progress-slot">
+              {task ? <ResearchTaskCard task={task} tasks={unfinished} onSelectTask={onSelectTask} running={running} busy={busy || (!running && !canAnalyze)} onAction={onTaskAction}/> : <section className="awb-analysis-card awb-analysis-idle-progress" aria-label="分析进展">
+                <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><FileCheck2 size={14}/>分析进展</span><small>{latest ? `最近报告已归档 · ${time(latest.generatedAt)}` : '等待开始分析'}</small></div>
+                <ResearchSteps progress={latest?.research} published={Boolean(latest)} snapshotReady={Boolean(state.snapshot.snapshotId && ['ready', 'empty'].includes(state.snapshot.state))}/>
+              </section>}
+              {(latest || restartableTask) && <div className="awb-analysis-start-row">
+                <span>{disabledReason(state, running, busy) || '更新账户判断，或在下方提出具体问题。'}</span>
+                {restartableTask && <button className="primary awb-analysis-retry-action" disabled={busy || Boolean(running)} onClick={() => onTaskAction(restartableTask)}><RotateCcw size={14}/>基于已保存资料重新分析</button>}
+              </div>}
+            </div>
+            <div className="awb-analysis-composer"><QuickQuestion state={state} running={running} busy={busy} canAnalyze={canAnalyze} question={question} onQuestion={onQuestion} onAsk={onAsk}/></div>
+          </section>
           <HistoryRail reports={orderedReports} onSelect={onSelect} onAll={() => switchView('history')}/>
-          <div className="awb-analysis-composer"><QuickQuestion state={state} running={running} busy={busy} canAnalyze={canAnalyze} question={question} onQuestion={onQuestion} onAsk={onAsk}/></div>
         </div>
       )}
       {showingHistory && <div className="awb-analysis-composer">

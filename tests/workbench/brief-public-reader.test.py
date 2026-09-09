@@ -7,12 +7,19 @@ import unittest
 from unittest.mock import patch
 
 MODULE_PATH = Path(__file__).resolve().parents[2] / 'scripts' / 'ibkr_public_reader.py'
+sys.path.insert(0, str(MODULE_PATH.parent))
 spec = importlib.util.spec_from_file_location('brief_public_reader', MODULE_PATH)
 reader = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reader)
 
 
 class PublicReaderTests(unittest.TestCase):
+    def setUp(self):
+        self.cache_read = patch.object(reader.public_cache, 'read', return_value=None)
+        self.cache_write = patch.object(reader.public_cache, 'write', side_effect=lambda _key, data: data)
+        self.cache_read.start(); self.cache_write.start()
+        self.addCleanup(self.cache_read.stop); self.addCleanup(self.cache_write.stop)
+
     def test_url_rejects_credentials_tokens_and_private_dns(self):
         with patch.object(reader.socket, 'getaddrinfo', return_value=[(2, 1, 6, '', ('127.0.0.1', 443))]):
             for url in ('https://example.com/private', 'https://user:pass@example.com/', 'https://foo.internal/'):
@@ -72,6 +79,12 @@ class PublicReaderTests(unittest.TestCase):
         self.assertEqual(result['publishedAt'], '2026-07-29')
         calendar = '<html><title>Upcoming Events</title><main>' + 'Upcoming investor conference Sep 9, 2026 11:15 am ET. ' * 5 + '</main></html>'
         self.assertNotIn('publishedAt', reader.extract_html(calendar, 'https://example.com/calendar'))
+
+    def test_yahoo_article_byline_and_amd_dateline_preserve_explicit_publication(self):
+        html = '<html><title>Company earnings</title><main><time class="byline-attr-meta-time" datetime="2026-09-08T21:45:08+00:00">Tuesday</time><p>' + 'Company quarterly revenue and earnings release. ' * 8 + '</p></main></html>'
+        self.assertEqual(reader.extract_html(html, 'https://finance.yahoo.com/markets/stocks/articles/story.html')['publishedAt'], '2026-09-08T21:45:08+00:00')
+        html = html.replace('<time class="byline-attr-meta-time" datetime="2026-09-08T21:45:08+00:00">Tuesday</time>', '<time class="date" datetime="2026-08-31T07:15:00">August 31, 2026 7:15 am EDT</time>')
+        self.assertEqual(reader.extract_html(html, 'https://ir.amd.com/news-events/press-releases/detail/1298/story')['publishedAt'], '2026-08-31T11:15:00+00:00')
 
 
 if __name__ == '__main__':

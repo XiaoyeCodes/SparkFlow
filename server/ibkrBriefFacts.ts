@@ -5,6 +5,7 @@ type JsonRecord = Record<string, unknown>;
 const object = (value: unknown): JsonRecord | undefined => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : undefined;
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const fixed = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const signedPercent = (value: number) => `${value > 0 ? '+' : ''}${fixed(value)}%`;
 const isoDate = (value: unknown): string | null => {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:$|[T ])/.test(value)) return null;
   const date = value.slice(0, 10), parsed = new Date(`${date}T00:00:00Z`);
@@ -78,7 +79,7 @@ export function externalBriefFacts(evidence: Evidence[]): Record<string, Externa
         });
       });
     } else if (item.kind === 'profile') {
-      const statistics = object(data.statistics), financials = object(data.financials);
+      const statistics = object(data.statistics), financials = object(data.financials), market = object(data.market);
       const suppliedCurrency = [data.currency, data.quoteCurrency, object(data.quote)?.currency].find(value => typeof value === 'string' && /^[A-Z]{3}$/.test(value));
       const currency = typeof suppliedCurrency === 'string' ? suppliedCurrency : null;
       const symbol = item.symbols.join(' / ') || '标的未核实';
@@ -92,6 +93,29 @@ export function externalBriefFacts(evidence: Evidence[]): Record<string, Externa
       for (const metric of candidates) {
         if (!finite(metric.value)) continue;
         facts[`external${item.id}${metric.key}`] = { label: `${symbol} · ${metric.label}（估值快照；价格时点、预期修订时间未核实）`, display: `${fixed(metric.value)} ${metric.unit}`, source: `${source}；原字段 ${metric.field}，保留两位小数；仅显示来源数值，未推算或进行同行比较；价格时点、预期修订时间未核实`, asOf: null, evidenceId: item.id, rawValue: metric.value };
+      }
+      const observedAt = typeof data.observedAt === 'string' ? data.observedAt : null;
+      const daily = [
+        { key: 'MarketPrice', field: 'price', value: market?.price, label: '市场价格', display: (v: number) => `${fixed(v)} ${currency ?? ''}`.trim() },
+        { key: 'DailyChange', field: 'changePercent', value: market?.changePercent, label: '当日涨跌幅', display: signedPercent },
+        { key: 'DayHigh', field: 'high', value: market?.high, label: '当日高点', display: (v: number) => `${fixed(v)} ${currency ?? ''}`.trim() },
+        { key: 'DayLow', field: 'low', value: market?.low, label: '当日低点', display: (v: number) => `${fixed(v)} ${currency ?? ''}`.trim() },
+      ];
+      for (const metric of daily) if (finite(metric.value)) {
+        facts[`external${item.id}${metric.key}`] = { label: `${symbol} · ${metric.label}`, display: metric.display(metric.value), source: `${source}；原字段 market.${metric.field}；行情可能延迟`, asOf: observedAt, evidenceId: item.id, rawValue: metric.value };
+      }
+    } else if (item.kind === 'market') {
+      const symbol = typeof data.symbol === 'string' ? data.symbol : item.symbols.join(' / ') || '市场';
+      const currency = typeof data.currency === 'string' ? data.currency : '';
+      const observedAt = typeof data.observedAt === 'string' ? data.observedAt : null;
+      const daily = [
+        { key: 'Price', field: 'price', value: data.price, label: '价格/点位', display: (v: number) => `${fixed(v)} ${currency}`.trim() },
+        { key: 'Change', field: 'changePercent', value: data.changePercent, label: '当日涨跌幅', display: signedPercent },
+        { key: 'High', field: 'high', value: data.high, label: '当日高点', display: (v: number) => `${fixed(v)} ${currency}`.trim() },
+        { key: 'Low', field: 'low', value: data.low, label: '当日低点', display: (v: number) => `${fixed(v)} ${currency}`.trim() },
+      ];
+      for (const metric of daily) if (finite(metric.value)) {
+        facts[`external${item.id}${symbol}${metric.key}`] = { label: `${symbol} · ${metric.label}`, display: metric.display(metric.value), source: `${source}；原字段 ${metric.field}；行情可能延迟`, asOf: observedAt, evidenceId: item.id, rawValue: metric.value };
       }
     }
   }

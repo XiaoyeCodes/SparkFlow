@@ -82,10 +82,12 @@ export class IbkrWorkbenchService {
   private writeQueue = Promise.resolve(); private generation = 0; private disposed = false; private timer?: ReturnType<typeof setTimeout>;
   private researchAbort?: AbortController; private briefAbort?: AbortController; private performanceFlight?: Promise<PortfolioPerformance>;
   private scheduleFlight = false;
+  private scheduleStartedAt = new Date().toISOString();
   private connectionDetail = ''; private storageError = ''; private ai; private ownsLease = false;
   readonly mcp: IbkrMcp; readonly market: IbkrMarket; readonly profiles: IbkrProfiles;
   constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] })) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
   async start() {
+    this.scheduleStartedAt = new Date().toISOString();
     await this.mcp.load();
     const lock = path.join(this.directory, 'worker.lock');
     try {
@@ -103,6 +105,10 @@ export class IbkrWorkbenchService {
   }
   private schedule() { if (this.disposed) return; this.timer = setTimeout(async () => { try { await this.tick(); } catch { /* A failed task remains visible in status. */ } finally { this.schedule(); } }, 15000); this.timer.unref(); }
   private record() { return this.saved.selectedKey ? this.saved.records[this.saved.selectedKey] : undefined; }
+  private scheduleBoundary(record: AccountRecord) {
+    const configured = record.scheduleEffectiveAt?.analysis;
+    return configured && Date.parse(configured) > Date.parse(this.scheduleStartedAt) ? configured : this.scheduleStartedAt;
+  }
   assertAvailable() { if (this.storageError || this.disposed) throw new Error(this.storageError || '服务正在关闭'); }
   private persist() {
     if (this.storageError) return Promise.reject(new Error(this.storageError));
@@ -127,40 +133,29 @@ export class IbkrWorkbenchService {
       const model = await this.ai.status(true);
       if (this.disposed || generation !== this.generation || record !== this.record() || !model.configured || record.grant?.fingerprint !== model.fingerprint) return;
       if (record.usage.filter(u => newYorkClock(new Date(u.at)).date === newYorkClock(new Date()).date).length >= record.preferences.maxAiCalls) return;
-      const schedules = accountSchedules(record.preferences), now = new Date();
-      const candidates = (['brief', 'analysis'] as const).flatMap(kind => {
-        const slot = scheduleWindow(schedules[kind], now, record.scheduleEffectiveAt?.[kind]).due;
-        if (!slot || record.scheduleRuns?.[`${kind}:${slot.key}`]) return [];
-        if (kind === 'brief') {
-          if (/AI_HTTP_(401|402|403)/.test(record.briefAttempt?.error ?? '')) return [];
-          // Existing market-close attempts stay deduplicated when upgrading old settings.
-          if (schedules.brief.mode === 'market-close' && (record.briefAttempt?.sessionDate === slot.key.slice(6) || record.briefs?.some(b => b.sessionDate === slot.key.slice(6)))) return [];
-        }
-        return [{ kind, slot }];
-      }).filter(candidate => candidate.kind === 'brief' ? !this.activeBrief : !this.activeAnalysis).sort((a, b) => a.slot.at.localeCompare(b.slot.at));
-      const due = candidates[0]; if (!due) return;
-      const key = `${due.kind}:${due.slot.key}`;
+      const now = new Date(), config = accountSchedules(record.preferences).analysis;
+      const slot = scheduleWindow(config, now, this.scheduleBoundary(record)).due;
+      if (!slot || this.activeAnalysis) return;
+      const key = `analysis:${slot.key}`;
+      if (record.scheduleRuns?.[key]) return;
       record.scheduleRuns ??= {};
       record.scheduleRuns[key] = { at: now.toISOString() };
       // Claim durably before starting any research; failures/restarts never replay the slot.
       await this.persist();
       try {
-        const current = scheduleWindow(accountSchedules(record.preferences)[due.kind], new Date(), record.scheduleEffectiveAt?.[due.kind]).due;
-        if (record !== this.record() || generation !== this.generation || current?.key !== due.slot.key) throw new Error('账户或定时设置已更新，本次未启动');
-        if (due.kind === 'brief') await this.generateBrief(true, key);
-        else await this.analyze('daily', undefined, key);
+        const current = scheduleWindow(accountSchedules(record.preferences).analysis, new Date(), this.scheduleBoundary(record)).due;
+        if (record !== this.record() || generation !== this.generation || current?.key !== slot.key) throw new Error('账户或定时设置已更新，本次未启动');
+        await this.analyze('daily', undefined, key);
       } catch (error) { record.scheduleRuns[key].error = error instanceof Error ? error.message : '定时任务启动失败'; await this.persist(); }
     } finally { this.scheduleFlight = false; }
   }
 
-  private scheduleStatus(kind: 'brief' | 'analysis') {
+  private scheduleStatus() {
     const record = this.record(); if (!record) return { nextRunAt: null, pendingAt: null, detail: '连接账户后设置' };
-    const config = accountSchedules(record.preferences)[kind], window = scheduleWindow(config, new Date(), record.scheduleEffectiveAt?.[kind]);
-    const handledClose = kind === 'brief' && config.mode === 'market-close' && window.due && (record.briefAttempt?.sessionDate === window.due.key.slice(6) || record.briefs?.some(brief => brief.sessionDate === window.due!.key.slice(6)));
-    const pending = window.due && !handledClose && !record.scheduleRuns?.[`${kind}:${window.due.key}`];
-    const latest = Object.entries(record.scheduleRuns ?? {}).filter(([key]) => key.startsWith(`${kind}:`)).sort((a, b) => b[1].at.localeCompare(a[1].at))[0]?.[1];
-    const active = kind === 'brief' ? this.activeBrief : this.activeAnalysis;
-    return { nextRunAt: window.nextRunAt, pendingAt: pending ? window.due!.at : null, detail: !config.enabled ? '已关闭' : !window.calendarSupported ? '交易日历未覆盖，等待更新' : !record.grant || record.grant.fingerprint !== this.model.fingerprint ? '等待开启当前模型的账户 AI 授权' : active ? `${kind === 'brief' ? '账户简报' : '账户分析'}执行中，到点任务会等待本流程完成` : latest?.error ? `最近启动失败：${latest.error}` : pending ? '已到点，等待账户、模型与调用额度就绪' : '已启用，等待下次执行' };
+    const config = accountSchedules(record.preferences).analysis, window = scheduleWindow(config, new Date(), this.scheduleBoundary(record));
+    const pending = window.due && !record.scheduleRuns?.[`analysis:${window.due.key}`];
+    const latest = Object.entries(record.scheduleRuns ?? {}).filter(([key]) => key.startsWith('analysis:')).sort((a, b) => b[1].at.localeCompare(a[1].at))[0]?.[1];
+    return { nextRunAt: window.nextRunAt, pendingAt: pending ? window.due!.at : null, detail: !config.enabled ? '已关闭' : !window.calendarSupported ? '交易日历未覆盖，等待更新' : !record.grant || record.grant.fingerprint !== this.model.fingerprint ? '等待开启当前模型的账户 AI 授权' : this.activeAnalysis ? '账户分析执行中，到点任务会等待本流程完成' : latest?.error ? `最近启动失败：${latest.error}` : pending ? '已到点，等待账户、模型与调用额度就绪' : '已启用，等待下次执行' };
   }
 
   async sync() {
@@ -202,12 +197,8 @@ export class IbkrWorkbenchService {
         }
         this.rules(record, previous);
         const signature = digest([snapshot.positions.map(p => [p.conId, p.quantity]).sort((a, b) => Number(a[0]) - Number(b[0])), record.alerts.filter(a => !a.resolved && a.kind === 'risk' && !a.key.startsWith('ai:')).map(a => a.key).sort(), this.evidence.filter(e => e.symbols.length && e.publishedAt && Date.now() - Date.parse(e.publishedAt) < 86400000).map(e => e.id).sort()]);
-        const changed = record.lastEventSignature && record.lastEventSignature !== signature;
-        if (!record.lastEventSignature) record.lastEventSignature = signature;
+        record.lastEventSignature = signature;
         await this.persist();
-        if (changed && record.preferences.eventAnalysis && record.grant && !this.activeAnalysis) {
-          try { await this.analyze('event'); record.lastEventSignature = signature; await this.persist(); } catch { /* Keep pending signature until budget/cooldown allows. */ }
-        }
       } catch (e) {
         this.failures++;
         this.connectionDetail = e instanceof Error && /^[A-Z_]+$/.test(e.message) ? e.message : '同步暂不可用，请检查账户连接与本机服务。';
@@ -241,7 +232,7 @@ export class IbkrWorkbenchService {
     if (snapshot.asOf && Date.now() - Date.parse(snapshot.asOf) > 180000) snapshot = { ...snapshot, state: 'stale', detail: '最后成功快照已超过三分钟。' };
     const priority = (alert: Alert) => alert.resolved ? 5 : ['margin', 'cash-floor'].includes(alert.key) ? 0 : alert.kind === 'risk' ? 1 : alert.kind === 'change' ? 2 : 3;
     const alerts = [...(record?.alerts ?? [])].sort((a, b) => priority(a) - priority(b) || b.createdAt.localeCompare(a.createdAt));
-    return { source: this.saved.source, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || 'TWS / Gateway 只读服务', tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { brief: this.scheduleStatus("brief"), analysis: this.scheduleStatus("analysis") }, dailyBrief: this.briefStatus(), metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
+    return { source: this.saved.source, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || 'TWS / Gateway 只读服务', tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { analysis: this.scheduleStatus() }, metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
   }
   async select(source: 'mcp' | 'gateway', key?: string) {
     this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; await this.syncFlight; this.saved.source = source; this.saved.selectedKey = key;
@@ -299,7 +290,7 @@ export class IbkrWorkbenchService {
         }, controller.signal, { analysisAsOf: attempt.startedAt, previousAsOf: previous?.analysisAsOf ?? previous?.generatedAt, fallbackEvidence });
         if (!allowed() || (await this.ai.status(true)).fingerprint !== model.fingerprint) throw new Error('BRIEF_CANCELLED');
         const input = briefInput(frozen, preferences, sessionDate, research, previous, record.performance), prompt = briefPrompt(input);
-        const prepared = { id: attempt.id, promptVersion: BRIEF_PROMPT_VERSION, generationMode: 'brief-json', snapshot: frozen, snapshotHash: digest(frozen), input, prompt, model, research };
+        const prepared = { id: attempt.id, promptVersion: BRIEF_PROMPT_VERSION, generationMode: 'text', snapshot: frozen, snapshotHash: digest(frozen), input, prompt, model, research };
         // Keep reviewable materials even if the provider fails or returns invalid content.
         await atomicJson(path.join(this.directory, `${attempt.id}.brief-attempt.json`), prepared);
         const callDate = newYorkClock(new Date()).date;
@@ -308,7 +299,7 @@ export class IbkrWorkbenchService {
         attempt.detail = `已读取 ${input.research?.evidence.length ?? 0} 份资料，正在一次性分析完整账户…`;
         await this.persist();
         if (!allowed()) throw new Error('BRIEF_CANCELLED');
-        const result = await this.ai.analyze(prompt, model, controller.signal, 'brief-json');
+        const result = await this.ai.analyze(prompt, model, controller.signal, 'text');
         if (!allowed() || (await this.ai.status(true)).fingerprint !== model.fingerprint) throw new Error('BRIEF_CANCELLED');
         await atomicJson(path.join(this.directory, `${attempt.id}.brief-attempt.json`), { ...prepared, raw: result.text, finishReason: result.finishReason, usage: result.usage });
         if (!result.text?.trim()) throw new Error('BRIEF_OUTPUT_EMPTY');
@@ -354,8 +345,11 @@ export class IbkrWorkbenchService {
     const record = this.record(); if (!record) throw new Error('请先连接账户');
     const next = preferencesSchema.parse(preferences), before = accountSchedules(record.preferences), after = accountSchedules(next);
     record.scheduleEffectiveAt ??= {};
-    for (const kind of ['brief', 'analysis'] as const) if (JSON.stringify(before[kind]) !== JSON.stringify(after[kind])) record.scheduleEffectiveAt[kind] = new Date().toISOString();
-    if (next.schedules) next.daily = next.schedules.brief.enabled;
+    if (JSON.stringify(before.analysis) !== JSON.stringify(after.analysis)) record.scheduleEffectiveAt.analysis = new Date().toISOString();
+    next.daily = false;
+    next.eventAnalysis = false;
+    next.maxAutomatic = 0;
+    if (next.schedules) next.schedules = { ...next.schedules, brief: { ...next.schedules.brief, enabled: false } };
     if (next.benchmark !== record.preferences.benchmark) record.performance = undefined;
     record.preferences = next; await this.persist();
   }
@@ -444,7 +438,7 @@ export class IbkrWorkbenchService {
   async performance(){
     const record=this.record();if(!record)throw new Error('请先连接账户');
     if(this.performanceFlight)return this.performanceFlight;
-    if(record.performance?.fetchedAt&&Date.now()-Date.parse(record.performance.fetchedAt)<900000 && record.performance.source==='IBKR PortfolioAnalyst')return record.performance;
+    if(record.performance?.inception&&record.performance.fetchedAt&&Date.now()-Date.parse(record.performance.fetchedAt)<900000 && record.performance.source==='IBKR PortfolioAnalyst')return record.performance;
     this.performanceFlight=(async()=>{
       let result=localPerformance(record.history??[],record.snapshot.baseCurrency);
       if(this.saved.source==='mcp')try{const raw=await this.mcp.performance(record.snapshot.accountKey);const data=raw.data;
@@ -542,8 +536,6 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
         if(endpoint==='resume'){const {id}=z.object({id:z.string().uuid()}).strict().parse(data);const state=await instance.state();const job=state.jobs.find(j=>j.id===id);if(!job)throw new Error('任务不存在');return json(await instance.analyze(job.kind,undefined,undefined,id),202);}
         if(endpoint==='retry'){const {id}=z.object({id:z.string().uuid()}).strict().parse(data);const state=await instance.state();const job=state.jobs.find(j=>j.id===id);if(!job)throw new Error('任务不存在');return json(await instance.analyze('manual',undefined,undefined,undefined,id),202);}
         if(endpoint==='revalidate'){const {id}=z.object({id:z.string().uuid()}).strict().parse(data);const state=await instance.state();const job=state.jobs.find(j=>j.id===id);if(!job)throw new Error('任务不存在');return json(await instance.analyze(job.kind,undefined,undefined,id,undefined,true),202);}
-        if (endpoint === 'brief/recover') { z.object({}).strict().parse(data); return json(await instance.recoverBrief()); }
-        if (endpoint === 'brief') { z.object({}).strict().parse(data); return json(await instance.generateBrief(), 202); }
         if (endpoint === 'analyze') { const v = z.object({ question: z.string().max(2000).optional() }).strict().parse(data); return json(await instance.analyze(v.question ? 'chat' : 'manual', v.question), 202); }
         return json({ error: '接口不存在' }, 404);
       } catch (e) { return json({ error: e instanceof z.ZodError ? '请求字段或分析结构无效' : e instanceof Error && e.message.length < 220 ? e.message : '账户工作台暂不可用' }, 400); }

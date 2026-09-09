@@ -25,6 +25,16 @@ test('missing boundaries, MWR, duplicates and invalid values do not produce mont
   assert.deepEqual(chartSeries({ ...history, points: [history.points[0], history.points[0]] }), []);
   assert.equal(periodReturn({ ...history, points: [{ ...history.points[2], cumulativeReturn: -1 }, history.points[3]] }, 7).value, null);
 });
+test('all-history returns rebase from the first valid TWR observation without a one-year cutoff', () => {
+  const longer = { ...history, points: [{ date: '2020-01-02', nav: 50, cumulativeReturn: .05 }, ...history.points] };
+  const result = periodReturn(longer, 'all');
+  assert.equal(result.start, '2020-01-02');
+  assert.equal(result.end, '2026-09-07');
+  assert.ok(Math.abs(result.value - (1.1 / 1.05 - 1)) < 1e-9);
+  assert.equal(periodReturn(undefined, 'all').value, null);
+  assert.equal(periodReturn({ ...longer, returnMethod: 'MWR' }, 'all').value, null);
+  assert.equal(periodReturn({ ...history, points: [history.points[0]] }, 'all').value, null);
+});
 test('allocation derives top-five exposure from actual holdings and does not combine currencies', () => {
   const snapshot = { baseCurrency: 'USD', metrics: { netLiquidation: '100' }, positions: [{ conId: 1, symbol: 'A', currency: 'USD', marketValue: '40' }, { conId: 2, symbol: 'B', currency: 'USD', marketValue: '20' }], cash: [{ currency: 'USD', amount: '40' }] };
   const result = overviewAllocation(snapshot);

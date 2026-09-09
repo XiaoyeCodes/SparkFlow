@@ -1,16 +1,37 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { CheckCircle2, ChevronRight, Clock3, ExternalLink, LayoutGrid, ShieldCheck, Sparkles } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { CheckCircle2, ChevronRight, Clock3, ExternalLink, LayoutGrid, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react';
 import type { Alert, AnalysisJob, AnalysisReport, BriefInsight, DailyBrief, Evidence, Holding, PortfolioPerformance, WorkbenchState } from '../../lib/ibkr/workbenchTypes';
 import { chartSeries, finite, monthlyReturns, overviewAllocation, periodReturn } from '../../lib/ibkr/overview';
 import { industryLabel } from '../../lib/ibkr/industryLabels';
 import './OverviewPanels.css';
-import { useAdaptiveRows } from './useAdaptiveRows';
 
 const amount = (v: unknown) => finite(v) === null ? '—' : Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const percent = (v: number | null | undefined) => v == null || !Number.isFinite(v) ? '—' : `${(v * 100).toFixed(1)}%`;
 const signed = (v: number | null | undefined) => v == null ? '—' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
 const colors = ['#35dba3', '#5b9df0', '#efac48', '#a08cdd', '#60bfc5', '#859c8f'];
 const stamp = (v?: string | null) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '尚未同步';
+const conclusionHighlight = /^([+-]?\d+(?:\.\d+)?%|[A-Z]{2,6}(?:\/[A-Z]{2,6})*|现金|集中度?|风险|减仓|加仓|持有|观望|不追高|优先|缺口|高弹性)$/;
+const conclusionParts = (text: string) => text.split(/([+-]?\d+(?:\.\d+)?%|[A-Z]{2,6}(?:\/[A-Z]{2,6})*|现金|集中度?|风险|减仓|加仓|持有|观望|不追高|优先|缺口|高弹性)/g).filter(Boolean).map((part, index) => {
+  if (!conclusionHighlight.test(part)) return part;
+  const kind = /^[-+\d]/.test(part) ? 'number' : /^[A-Z]/.test(part) ? 'ticker' : /减仓|加仓|持有|观望|不追高|优先/.test(part) ? 'action' : 'risk';
+  return <strong className={`awb-conclusion-${kind}`} key={`${part}-${index}`}>{part}</strong>;
+});
+const conclusionSignals = ['EXPOSURE', 'EVIDENCE', 'ACTION'];
+
+export function OverviewPnlSummary({ state }: { state: WorkbenchState }) {
+  const { metrics, baseCurrency } = state.snapshot;
+  const value = finite(metrics.unrealizedPnl);
+  return <article className="awb-pnl-summary" aria-label="未实现盈亏">
+    <span className="awb-metric-icon"><TrendingUp size={23} /></span>
+    <div className="awb-pnl-summary-values"><div className="awb-pnl-summary-field" title="当前持仓相对成本的累计浮动盈亏。">
+      <span>未实现盈亏</span>
+      <strong className={value === null || value === 0 ? '' : value < 0 ? 'negative' : 'positive'}>{value !== null && value > 0 ? '+' : ''}{amount(value)}</strong>
+      <small>{baseCurrency ?? '—'} · {value === null ? '未提供' : 'IBKR 账面'}</small>
+    </div></div>
+  </article>;
+}
 
 function useSvgSize(width: number, height: number) {
   const [size, setSize] = useState({ width, height });
@@ -38,7 +59,7 @@ function curve(points: { x: number; y: number }[]) {
 export function PerformancePanel({ state }: { state: WorkbenchState }) {
   const account = state.snapshot.accountKey;
   const [remote, setRemote] = useState<{ account: string; value: PortfolioPerformance }>();
-  const [range, setRange] = useState(30), [mode, setMode] = useState<'nav' | 'return'>('nav'), [hover, setHover] = useState<number | null>(null);
+  const [range, setRange] = useState<number | 'all'>(30), [mode, setMode] = useState<'nav' | 'return'>('nav'), [hover, setHover] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [chartRef, { width: chartWidth, height: chartHeight }] = useSvgSize(690, 240);
   const [monthRef, { width: monthWidth, height: monthHeight }] = useSvgSize(690, 136);
@@ -57,7 +78,7 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
   const fetched = remote?.account === account ? remote.value : undefined;
   const performance = fetched && (!state.performance?.fetchedAt || Date.parse(fetched.fetchedAt ?? '') >= Date.parse(state.performance.fetchedAt)) ? fetched : state.performance ?? fetched;
   const all = chartSeries(performance), last = all.slice(-1)[0];
-  const points = all.filter(p => !last || Date.parse(p.date) >= Date.parse(last.date) - range * 86400000);
+  const points = range === 'all' ? all : all.filter(p => !last || Date.parse(p.date) >= Date.parse(last.date) - range * 86400000);
   const twr = performance?.returnMethod === 'TWR';
   const base = points.find(p => p.cumulativeReturn !== null)?.cumulativeReturn;
   const baseB = points.find(p => p.benchmarkReturn != null && p.cumulativeReturn !== null);
@@ -90,7 +111,7 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
   const tooltipId = `performance-detail-${gradient}`;
   const monthly = monthlyReturns(performance), extent = Math.max(.01, ...monthly.map(m => Math.abs(m.value ?? 0)));
   return <section className="awb-panel awb-performance awb-performance-redesign" aria-label="资产表现">
-    <div className="awb-chart-toolbar"><div className="awb-chart-tabs">{[['nav', '资产净值'], ['return', '投资收益']].map(([value, label]) => <button key={value} aria-pressed={mode === value} disabled={value === 'return' && !performance?.returnMethod} onClick={() => { setMode(value as typeof mode); setHover(null); }}>{label}</button>)}</div><div className="awb-period-tabs">{[[7, '1周'], [30, '1月'], [90, '3月'], [365, '1年']].map(([value, label]) => <button key={value} aria-pressed={range === value} onClick={() => { setRange(Number(value)); setHover(null); }}>{label}</button>)}</div></div>
+    <div className="awb-chart-toolbar"><div className="awb-chart-tabs">{[['nav', '资产净值'], ['return', '投资收益']].map(([value, label]) => <button key={value} aria-pressed={mode === value} disabled={value === 'return' && !performance?.returnMethod} onClick={() => { setMode(value as typeof mode); setHover(null); }}>{label}</button>)}</div><div className="awb-period-tabs">{([[7, '1周'], [30, '1月'], [90, '3月'], [365, '1年'], ['all', '全部']] as const).map(([value, label]) => <button key={value} aria-pressed={range === value} title={value === 'all' ? '全部可用历史' : undefined} onClick={() => { setRange(value); setHover(null); }}>{label}</button>)}</div></div>
     <div className="awb-chart-reading"><span>{selected && hover !== null ? `${selected.date} · ${mode === 'nav' ? amount(values[hover]) : signed(values[hover])}` : mode === 'nav' ? `资产净值 · ${performance?.currency ?? state.snapshot.baseCurrency ?? '币种待核实'}` : twr ? '时间加权收益 · 所选区间' : '资金加权累计收益 · 原始口径'}</span><small>{performance?.source ?? '历史尚未取得'}</small></div>
     {values.filter(v => v !== null).length > 1 ? <div className="awb-nav-chart-wrap"><svg className="awb-nav-chart" ref={chartRef} viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="账户资产表现曲线" aria-describedby={selected ? tooltipId : undefined} tabIndex={0} onBlur={() => setHover(null)} onMouseLeave={() => setHover(null)} onMouseMove={e => {
       const rect = e.currentTarget.getBoundingClientRect(), target = (e.clientX - rect.left) / rect.width * chartWidth;
@@ -109,15 +130,20 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
         <dt>{twr ? '区间收益率 · TWR' : performance?.returnMethod === 'MWR' ? '累计收益率 · MWR' : '收益率'}</dt><dd className={hoverReturn == null ? '' : hoverReturn < 0 ? 'negative' : 'positive'}>{signed(hoverReturn)}</dd>
         <dt>较上一观测收益率</dt><dd className={observationReturn == null ? '' : observationReturn < 0 ? 'negative' : 'positive'}>{signed(observationReturn)}</dd>
         <dt>净值变动</dt><dd className={navChange == null ? '' : navChange < 0 ? 'negative' : 'positive'}>{navChange !== null && navChange > 0 ? '+' : ''}{amount(navChange)}</dd>
-        <dt>收益盈亏金额</dt><dd className="awb-tooltip-missing">— 未提供</dd>
       </dl>
       <p>{twr && returnAnchor ? `区间起点 ${returnAnchor.date}。` : ''}{previous ? `上一观测 ${previous.date}。` : '无上一观测。'}净值变动包含资金进出，不等于投资盈亏。</p>
-      <small>{performance?.source ?? '来源待核实'} · 历史盈亏金额未提供</small>
+      <small>{performance?.source ?? '来源待核实'}</small>
     </div>}</div> : <div className="awb-chart-empty"><strong>开始积累真实账户轨迹</strong><p>{points.length ? '有效观测不足，至少两个点后显示曲线' : '官方历史尚未取得，同步后保存本地净值'}</p></div>}
     <div className="awb-chart-legend">{state.metrics?.sectors.slice(0, 3).map((s, i) => <span key={s.name}><i style={{ background: colors[i] }}/>{industryLabel(s.name)} {percent(s.weight)}</span>)}<span><i style={{ background: colors[5] }}/>现金 {percent(overviewAllocation(state.snapshot).cashWeight)}</span>{hasBenchmark && <span><i style={{ background: '#a49ddb' }}/>{performance?.benchmark} 基准</span>}</div>
     <p className="awb-overview-note">{performance?.note ?? '净值变化含出入金，不能直接视为投资收益。'}{failed && ' 历史刷新失败，保留已有记录。'}</p>
     {hasBenchmark && <div className="awb-performance-stats"><span>区间超额 <b>{signed(points.map((_, i) => values[i] !== null && benchmark[i] !== null ? values[i]! - benchmark[i]! : null).filter(v => v !== null).slice(-1)[0])}</b></span><span>波动率比较 <b>{performance?.volatilityRatio == null ? '至少需要 60 个共同交易日' : `${performance.volatilityRatio.toFixed(2)}×（完整共同历史）`}</b></span><small>{performance?.benchmarkSource ?? '基准未取得'}</small></div>}
-    <div className="awb-performance-bottom"><div className="awb-return-summary" aria-label="收益摘要">{[7, 30, range].map((days, i) => { const result = periodReturn(performance, days); return <div key={i} title={result.value !== null ? `${result.start} 至 ${result.end}` : '缺少区间起点或未核实 TWR'}><small>{i === 0 ? '近一周收益' : i === 1 ? '近一月收益' : `所选 ${days} 日收益`}</small><b className={(result.value ?? 0) < 0 ? 'negative' : 'positive'}>{signed(result.value)}</b></div>; })}</div>
+    <div className="awb-performance-bottom"><div className="awb-return-summary" aria-label="收益摘要">
+      <div className="awb-inception-return" title={performance?.inception?.note ?? '等待 IBKR 核实自始以来的完整业绩'}>
+        <small>自始以来总回报</small>
+        <b className={performance?.inception?.value == null ? '' : performance.inception.value < 0 ? 'negative' : 'positive'}>{signed(performance?.inception?.value)}</b>
+        <span>{performance?.inception?.value != null ? `${performance.inception.start} 至 ${performance.inception.end} · ${performance.returnMethod}` : '完整历史待核实'}</span>
+      </div>
+      {([7, 30, range] as const).map((days, i) => { const result = periodReturn(performance, days); return <div key={i} title={result.value !== null ? `${result.start} 至 ${result.end}` : '缺少区间起点或未核实 TWR'}><small>{i === 0 ? '近一周收益' : i === 1 ? '近一月收益' : days === 'all' ? '全部区间收益' : `所选 ${days} 日收益`}</small><b className={(result.value ?? 0) < 0 ? 'negative' : 'positive'}>{signed(result.value)}</b></div>; })}</div>
     <div className="awb-monthly"><div className="awb-section-heading"><h3>月度收益率</h3><small>最近 6 个月 · TWR</small></div>
       {monthly.some(m => m.value !== null) ? <svg className="awb-month-chart" ref={monthRef} viewBox={`0 0 ${monthWidth} ${monthHeight}`} role="img" aria-label="月度收益率柱状图"><path d={`M0 ${monthHeight / 2 - 3}H${monthWidth}`} stroke="#304337"/>{monthly.map((m, i) => { const xx = (i + .5) * monthWidth / 6, zero = monthHeight / 2 - 3, height = Math.abs(m.value ?? 0) / extent * Math.max(8, (monthHeight - 42) / 2); return <g key={m.month}><title>{m.month}：{signed(m.value)} · {m.start ?? '起点缺失'} 至 {m.end ?? '终点缺失'}</title>{m.value === null ? <text x={xx} y={zero - 5} textAnchor="middle">—</text> : <><rect x={xx - 13} y={m.value >= 0 ? zero - height : zero} width="26" height={Math.max(1, height)} rx="3" fill={m.value >= 0 ? '#2bb88b' : '#c66559'}/><text x={xx} y={m.value >= 0 ? zero - 5 - height : zero + 11 + height} textAnchor="middle">{signed(m.value)}</text></>}<text x={xx} y={monthHeight - 3} textAnchor="middle">{m.month.slice(5)}月{m.partial ? '*' : ''}</text></g>; })}</svg> : <div className="awb-monthly-empty">暂不足以计算月度收益：需要 TWR 和相邻月界观测。</div>}
       <small>按实际月界观测计算；缺失月份留空。{last ? `最新月份截至 ${last.date}，标 * 为截至该日。` : ''}</small>
@@ -125,24 +151,17 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
   </section>;
 }
 
-export function OverviewBrief({ state, report, pending, alerts, openReport, openAlert, openAlerts, generateBrief, busy }: { state: WorkbenchState; report?: AnalysisReport; pending?: AnalysisJob; alerts: Alert[]; openReport: () => void; openAlert: (a: Alert) => void; openAlerts: () => void; generateBrief?: () => void; busy?: boolean }) {
-  if (state.dailyBrief) return <DailyAccountBrief state={state} generate={generateBrief} busy={busy} openReport={openReport}/>;
-  const allocation = overviewAllocation(state.snapshot), level = state.metrics?.riskLevel ?? '数据不足';
-  const gaugeColor = level === '未触发' ? '#35dba3' : level === '数据不足' ? '#667e70' : '#efac48';
-  const structure = allocation.topFive !== null ? `前五大持仓占净资产 ${percent(allocation.topFive)}，现金占比 ${percent(allocation.cashWeight)}。` : '持仓估值或币种换算不完整，暂不能核实整体集中度。';
-  const blocks = [
-    { title: '组合结构', icon: LayoutGrid, text: report?.content.accountSummary || structure },
-    { title: '事件影响', icon: Clock3, text: report?.content.marketContext || '尚无已发布的市场研究。财报与公告影响待取得来源后展示。' },
-    { title: '行动条件', icon: CheckCircle2, text: report?.content.actions?.find(a => a.trigger)?.trigger || (state.preferences.cashFloor !== null || state.preferences.targetWeight !== null ? `已设观察条件：现金下限 ${percent(state.preferences.cashFloor)}，单标的上限 ${percent(state.preferences.targetWeight)}。` : '尚未设置个人仓位和现金约束，可在设置中补充。规则提示供核验。') },
-  ];
-  return <section className="awb-panel awb-brief-redesign" aria-label="AI 账户简报"><span className="awb-ai-badge"><Sparkles size={13}/>AI 账户简报</span><h2 className="awb-ai-headline">{report?.content.headline ?? '让持仓与市场背景连起来'}</h2>
-    {pending && <p className="awb-brief-notice">{pending.state === 'running' ? '新报告正在生成。' : '新账户报告尚未完成。'}{report ? '目前显示上一份已发布简报。' : '当前展示账户事实与研究待办。'}</p>}
-    <div className="awb-risk-gauge"><svg viewBox="0 0 110 65" role="img" aria-label={`规则风险等级：${level}，非百分制评分`}><path d="M12 55 A43 43 0 0 1 98 55" fill="none" stroke="#25372c" strokeWidth="12"/><path d="M12 55 A43 43 0 0 1 98 55" fill="none" stroke={gaugeColor} strokeWidth="12" opacity=".75"/><ShieldCheck x="43" y="33" width="24" height="24" color={gaugeColor}/></svg><div><small>规则风险等级</small><strong style={{ color: gaugeColor }}>{level}</strong><small>{state.metrics?.reasons.length ?? 0} 条观察规则触发 · 非百分制评分</small></div></div>
-    {!!state.metrics?.reasons.length && <details className="awb-overview-evidence"><summary>查看规则依据</summary>{state.metrics.reasons.map(reason => <p key={reason}>{reason}</p>)}<small>规则来自当前配置；默认观察线不代表你的个人风险额度。</small></details>}
-    <div className="awb-insight-list">{blocks.map(({ title, icon: Icon, text }) => <div className="awb-insight-item" key={title}><span className="awb-insight-icon"><Icon size={15}/></span><div><h3>{title}</h3><p>{text}</p></div></div>)}</div>
-    <small className="awb-overview-note">{report ? `研究归档于 ${stamp(report.generatedAt)} · ${report.model}` : `账户事实 · IBKR 快照 ${stamp(state.snapshot.asOf)}；研究待生成。`}</small>
-    <button className="awb-full awb-ai-cta" onClick={openReport}>{report ? '查看完整分析' : '查看研究状态'}<ChevronRight size={16}/></button>
-    <div className="awb-overview-flags"><div className="awb-section-heading"><h3>机会与风险</h3><button onClick={openAlerts}>查看全部 <ChevronRight size={13}/></button></div>{alerts.slice(0, 3).map(a => <button className="awb-overview-flag" key={a.id} onClick={() => openAlert(a)} title={a.detail}><span><i style={{ background: a.kind === 'opportunity' ? '#35dba3' : '#efac48' }}/>{a.title}</span><ChevronRight size={15}/></button>)}{!alerts.length && <p className="awb-overview-note">{state.snapshot.state === 'ready' || state.snapshot.state === 'empty' ? '当前未触发观察规则' : '账户同步后检查观察规则'}</p>}</div>
+export function OverviewBrief({ state, report, pending, openReport }: { state: WorkbenchState; report?: AnalysisReport; pending?: AnalysisJob; openReport: () => void }) {
+  const localDay = (value: Date | string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
+  const todayReport = report && localDay(report.generatedAt) === localDay(new Date()) ? report : undefined;
+  const points = todayReport ? (todayReport.content.briefPoints?.length ? todayReport.content.briefPoints : [todayReport.content.brief]).slice(0, 3) : [];
+  const schedule = state.preferences.schedules?.analysis;
+  return <section className="awb-panel awb-brief-redesign awb-overview-analysis-card" aria-label="今日分析结论">
+    <div className="awb-overview-analysis-head"><span className="awb-ai-badge"><Sparkles size={13}/>今日分析结论</span><small>{todayReport ? stamp(todayReport.generatedAt) : '今日尚未生成'}</small></div>
+    <h2 className="awb-ai-headline">{todayReport?.content.headline ?? '今天还没有账户分析结论'}</h2>
+    {pending && <p className="awb-brief-notice">{pending.state === 'running' ? '今日账户分析正在生成，完成后会自动显示在这里。' : '今日账户分析尚未完成，可前往 AI 分析继续。'}</p>}
+    {points.length ? <ol className="awb-overview-analysis-points">{points.map((point, index) => <li className={`awb-conclusion-card awb-conclusion-card-${index + 1}`} data-signal={conclusionSignals[index] ?? 'SIGNAL'} key={`${index}-${point}`} tabIndex={0}><span className="awb-conclusion-index">{String(index + 1).padStart(2, '0')}</span><p>{conclusionParts(point)}</p><i className="awb-conclusion-scan" aria-hidden="true"/><div className="awb-conclusion-ornament" aria-hidden="true"><i/><i/><i/><i/></div></li>)}</ol> : <p className="awb-overview-analysis-empty">只有你手动发起或已开启的每日定时任务会生成分析；启动服务不会自动补跑。</p>}
+    <div className="awb-overview-analysis-footer"><small>{todayReport ? `${todayReport.kind === 'daily' ? '定时分析' : '手动分析'} · ${todayReport.model}` : schedule?.enabled ? `每日定时已开启 · ${schedule.mode === 'market-close' ? '美股收盘后 30 分钟' : schedule.times.join('、')}` : '每日定时未开启'}</small><button className="awb-ai-cta" onClick={openReport}>{todayReport ? '查看完整分析' : pending ? '查看分析进度' : '前往 AI 分析'}<ChevronRight size={16}/></button></div>
   </section>;
 }
 
@@ -151,7 +170,8 @@ const briefPriority = { high: '重点', medium: '中等', low: '一般' };
 const briefChange = { new: '新增', ongoing: '持续', upgraded: '升级', eased: '缓解' };
 const briefConfidence = { high: '高', medium: '中', low: '低' };
 const briefCoverage = { complete: '已覆盖', partial: '部分覆盖', failed: '检索失败', unsupported: '暂不支持' };
-const briefArea: Record<string, string> = { news: '公司新闻', filings: '公告财报', filing: '公告财报', earnings: '财报', valuation: '估值', macro: '宏观', calendar: '事件日历', market: '市场', profile: '公司资料' };
+const briefArea: Record<string, string> = { news: '近期新闻', filings: '公告财报', filing: '公告财报', financials: '财报', earnings: '财报', valuation: '估值', macro: '宏观', calendar: '已核实事件', calendarChecked: '已查官方事件页', market: '行情', profile: '公司资料' };
+const briefLimitation = (gap: string) => /历史分位|仅提供损益表|报告期不能作为发布日期|ETF成分|未完整核验价格时点|使用(?:FRED转发的BLS|BLS)原始序列/.test(gap);
 const briefTime = (value?: string | null) => {
   if (!value) return '未确认';
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}（时间未确认）`;
@@ -193,6 +213,7 @@ function DailyResearch({ brief }: { brief: DailyBrief }) {
   const insights = [...(brief.content.insights ?? [])].sort((a, b) => ({ high: 0, medium: 1, low: 2 }[a.priority] - { high: 0, medium: 1, low: 2 }[b.priority]));
   const evidence = brief.evidence ?? [], calendar = brief.content.calendar ?? [], changes = brief.content.changes ?? [];
   const gaps = [...new Set([...brief.content.gaps, ...(brief.researchGaps ?? [])])];
+  const limitations = gaps.filter(briefLimitation), issues = gaps.filter(gap => !briefLimitation(gap));
   return <>
     <div className="awb-daily-judgement"><h3><Sparkles size={15}/>账户风险速览</h3><p>{brief.content.summary}</p></div>
     <div className="awb-daily-opportunities"><div className="awb-brief-section-title"><h3><ShieldCheck size={15}/>机会与风险</h3><small>{insights.length} 条提醒</small></div>
@@ -205,8 +226,9 @@ function DailyResearch({ brief }: { brief: DailyBrief }) {
     </div></details>
     {!!changes.length && <details className="awb-brief-fold"><summary><span>相较上期的变化</span><span>{changes.length} 项<ChevronRight size={14}/></span></summary><ul>{changes.map((change, i) => <li key={i}>{change}</li>)}</ul></details>}
     <details className="awb-brief-fold awb-brief-coverage"><summary><span>研究覆盖与来源</span><span>{evidence.filter(item => item.read).length} 篇已读取<ChevronRight size={14}/></span></summary><div className="awb-brief-expanded">
-      {!!gaps.length && <div className="awb-daily-gaps"><h3>影响判断的缺口</h3><ul>{gaps.map((gap, i) => <li key={i}>{gap}</li>)}</ul></div>}
-      {brief.coverage?.length ? <ul className="awb-brief-coverage-list">{brief.coverage.map(item => <li key={item.symbol}><div><b>{item.symbol}</b><span className={`awb-coverage-${item.status}`}>{briefCoverage[item.status]}</span></div><small>{item.areas.map(area => briefArea[area] ?? area).join(' · ')}</small>{!!item.gaps.length && <p>{item.gaps.join('；')}</p>}</li>)}</ul> : <p>本期未提供逐标的研究覆盖记录。</p>}
+      {!!issues.length && <div className="awb-daily-gaps"><h3>本期数据缺口</h3><ul>{issues.map((gap, i) => <li key={i}>{gap}</li>)}</ul></div>}
+      {!!limitations.length && <details className="awb-brief-expand"><summary>数据口径与功能范围（{limitations.length} 项）<ChevronRight size={13}/></summary><ul>{limitations.map((gap, i) => <li key={i}>{gap}</li>)}</ul></details>}
+      {brief.coverage?.length ? <ul className="awb-brief-coverage-list">{brief.coverage.map(item => <li key={item.symbol}><div><b>{item.symbol}</b><span className={`awb-coverage-${item.status}`}>{briefCoverage[item.status]}</span></div><small>{item.areas.length ? `已取得：${item.areas.map(area => briefArea[area] ?? area).join(' · ')}` : '本期尚未取得有效研究来源'}</small>{!!item.gaps.length && <details className="awb-brief-expand"><summary>查看未覆盖内容与原因<ChevronRight size={13}/></summary><ul>{item.gaps.map((gap, i) => <li key={i}>{gap.replace(/\b(profile|news|calendar|prices|financials)\b/g, area => briefArea[area === 'prices' ? 'market' : area] ?? area)}</li>)}</ul></details>}</li>)}</ul> : <p>本期未提供逐标的研究覆盖记录。</p>}
       <BriefSources evidence={evidence} ids={evidence.map(item => item.id)}/>
     </div></details>
     <p className="awb-overview-note">⚠️ 以上内容仅供参考，不构成任何投资建议，投资有风险，决策需谨慎。</p>
@@ -221,25 +243,14 @@ function BriefSynthesis({ detail, preservingPrevious }: { detail: string; preser
   </section>;
 }
 
-function DailyAccountBrief({ state, generate, busy, openReport }: { state: WorkbenchState; generate?: () => void; busy?: boolean; openReport: () => void }) {
+function DailyAccountBrief({ state, generate, busy }: { state: WorkbenchState; generate?: () => void; busy?: boolean }) {
   const status = state.dailyBrief!, brief = status.latest, running = status.state === 'running';
   const ready = ['ready', 'empty'].includes(state.snapshot.state);
-  const researched = brief?.content.insights !== undefined;
   return <section className="awb-panel awb-brief-redesign awb-daily-brief" aria-label="AI 账户简报">
-    <span className="awb-ai-badge"><Sparkles size={13}/>AI 账户简报</span>
-    <h2 className="awb-ai-headline">{brief?.content.headline ?? '每日账户简报'}</h2>
-    <small className="awb-daily-session">{brief ? <><span>{brief.analysisAsOf ? `研究截至 ${briefTime(brief.analysisAsOf)}` : `生成于 ${briefTime(brief.generatedAt)}`}（北京时间）</span><span>最近收盘交易日 {brief.sessionDate ?? '未核实'}</span></> : '按设置中的账户简报时间自动生成'}</small>
-    {running ? <BriefSynthesis detail={status.detail} preservingPrevious={Boolean(brief)}/> : status.state !== 'ready' && <p className="awb-brief-notice" role="status">{status.detail}</p>}
-    {brief ? <div className="awb-daily-content">
-      {researched ? <DailyResearch brief={brief}/> : <><div><h3><LayoutGrid size={15}/>账户现状</h3><p>{brief.content.summary}</p></div>
-      <div><h3><ShieldCheck size={15}/>风险解读</h3><p>{brief.content.risk}</p></div>
-      <div><h3><CheckCircle2 size={15}/>下一交易日关注</h3><ul>{brief.content.watch.map((item, i) => <li key={i}>{item}</li>)}</ul></div>
-      {!!brief.content.gaps.length && <div className="awb-daily-gaps"><h3>数据缺口</h3><p>{brief.content.gaps.join('；')}</p></div>}</>}
-      <details className="awb-overview-evidence awb-brief-account-facts"><summary>查看账户事实与来源</summary><small>IBKR 快照 {briefTime(brief.snapshotAsOf)} · 生成于 {briefTime(brief.generatedAt)}（北京时间） · {brief.model}。账户快照与最近收盘交易日分别标注。</small><dl>{Object.entries(brief.facts).map(([id, fact]) => <div key={id}><dt>{fact.label}</dt><dd>{fact.display}<small>{fact.source} · {briefTime(fact.asOf)}（北京时间）</small></dd></div>)}</dl></details>
-    </div> : <p className="awb-daily-empty">总结组合变化、最多三项机会或风险、待观察条件与可核验来源。</p>}
-    <div className="awb-daily-footer"><p className="awb-overview-note">{status.enabled ? status.nextRunAt ? `下次自动生成：${stamp(status.nextRunAt)}（本地时间）` : '自动生成暂停，等待模型配置或交易日历恢复' : '自动简报已关闭'}</p><small>执行时间以设置为准。本机服务运行时执行，恢复后只补最近一次。</small>
+    {running ? <BriefSynthesis detail={status.detail} preservingPrevious={Boolean(brief)}/> : status.state !== 'ready' && status.detail && <p className="awb-brief-notice" role="status">{status.detail}</p>}
+    {brief ? <div className="awb-daily-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{brief.content.markdown ?? brief.content.summary}</ReactMarkdown></div> : !running && <p className="awb-daily-empty">生成今日最高持仓的具体操作建议。</p>}
+    <div className="awb-daily-footer">
       <button className="awb-full primary" onClick={generate} disabled={!generate || busy || running || !ready || !state.ai.enabled || state.ai.usedToday >= state.preferences.maxAiCalls}>{running ? '正在生成简报' : brief ? '重新生成简报' : '生成账户简报'}<Sparkles size={14}/></button>
-      <button className="awb-full awb-ai-cta" onClick={openReport}>查看深度研究<ChevronRight size={15}/></button>
     </div>
   </section>;
 }

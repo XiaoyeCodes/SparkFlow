@@ -8,6 +8,8 @@ All returned text is extracted from a fetched source; search snippets are never 
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import ipaddress
+import csv
+import io
 import json
 import re
 import socket
@@ -15,6 +17,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 import requests
 from bs4 import BeautifulSoup
+import ibkr_public_cache as public_cache
 
 MAX_BYTES = 2_000_000
 MAX_TEXT = 28_000
@@ -43,7 +46,23 @@ def download_public(url: str) -> tuple[str, str, str]:
     """Validate every redirect before following it; never send cookies or authorization."""
     for _ in range(4):
         url = safe_public_url(url)
-        response = requests.get(url, headers={'User-Agent': USER_AGENT, 'Accept': 'text/html,application/json,application/xhtml+xml'}, timeout=(5, 16), allow_redirects=False, stream=True)
+        options = {'headers': {'User-Agent': USER_AGENT, 'Accept': 'text/html,application/json,application/xhtml+xml,application/rss+xml,text/csv'}, 'timeout': (3, 7), 'allow_redirects': False, 'stream': True}
+        if urlsplit(url).hostname == 'fred.stlouisfed.org':
+            # FRED is reachable directly here even when the proxy's TLS route stalls.
+            # This exception is restricted to the fixed public source, never arbitrary URLs.
+            # Use the HTTP client's own identity; the browser impersonation header
+            # used for article sites stalls on this CSV endpoint in live checks.
+            options.pop('headers')
+            options['timeout'] = (2, 4)
+            with requests.Session() as direct:
+                direct.trust_env = False
+                try:
+                    response = direct.get(url, **options)
+                    response.raise_for_status()
+                except requests.RequestException:
+                    response = requests.get(url, **options)
+        else:
+            response = requests.get(url, **options)
         try:
             if response.status_code in (301, 302, 303, 307, 308):
                 url = urljoin(url, response.headers.get('Location', ''))
@@ -64,7 +83,7 @@ def download_public(url: str) -> tuple[str, str, str]:
 
 def explicit_publication_date(soup: BeautifulSoup, url: str) -> str | None:
     """Only article publication markers/datelines, never arbitrary body dates or Last Update."""
-    for selector in ('meta[property="article:published_time"]', 'meta[name="datePublished"]', 'meta[name="pubdate"]', 'meta[itemprop="datePublished"]', 'time[itemprop="datePublished"]'):
+    for selector in ('meta[property="article:published_time"]', 'meta[name="datePublished"]', 'meta[name="pubdate"]', 'meta[itemprop="datePublished"]', 'time[itemprop="datePublished"]', 'meta[property="og:article:published_time"]', 'time.byline-attr-meta-time'):
         node = soup.select_one(selector)
         if node:
             value = node.get('content') or node.get('datetime')
@@ -93,6 +112,21 @@ def explicit_publication_date(soup: BeautifulSoup, url: str) -> str | None:
             continue
     month_date = r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+20\d{2}'
     host = (urlsplit(url).hostname or '').lower()
+    if host == 'ir.amd.com' and '/press-releases/detail/' in urlsplit(url).path:
+        node = soup.select_one('time.date')
+        if node:
+            text = node.get_text(' ', strip=True)
+            marked = re.search(month_date + r'\s+(\d{1,2}):(\d{2})\s*([ap])m\s+(EDT|EST)', text, re.I)
+            if marked:
+                day = datetime.strptime(re.search(month_date, text, re.I).group(0), '%B %d, %Y')
+                hour = int(marked[2]) % 12 + (12 if marked[4].lower() == 'p' else 0)
+                return day.replace(hour=hour, minute=int(marked[3]), tzinfo=timezone(timedelta(hours=-4 if marked[5].upper() == 'EDT' else -5))).astimezone(timezone.utc).isoformat()
+    # Apple marks its article publication date on the newsroom dateline.
+    if host == 'www.apple.com' and '/newsroom/' in urlsplit(url).path:
+        for node in soup.select('.hero-eyebrow, .article-header .date, time'):
+            marked = re.search(month_date, node.get_text(' ', strip=True), re.I)
+            if marked:
+                return datetime.strptime(marked.group(0), '%B %d, %Y').date().isoformat()
     if host == 'www.federalreserve.gov' and '/newsevents/pressreleases/' in urlsplit(url).path:
         node = soup.select_one('.article__time')
         if node:
@@ -133,6 +167,14 @@ def extract_html(html: str, url: str) -> dict:
         if parsed.scheme == 'https' and text and href not in seen:
             seen.add(href)
             links.append({'title': text[:180], 'url': href})
+    # FOMC lists future years first; keep current/past statement links ahead of
+    # navigation so the bounded list does not silently discard the latest statement.
+    if urlsplit(url).hostname == 'www.federalreserve.gov' and 'fomccalendars' in url:
+        today = datetime.now(timezone.utc).strftime('%Y%m%d')
+        def statement_key(link):
+            match = re.search(r'/monetary(\d{8})a\.htm$', link['url'])
+            return (1, match[1]) if match and match[1] <= today else (0, '')
+        links.sort(key=statement_key, reverse=True)
     text = main.get_text('\n', strip=True)
     text = re.sub(r'\n[ \t]*\n+', '\n\n', text)
     if len(text) < 150 or re.search(r'access denied|verify you are human|captcha verification', text[:500], re.I):
@@ -150,6 +192,34 @@ BLS_SERIES = {
     'CES0000000001': {'label': 'US employment: total nonfarm payroll employment LEVEL', 'valueMeaning': 'Employment level in thousands; not jobs added in the month'},
     'LNS14000000': {'label': 'US employment: civilian unemployment RATE', 'valueMeaning': 'Unemployment rate percent; not a percentage-point change'},
 }
+
+FRED_SERIES = {'CUSR0000SA0': ('CPIAUCSL', 'US consumer price inflation: CPI index LEVEL, seasonally adjusted; not a percentage change'),
+               'CES0000000001': ('PAYEMS', 'US employment: total nonfarm payroll LEVEL in thousands; not jobs added'),
+               'LNS14000000': ('UNRATE', 'US civilian unemployment RATE in percent')}
+
+
+def fred_series(series_id):
+    fred_id, label = FRED_SERIES[series_id]
+    url = f'https://fred.stlouisfed.org/graph/fredgraph.csv?id={fred_id}'
+    final, _, raw = download_public(url)
+    rows = list(csv.DictReader(io.StringIO(raw)))
+    data = [{'date': row.get('observation_date') or row.get('DATE'), 'value': row.get(fred_id)} for row in rows]
+    data = [row for row in data if re.fullmatch(r'20\d{2}-\d{2}-\d{2}', row['date'] or '')
+            and re.fullmatch(r'-?\d+(?:\.\d+)?', row['value'] or '')][-6:]
+    if not data:
+        raise ValueError('PUBLIC_FRED_NO_PERIODS')
+    content = {'source': 'Federal Reserve Bank of St. Louis FRED; underlying source BLS', 'seriesID': fred_id,
+               'valueMeaning': label, 'data': data, 'publishedAt': None,
+               'limitations': 'Observation periods are not publication dates. Current revised series; no release surprise or growth rate computed.'}
+    return {'status': 'ok', 'url': final, 'title': label, 'content': json.dumps(content), 'publishedAt': None,
+            'transport': 'official_fred_csv', 'sourceSubstitution': 'BLS API unavailable; FRED distributes the BLS source series'}
+
+
+def macro_series(series_id, year=None):
+    try:
+        return bls_series(series_id, year)
+    except (requests.RequestException, ValueError):
+        return fred_series(series_id)
 
 
 def bls_series(series_id: str, year: int | None = None) -> dict:
@@ -169,23 +239,23 @@ def bls_series(series_id: str, year: int | None = None) -> dict:
     return {'status': 'ok', 'url': final_url, 'title': BLS_SERIES[series_id]['label'], 'content': json.dumps(content, ensure_ascii=False, separators=(',', ':')), 'publishedAt': None, 'transport': 'official_bls_api', 'length': len(raw)}
 
 
-def read_public_url(url: str) -> dict:
+def _read_public_url(url: str) -> dict:
     try:
         host = (urlsplit(url).hostname or '').lower()
         path = urlsplit(url).path
         if host == 'api.bls.gov' and path.rsplit('/', 1)[-1] in BLS_SERIES:
             year_text = parse_qs(urlsplit(url).query).get('endyear', [''])[0]
-            return bls_series(path.rsplit('/', 1)[-1], int(year_text) if re.fullmatch(r'20\d{2}', year_text) else None)
+            return macro_series(path.rsplit('/', 1)[-1], int(year_text) if re.fullmatch(r'20\d{2}', year_text) else None)
         # The website is currently 403 from this network; equivalent official raw series are explicitly identified.
         if host in ('bls.gov', 'www.bls.gov') and path == '/news.release/cpi.nr0.htm':
-            result = bls_series('CUSR0000SA0')
+            result = macro_series('CUSR0000SA0')
             result['requestedUrl'] = url
-            result['sourceSubstitution'] = 'BLS news-release page unavailable; official CPI source series, not the release narrative'
+            result.setdefault('sourceSubstitution', 'BLS news-release page unavailable; official CPI source series, not the release narrative')
             return result
         if host in ('bls.gov', 'www.bls.gov') and path == '/news.release/empsit.nr0.htm':
-            result = bls_series('CES0000000001')
+            result = macro_series('CES0000000001')
             result['requestedUrl'] = url
-            result['sourceSubstitution'] = 'BLS news-release page unavailable; official payroll source series, not the release narrative'
+            result.setdefault('sourceSubstitution', 'BLS news-release page unavailable; official payroll source series, not the release narrative')
             return result
         final_url, content_type, content = download_public(url)
         if 'application/json' in content_type:
@@ -197,6 +267,17 @@ def read_public_url(url: str) -> dict:
     except Exception as exc:
         status = getattr(getattr(exc, 'response', None), 'status_code', None)
         return {'status': 'error', 'error': f'PUBLIC_HTTP_{status}' if status else str(exc) if re.fullmatch('[A-Z_]+', str(exc)) else 'PUBLIC_SOURCE_UNAVAILABLE'}
+
+
+def read_public_url(url: str) -> dict:
+    # Only successful parsed public documents are cached, never provider errors.
+    # Version the key whenever parsing rules change; original fetch times survive reuse.
+    key = 'article:v1:' + str(url)
+    cached = public_cache.read(key)
+    if cached is not None:
+        return cached
+    result = _read_public_url(url)
+    return public_cache.write(key, result) if result.get('status') == 'ok' else result
 
 
 if __name__ == '__main__':

@@ -36,7 +36,11 @@ export function holdingsReturnSeries(performance: PortfolioPerformance | undefin
   const first = window.findIndex(point => point.cumulativeReturn !== null);
   const visible = first < 0 ? [] : window.slice(first);
   const base = visible[0]?.cumulativeReturn;
-  const points = method === 'TWR' || method === 'MWR' ? visible.map(point => ({ date: point.date, value: point.cumulativeReturn === null ? null : method === 'TWR' ? (1 + point.cumulativeReturn) / (1 + base!) - 1 : point.cumulativeReturn })) : [];
+  const points = method === 'TWR' || method === 'MWR' ? visible.map(point => ({
+    date: point.date,
+    nav: point.nav,
+    value: point.cumulativeReturn === null ? null : method === 'TWR' ? (1 + point.cumulativeReturn) / (1 + base!) - 1 : point.cumulativeReturn,
+  })) : [];
   const count = points.filter(point => point.value !== null).length;
   return { points, count, start: points[0]?.date, end: points[points.length - 1]?.date, value: count >= 2 ? points[points.length - 1]?.value ?? null : null, method,
     note: method === 'TWR' ? '时间加权收益率 · 区间起点归零，剔除出入金影响；非盈亏金额。' : method === 'MWR' ? '资金加权收益率 · 原始累计口径，未按所选区间重算；非盈亏金额。' : '缺少已核实的收益率历史，暂不以资产净值变化代替盈亏。' };

@@ -24,12 +24,11 @@ test('saving or enabling a schedule does not immediately replay earlier clock ti
   const window = scheduleWindow(clock(), new Date('2026-09-08T04:00:00Z'), '2026-09-08T03:59:00Z');
   assert.equal(window.due, undefined); assert.equal(window.nextRunAt, '2026-09-08T10:00:00.000Z');
 });
-test('legacy brief timing and switch survive migration; daily analysis starts disabled', () => {
+test('retired brief scheduling stays disabled and daily analysis requires an explicit opt-in', () => {
   const settings = accountSchedules(defaults);
-  assert.equal(settings.brief.enabled, defaults.daily); assert.equal(settings.brief.mode, 'market-close');
+  assert.equal(settings.brief.enabled, false);
   assert.equal(settings.analysis.enabled, false);
-  assert.equal(scheduleWindow(settings.brief, new Date('2026-09-08T21:00:00Z')).due.at, '2026-09-08T20:30:00.000Z');
-  assert.equal(accountSchedules({ ...defaults, daily: false }).brief.enabled, false);
+  assert.equal(accountSchedules({ ...defaults, daily: true, eventAnalysis: true }).brief.enabled, false);
 });
 test('schedule schema rejects malformed times, duplicates, unknown zones and excessive counts', () => {
   for (const config of [clock(['25:00']), clock(['9:00']), clock(['09:00', '09:00']), clock([]), clock(['09:00'], 'invalid'), clock(Array.from({ length: 13 }, (_, i) => `${String(i).padStart(2, '0')}:00`))]) {

@@ -135,10 +135,10 @@ test('overall deadline returns transparent partial evidence and stops source wor
  let clock = realNow(), calls = 0;
  Date.now = () => clock;
  try {
-  const result = await prepareBriefResearch(makeSnapshot(['AAPL']), { tool: async () => { calls++; clock += 250000; throw new Error('slow upstream'); } }, new AbortController().signal, { analysisAsOf });
+  const result = await prepareBriefResearch(makeSnapshot(['AAPL']), { tool: async () => { calls++; clock += 370000; throw new Error('slow upstream'); } }, new AbortController().signal, { analysisAsOf });
   assert.equal(calls, 1);
   assert.equal(result.coverage[0].status, 'failed');
-  assert.ok(result.gaps.some(g => g.includes('4分钟上限')));
+  assert.ok(result.gaps.some(g => g.includes('6分钟上限')));
  } finally { Date.now = realNow; }
 });
 
@@ -289,6 +289,48 @@ test('fresh profile always wins and unsafe, stale or mismatched cache never beco
  assert.ok(!failed.evidence.some(e=>e.kind==='profile'));
  assert.doesNotMatch(JSON.stringify(failed),/PRIVATE_DO_NOT_EXPOSE/);
  assert.ok(failed.coverage[0].gaps.some(g=>g.includes('BRIEF_RESEARCH_SOURCE_FAILED')));
+});
+
+test('TradingView replacement profile has source identity and never masquerades as Yahoo', async () => {
+ const result = await prepareBriefResearch(makeSnapshot(['AAPL']), { tool: fixtureTool([], async name => {
+  if (name === 'profile') return { source: 'TradingView', symbol: 'AAPL', url: 'https://www.tradingview.com/symbols/NASDAQ-AAPL/', name: 'Apple Inc.', currency: 'USD', statistics: { trailingPE: 30.2 }, financials: { currentPrice: 210.5 } };
+ }) }, new AbortController().signal, { analysisAsOf });
+ const profile = result.evidence.find(item => item.kind === 'profile');
+ assert.equal(profile.source, 'www.tradingview.com');
+ assert.equal(JSON.parse(profile.content).statistics.trailingPE, 30.2);
+ assert.ok(result.coverage[0].areas.includes('valuation'));
+});
+
+test('old first article does not stop discovery of a recent original; all news precedes calendars', async () => {
+ const calls = [];
+ const result = await prepareBriefResearch(makeSnapshot(['AAPL', 'MSFT']), { tool: fixtureTool(calls, async (name, args) => {
+  if (name === 'discover' && args.area === 'news') return {results: [{url:`https://investors.example.com/${args.symbol}/old`},{url:`https://investors.example.com/${args.symbol}/recent`}]};
+  if (name === 'read' && args.url.endsWith('/old')) return {url:args.url,title:'Company financial report',publishedAt:'2026-01-01T00:00:00Z',content:`${args.url.includes('AAPL')?'AAPL':'MSFT'} Public Company reported quarterly earnings and revenue. `.repeat(5)};
+ }) }, new AbortController().signal, {analysisAsOf});
+ assert.ok(result.coverage.every(item => item.areas.includes('news')));
+ assert.ok(result.evidence.some(item => item.url.endsWith('/recent')));
+ const lastNews = Math.max(...calls.map((call,i) => call.name==='discover' && call.args.area==='news' ? i : -1));
+ const firstCalendar = calls.findIndex(call => call.name==='discover' && call.args.area==='calendar');
+ assert.ok(firstCalendar > lastNews);
+});
+
+test('search redirect pages are rejected and failed macro does not claim successful API substitution', async () => {
+ const result = await prepareBriefResearch(makeSnapshot(['AAPL']), {tool: fixtureTool([], async (name,args) => {
+  if(name==='read' && args.url.includes('bls.gov')) throw new Error('PUBLIC_SOURCE_UNAVAILABLE');
+  if(name==='read' && args.url.includes('example.com')) return {url:'https://www.sogou.com/link?url=opaque',title:'AAPL company earnings',publishedAt:analysisAsOf,content:'AAPL Public Company investor quarterly earnings announcement. '.repeat(10)};
+ })}, new AbortController().signal, {analysisAsOf});
+ assert.ok(!result.evidence.some(item=>item.source==='www.sogou.com'));
+ assert.ok(!result.gaps.some(gap=>gap.includes('就业与通胀使用官方API')));
+});
+
+test('an official event page without a confirmed upcoming date records a check, never event coverage', async () => {
+ const result = await prepareBriefResearch(makeSnapshot(['AAPL']), {tool: fixtureTool([], async (name,args) => {
+  if(name==='discover' && args.area==='calendar') return {results:[{url:'https://investor.apple.com/events/'}]};
+  if(name==='read' && args.url==='https://investor.apple.com/events/') return {url:args.url,title:'AAPL Apple Investor Relations upcoming events',content:'Apple investor relations financial events and presentations. Previously reported quarterly earnings are available in the archive. '.repeat(4)};
+ })}, new AbortController().signal, {analysisAsOf});
+ assert.ok(result.coverage[0].areas.includes('calendarChecked'));
+ assert.ok(!result.coverage[0].areas.includes('calendar'));
+ assert.ok(result.coverage[0].gaps.some(gap=>gap.includes('不代表没有事件')));
 });
 
 test('fallback loader reads at most eight recent attempts and only returns same-day public profile fields', async () => {

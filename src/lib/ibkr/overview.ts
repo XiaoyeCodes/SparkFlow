@@ -11,8 +11,12 @@ export function chartSeries(history?: PortfolioPerformance): PerformancePoint[] 
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 const compound = (a?: PerformancePoint, b?: PerformancePoint) => a?.cumulativeReturn != null && b?.cumulativeReturn != null && a.date < b.date ? (1 + b.cumulativeReturn) / (1 + a.cumulativeReturn) - 1 : null;
-export function periodReturn(history: PortfolioPerformance | undefined, days: number) {
+export function periodReturn(history: PortfolioPerformance | undefined, days: number | 'all') {
   const points = chartSeries(history), end = points.slice(-1)[0];
+  if (days === 'all') {
+    const start = points.find(p => p.cumulativeReturn !== null);
+    return { value: history?.returnMethod === 'TWR' ? compound(start, end) : null, start: start?.date, end: end?.date };
+  }
   const target = end ? Date.parse(end.date) - days * day : 0;
   const start = points.filter(p => Date.parse(p.date) <= target).slice(-1)[0];
   return { value: history?.returnMethod === 'TWR' && start && target - Date.parse(start.date) <= 4 * day ? compound(start, end) : null, start: start?.date, end: end?.date };

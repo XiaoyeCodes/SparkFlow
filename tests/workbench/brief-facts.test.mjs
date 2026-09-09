@@ -72,3 +72,13 @@ test('empty objects, nulls, booleans, numeric strings and nonfinite profile fiel
   const malformed = '{"statistics":{"forwardPE":1e309},"financials":{"currentPrice":{}}}';
   assert.deepEqual(externalBriefFacts([evidence({}, { kind: 'profile', content: malformed })]), {});
 });
+
+test('daily market facts keep provider prices, signed changes and observed time for the Markdown prompt', () => {
+  const content = { source: 'TradingView', symbol: 'VIX', observedAt: '2026-09-09T04:10:39.001Z', price: 15.72, changePercent: 8.18995, high: 15.94, low: 15.22 };
+  const facts = externalBriefFacts([evidence(content, { kind: 'market', symbols: [], source: 'tradingview.com' })]);
+  assert.equal(facts.externalE1VIXPrice.display, '15.72');
+  assert.equal(facts.externalE1VIXChange.display, '+8.19%');
+  assert.equal(facts.externalE1VIXHigh.display, '15.94');
+  assert.equal(facts.externalE1VIXLow.display, '15.22');
+  assert.equal(facts.externalE1VIXChange.asOf, content.observedAt);
+});

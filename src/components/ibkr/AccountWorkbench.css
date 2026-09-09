@@ -50,8 +50,10 @@
 .awb-analysis-card :is(h2,h3,p,form,div,span,small,details,ol){position:relative}
 .awb-analysis-command-grid,.awb-analysis-report-grid{display:grid;grid-template-columns:minmax(0,8fr) minmax(320px,4fr);gap:16px;align-items:start}
 .awb-analysis-command-rail{display:flex;flex-direction:column;gap:16px;min-width:0}
-.awb-analysis-report-grid{margin-top:16px}
-.awb-analysis-report-grid>.awb-stack{gap:16px}
+.awb-analysis-report-grid{margin-top:16px;align-items:stretch}
+.awb-analysis-report-grid>.awb-stack{gap:16px;height:100%}
+.awb-analysis-report-grid>main>.awb-analysis-scenarios,.awb-analysis-report-grid>aside>.awb-analysis-actions{flex:1}
+.awb-analysis-report-grid>aside>.awb-analysis-actions{display:flex;flex-direction:column}
 .awb-analysis-kicker{display:inline-flex;align-items:center;gap:7px;color:var(--analysis-mint);font:600 10px/1.2 "JetBrains Mono",Consolas,monospace;letter-spacing:.13em;text-transform:uppercase}
 .awb-analysis-helper{display:block;margin-top:12px;color:var(--analysis-low);line-height:1.6}
 .awb-analysis-intro,.awb-analysis-task,.awb-analysis-hero{min-height:444px;overflow:hidden;padding:32px;background:radial-gradient(640px 280px at 10% 0,rgba(53,224,161,.09),transparent 68%),linear-gradient(145deg,#111914,#0b110e)}

@@ -10,7 +10,7 @@ export type Snapshot = {
   sessionRevision: number; sequence: number; source: 'ibkr' | 'fixture'; testData: boolean;
   asOf: string | null; connection: 'unconfigured' | 'connecting' | 'connected' | 'disconnected' | 'reconciling' | 'error';
   state: DataState; baseCurrency: string | null;
-  metrics: { netLiquidation: string | null; unrealizedPnl: string | null; buyingPower: string | null; maintenanceMargin: string | null };
+  metrics: { netLiquidation: string | null; unrealizedPnl: string | null; dailyPnl?: string | null; buyingPower: string | null; maintenanceMargin: string | null };
   cash: { currency: string; amount: string }[]; positions: Position[]; orders: OrderView[]; quotes: Quote[];
   capabilities: { placeOrders: false; shareWithAi: false }; missing: string[]; detail: string;
   executions?: ExecutionView[]; provenance?: Record<string, SourceStamp>;

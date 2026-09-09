@@ -47,6 +47,7 @@ test('TWR compounds selected dates and does not infer profit from cash-inflated 
   const model = holdingsReturnSeries(history(), 30);
   expect(model.start).toBe('2026-08-11'); expect(model.end).toBe('2026-09-08');
   expect(model.value).toBeCloseTo(1.2 / 1.1 - 1);
+  expect(model.points.map(point => point.nav)).toEqual([1100, 1200]);
   expect(holdingsReturnSeries(history(), 0).value).toBeCloseTo(.2);
   const data = history(); data.returnMethod = null;
   expect(holdingsReturnSeries(data, 30).points).toEqual([]);
@@ -74,6 +75,8 @@ test('holdings charts respond to range changes and export the same range', async
   const boxes = await page.locator('.ha-card').evaluateAll(cards => cards.map(card => card.getBoundingClientRect().top));
   expect(new Set(boxes).size).toBe(1);
   await expect(page.locator('.ha-return strong')).toHaveText('+20.00%');
+  await expect(page.locator('.ha-return-amount')).toContainText('期末账户净值');
+  await expect(page.locator('.ha-return-amount')).toContainText('1,200.00USD');
   await page.getByRole('button', { name: '30天', exact: true }).click();
   await expect(page.locator('.ha-return strong')).toHaveText('+9.09%');
   await page.locator('.ha-legend button').first().focus();

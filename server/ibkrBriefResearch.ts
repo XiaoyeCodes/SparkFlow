@@ -11,7 +11,7 @@ type IO = { tool: (name: string, args: Record<string, unknown>, signal: AbortSig
 type Target = { symbol: string; currency: string; assetType: string; name: string; queryName: string; fund: boolean; weight: number; areas: Set<string>; gaps: Set<string>; supported: boolean };
 const issuerNames: Record<string, string> = { UL: 'Unilever', AAPL: 'Apple', AMD: 'Advanced Micro Devices', AMZN: 'Amazon', GOOG: 'Alphabet', GOOGL: 'Alphabet', KO: 'Coca-Cola', LLY: 'Eli Lilly', MCD: 'McDonald', MSFT: 'Microsoft', NVDA: 'NVIDIA', TSLA: 'Tesla', QQQ: 'Invesco QQQ' };
 const DAY = 86_400_000;
-const LIMITS = { duration: 240_000, callDuration: 40_000, calls: 120, searches: 36, reads: 48, sources: 64, content: 85_000, perSource: 4_800 };
+const LIMITS = { duration: 360_000, callDuration: 16_000, calls: 120, searches: 36, reads: 48, sources: 64, content: 85_000, perSource: 4_800 };
 const officialDomains: Record<string, string[]> = {
  AAPL: ['apple.com'], AMD: ['amd.com'], AMZN: ['amazon.com'], GOOG: ['abc.xyz', 'alphabet.com'], GOOGL: ['abc.xyz', 'alphabet.com'], KO: ['coca-colacompany.com'],
  LLY: ['lilly.com'], MCD: ['mcdonalds.com'], MSFT: ['microsoft.com'], NVDA: ['nvidia.com'], TSLA: ['tesla.com'], UL: ['unilever.com'], QQQ: ['invesco.com'], SPY: ['ssga.com'],
@@ -30,7 +30,12 @@ function publicUrl(value: unknown): string {
 }
 function isPrimary(url: string, symbol = ''): boolean {
  const host = new URL(url).hostname.toLowerCase();
- return domainsMatch(host, ['sec.gov', 'federalreserve.gov', 'bls.gov', 'bea.gov', 'treasury.gov', 'census.gov', 'ecb.europa.eu', 'bankofengland.co.uk', 'boj.or.jp']) || domainsMatch(host, officialDomains[symbol] ?? []);
+ return domainsMatch(host, ['sec.gov', 'federalreserve.gov', 'stlouisfed.org', 'bls.gov', 'bea.gov', 'treasury.gov', 'census.gov', 'ecb.europa.eu', 'bankofengland.co.uk', 'boj.or.jp']) || domainsMatch(host, officialDomains[symbol] ?? []);
+}
+function profileUrlMatches(url: string, symbol: string): boolean {
+ if (url === `https://finance.yahoo.com/quote/${symbol}/profile/`) return true;
+ const parsed = new URL(url);
+ return parsed.hostname === 'www.tradingview.com' && ['NASDAQ', 'NYSE', 'AMEX', 'BATS'].some(exchange => parsed.pathname === `/symbols/${exchange}-${symbol}/`);
 }
 function originalMatches(target: Target | undefined, title: string, content: string, url?: string): boolean {
  const body = `${title}\n${content}`;
@@ -104,8 +109,9 @@ function numericFields(value: any, keys: string[]): Record<string, number> {
  return output;
 }
 function profileContent(value: any): string {
- const data = fields(value, ['source', 'url', 'name', 'sector', 'industry', 'instrumentType', 'currency']);
+ const data = fields(value, ['source', 'url', 'symbol', 'name', 'sector', 'industry', 'instrumentType', 'currency', 'observedAt']);
  Object.assign(data, numericFields(value, ['regularMarketTime']));
+ data.market = { ...numericFields(value.market, ['price', 'changePercent', 'changeAmount', 'open', 'high', 'low', 'volume']), ...fields(value.market, ['updateMode']) };
  data.statistics = numericFields(value.statistics, ['trailingPE', 'forwardPE', 'trailingEps', 'forwardEps', 'priceToBook', 'enterpriseToRevenue', 'enterpriseToEbitda', 'lastFiscalYearEnd', 'mostRecentQuarter', 'earningsQuarterlyGrowth', 'beta', 'yield', 'annualReportExpenseRatio']);
  data.financials = { ...fields(value.financials, ['financialCurrency']), ...numericFields(value.financials, ['currentPrice', 'totalCash', 'totalDebt', 'totalRevenue', 'revenueGrowth', 'earningsGrowth', 'grossMargins', 'operatingMargins', 'profitMargins', 'returnOnEquity', 'freeCashflow', 'operatingCashflow']) };
  return JSON.stringify(data);
@@ -117,8 +123,8 @@ const safeResearchCode = (error: unknown): string => {
 function cachedProfile(evidence: Evidence, target: Target, asOf: number): any | undefined {
  try {
   const fetched = Date.parse(evidence.fetchedAt);
-  const expectedUrl = `https://finance.yahoo.com/quote/${target.symbol}/profile/`;
-  if (evidence.kind !== 'profile' || evidence.read !== true || evidence.symbols?.length !== 1 || evidence.symbols[0] !== target.symbol || publicUrl(evidence.url) !== expectedUrl || !Number.isFinite(fetched) || fetched > asOf || new Date(fetched).toISOString().slice(0, 10) !== new Date(asOf).toISOString().slice(0, 10) || !evidence.content || evidence.content.length > LIMITS.perSource) return;
+  const expectedUrl = publicUrl(evidence.url);
+  if (evidence.kind !== 'profile' || evidence.read !== true || evidence.symbols?.length !== 1 || evidence.symbols[0] !== target.symbol || !expectedUrl || !profileUrlMatches(expectedUrl, target.symbol) || !Number.isFinite(fetched) || fetched > asOf || new Date(fetched).toISOString().slice(0, 10) !== new Date(asOf).toISOString().slice(0, 10) || !evidence.content || evidence.content.length > LIMITS.perSource) return;
   const value = JSON.parse(evidence.content);
   if (!value || typeof value !== 'object' || Array.isArray(value) || publicUrl(value.url) !== expectedUrl || (value.symbol && value.symbol !== target.symbol) || (value.currency && value.currency !== target.currency)) return;
   const finite = (item: unknown): boolean => typeof item === 'number' ? Number.isFinite(item) : item !== null && typeof item === 'object' ? Object.values(item).every(finite) : true;
@@ -203,20 +209,21 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
  };
  const acceptProfile = (target: Target, value: any, fallback?: Evidence): void => {
   const url = publicUrl(value.url);
-  if (!url || !new URL(url).pathname.split('/').some(s => decodeURIComponent(s).toUpperCase() === target.symbol) || (value.symbol && value.symbol !== target.symbol)) throw new Error('BRIEF_RESEARCH_WRONG_SECURITY');
+  if (!url || !profileUrlMatches(url, target.symbol) || (value.symbol && value.symbol !== target.symbol) || (value.currency && value.currency !== target.currency)) throw new Error('BRIEF_RESEARCH_WRONG_SECURITY');
   if (typeof value.name === 'string' && value.name.trim()) { target.name = value.name.replace(/[\r\n]/g, ' ').slice(0, 90); target.queryName = target.name; }
   target.fund = target.fund || /ETF|MUTUALFUND/i.test(value.instrumentType ?? '');
-  if (!add(target, 'profile', url, `${target.symbol} 公司/基金资料与估值字段`, fallback?.content ?? profileContent(value), fallback?.publishedAt ?? null, undefined, fallback ? true : undefined, fallback?.fetchedAt)) return;
+  if (!add(target, 'profile', url, `${target.symbol} 公司/基金资料与估值字段`, fallback?.content ?? profileContent(value), fallback?.publishedAt ?? null, undefined, fallback || value.cached === true ? true : undefined, fallback?.fetchedAt ?? value.fetchedAt)) return;
   target.areas.add('profile');
+  if (Object.keys(numericFields(value.market, ['price', 'changePercent', 'open', 'high', 'low'])).length) target.areas.add('market');
   if (Object.keys(numericFields(value.statistics, ['forwardPE', 'trailingPE', 'priceToBook', 'enterpriseToRevenue', 'enterpriseToEbitda'])).length) target.areas.add('valuation');
-  else target.gaps.add(target.fund ? '未取得基金估值或完整成分资料，不能推算穿透权重' : '未取得可用估值倍数');
-  target.gaps.add('结构化估值抓取时间已记录，但价格时点、盈利预期修订时间及历史分位未完整核验');
+  else if (!target.fund) target.gaps.add('未取得可用估值倍数');
   if (fallback) target.gaps.add(`本次更新失败，复用同UTC日已读profile（原抓取时间 ${fallback.fetchedAt}）；保留原报价时间，缓存时间不代表价格时点`);
  };
  const read = async (target: Target | undefined, url: string, area: string, kind: Evidence['kind'], query?: string): Promise<boolean> => {
   const value = await tool('read', { url });
   const returnedUrl = value.url ? publicUrl(value.url) : url;
   if (!returnedUrl) throw new Error('BRIEF_RESEARCH_URL_INVALID');
+  if (domainsMatch(new URL(returnedUrl).hostname, ['sogou.com', 'bing.com', 'google.com', 'duckduckgo.com'])) throw new Error('BRIEF_RESEARCH_NO_ORIGINAL');
   if (returnedUrl === 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm') {
    for (const link of Array.isArray(value.links) ? value.links : []) {
     const candidate = publicUrl(link?.url);
@@ -232,23 +239,46 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
   // Keep a contiguous extract for verbatim support validation, never the search snippet.
   const limit = kind === 'macro' ? 3_000 : area === 'calendar' ? 1_800 : 2_000;
   const excerpt = originalExcerpt(content, limit, area, asOf);
-  if (area === 'calendar' && !calendarWindow(excerpt, asOf)) throw new Error('BRIEF_RESEARCH_NO_UPCOMING_EVENT');
-  const item = add(target, kind, returnedUrl, title || `${target?.symbol ?? '宏观'} ${area}`, excerpt, publishedAt, query, value.cached === true);
+  if (area === 'calendar' && !calendarWindow(excerpt, asOf)) {
+   if (target && isPrimary(returnedUrl, target.symbol) && /upcoming events|events and presentations|events & presentations|investor relations|calendar|forthcoming/i.test(`${title}\n${content}`)) {
+    if (add(target, kind, returnedUrl, title || `${target.symbol} 官方事件页面`, excerpt, publishedAt, query, value.cached === true, value.fetchedAt)) {
+     target.areas.add('calendarChecked');
+     target.gaps.add('已读取官方事件页面，未核实未来7日的具体事件；不代表没有事件');
+     return true;
+    }
+   }
+   throw new Error('BRIEF_RESEARCH_NO_UPCOMING_EVENT');
+  }
+  const item = add(target, kind, returnedUrl, title || `${target?.symbol ?? '宏观'} ${area}`, excerpt, publishedAt, query, value.cached === true, value.fetchedAt);
   if (!item) return false;
-  target?.areas.add(area);
-  if (!publishedAt) gap(target, `${area} 原文发布时间未确认；抓取时间不能证明属于近7日新增信息`);
-  else if (area === 'news' && Date.parse(publishedAt) < asOf - 7 * DAY) gap(target, '事件原文早于近7日窗口，只能作为历史背景');
+  const freshNews = area !== 'news' || !!publishedAt && Date.parse(publishedAt) >= asOf - 7 * DAY;
+  if (freshNews) target?.areas.add(area);
+  if (!publishedAt && area === 'news') gap(target, `${area} 原文发布时间未确认；抓取时间不能证明属于近7日新增信息`);
+  else if (area === 'news' && !freshNews) gap(target, '事件原文早于近7日窗口，只能作为历史背景');
   if (value.cached === true) gap(target, `${area} 阅读服务返回缓存，最新状态未确认`);
-  if (value.sourceSubstitution) gap(target, `${area} 新闻稿未取得，使用BLS官方原始序列；水平值不是涨幅，发布日期和市场预期仍未知`);
+  if (value.sourceSubstitution) gap(target, `${area} 使用${new URL(returnedUrl).hostname === 'fred.stlouisfed.org' ? 'FRED转发的BLS' : 'BLS'}原始序列；数据期不等于发布日期，未计算预期差`);
   if (area === 'calendar' && content.length > limit) gap(target, '日历保留当前时间附近的原文节选，不能将未出现的事件解释为未来7日无事件');
-  return true;
+  return freshNews;
  };
  const searchRead = async (target: Target | undefined, query: string, area: string, kind: Evidence['kind']): Promise<void> => {
   try {
+   const attempted = new Set<string>();
+   // Official issuer feeds and known IR pages precede generic search. Feed text
+   // and search snippets never count as a read article or a confirmed event.
+   if (target) {
+    try {
+     const discovered = await tool('discover', { symbol: target.symbol, area, asOf: analysisAsOf });
+     const urls = (Array.isArray(discovered.results) ? discovered.results : []).map((r: any) => publicUrl(r.url)).filter(Boolean);
+     for (const url of urls.slice(0, 2)) {
+      attempted.add(url);
+      try { if (await read(target, url, area, kind, query)) return; } catch { check(); }
+     }
+    } catch { check(); }
+   }
    const result = await tool('search', { query });
    const candidates = (Array.isArray(result.results) ? result.results : []).map((r: any) => ({ url: publicUrl(r.url ?? r.href) })).filter((r: any) => r.url)
     .sort((a: { url: string }, b: { url: string }) => Number(isPrimary(b.url, target?.symbol)) - Number(isPrimary(a.url, target?.symbol)));
-   for (const candidate of candidates.slice(0, 2)) {
+   for (const candidate of candidates.filter((candidate: { url: string }) => !attempted.has(candidate.url)).slice(0, attempted.size ? 1 : 2)) {
     try { if (await read(target, candidate.url, area, kind, query)) return; }
     catch { check(); }
    }
@@ -271,11 +301,17 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
   check();
   if (options.previousAsOf && !Number.isFinite(Date.parse(options.previousAsOf))) gaps.add('上一期截止时间无效，不能精确判断相较上期的新增事件');
   await progress(`读取全部 ${targets.length} 只持仓的公司/基金资料，再优先准备宏观和重点财报`);
+  const publicSymbols = targets.filter(target => target.supported && target.currency === 'USD').map(target => target.symbol);
+  let profiles: Record<string, any> = {};
+  if (publicSymbols.length && publicSymbols.length <= 100) {
+   try { profiles = (await tool('profiles', { symbols: publicSymbols })).profiles ?? {}; }
+   catch { check(); } // Older bridges and partial provider batches still use individual fallback.
+  }
   await limited(targets, async target => {
    if (!target.supported) { target.gaps.add('证券类型或代码暂不支持可靠匹配；未套用普通股票估值'); return; }
    if (target.currency === 'USD') {
     try {
-     const value = await tool('profile', { symbol: target.symbol });
+     const value = Object.hasOwn(profiles, target.symbol) ? profiles[target.symbol] : await tool('profile', { symbol: target.symbol });
      acceptProfile(target, value);
     } catch (error) {
      check(); target.gaps.add(`公司/基金结构化资料更新失败（${safeResearchCode(error)}）`);
@@ -286,6 +322,16 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
     }
    } else target.gaps.add('非美元证券尚无可靠的结构化行情映射，使用公开原文并保留估值缺口');
   });
+  await progress('读取 SPY、QQQ 与 VIX 当日市场快照');
+  try {
+   const markets = (await tool('market_snapshot', {})).markets ?? {};
+   for (const symbol of ['SPY', 'QQQ', 'VIX']) {
+    const value = markets[symbol], url = publicUrl(value?.url);
+    if (!url || value?.symbol !== symbol) continue;
+    const content = JSON.stringify(fields(value, ['source', 'symbol', 'name', 'currency', 'observedAt', 'price', 'changePercent', 'changeAmount', 'open', 'high', 'low', 'volume', 'updateMode']));
+    add(undefined, 'market', url, `${symbol} 当日市场快照`, content, null, undefined, value.cached === true, value.fetchedAt);
+   }
+  } catch (error) { check(); gaps.add(`SPY、QQQ、VIX 当日市场快照暂不可用（${safeResearchCode(error)}）`); }
   await progress('读取官方通胀、就业、央行政策与经济数据发布日历');
   await limited([
    { url: 'https://www.bls.gov/news.release/empsit.nr0.htm', area: '就业与增长' },
@@ -297,7 +343,6 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
    try { await read(undefined, source.url, source.area, 'macro'); }
    catch { check(); gaps.add(`宏观 ${source.area} 官方原文读取失败`); }
   });
-  gaps.add('BLS新闻/日历网页受访问限制；就业与通胀使用官方API原始序列，下一次发布日期仍需其他实际读取来源确认');
   // Select from links actually read on the official calendar. A generic search may rank an obsolete statement first.
   const latestStatement = [...fedStatementLinks].map(url => ({ url, day: url.match(/monetary(\d{8})a\.htm$/)![1].replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') }))
    .filter(item => item.day <= today).sort((a, b) => b.day.localeCompare(a.day))[0];
@@ -333,7 +378,7 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
       content = JSON.stringify({ ...fields(value, ['source', 'url', 'currency']), rows });
      }
      if (add(target, action === 'financials' ? 'filing' : 'market', url, `${target.symbol} ${action === 'financials' ? '已披露财报完整期间记录' : '历史价格与日期'}`, content, null)) target.areas.add(action === 'financials' ? 'financials' : 'market');
-    } catch { check(); target.gaps.add(`${action} 重点资料暂不可用`); }
+    } catch (error) { check(); target.gaps.add(`${action} 重点资料暂不可用（${safeResearchCode(error)}）`); }
    }
   });
   await progress(`扫描全部 ${targets.length} 只持仓的近7日事件与未来7日日历`);
@@ -341,13 +386,16 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
    // Only provider-returned public company names and ticker metadata are used in public queries.
    const identity = `${target.symbol} ${target.queryName === target.symbol ? '' : target.queryName}`.trim();
    await searchRead(target, `${identity} ${target.fund ? 'ETF fund issuer announcement distribution' : 'company news announcement earnings guidance'} after:${from} before:${end}`, 'news', 'news');
+  });
+  await progress('全部持仓新闻扫描结束，核对官方事件日历');
+  await limited(targets.filter(target => target.supported), async target => {
+   const identity = `${target.symbol} ${target.queryName === target.symbol ? '' : target.queryName}`.trim();
    await searchRead(target, `${identity} ${target.fund ? 'ETF issuer distribution ex dividend calendar' : 'investor relations upcoming events earnings dividend calendar'} ${today} through ${future}`, 'calendar', 'news');
   });
-  for (const target of targets.filter(t => t.supported && !t.fund && !focus.includes(t))) target.gaps.add('本轮仅扫描资料、事件与日历，未逐份展开原始财报');
  } catch (error) {
   if (signal.aborted || (error as Error).message === 'BRIEF_RESEARCH_CANCELLED') throw new Error('BRIEF_RESEARCH_CANCELLED');
   if (!timedOut && (error as Error).message !== 'BRIEF_RESEARCH_TIMEOUT') throw error;
-  gaps.add('资料准备达到4分钟上限，返回已取得证据；未完成的领域不得声称已覆盖');
+  gaps.add('资料准备达到6分钟上限，返回已取得证据；未完成的领域不得声称已覆盖');
  } finally {
   clearTimeout(deadline);
   signal.removeEventListener('abort', cancel);
@@ -355,11 +403,12 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
  }
  if (!evidence.some(e => e.kind === 'macro')) gaps.add('未取得可用宏观原文，不能推断当前经济周期或政策变化');
  gaps.add('估值历史分位、完整分析师一致预期及修订记录未取得；不得以抓取日替代估值基准日');
- gaps.add('财报结构化工具当前仅提供损益表；资产负债表、现金流原表与管理层指引需以实际读取的公告补充');
+ gaps.add('资料中的价格可能延迟；未完整核验价格时点。ETF成分与穿透权重不在本轮采集范围');
+ gaps.add('财报结构化工具当前仅提供损益表，本轮仅展开前五大持仓；资产负债表、现金流原表与管理层指引需以实际读取的公告补充');
  if (evidence.some(e => e.kind === 'filing')) gaps.add('结构化财报保留报告期与来源记录，披露日期未完整提供；报告期不能作为发布日期');
  if (targets.some(t => t.currency !== 'USD')) gaps.add('本轮宏观重点为美国；其他市场政策与汇率证据未完整覆盖');
  const coverage: BriefResearchResult['coverage'] = targets.map(target => {
-  if (target.supported) for (const area of ['profile', 'news', 'calendar']) if (!target.areas.has(area)) target.gaps.add(`${area} 未完成有效原文覆盖`);
+  if (target.supported) for (const area of ['profile', 'news', 'calendar']) if (!target.areas.has(area) && !(area === 'calendar' && target.areas.has('calendarChecked'))) target.gaps.add(`${area} 未完成有效原文覆盖`);
   return { symbol: target.symbol, status: !target.supported ? 'unsupported' : !target.areas.size ? 'failed' : target.gaps.size ? 'partial' : 'complete', areas: [...target.areas], gaps: [...target.gaps] };
  });
  // Stable short IDs are assigned after asynchronous collection, not during completion races.

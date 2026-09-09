@@ -62,6 +62,13 @@ export function normalizePerformance(raw:any, description:string, currency:strin
  });
  if(new Set(points.map(p=>p.date)).size!==points.length)throw new Error('MCP_HISTORY_DUPLICATE_DATE');
  points.sort((a,b)=>a.date.localeCompare(b.date));
- return {points,source:'IBKR PortfolioAnalyst',currency,returnMethod:method,benchmark:'SPY',fetchedAt:new Date().toISOString(),note:method==='TWR'?'IBKR 时间加权收益；基准仅比较共同交易日期。':method==='MWR'?'IBKR 资金加权收益；受现金流时点影响，不进行区间重基或基准比较。':'历史净值可用，收益口径尚未核实。'};
+ // All-periods exposes at most 1Y. Only recognize inception when the broker's
+ // zero-opening YTD and 1Y windows agree and begin AFTER the year boundary.
+ // Matching short series or zero NAV alone cannot establish lifetime coverage.
+ const dateOf=(value:unknown)=>{const d=String(value??'');const iso=/^\d{8}$/.test(d)?`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`:d;return /^\d{4}-\d{2}-\d{2}$/.test(iso)&&Number.isFinite(Date.parse(iso))&&new Date(iso).toISOString().slice(0,10)===iso?iso:null;};
+ const start=dateOf(account.start), end=dateOf(account.end), baseline=dateOf(period.start_date), ytd=account.periods?.YTD;
+ const complete=Boolean(start&&end&&baseline&&points.length&&start===points[0].date&&end===points.at(-1)!.date&&baseline<start&&baseline>=`${end.slice(0,4)}-01-01`&&period.start_nav===0&&ytd?.start_nav===0&&ytd.start_date===period.start_date&&JSON.stringify(ytd.dates)===JSON.stringify(period.dates)&&JSON.stringify(ytd.cps)===JSON.stringify(period.cps));
+ const inception={value:complete&&method?points.at(-1)!.cumulativeReturn:null,start:complete?start:null,end:complete?end:null,note:complete&&method?`IBKR ${method==='TWR'?'时间加权':'资金加权'}累计回报 · 保留首日收益，非年化`:!method?'券商收益口径尚未核实':'当前接口未提供可核实的自始以来完整业绩'};
+ return {points,inception,source:'IBKR PortfolioAnalyst',currency,returnMethod:method,benchmark:'SPY',fetchedAt:new Date().toISOString(),note:method==='TWR'?'IBKR 时间加权收益；基准仅比较共同交易日期。':method==='MWR'?'IBKR 资金加权收益；受现金流时点影响，不进行区间重基或基准比较。':'历史净值可用，收益口径尚未核实。'};
 }
 export function localPerformance(points: PerformancePoint[], currency: string|null): PortfolioPerformance {return {points,source:'本地账户快照',currency,returnMethod:null,benchmark:'SPY',fetchedAt:points.at(-1)?.date??null,note:'净值变化包含出入金；收益口径未核实，不计算收益或超额表现。'};}

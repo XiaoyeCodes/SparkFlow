@@ -6,7 +6,7 @@ import type { AccountSnapshot, ActionIdea, AnalysisContent, Evidence, Preference
 
 export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export const numeric = (value: unknown): number | null => value === null || value === undefined || value === '' || typeof value === 'boolean' || !Number.isFinite(Number(value)) ? null : Number(value);
-export const defaults: Preferences = { horizon: 'both', targetWeight: null, cashFloor: null, maxDrawdown: null, daily: true, eventAnalysis: true, maxAutomatic: 4, cooldownMinutes: 60, maxAiCalls: 12, benchmark: 'SPY' };
+export const defaults: Preferences = { horizon: 'both', targetWeight: null, cashFloor: null, maxDrawdown: null, daily: false, eventAnalysis: false, maxAutomatic: 0, cooldownMinutes: 60, maxAiCalls: 12, benchmark: 'SPY' };
 const ratio = z.number().finite().min(0).max(1).nullable();
 export const preferencesSchema = z.object({ horizon: z.enum(['both', 'long', 'swing']), targetWeight: ratio, cashFloor: ratio, maxDrawdown: ratio, daily: z.boolean(), eventAnalysis: z.boolean(), maxAutomatic: z.number().int().min(0).max(24), cooldownMinutes: z.number().int().min(15).max(1440), maxAiCalls: z.number().int().min(1).max(100), benchmark: z.enum(['SPY', 'QQQ', 'none']).default('SPY'), schedules: z.object({ brief: accountScheduleSchema, analysis: accountScheduleSchema }).strict().optional() }).strict();
 const prose = z.string().min(1).max(12000);

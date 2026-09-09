@@ -537,9 +537,9 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-globe-wrap.flat {
   width: calc(100% - 24px);
   max-width: none;
-  height: calc(100% - 94px);
+  height: 100%;
   aspect-ratio: auto;
-  margin: 88px 12px 6px;
+  margin: 0 12px;
 }
 .macro-holo { position: absolute; inset: 0; cursor: grab; }
 .macro-holo:active { cursor: grabbing; }
@@ -588,7 +588,7 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border: 1px solid var(--macro-border-strong);
+  border: 0;
   background: radial-gradient(circle at 50% 44%, #071617 0%, #030b0c 68%, #020708 100%);
   cursor: grab;
   touch-action: none;

@@ -23,6 +23,9 @@ export function HoldingsAnalytics({ snapshot, performance, range = 90, onRange, 
   const [hover, setHover] = useState<number | null>(null);
   const point = hover === null ? null : geometry.coordinates[hover];
   const value = point ? point.value : returns.value;
+  const navPoint = hover === null ? returns.points[returns.points.length - 1] : returns.points[hover];
+  const navValue = navPoint?.nav ?? null;
+  const performanceCurrency = performance?.currency || allocation.currency;
   const ink = print ? '#61798b' : '#89a496';
   const grid = print ? '#dce5ec' : '#20392e';
   return <section className={`holdings-analytics${print ? ' ha-print' : ''}`} aria-label="持仓图表总览">
@@ -36,7 +39,7 @@ export function HoldingsAnalytics({ snapshot, performance, range = 90, onRange, 
       <div className="ha-balances"><div><span>持仓市值</span><b>{chartMoney(allocation.invested)}</b></div><div><span>现金余额</span><b>{chartMoney(allocation.cash)}</b></div></div><footer>{allocation.assetNote}</footer>
     </article>
     <article className="ha-card ha-performance" aria-label="账户盈亏曲线"><header><div><span className="ha-kicker">PERFORMANCE</span><h2>账户盈亏曲线</h2></div>{!print && <div className="ha-ranges" aria-label="收益曲线日期范围">{([30, 90, 0] as const).map(days => <button key={days} type="button" aria-pressed={range === days} onClick={() => { setHover(null); onRange?.(days); }}>{days === 0 ? '全部' : `${days}天`}</button>)}</div>}</header>
-      <div className="ha-return"><strong className={value !== null && value < 0 ? 'ha-down' : 'ha-up'}>{chartPercent(value)}</strong><span>{point ? point.date : returns.method === 'MWR' ? '原始累计收益率 · MWR' : returns.method === 'TWR' ? '区间收益率 · TWR' : '收益率 · 待同步'}</span></div>
+      <div className="ha-return"><div className="ha-return-values"><strong className={value !== null && value < 0 ? 'ha-down' : 'ha-up'}>{chartPercent(value)}</strong><div className="ha-return-amount"><span>{point ? '当日账户净值' : '期末账户净值'}</span><b>{chartMoney(navValue)}<small>{performanceCurrency}</small></b></div></div><span>{point ? point.date : returns.method === 'MWR' ? '原始累计收益率 · MWR' : returns.method === 'TWR' ? '区间收益率 · TWR' : '收益率 · 待同步'}</span></div>
       {returns.count >= 2 ? <svg className="ha-line" viewBox="0 0 400 194" role="img" aria-label={`账户收益率曲线 ${returns.start} 至 ${returns.end}`} onMouseLeave={() => setHover(null)} onMouseMove={event => { const bounds = event.currentTarget.getBoundingClientRect(); const x = (event.clientX - bounds.left) / bounds.width * 400; const nearest = geometry.coordinates.reduce((best, p, index, list) => Math.abs(p.x - x) < Math.abs(list[best].x - x) ? index : best, 0); setHover(nearest); }}>
         {geometry.ticks.map((tick, index) => <g key={index}><line x1="49" x2="380" y1={tick.y} y2={tick.y} stroke={grid}/><text x="43" y={tick.y + 4} textAnchor="end" fill={ink} fontSize="10" fontFamily="Arial">{(tick.value * 100).toFixed(1)}%</text></g>)}
         <line x1="49" x2="380" y1={geometry.zero} y2={geometry.zero} stroke={ink} strokeDasharray="3 5" opacity="0.6"/>
