@@ -62,6 +62,10 @@ def test_production_store_rejects_fixtures_and_bind_requires_confirmation(tmp_pa
             AccountBinding(mode='live', accountKey='paper:wrong', brokerAccount='TEST', confirmed=True)
         with pytest.raises(ValueError):
             AccountBinding(mode='live', accountKey='live:test', brokerAccount='TEST', confirmed=False)
+        with pytest.raises(ValueError, match='live bindings must remain readonly'):
+            AccountBinding(mode='live', accountKey='live:test', brokerAccount='TEST', confirmed=True, readonly=False)
+        writable_paper = AccountBinding(mode='paper', accountKey='paper:test', brokerAccount='TEST', confirmed=True, readonly=False)
+        assert writable_paper.readonly is False
 
 
 def test_account_key_cannot_be_reused_for_a_different_broker_account(tmp_path):

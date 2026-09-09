@@ -2,9 +2,9 @@
 
 ## 当前阶段与下一步
 
-- 阶段：真实 paper 只读连接已恢复并持续运行；账户、合约查询和历史 K 线已从 IBKR 返回。实时报价收到 `IBKR_10089`（API 市场数据需要额外订阅，延迟数据可用）并保持诚实的缺失/过期状态。真实 paper 写入仍未发起，需用户先确认精确测试范围与风险上限。
+- 阶段：真实 paper 账户与受管写入通道已连接；账户、合约查询和历史 K 线已从 IBKR 返回。用户已要求测试买入 100 股 NVDA，但尚未给出限价与风险授权范围；模拟盘策略仍未启用，未向券商发送订单。2026-09-09 最新探针显示 NVDA 实时、延迟和延迟冻结 feed 均无报价，继续保持诚实缺失状态。
 
-- 下一条可执行操作：在用户确认账户、合约、方向、整股数量、限价、风险上限、有效期和是否允许撤单后，于美股常规交易时段执行一笔受限 paper 下单→回报→撤单→对账；若行情权限或当日 PnL 不足，先记录拒绝证据并不发送订单。随后验证成交/撤单后的账户证明与预占释放。
+- 下一条可执行操作：等待用户补充这笔 NVDA 100 股模拟限价单的限价、单笔／总敞口／单标的／日亏损／价格偏离／手续费／频率上限和授权有效期，并在 IBKR 模拟用户名获得可用 tick 后生成一次性预览；用户单独确认预览后才执行下单→回报→撤单→对账。若行情权限或当日 PnL 不足，记录拒绝证据且不发送订单。
 
 - 长期目标：用户目标为完整模拟盘下单、撤单、持仓查看与行情接入；当前仍 active，未完成。
 
@@ -62,7 +62,7 @@
 
 | P3.3a 原生新订单发送适配 | VERIFIED（离线） | native_dispatch.py；orders.py v6；test_native_dispatch.py；test_order_migration.py | 初始缺模块失败；超时/编码中到期/中断/恢复/真值字符串先失败→修复；全量 14 JS + 229 Python passed | 18 新用例；真实 SDK 序列化，conn.sendMsg 截获且 socket 全禁；发送前第二连接可见双重落盘；禁止 SDK 延后队列；许可/授权/风险在最后 wire 边界复核；无 ACK 超时 UNKNOWN，不重发 | 仅提交命令；撤改发送及生产配置/许可签发/UI/风险 source 待补；真实 paper/live 未运行 |
 
-| P4 策略与回测 | DOING（已测子项保留） | strategy.py、signals.py、backtests.py、workers.py；StrategyWorkspace/BacktestResults/StrategyDraftEditor；P4 tests/API | 全量 14 JS + 186 Python/28 e2e；共享核心定向 27 passed | 不可变版本、SMA 白名单共享信号核心、仅本地结构化草稿、Decimal 金标准、逐 bar 权益/回撤、基准/换手/波动、重放归档、异步取消/限制/恢复 | 软件仍缺生产策略保存/数据导入/任务启动操作链；另需用户策略与数据权限 |
+| P4 策略与回测 | VERIFIED（软件）／BLOCKED（用户策略验收） | strategy.py、signals.py、backtests.py、workers.py；BacktestWorkspace；P4 tests/API | 290 Python + 2 JS、167 workbench、定向 Playwright 1/1、TypeScript、生产构建 | 不可变用户策略版本、JSON/CSV 数据导入、服务端数据哈希与信号生成、后台运行/取消、结果与完整重放包导出 | 仍需用户提供并验收自己的策略与合法数据；工程 SMA 示例不算用户策略验收 |
 
 | P5 策略 paper 运行 | DOING（软件）／BLOCKED（真实） | strategy_runtime.py、signals.py；strategyRuntime.ts；StrategyWorkspace.tsx；运行 API/代理与测试 | 共享信号的回测/paper 适配一致；6 runtime + API；全量已纳入 | 序列/重启/陈旧/冲突 fail-closed、两策略共用原子现金、只停止新增信号；只生成本地意图 | 软件仍缺执行适配/激活恢复链；另需用户策略、账户、范围、风险授权及两个真实 paper 交易时段 |
 
@@ -88,7 +88,7 @@
 
 ## 权限边界
 
-- paper 写入授权：未提供；不访问真实写接口。
+- paper 写入授权：用户已指定当前模拟账户、NVDA、BUY 100 的测试意图；限价、风险上限和有效期仍未提供，因此授权不完整，订单策略保持 disabled，未访问下单接口。
 
 - live 写入授权：未提供；默认关闭。
 
@@ -474,3 +474,34 @@
 - 验证：`npm run test:ibkr:workbench` 158/158、`npx tsc -b --pretty false`、`git diff --check` 通过。已用 `POST /api/ibkr-workbench/brief/recover` 从本地原始 v4 输出重新发布：状态 `ready`、三条提醒；恢复前后 AI 当日计数为 11，未产生新增调用。未下单、未改账户授权。
 - 文件：`server/ibkrBrief.ts`、`server/ibkrWorkbench.ts`、`src/components/ibkr/OverviewPanels.tsx`、`tests/workbench/brief.test.mjs`、`tests/workbench/brief-service.test.mjs`、提示词说明。
 - 验证：`npm run test:ibkr:workbench` 156/156；`npx tsc -b --pretty false`、`git diff --check` 通过（仅现有 CRLF 提示）。未发出订单，未新增外部模型调用，未提交推送。
+### 2026-09-09 IB Gateway 模拟盘独立入口 — VERIFIED（只读连接范围）
+
+- 需求：在账户设置的官方 MCP 与实盘 Gateway 旁新增“IB Gateway 模拟盘”，并让所选模式真正决定桥接快照来源。
+- 实现：`WorkbenchState` 与本地状态新增 `gatewayMode=live|paper`；设置页提供三个并列入口，模拟盘状态、链路标识、侧栏和页脚均明确标注“模拟盘”。后端按所选模式请求 `/snapshot?mode=paper|live`，切换时清除旧账户选择以防实盘／模拟盘快照混用，旧状态文件缺少字段时兼容为实盘。模拟盘不导入实盘 PortfolioAnalyst 历史；空模拟账户跳过无意义的新闻与宏观证据抓取，避免连接等待。
+- RED：新增浏览器用例最初因页面不存在“IB Gateway 模拟盘”而失败。GREEN：连接与 Gateway 浏览器回归 9/9（含 1440px／390px）；`npm run test:ibkr:workbench` 157/157；`npx tsc -b --pretty false`、`npx vite build`、`git diff --check` 通过。生产构建仍仅有现存大 chunk 与动态／静态导入提示。
+- 本机实联：当前已启动的 Gateway 经桥接 `127.0.0.1:8765` 成功读取 `paper` 模式，状态为 `connected / empty`、0 持仓、`testData=false`、`placeOrders=false`；第二次选择与同步耗时约 59 ms。截图 `tmp/workbench-qa/gateway-paper-option.png` 已目视检查，显示三个入口和“模拟盘 Gateway 已连接”，未纳入 Git。
+- 限制：本步骤仅接入模拟盘只读账户快照，不开启下单；当前模拟账户没有持仓。未提交或推送。
+
+### 2026-09-09 Gateway 来源切换与智能重连修复 — VERIFIED（只读连接范围）
+
+- 根因：切到官方 MCP 时，服务把已保存的 Gateway 模式无条件改回 `live`；再次返回 Gateway 的旧式请求因此访问实盘端口。来源选择只执行同步，不会在桥接缺失时启动桥接；“智能连接”也只确认桥接进程存在，没有确认所选实盘／模拟盘已经返回可用快照。前端请求失败后不刷新诊断状态。
+- 修复：官方 MCP 切换保留上一次 Gateway 模式；返回 Gateway 时先同步，未连通则自动启动或复用本地桥接并再次同步。智能连接现在只有在所选模式返回 `connected` 且快照为 `ready|empty` 时才成功，否则返回明确诊断并允许重试。操作失败后页面刷新最新连接状态。模拟盘入口及已连接控制台使用琥珀色，实盘已连接继续使用绿色。
+- RED／GREEN：新增服务回归覆盖“paper → MCP → 不带模式返回 Gateway”和来源切换自动启动缺失桥接，修复前分别因模式变回 live、桥接未启动而失败；新增浏览器断言要求模拟盘控制台具有独立类别和 `#e2b55e` 色值。修复后 `npm run test:ibkr:workbench` 158/158；本机 Chrome 执行连接浏览器用例 7/7；`npx tsc -b --pretty false`、`npx vite build`、`git diff --check` 通过。构建仅保留既有大 chunk 与动态／静态导入提示。
+- 真实本机只读回归：显式选择 paper 后为 `gateway / paper / connected / empty`，桥接端口 8765；切到官方 MCP 后 `gatewayMode` 仍为 paper；随后以不含 `gatewayMode` 的旧请求返回 Gateway，自动恢复 `gateway / paper / connected / empty`；调用智能连接后仍为同一已连接模拟盘快照。四个快照均 `testData=false`，模拟盘持仓 0；未发送订单。
+- 视觉证据：`tmp/workbench-qa/gateway-auto-reconnect.png` 已目视核验，页面显示三个来源入口，模拟盘入口与连接面板为琥珀色，实盘入口保持绿色语义；截图仅保存在忽略目录。未提交或推送。
+
+### 2026-09-09 模拟盘人工下单工作台 — 软件 VERIFIED；首笔真实 paper 订单 BLOCKED
+
+- 范围：新增「模拟交易」页，只允许 `IB Gateway / paper`。live 绑定模型强制 `readonly=true`；paper 必须经用户显式点击后才把同一已核对账户切换为 `readonly=false`。传输升级本身不创建订单，策略／AI 不能调用该按钮。
+- 文件：`session.py`、`sdk.py`、`readonly.py`、`gateway_runtime.py`、`app.py`、`paper_api.py` 接通受管 paper SDK；`server/ibkrWorkbench.ts` 作为同源代理注入当前账户和固定 `paper/LMT/DAY` 字段，不向浏览器暴露桥接令牌；新增 `PaperTradingWorkspace.tsx` 与样式、类型、测试。`scripts/configure-ibkr-gateway.py` 增加只允许 paper 的 CLI 备用开关，并保留另一账户模式。
+- 功能：IBKR 合约查询与最多 20 个白名单；用户填写订单金额、总敞口、单标的权重、日亏损、频率、行情／账户新鲜度、限价偏离和手续费预留；授权最长 8 小时且服务重启失效。只开放美股／ETF、整股、限价 DAY、常规时段、长仓范围。订单必须先预览，30 秒内再次确认；双击由按钮锁与账本幂等共同防重。支持系统订单状态、部分成交／手续费账本、显式撤单、停止新增订单和对账；外部订单只纳入风险，不擅自撤销。超时进入 UNKNOWN 后先对账，禁止盲目重发。
+- RED／GREEN：新增 live 可写拒绝、paper 写握手、只读 binding 拒绝策略、显式 transport 路由、保留 live 绑定、服务端 scope 注入、页面只读提示与完整风险表单用例。最终全量验证：`npm run test:ibkr:unit` 为 288/288 Python + 2/2 JS，`npm run test:ibkr:workbench` 为 166/166，`npm run test:ibkr:e2e` 为 73/73；`npx tsc -b --pretty false`、`npm run build`、`git diff --check` 均通过。构建仅保留现有大 chunk 与动态／静态导入提示，Python 仅保留现有 Starlette/httpx 弃用警告。此前两项旧文案／中间态断言已按最终产品行为修正并由完整浏览器套件覆盖，没有删除交易安全断言。
+- 真实本机连接：重启桥接加载新路由后，用户已在 Gateway 取消“只读 API”；显式 transport 升级返回 `phase=ready / apiPort=4002 / paperOrdersAvailable=true`。随后 session 为 `paperOrdersAvailable=true / paperOrdersEnabled=false / writesEnabled=false`，paper 快照为 `connected / empty`，净值与可用资金已读取；live 绑定仍 `readonly=true`。NVDA 已由 IBKR 解析为 NVIDIA CORP（NASDAQ，conId 4815747）。2026-09-09 再次调用 feed 1（实时）、3（延迟）和 4（延迟冻结）均返回 `price=null / state=stale / asOf=null`，因此没有可用于限价偏离校验的券商报价。
+- BLOCKED：首笔真实模拟盘订单未发送。用户已给出当前 paper 账户、NVDA、BUY 100，但尚未指定限价、单笔最大名义金额、账户最大总敞口、单标的最大权重、当日最大亏损、价格偏离上限、手续费预留和授权有效期；同时当前 IBKR 实时与延迟行情均缺失，现有 fail-closed 风控会拒绝预览。需用户明确上述范围，并让 Gateway 返回可用实时 tick 后才能生成预览和进行单独确认。未向券商发送订单，未提交或推送。
+
+### 2026-09-09 用户策略回测操作链 — 软件 VERIFIED；用户策略验收 BLOCKED
+
+- 文件：`services/vibe-trading/agent/src/ibkr_terminal/app.py`、`strategy.py`、`server/ibkrWorkbench.ts`、`src/components/ibkr/BacktestWorkspace.tsx` / `.css`、`workbenchTypes.ts` 及对应 Python、服务层和浏览器测试。
+- 行为：策略回测页可保存不可变的用户 SMA 规则版本，上传 JSON/CSV 日线，明确确认拆股和分红完整性后启动后台回测；服务端重新生成信号并写入数据 SHA256、来源 `user.upload`、成本与版本，支持取消、结果查看和完整重放包导出。结构化策略不执行任意代码，回测不会发送订单，也不构成交易授权。
+- RED／GREEN：生产策略保存及上传回测路由先因 403 失败，再以最小路由和前端操作链实现。`npm run test:ibkr:unit` = 290 Python + 2 JS passed；`npm run test:ibkr:workbench` = 167/167；`npx playwright test --config playwright.ibkr.config.ts --grep "strategy backtest"` = 1/1；`npx tsc -b --pretty false` 与 `npm run build` passed。构建仅保留既有大 chunk 和动态／静态导入提示，Python 仅有既有 Starlette/httpx 弃用警告。
+- BLOCKED：尚未收到用户自己的策略定义和具备使用权的数据，工程 SMA 示例不算用户策略验收。真实 paper 下单仍沿用上一节阻塞条件；本步骤未向券商发送订单。

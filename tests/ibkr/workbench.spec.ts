@@ -4,7 +4,7 @@ import { emptySnapshot } from '../../src/lib/ibkr/store';
 import type { AnalysisReport, WorkbenchState } from '../../src/lib/ibkr/workbenchTypes';
 import { paginateAccountPositions, sortAccountPositionsByWeight } from '../../src/lib/ibkr/exportAccountPdf';
 
-const state = (connected = false): WorkbenchState => ({ source: 'mcp', connection: { state: connected ? 'connected' : 'unconfigured', detail: connected ? '离线界面测试数据' : '连接 IBKR 后读取真实持仓。', tools: [], accounts: [] },
+const state = (connected = false): WorkbenchState => ({ source: 'mcp', gatewayMode: 'live', connection: { state: connected ? 'connected' : 'unconfigured', detail: connected ? '离线界面测试数据' : '连接 IBKR 后读取真实持仓。', tools: [], accounts: [] },
   snapshot: { ...emptySnapshot('live'), ...(connected ? { snapshotId: 'test-snapshot', accountKey: 'live:ui-test', connection: 'connected' as const, state: 'ready' as const, baseCurrency: 'USD', asOf: new Date().toISOString(), testData: true, source: 'fixture' as const, metrics: { netLiquidation: '125000', unrealizedPnl: '8500', buyingPower: '40000', maintenanceMargin: '12000' }, cash: [{ currency: 'USD', amount: '18000' }], positions: [{ accountKey: 'live:ui-test', conId: 1, symbol: 'AAPL', currency: 'USD', quantity: '100', averageCost: '180', marketValue: '21000', unrealizedPnl: '3000', assetType: 'STK', exchange: 'NASDAQ', name: 'Apple · 工程测试', sector: 'Technology', industry: 'Consumer Electronics', instrumentType: 'STK' }] } : {}) },
   quotes: connected ? [{ conId: 1, symbol: 'AAPL', price: 212, changePercent: 1.2, asOf: '2026-09-04T20:00:00Z', fetchedAt: new Date().toISOString(), source: '东方财富', status: 'delayed', currency: 'USD', sourceUrl: 'https://example.com' }] : [], evidence: [], alerts: [], reports: [], jobs: [], preferences: { horizon: 'both', targetWeight: null, cashFloor: null, maxDrawdown: null, daily: true, eventAnalysis: true, maxAutomatic: 4, cooldownMinutes: 60, maxAiCalls: 12 }, ai: { provider: 'fixture', model: 'test-model', fingerprint: 'test-only', configured: true, enabled: false, fields: ['脱敏持仓', '现金', '风险指标'], usedToday: 0 }, nextSyncAt: null, calendarSupported: true });
 
@@ -98,7 +98,7 @@ test('new account workbench starts empty, exposes model consent and removes lega
   await expect(page.getByTestId('ibkr-workbench')).toBeVisible();
   await expect(page.getByRole('button', { name: '导出 PDF' })).toBeDisabled();
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  await expect(page.getByRole('button', { name: '连接 / 重新授权 IBKR' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '连接 IBKR', exact: true })).toBeVisible();
   await expect(page.getByText('test-model', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '同意发送上述字段并开启 AI' })).toBeDisabled();
   await expect(page.getByRole('button', { name: '原交易终端' })).toHaveCount(0);
@@ -162,7 +162,7 @@ test('authorized connection failure is distinct from logged out and an existing 
   await expect(page.getByText('已授权 · 持仓待同步', { exact: true })).toBeVisible();
   await expect(page.getByText('IBKR 已授权，持仓尚未同步', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  await page.getByRole('button', { name: '连接 / 重新授权 IBKR', exact: true }).click();
+  await page.getByRole('button', { name: '重新连接 IBKR', exact: true }).click();
   await expect.poll(() => synced).toBe(true);
   await expect(page.getByText('无法获取授权地址', { exact: true })).toHaveCount(0);
 });
@@ -223,14 +223,10 @@ test('gateway settings quietly auto-detect until connected and then stop polling
   });
   await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
   const console = page.locator('.awb-connection-console');
-  await expect.poll(() => probes.length).toBe(1);
-  await expect(console).toHaveAttribute('data-connection-state', 'connecting');
-  await expect(console.getByText('正在检测本机通道', { exact: true })).toBeVisible();
-  await expect(console.getByText('未连接时每 2 秒静默检测', { exact: true })).toBeVisible();
   await expect.poll(() => probes.length, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
   expect(probes[1] - probes[0]).toBeGreaterThanOrEqual(1900);
   await expect(console).toHaveAttribute('data-connection-state', 'connected');
-  await expect(console.getByText('Gateway 已连接', { exact: true })).toBeVisible();
+  await expect(console.getByText('实盘 Gateway 已连接', { exact: true })).toBeVisible();
   await expect(console.locator('.awb-connection-badge')).toHaveText('已连接');
   await expect(console.getByText('连接成功，自动检测已停止', { exact: true })).toBeVisible();
   await expect(console.getByText('BRIDGE · 127.0.0.1:18765', { exact: true })).toBeVisible();
@@ -240,6 +236,19 @@ test('gateway settings quietly auto-detect until connected and then stop polling
   await page.getByRole('button', { name: '账户总览', exact: true }).click();
   await page.waitForTimeout(2300);
   expect(probes).toHaveLength(count);
+});
+
+test('gateway scanning keeps the actual API mismatch visible', async ({ page }) => {
+  const data = state(); data.source = 'gateway'; data.gatewayMode = 'live'; data.connection.state = 'disconnected';
+  data.connection.detail = '已发现 IBKR API（端口 45122），但未返回当前绑定的实盘账户。';
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/sync', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
+  const console = page.locator('.awb-connection-console');
+  await expect(console).toHaveAttribute('data-connection-state', 'connecting');
+  await expect(console.getByText(data.connection.detail, { exact: true })).toBeVisible();
+  await expect(console.getByRole('button', { name: '智能连接', exact: true })).toBeEnabled();
 });
 
 test('gateway actions place smart connect on the left and manual sync on the right', async ({ page }) => {
@@ -256,6 +265,95 @@ test('gateway actions place smart connect on the left and manual sync on the rig
   expect(smartBox!.x).toBeLessThan(manualBox!.x);
   await smart.click();
   await expect.poll(() => smartConnects).toBe(1);
+});
+
+test('paper trading page is honest while Gateway API remains readonly', async ({ page }) => {
+  const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/paper/status', route => route.fulfill({ json: { enabled: false, available: false, account: 'DU***EST', accountKey: 'paper:ui-test', policy: null, orders: [], connection: 'connected', state: 'ready', detail: 'paper snapshot' } }));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  await expect(page.getByRole('heading', { name: '模拟盘当前仍是只读连接' })).toBeVisible();
+  await expect(page.locator('.awb-paper-setup')).toContainText('取消勾选“只读 API”');
+  await expect(page.getByRole('button', { name: '开启本次模拟盘交易' })).toHaveCount(0);
+});
+
+test('paper policy form requires user limits and sends an explicit bounded scope', async ({ page }) => {
+  const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
+  const baseStatus = { enabled: false, available: true, account: 'DU***EST', accountKey: 'paper:ui-test', policy: null, orders: [], connection: 'connected', state: 'ready', detail: 'paper snapshot' };
+  let configured: any;
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/paper/status', route => route.fulfill({ json: baseStatus }));
+  await page.route('**/api/ibkr-workbench/paper/contract', route => route.fulfill({ json: [{ conId: 265598, symbol: 'AAPL', currency: 'USD', exchange: 'NASDAQ', name: 'Apple Inc.' }] }));
+  await page.route('**/api/ibkr-workbench/paper/configure', route => { configured = route.request().postDataJSON(); return route.fulfill({ json: { ...baseStatus, enabled: true, policy: { conIds: [265598], expiresAt: configured.expiresAt } } }); });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  await expect(page.getByRole('button', { name: '开启本次模拟盘交易' })).toBeDisabled();
+  await page.getByLabel('搜索模拟盘合约').fill('AAPL'); await page.getByRole('button', { name: '查询 IBKR 合约' }).click(); await page.getByRole('button', { name: /AAPL.*Apple/ }).click();
+  for (const [label,value] of [['单笔最大名义金额','500'],['账户最大总敞口','5000'],['单一标的最大权重','30'],['当日最大亏损','200'],['每日最大订单数','5'],['每分钟最大订单数','1'],['限价偏离行情上限','2'],['手续费预留','2']] as const) await page.getByLabel(label).fill(value);
+  await page.getByRole('button', { name: '开启本次模拟盘交易' }).click();
+  await expect.poll(()=>configured?.conIds).toEqual([265598]);
+  expect(configured.explicit).toBe(true); expect(configured.limits.maxSymbolWeight).toBe('0.3'); expect(configured.limits.maxPriceDeviation).toBe('0.02');
+  await expect(page.getByRole('heading', { name: '1. 新订单' })).toBeVisible();
+});
+
+test('strategy backtest saves an immutable user rule and runs only after complete data acknowledgement', async ({ page }) => {
+  const data = state(true); let saved: any; let run: any; let strategies: any[] = [];
+  const record = (definition: any) => ({ definition, strategyHash: 'a'.repeat(64), createdAt: '2026-09-09T12:00:00Z' });
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: data.quotes }));
+  await page.route('**/api/ibkr-workbench/backtests/strategies', route => {
+    if (route.request().method() === 'POST') { saved = route.request().postDataJSON(); strategies = [record(saved)]; return route.fulfill({ json: strategies[0] }); }
+    return route.fulfill({ json: strategies });
+  });
+  await page.route('**/api/ibkr-workbench/backtests/jobs', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/backtests/runs', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/backtests/run', route => { run = route.request().postDataJSON(); return route.fulfill({ status: 202, json: { jobId: 'backtest:1234567890abcdef1234567890abcdef', state: 'PENDING', createdAt: '2026-09-09T12:00:00Z', updatedAt: '2026-09-09T12:00:00Z', testData: false } }); });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=backtests');
+  await expect(page.getByTestId('backtest-workspace')).toBeVisible();
+  await expect(page.getByText('结构化回测不会发送订单')).toBeVisible();
+  await page.getByRole('button', { name: '保存不可变版本' }).click();
+  expect(saved).toMatchObject({ strategyId: 'user:my-sma', version: '1.0.0', origin: 'user', universe: [1], signal: { kind: 'sma_cross', fastWindow: 5, slowWindow: 20 }, risk: { allowShort: false } });
+  expect(saved).not.toHaveProperty('code');
+  const bars = Array.from({ length: 21 }, (_, index) => ({ timestamp: `2026-01-${String(index + 1).padStart(2, '0')}T14:30:00Z`, open: String(100 + index), high: String(101 + index), low: String(99 + index), close: String(100 + index), volume: '1000', splitRatio: null, dividendPerShare: '0' }));
+  await page.getByLabel('上传回测数据').setInputFiles({ name: 'bars.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bars)) });
+  const start = page.getByRole('button', { name: '启动可复现回测' });
+  await expect(start).toBeDisabled();
+  await page.getByText('我确认数据中的拆分比例和每股分红完整').click();
+  await expect(start).toBeEnabled();
+  await start.click();
+  expect(run).toMatchObject({ strategyId: 'user:my-sma', strategyVersion: '1.0.0', initialCash: '100000', corporateActionsComplete: true });
+  expect(run.bars).toHaveLength(21);
+  expect(run.bars[0]).toEqual(bars[0]);
+  expect(run).not.toHaveProperty('signals');
+  expect(JSON.stringify(run)).not.toContain('ibkr.historicalData');
+});
+
+test('connection settings select an explicit paper Gateway without presenting it as live', async ({ page }) => {
+  const data = state();
+  let selected: unknown;
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/source', route => {
+    selected = route.request().postDataJSON();
+    data.source = 'gateway';
+    data.gatewayMode = 'paper';
+    data.connection.state = 'connected';
+    data.snapshot = { ...data.snapshot, mode: 'paper', accountKey: 'paper:ui-test', connection: 'connected', state: 'empty', snapshotId: 'paper-snapshot', asOf: new Date().toISOString() };
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/ibkr-workbench/sync', route => route.fulfill({ json: data }));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
+
+  await expect(page.getByRole('button', { name: /IB Gateway 模拟盘/ })).toBeVisible();
+  await page.getByRole('button', { name: /IB Gateway 模拟盘/ }).click();
+  await expect.poll(() => selected).toEqual({ source: 'gateway', gatewayMode: 'paper' });
+  await expect(page.getByRole('button', { name: /IB Gateway 模拟盘/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('模拟盘 Gateway 已连接', { exact: true })).toBeVisible();
+  await expect(page.getByText('PAPER GATEWAY', { exact: true })).toBeVisible();
+  const paperConsole = page.locator('.awb-connection-console');
+  await expect(paperConsole).toHaveClass(/is-paper/);
+  await expect.poll(() => paperConsole.evaluate(element => getComputedStyle(element).getPropertyValue('--connection-accent').trim())).toBe('#e2b55e');
 });
 
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {

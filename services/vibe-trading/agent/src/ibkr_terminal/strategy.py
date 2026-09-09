@@ -169,6 +169,15 @@ class StrategyCatalog:
         return [StrategyRecord(definition=StrategyDefinition.model_validate_json(payload), strategyHash=digest,
             createdAt=datetime.fromtimestamp(created, timezone.utc)) for digest, payload, created in rows]
 
+    def get(self, strategy_id, version):
+        with self._lock:
+            row = self._db.execute('''SELECT strategy_hash,payload,created_epoch FROM terminal_strategies
+                WHERE strategy_id=? AND version=?''', (strategy_id, version)).fetchone()
+        if row is None:
+            raise StrategyConflict('STRATEGY_MISSING')
+        return StrategyRecord(definition=StrategyDefinition.model_validate_json(row[1]), strategyHash=row[0],
+            createdAt=datetime.fromtimestamp(row[2], timezone.utc))
+
     def close(self):
         with self._lock:
             self._db.close()

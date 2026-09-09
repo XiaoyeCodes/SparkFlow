@@ -3,7 +3,6 @@ import argparse
 import asyncio
 import contextlib
 import json
-import logging
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -12,7 +11,6 @@ from pathlib import Path
 import uvicorn
 
 from .app import create_app
-from .readonly import ReadonlyConnection
 from .session import AccountBinding
 from .store import SnapshotStore
 from .strategy import StrategyCatalog
@@ -25,39 +23,7 @@ from .market_data import MarketDataStore
 from .orders import OrderLedger
 from .strategy_runtime import StrategyRuntime
 from .runtime_lease import RuntimeLease
-
-
-async def keep_readonly(connection):
-    # One connection attempt. On failure stop and require explicit service restart.
-    detail = '只读服务已停止；缓存不能代表当前账户。'
-    try:
-        await connection.connect()
-        await asyncio.wait_for(connection.refresh(), timeout=8)
-        next_reconcile = 0.0
-        changed = True
-        loop = asyncio.get_running_loop()
-        while True:
-            if not connection.healthy():
-                break
-            if loop.time() >= next_reconcile:
-                if not await asyncio.wait_for(connection.reconcile(), timeout=18):
-                    break
-                next_reconcile = loop.time() + 30
-            elif changed:
-                if not await asyncio.wait_for(connection.refresh(), timeout=8):
-                    break
-            changed = await connection.wait_for_change(min(5, max(0, next_reconcile - loop.time())))
-            if changed:
-                # Account/position rendering only. P3 order events must never use this coalescer.
-                await asyncio.sleep(0.1)
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        # Raw SDK errors may contain account identifiers. State explains the failure.
-        detail = f'只读同步失败（{type(exc).__name__}）；请核对配置与官方客户端后重启服务。'
-        logging.getLogger(__name__).error(detail)
-    finally:
-        connection.close(detail)
+from .gateway_runtime import GatewayRuntime
 
 
 def main():
@@ -94,13 +60,11 @@ def main():
 
     @asynccontextmanager
     async def lifespan(_):
+        runtime = GatewayRuntime(app, args.bindings or args.runtime_dir / 'bindings.json', bindings)
+        app.state.gateway_runtime = runtime
         tasks = []
         for binding in bindings:
-            session = app.state.sessions[binding.mode]
-            session.bind(binding)
-            connection = ReadonlyConnection(session, allow_partial=True)
-            app.state.market_sources[binding.mode] = connection
-            tasks.append(asyncio.create_task(keep_readonly(connection)))
+            tasks.append(asyncio.create_task(runtime.connect(binding.mode)))
         try:
             yield
         finally:
@@ -111,6 +75,7 @@ def main():
             for task in tasks:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+            await runtime.close()
             app.state.market_sources.clear()
             jobs.close()
             report_jobs.close()

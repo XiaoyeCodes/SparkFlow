@@ -20,12 +20,14 @@ class AccountBinding(Contract):
     # ib_async clientId=0 auto-binds TWS orders even on a readonly connection.
     clientId: int = Field(default=78, ge=1)
     baseCurrency: str | None = None
-    readonly: Literal[True] = True
+    readonly: bool = True
 
     @model_validator(mode='after')
     def namespace(self):
         if not self.accountKey.startswith(f'{self.mode}:'):
             raise ValueError('binding namespace mismatch')
+        if self.mode == 'live' and self.readonly is not True:
+            raise ValueError('live bindings must remain readonly')
         return self
 
 

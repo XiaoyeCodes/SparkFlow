@@ -77,9 +77,14 @@ class ReadonlyConnection:
     async def connect(self):
         from ib_async import StartupFetch
         try:
-            connect = getattr(self._ib, 'connectReadOnlyAsync', self._ib.connectAsync)
+            if self.binding.readonly:
+                connect = getattr(self._ib, 'connectReadOnlyAsync', self._ib.connectAsync)
+            else:
+                if self.binding.mode != 'paper':
+                    raise ValueError('only paper bindings may enable order transport')
+                connect = getattr(self._ib, 'connectManagedPaperAsync', self._ib.connectAsync)
             await connect(self.binding.host, self.binding.port,
-                clientId=self.binding.clientId, readonly=True, account=self.binding.brokerAccount,
+                clientId=self.binding.clientId, readonly=self.binding.readonly, account=self.binding.brokerAccount,
                 timeout=8, raiseSyncErrors=True, fetchFields=StartupFetch.ACCOUNT_UPDATES)
             if self.binding.brokerAccount not in self._ib.managedAccounts():
                 raise ValueError('configured account not returned by broker')

@@ -1,18 +1,21 @@
 """Loopback account service. Order reviews never invoke a broker transport."""
 import secrets
 import asyncio
+import hashlib
+import json
 import re
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import AwareDatetime, Field, StringConstraints
 
 from .store import SnapshotStore
 from .session import AccountSession
 from .reviews import DraftOrder, OrderReviewService, PreviewConfirmation, ReviewBlocked
-from .strategy import StrategyCatalog
-from .backtests import BacktestArchive, BacktestError
+from .strategy import StrategyCatalog, StrategyConflict, StrategyDefinition
+from .backtests import BacktestArchive, BacktestBar, BacktestConfig, BacktestError, backtest_signals_from_definition
 from .workers import BacktestJobs, JobError
 from .analytics import analyze_snapshot
 from .intelligence import AiConsentStore
@@ -21,6 +24,7 @@ from .report_jobs import ReportJobs, ReportJobError
 from .schemas import Contract
 from .market_data import MarketDataStore, dataset, bind_snapshot
 from .strategy_runtime import StrategyRuntime
+from .risk import Amount, Identifier
 
 
 class ReportRequest(Contract):
@@ -32,6 +36,33 @@ class ReportRequest(Contract):
 class AccountScopeRequest(Contract):
     mode: Literal['paper', 'live']
     accountKey: str
+
+
+class GatewayConnectRequest(Contract):
+    mode: Literal['paper', 'live']
+
+
+class PaperTransportRequest(Contract):
+    explicit: Literal[True]
+
+
+class BacktestUploadBar(Contract):
+    timestamp: AwareDatetime
+    open: Amount
+    high: Amount
+    low: Amount
+    close: Amount
+    volume: Amount | None = None
+    splitRatio: Amount | None = None
+    dividendPerShare: Amount = '0'
+
+
+class BacktestRunRequest(Contract):
+    strategyId: Identifier
+    strategyVersion: Annotated[str, StringConstraints(strict=True, pattern=r'^[0-9]+\.[0-9]+\.[0-9]+$', max_length=32)]
+    initialCash: Amount
+    corporateActionsComplete: Literal[True]
+    bars: tuple[BacktestUploadBar, ...] = Field(min_length=2, max_length=100_000)
 
 
 def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, heartbeat_seconds: float = 5,
@@ -46,6 +77,7 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
     app.state.sessions = {mode: AccountSession(mode, store) for mode in ('paper', 'live')}
     app.state.market_sources = {}
     app.state.market_locks = {}
+    app.state.gateway_runtime = None
     from .paper_api import WRITE_PATHS, install_paper_routes
     if paper_ledger is not None:
         install_paper_routes(app, paper_ledger, clock=clock)
@@ -67,6 +99,8 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
         review_write = (request.method == 'POST' and order_reviews is not None
             and (request.url.path == '/api/ibkr-terminal/orders/preview'
                 or (request.url.path.startswith('/api/ibkr-terminal/orders/previews/') and request.url.path.endswith('/confirm'))))
+        backtest_write = (request.method == 'POST' and strategy_catalog is not None and backtest_jobs is not None
+            and request.url.path in ('/api/ibkr-terminal/strategies', '/api/ibkr-terminal/backtests/jobs'))
         cancel_write = (request.method == 'POST' and backtest_jobs is not None
             and request.url.path.startswith('/api/ibkr-terminal/backtests/jobs/') and request.url.path.endswith('/cancel'))
         report_write = request.method == 'POST' and report_store is not None and (request.url.path == '/api/ibkr-terminal/reports'
@@ -75,7 +109,8 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
         runtime_stop = request.method == 'POST' and strategy_runtime is not None and re.fullmatch(
             r'/api/ibkr-terminal/strategy-runtime/activation:[0-9a-f]{32}/stop', request.url.path) is not None
         paper_write = paper_ledger is not None and request.method == 'POST' and request.url.path in WRITE_PATHS
-        if request.method not in ('GET', 'HEAD') and not review_write and not cancel_write and not report_write and not runtime_stop and not paper_write:
+        gateway_connect = request.method == 'POST' and request.url.path in ('/api/ibkr-terminal/gateway/connect','/api/ibkr-terminal/gateway/paper-orders') and app.state.gateway_runtime is not None
+        if request.method not in ('GET', 'HEAD') and not gateway_connect and not review_write and not backtest_write and not cancel_write and not report_write and not runtime_stop and not paper_write:
             return JSONResponse({'detail': 'terminal writes are disabled'}, status_code=403)
         response = await call_next(request)
         response.headers['Cache-Control'] = 'no-store'
@@ -85,7 +120,13 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
 
     @app.get('/api/ibkr-terminal/session')
     def session():
+        paper_source = app.state.market_sources.get('paper')
+        paper_available = bool(paper_ledger is not None and paper_source is not None
+            and paper_source.binding.mode == 'paper' and paper_source.binding.readonly is False)
+        paper_flow = getattr(app.state, 'paper_flow', None)
+        paper_enabled = bool(paper_available and paper_flow is not None and paper_flow.enabled)
         return {'readonly': True, 'accounts': [{'mode': mode, 'accountKey': value.binding.accountKey} for mode, value in app.state.sessions.items() if value.binding],
+            'gatewayDiscoveryVersion': 1 if app.state.gateway_runtime is not None else 0,
             'orderReviewEnabled': order_reviews is not None,
             'backtestsEnabled': strategy_catalog is not None and backtest_archive is not None,
             'reportsEnabled': report_store is not None,
@@ -93,13 +134,26 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
             'aiSharingConfigured': ai_consents is not None,
             'marketDataEnabled': market_data_store is not None,
             'strategyRuntimeEnabled': strategy_runtime is not None,
-            'writesEnabled': False}
+            'paperOrdersAvailable': paper_available,
+            'paperOrdersEnabled': paper_enabled,
+            'writesEnabled': paper_enabled}
+
+    @app.post('/api/ibkr-terminal/gateway/connect')
+    async def gateway_connect(value: GatewayConnectRequest):
+        return await app.state.gateway_runtime.connect(value.mode)
+
+    @app.post('/api/ibkr-terminal/gateway/paper-orders')
+    async def gateway_paper_orders(value: PaperTransportRequest):
+        return await app.state.gateway_runtime.enable_paper_orders()
 
     @app.get('/api/ibkr-terminal/snapshot')
     def snapshot(mode: Literal['paper', 'live'], accountKey: str | None = None):
         state = app.state.sessions[mode].snapshot()
         if accountKey is not None and accountKey != state.accountKey:
             return JSONResponse({'detail': 'account binding mismatch'}, status_code=403)
+        runtime = app.state.gateway_runtime
+        if runtime is not None:
+            state = state.model_copy(update={'detail': runtime.status(mode)['detail']})
         return state
 
     def scoped_snapshot(mode, account_key):
@@ -327,6 +381,17 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
             return JSONResponse({'detail': 'BACKTESTS_DISABLED'}, status_code=403)
         return strategy_catalog.list()
 
+    @app.post('/api/ibkr-terminal/strategies')
+    def save_strategy(definition: StrategyDefinition):
+        if strategy_catalog is None:
+            return JSONResponse({'detail': 'BACKTESTS_DISABLED'}, status_code=403)
+        if definition.origin != 'user':
+            return JSONResponse({'detail': 'USER_STRATEGY_REQUIRED'}, status_code=409)
+        try:
+            return strategy_catalog.save(definition)
+        except StrategyConflict as error:
+            return JSONResponse({'detail': str(error)}, status_code=409)
+
     @app.get('/api/ibkr-terminal/backtests')
     def backtests():
         if backtest_archive is None:
@@ -338,6 +403,31 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
         if backtest_jobs is None:
             return JSONResponse({'detail': 'BACKTESTS_DISABLED'}, status_code=403)
         return backtest_jobs.list()
+
+    @app.post('/api/ibkr-terminal/backtests/jobs')
+    def start_backtest(request: BacktestRunRequest):
+        if strategy_catalog is None or backtest_jobs is None:
+            return JSONResponse({'detail': 'BACKTESTS_DISABLED'}, status_code=403)
+        try:
+            strategy = strategy_catalog.get(request.strategyId, request.strategyVersion)
+        except StrategyConflict as error:
+            return JSONResponse({'detail': str(error)}, status_code=404 if str(error) == 'STRATEGY_MISSING' else 409)
+        if strategy.definition.origin != 'user' or len(strategy.definition.universe) != 1:
+            return JSONResponse({'detail': 'USER_STRATEGY_REQUIRED'}, status_code=409)
+        normalized = [bar.model_dump(mode='json') for bar in request.bars]
+        digest = hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        con_id = strategy.definition.universe[0]
+        bars = tuple(BacktestBar(conId=con_id, currency='USD', source='user.upload',
+            dataVersion=f'upload:{digest}', **bar.model_dump()) for bar in request.bars)
+        costs = strategy.definition.costs
+        config = BacktestConfig(initialCash=request.initialCash, commissionPerOrder=costs.commissionPerOrder,
+            commissionPerShare=costs.commissionPerShare, slippageBps=costs.slippageBps, baseCurrency='USD',
+            corporateActionsComplete=True, maxBars=100_000)
+        try:
+            signals = backtest_signals_from_definition(strategy, bars)
+            return backtest_jobs.submit(strategy, config, bars, signals)
+        except (BacktestError, JobError, ValueError) as error:
+            return JSONResponse({'detail': getattr(error, 'code', str(error))}, status_code=409)
 
     @app.get('/api/ibkr-terminal/backtests/jobs/{job_id}')
     def backtest_job(job_id: str):
@@ -363,6 +453,15 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
             return JSONResponse({'detail': 'BACKTESTS_DISABLED'}, status_code=403)
         try:
             return backtest_archive.get(run_hash).result
+        except BacktestError as error:
+            return JSONResponse({'detail': error.code}, status_code=404 if error.code == 'RUN_MISSING' else 409)
+
+    @app.get('/api/ibkr-terminal/backtests/{run_hash}/package')
+    def backtest_package(run_hash: str):
+        if backtest_archive is None:
+            return JSONResponse({'detail': 'BACKTESTS_DISABLED'}, status_code=403)
+        try:
+            return backtest_archive.get(run_hash)
         except BacktestError as error:
             return JSONResponse({'detail': error.code}, status_code=404 if error.code == 'RUN_MISSING' else 409)
 

@@ -22,13 +22,55 @@ import type { AdjustmentPlan, PortfolioPerformance, PerformancePoint } from '../
 import { emptySnapshot } from '../src/lib/ibkr/store.ts';
 import { validSnapshot } from '../src/lib/ibkr/events.ts';
 import { allowedLocalRequest } from './localRequest.ts';
-import { startSparkFlowBridge } from './ibkrGatewayBridge.ts';
+import { startSparkFlowBridge, discoverSparkFlowGateway } from './ibkrGatewayBridge.ts';
 import type { AccountSnapshot, Alert, AnalysisJob, AnalysisReport, Evidence, MarketQuote, Preferences, WorkbenchState, AiModel } from '../src/lib/ibkr/workbenchTypes.ts';
 
 type BriefAttempt = { id: string; sessionDate: string | null; state: 'running' | 'completed' | 'failed'; startedAt: string; detail?: string; error?: string };
 type AccountRecord = { scheduleRuns?: Record<string, { at: string; error?: string }>; scheduleEffectiveAt?: Partial<Record<'brief' | 'analysis', string>>; briefs?: DailyBrief[]; briefAttempt?: BriefAttempt; snapshot: AccountSnapshot; preferences: Preferences; grant?: { fingerprint: string; at: string }; alerts: Alert[]; reports: AnalysisReport[]; jobs: AnalysisJob[]; usage: { at: string; kind: string }[]; lastDaily?: string; dailyAttempt?: { date: string; at: number }; lastEventSignature?: string; peakNav?: number; research?: Record<string, ResearchCheckpoint>; plans?: AdjustmentPlan[]; history?: PerformancePoint[]; performance?: PortfolioPerformance };
-type Saved = { version: 1; source: 'mcp' | 'gateway'; selectedKey?: string; records: Record<string, AccountRecord> };
+type GatewayMode = 'live' | 'paper';
+type GatewayBridgeStarter = typeof startSparkFlowBridge;
+type Saved = { version: 1; source: 'mcp' | 'gateway'; gatewayMode?: GatewayMode; selectedKey?: string; records: Record<string, AccountRecord> };
 const safeUrl = (url: unknown) => { try { const u = new URL(String(url)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
+const decimalAmount = z.string().regex(/^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$/);
+const paperLimitsSchema = z.object({
+  maxOrderNotional: decimalAmount,
+  maxTotalExposure: decimalAmount,
+  maxSymbolWeight: decimalAmount,
+  maxDailyLoss: decimalAmount,
+  maxDailyOrders: z.number().int().positive(),
+  maxOrdersPerMinute: z.number().int().positive(),
+  maxQuoteAgeSeconds: z.number().int().min(1).max(10),
+  maxAccountAgeSeconds: z.number().int().min(1).max(30),
+  maxPriceDeviation: decimalAmount,
+  feeReserve: decimalAmount,
+}).strict();
+const paperConfigureSchema = z.object({ conIds: z.array(z.number().int().positive()).min(1).max(20), expiresAt: z.string().datetime({ offset: true }), limits: paperLimitsSchema, explicit: z.literal(true) }).strict();
+const paperPreviewSchema = z.object({ conId: z.number().int().positive(), side: z.enum(['BUY', 'SELL']), quantity: decimalAmount, limitPrice: decimalAmount }).strict();
+const paperConfirmSchema = z.object({ previewId: z.string().min(1).max(128), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), explicit: z.literal(true) }).strict();
+const paperCancelSchema = z.object({ intentId: z.string().min(1).max(128), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), explicit: z.literal(true) }).strict();
+const strategyIdSchema = z.string().min(1).max(128).regex(/^user:[A-Za-z0-9][A-Za-z0-9:_-]*$/);
+const strategyVersionSchema = z.string().max(32).regex(/^[0-9]+\.[0-9]+\.[0-9]+$/);
+const strategyDefinitionSchema = z.object({
+  strategyId: strategyIdSchema, version: strategyVersionSchema, origin: z.literal('user'), name: z.string().min(1).max(128),
+  universe: z.array(z.number().int().positive()).length(1), barInterval: z.enum(['1D', '1h']),
+  entryRule: z.string().min(1).max(2000), exitRule: z.string().min(1).max(2000),
+  parameters: z.record(z.string().min(1).max(128), z.string().min(1).max(128)),
+  signal: z.object({ kind: z.literal('sma_cross'), priceField: z.literal('close'), fastWindow: z.number().int().min(1).max(100), slowWindow: z.number().int().min(2).max(500), entryWhen: z.literal('FAST_ABOVE_SLOW'), exitWhen: z.literal('FAST_AT_OR_BELOW_SLOW') }).strict(),
+  positionSizing: z.object({ kind: z.literal('fixed_quantity'), targetQuantity: decimalAmount }).strict(),
+  costs: z.object({ commissionPerOrder: decimalAmount, commissionPerShare: decimalAmount, slippageBps: decimalAmount }).strict(),
+  risk: z.object({ allowShort: z.literal(false), maxPositionQuantity: decimalAmount }).strict(),
+  versionNotes: z.string().min(1).max(2000),
+}).strict().superRefine((value, context) => {
+  if (value.signal.fastWindow >= value.signal.slowWindow) context.addIssue({ code: z.ZodIssueCode.custom, path: ['signal', 'fastWindow'], message: '快均线必须短于慢均线' });
+  if (!/^\d+$/.test(value.positionSizing.targetQuantity) || Number(value.positionSizing.targetQuantity) <= 0) context.addIssue({ code: z.ZodIssueCode.custom, path: ['positionSizing', 'targetQuantity'], message: '目标数量必须是正整股' });
+  if (!/^\d+$/.test(value.risk.maxPositionQuantity) || Number(value.risk.maxPositionQuantity) <= 0 || Number(value.positionSizing.targetQuantity) > Number(value.risk.maxPositionQuantity)) context.addIssue({ code: z.ZodIssueCode.custom, path: ['risk', 'maxPositionQuantity'], message: '持仓上限必须覆盖目标整股数' });
+  if (Number(value.costs.slippageBps) > 1000) context.addIssue({ code: z.ZodIssueCode.custom, path: ['costs', 'slippageBps'], message: '滑点假设超出范围' });
+});
+const backtestUploadBarSchema = z.object({ timestamp: z.string().datetime({ offset: true }), open: decimalAmount, high: decimalAmount,
+  low: decimalAmount, close: decimalAmount, volume: decimalAmount.nullable().optional(), splitRatio: decimalAmount.nullable().optional(),
+  dividendPerShare: decimalAmount.optional() }).strict();
+const backtestRunSchema = z.object({ strategyId: strategyIdSchema, strategyVersion: strategyVersionSchema, initialCash: decimalAmount,
+  corporateActionsComplete: z.literal(true), bars: z.array(backtestUploadBarSchema).min(2).max(100000) }).strict();
 const gatewayConnectionDetails: Record<string, (port: number) => string> = {
   GATEWAY_BRIDGE_NOT_STARTED: port => `未检测到 SparkFlow 本地桥接服务（127.0.0.1:${port}）。点击“智能连接”即可自动选择端口并启动。`,
   GATEWAY_BRIDGE_PORT_CONFLICT: port => `本机 ${port} 端口已被其他服务占用，当前服务不是 SparkFlow IBKR 桥接。请更换端口或释放占用后重新启动桥接。`,
@@ -40,9 +82,11 @@ const gatewayConnectionDetails: Record<string, (port: number) => string> = {
   GATEWAY_ACCOUNT_UNCONFIGURED: () => '本地桥接已启动，但尚未绑定当前 Gateway 账户。完成绑定后会自动同步。',
   GATEWAY_ACCOUNT_OFFLINE: () => '本地桥接已启动，正在等待 Gateway API Socket 与账户快照。',
   GATEWAY_LIVE_SNAPSHOT_UNAVAILABLE: () => 'Gateway 尚未提供可用的账户快照，等待登录完成后会自动重试。',
+  GATEWAY_PAPER_SNAPSHOT_UNAVAILABLE: () => '模拟盘 Gateway 尚未提供可用的账户快照，等待登录完成后会自动重试。',
   ACCOUNT_SNAPSHOT_STALE: () => 'Gateway 账户快照已过期，正在等待最新同步。',
 };
-const gatewayConnectionDetail = (error: unknown, port: number) => gatewayConnectionDetails[error instanceof Error ? error.message : '']?.(port) ?? 'Gateway 同步暂不可用，请检查本机桥接与 API Socket。';
+class GatewayConnectionError extends Error {}
+const gatewayConnectionDetail = (error: unknown, port: number) => error instanceof GatewayConnectionError ? error.message : gatewayConnectionDetails[error instanceof Error ? error.message : '']?.(port) ?? 'Gateway 同步暂不可用，请检查本机桥接与 API Socket。';
 export async function readBriefProfileFallback(directory: string, analysisAsOf: string): Promise<Evidence[]> {
   const cutoff = Date.parse(analysisAsOf); if (!Number.isFinite(cutoff)) return [];
   const date = new Date(cutoff).toISOString().slice(0, 10), profiles: Evidence[] = [];
@@ -99,8 +143,9 @@ export class IbkrWorkbenchService {
   private scheduleFlight = false;
   private scheduleStartedAt = new Date().toISOString();
   private connectionDetail = ''; private storageError = ''; private ai; private ownsLease = false;
+  private nextGatewayAttempt = 0;
   readonly mcp: IbkrMcp; readonly market: IbkrMarket; readonly profiles: IbkrProfiles;
-  constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] })) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
+  constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] }), private gatewayBridgeStarter: GatewayBridgeStarter = startSparkFlowBridge, private gatewayDiscoverer = discoverSparkFlowGateway) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
   async start() {
     this.scheduleStartedAt = new Date().toISOString();
     await this.mcp.load();
@@ -113,13 +158,17 @@ export class IbkrWorkbenchService {
       } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
       const handle = await open(lock, 'wx', 0o600); await handle.writeFile(String(process.pid)); await handle.close(); this.ownsLease = true;
     } catch { this.storageError = '另一个服务持有账户后台锁，或锁文件不可用；本实例不会同步或调用 AI。'; return; }
-    try { const data = JSON.parse(await readFile(path.join(this.directory, 'state.json'), 'utf8')); if (data.version !== 1 || !['mcp', 'gateway'].includes(data.source) || !data.records || typeof data.records !== 'object' || Array.isArray(data.records)) throw new Error('STATE_SCHEMA'); this.saved = data;
+    try { const data = JSON.parse(await readFile(path.join(this.directory, 'state.json'), 'utf8')); if (data.version !== 1 || !['mcp', 'gateway'].includes(data.source) || (data.gatewayMode !== undefined && !['live', 'paper'].includes(data.gatewayMode)) || !data.records || typeof data.records !== 'object' || Array.isArray(data.records)) throw new Error('STATE_SCHEMA'); this.saved = { ...data, gatewayMode: data.gatewayMode === 'paper' ? 'paper' : 'live' };
       for (const [key, record] of Object.entries(this.saved.records)) { if (!validSnapshot(record.snapshot) || record.snapshot.accountKey !== key || !Array.isArray(record.alerts) || !Array.isArray(record.reports) || !Array.isArray(record.jobs) || !Array.isArray(record.usage)) throw new Error('STATE_SCHEMA'); record.preferences = preferencesSchema.parse(record.preferences); if (record.briefAttempt?.state === 'running') { record.briefAttempt.state = 'failed'; record.briefAttempt.error = '服务已重启；本期不会重复自动调用，可手动重试。'; } record.jobs.forEach(j => { if (j.state === 'running') { j.state = 'interrupted'; j.error = '服务已重启；已保留资料，可继续研究。'; } }); record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: '服务刚恢复，等待重新同步。' }; }
     } catch (e: any) { if (e.code !== 'ENOENT') { this.saved = { version: 1, source: 'mcp', records: {} }; this.storageError = '账户状态文件无法读取，已暂停写入；请检查本地状态文件。'; } }
     this.schedule();
   }
   private schedule() { if (this.disposed) return; this.timer = setTimeout(async () => { try { await this.tick(); } catch { /* A failed task remains visible in status. */ } finally { this.schedule(); } }, 15000); this.timer.unref(); }
   private record() { return this.saved.selectedKey ? this.saved.records[this.saved.selectedKey] : undefined; }
+  private gatewayConnected() {
+    const snapshot = this.record()?.snapshot;
+    return Boolean(snapshot && snapshot.mode === (this.saved.gatewayMode ?? 'live') && snapshot.connection === 'connected' && ['ready', 'empty'].includes(snapshot.state) && snapshot.asOf && Date.now() - Date.parse(snapshot.asOf) < 180000);
+  }
   private scheduleBoundary(record: AccountRecord) {
     const configured = record.scheduleEffectiveAt?.analysis;
     return configured && Date.parse(configured) > Date.parse(this.scheduleStartedAt) ? configured : this.scheduleStartedAt;
@@ -132,30 +181,44 @@ export class IbkrWorkbenchService {
     this.writeQueue = pending.catch(() => {}); return pending;
   }
   private async gatewayBridgePort() {
-    if (this.activeGatewayBridgePort) return this.activeGatewayBridgePort;
     let raw = '';
     try { raw = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/bridge.port'), 'utf8')).trim(); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     if (!raw) raw = process.env.SPARKFLOW_IBKR_BRIDGE_PORT ?? '';
-    if (!raw) return 8765;
+    if (!raw) return this.activeGatewayBridgePort ?? 8765;
     const port = Number(raw);
     if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('GATEWAY_BRIDGE_PORT_INVALID');
     return port;
   }
-  async connectGateway() {
+  private async ensureGateway() {
     this.assertAvailable();
     if (this.saved.source !== 'gateway') throw new Error('请先选择 TWS / Gateway 来源。');
     if (!this.gatewayStartFlight) {
+      const revision = this.generation, mode = this.saved.gatewayMode ?? 'live';
       this.gatewayStartFlight = (async () => {
         const preferred = await this.gatewayBridgePort();
-        const bridge = await startSparkFlowBridge(this.root, preferred);
+        const bridge = await this.gatewayBridgeStarter(this.root, preferred);
+        if (revision !== this.generation || this.disposed) return bridge.port;
         this.activeGatewayBridgePort = bridge.port;
-        this.nextSync = 0;
-        await this.sync();
+        const status = await this.gatewayDiscoverer(this.root, bridge.port, mode);
+        if (revision !== this.generation || this.disposed) return bridge.port;
+        if (status.phase !== 'ready') throw new GatewayConnectionError(status.detail);
         return bridge.port;
-      })().finally(() => { this.gatewayStartFlight = undefined; });
+      })().catch(error => {
+        if (revision === this.generation && !this.disposed) this.connectionDetail = error instanceof Error ? error.message : 'IBKR 自动连接失败。';
+        throw error instanceof GatewayConnectionError ? error : new GatewayConnectionError(this.connectionDetail);
+      }).finally(() => { this.gatewayStartFlight = undefined; this.nextGatewayAttempt = Date.now() + 15000; });
     }
     return this.gatewayStartFlight;
+  }
+  async connectGateway() {
+    const revision = this.generation;
+    const port = await this.ensureGateway();
+    await this.syncFlight;
+    if (revision !== this.generation || this.disposed) return port;
+    await this.sync(false);
+    if (!this.gatewayConnected()) throw new GatewayConnectionError(this.connectionDetail || 'API 已就绪，账户快照仍在同步；系统会自动重试。');
+    return port;
   }
   async tick() {
     if (this.storageError || this.disposed) return;
@@ -199,7 +262,7 @@ export class IbkrWorkbenchService {
     return { nextRunAt: window.nextRunAt, pendingAt: pending ? window.due!.at : null, detail: !config.enabled ? '已关闭' : !window.calendarSupported ? '交易日历未覆盖，等待更新' : !record.grant || record.grant.fingerprint !== this.model.fingerprint ? '等待开启当前模型的账户 AI 授权' : this.activeAnalysis ? '账户分析执行中，到点任务会等待本流程完成' : latest?.error ? `最近启动失败：${latest.error}` : pending ? '已到点，等待账户、模型与调用额度就绪' : '已启用，等待下次执行' };
   }
 
-  async sync() {
+  async sync(recoverGateway = true) {
     if (this.storageError) throw new Error(this.storageError);
     if (this.syncFlight) return this.syncFlight;
     const revision = this.generation;
@@ -223,18 +286,19 @@ export class IbkrWorkbenchService {
               throw new Error('GATEWAY_BRIDGE_NOT_STARTED');
             }
           }
+          const gatewayMode = this.saved.gatewayMode ?? 'live';
           let response: Response;
-          try { response = await fetch(`${gatewayBase}/api/ibkr-terminal/snapshot?mode=live`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }); }
+          try { response = await fetch(`${gatewayBase}/api/ibkr-terminal/snapshot?mode=${gatewayMode}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10000) }); }
           catch { throw new Error('GATEWAY_BRIDGE_UNAVAILABLE'); }
           if (response.status === 401 || response.status === 403) throw new Error('GATEWAY_BRIDGE_SESSION_EXPIRED');
           if (response.status === 404) throw new Error('GATEWAY_BRIDGE_PORT_CONFLICT');
           if (!response.ok) throw new Error('GATEWAY_BRIDGE_UNAVAILABLE');
           let value: unknown;
           try { value = await response.json(); } catch { throw new Error('GATEWAY_BRIDGE_INVALID_RESPONSE'); }
-          if (!validSnapshot(value) || value.mode !== 'live' || value.testData) throw new Error('GATEWAY_BRIDGE_INVALID_RESPONSE');
-          if (value.connection === 'unconfigured') throw new Error('GATEWAY_ACCOUNT_UNCONFIGURED');
-          if (value.connection !== 'connected') throw new Error('GATEWAY_ACCOUNT_OFFLINE');
-          if (!['ready', 'empty'].includes(value.state)) throw new Error('GATEWAY_LIVE_SNAPSHOT_UNAVAILABLE');
+          if (!validSnapshot(value) || value.mode !== gatewayMode || value.testData) throw new Error('GATEWAY_BRIDGE_INVALID_RESPONSE');
+          if (value.connection === 'unconfigured') throw new GatewayConnectionError(value.detail || gatewayConnectionDetails.GATEWAY_ACCOUNT_UNCONFIGURED(gatewayPort));
+          if (value.connection !== 'connected') throw new GatewayConnectionError(value.detail || gatewayConnectionDetails.GATEWAY_ACCOUNT_OFFLINE(gatewayPort));
+          if (!['ready', 'empty'].includes(value.state)) throw new GatewayConnectionError(value.detail || gatewayConnectionDetails.GATEWAY_LIVE_SNAPSHOT_UNAVAILABLE(gatewayPort));
           snapshot = value;
           // Legacy contracts without asset metadata remain visible but are not assumed to be stocks.
         }
@@ -254,9 +318,12 @@ export class IbkrWorkbenchService {
         this.quotes = await this.market.quotes(snapshot.positions);
         if (revision !== this.generation) return;
         if (Date.now() >= this.nextEvidence) {
-          const results = await Promise.allSettled([this.localGet('/api/news-feed'), this.localGet('/api/global-macro-dashboard?region=global&section=macro')]);
-          if (revision !== this.generation) return;
-          this.evidence = extractEvidence(results[0].status === 'fulfilled' ? results[0].value : null, results[1].status === 'fulfilled' ? results[1].value : null, snapshot);
+          if (snapshot.positions.length === 0) this.evidence = [];
+          else {
+            const results = await Promise.allSettled([this.localGet('/api/news-feed'), this.localGet('/api/global-macro-dashboard?region=global&section=macro')]);
+            if (revision !== this.generation) return;
+            this.evidence = extractEvidence(results[0].status === 'fulfilled' ? results[0].value : null, results[1].status === 'fulfilled' ? results[1].value : null, snapshot);
+          }
           this.nextEvidence = Date.now() + 300000;
         }
         this.rules(record, previous);
@@ -264,10 +331,22 @@ export class IbkrWorkbenchService {
         record.lastEventSignature = signature;
         await this.persist();
       } catch (e) {
+        if (revision !== this.generation || this.disposed) return;
+        if (this.saved.source === 'gateway' && recoverGateway && Date.now() >= this.nextGatewayAttempt) {
+          try {
+            await this.ensureGateway();
+            // End this flight before the fresh read; never recursively await it.
+            if (revision !== this.generation || this.disposed) return;
+            this.syncFlight = undefined;
+            await this.sync(false);
+            return;
+          } catch (recoveryError) { e = recoveryError; }
+        }
+        if (revision !== this.generation || this.disposed) return;
         this.failures++;
         this.connectionDetail = this.saved.source === 'gateway' ? gatewayConnectionDetail(e, gatewayPort) : e instanceof Error && /^[A-Z_]+$/.test(e.message) ? e.message : '同步暂不可用，请检查账户连接与本机服务。';
         const record = this.record(); if (record) { record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: this.connectionDetail }; await this.persist(); }
-      } finally { this.nextSync = Date.now() + Math.min(60000 * 2 ** Math.min(this.failures, 4), 900000); this.syncFlight = undefined; }
+      } finally { this.nextSync = Date.now() + (this.saved.source === 'gateway' && this.failures ? 15000 : Math.min(60000 * 2 ** Math.min(this.failures, 4), 900000)); this.syncFlight = undefined; }
     })(); return this.syncFlight;
   }
   private rules(record: AccountRecord, previous?: AccountSnapshot) {
@@ -292,16 +371,70 @@ export class IbkrWorkbenchService {
   async refreshQuotes() { const snapshot = this.record()?.snapshot; const revision = this.generation; if (!snapshot) return this.quotes; const quotes = await this.market.quotes(snapshot.positions); if (revision === this.generation) this.quotes = quotes; return revision === this.generation ? quotes : []; }
   async state(): Promise<WorkbenchState> {
     await this.modelStatus(); const record = this.record(); const today = newYorkClock(new Date()).date;
-    let snapshot = record?.snapshot ?? emptySnapshot('live');
-    if (snapshot.asOf && Date.now() - Date.parse(snapshot.asOf) > 180000) snapshot = { ...snapshot, state: 'stale', detail: '最后成功快照已超过三分钟。' };
+    const gatewayMode = this.saved.gatewayMode ?? 'live';
+    let snapshot = record?.snapshot ?? emptySnapshot(this.saved.source === 'gateway' ? gatewayMode : 'live');
+    if (snapshot.asOf && Date.now() - Date.parse(snapshot.asOf) > 180000) snapshot = { ...snapshot, state: 'stale', connection: 'disconnected', detail: '最后成功快照已超过三分钟。' };
     const priority = (alert: Alert) => alert.resolved ? 5 : ['margin', 'cash-floor'].includes(alert.key) ? 0 : alert.kind === 'risk' ? 1 : alert.kind === 'change' ? 2 : 3;
     const alerts = [...(record?.alerts ?? [])].sort((a, b) => priority(a) - priority(b) || b.createdAt.localeCompare(a.createdAt));
     const gatewayPort = this.saved.source === 'gateway' ? await this.gatewayBridgePort().catch(() => undefined) : undefined;
-    return { source: this.saved.source, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || 'TWS / Gateway 只读服务', port: gatewayPort, tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { analysis: this.scheduleStatus() }, metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
+    return { source: this.saved.source, gatewayMode, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || snapshot.detail || `IB Gateway ${gatewayMode === 'paper' ? '模拟盘' : '实盘'}只读服务`, port: gatewayPort, tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { analysis: this.scheduleStatus() }, metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
   }
-  async select(source: 'mcp' | 'gateway', key?: string) {
-    this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; await this.syncFlight; this.saved.source = source; this.saved.selectedKey = key;
-    this.quotes = []; this.evidence = []; this.nextEvidence = 0; this.nextSync = 0;
+  async paperRequest(endpoint: 'status'|'contract'|'transport'|'configure'|'preview'|'confirm'|'cancel'|'reconcile'|'stop', payload?: unknown) {
+    this.assertAvailable();
+    if (this.saved.source !== 'gateway' || this.saved.gatewayMode !== 'paper') throw new Error('请先选择并连接 IB Gateway 模拟盘。');
+    const record = this.record();
+    if (!record || record.snapshot.mode !== 'paper' || !record.snapshot.accountKey.startsWith('paper:')) throw new Error('尚未取得当前模拟账户快照。');
+    const port = await this.gatewayBridgePort();
+    const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
+    if (!token) throw new Error('本地桥接会话令牌不存在，请重新启动智能连接。');
+    const method = ['status','contract','reconcile'].includes(endpoint) ? 'GET' : 'POST';
+    let suffix = endpoint;
+    let bodyValue: unknown;
+    if (endpoint === 'contract') {
+      const value = z.object({ symbol: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9. -]{0,15}$/) }).strict().parse(payload);
+      suffix += `?symbol=${encodeURIComponent(value.symbol.toUpperCase())}`;
+    } else if (endpoint === 'transport') bodyValue = z.object({ explicit: z.literal(true) }).strict().parse(payload);
+    else if (endpoint === 'configure') {
+      const value = paperConfigureSchema.parse(payload);
+      bodyValue = { ...value, accountKey: record.snapshot.accountKey, mode: 'paper' };
+    } else if (endpoint === 'preview') {
+      const value = paperPreviewSchema.parse(payload);
+      bodyValue = { ...value, accountKey: record.snapshot.accountKey, mode: 'paper', orderType: 'LMT', tif: 'DAY' };
+    } else if (endpoint === 'confirm') bodyValue = paperConfirmSchema.parse(payload);
+    else if (endpoint === 'cancel') bodyValue = paperCancelSchema.parse(payload);
+    const target = endpoint === 'transport' ? '/api/ibkr-terminal/gateway/paper-orders' : `/api/ibkr-terminal/paper/${suffix}`;
+    const response = await fetch(`http://127.0.0.1:${port}${target}`, {
+      method, headers: { Authorization: `Bearer ${token}`, ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
+      ...(method === 'POST' ? { body: JSON.stringify(bodyValue ?? {}) } : {}), signal: AbortSignal.timeout(endpoint === 'transport' ? 40000 : endpoint === 'preview' || endpoint === 'reconcile' ? 15000 : 8000),
+    });
+    const result: any = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof result?.detail === 'string' ? result.detail : 'PAPER_OPERATION_FAILED');
+    return result;
+  }
+  async backtestRequest(endpoint: 'strategies'|'runs'|'jobs'|'save-strategy'|'run'|'cancel'|'result'|'package', payload?: unknown) {
+    this.assertAvailable();
+    const preferred = await this.gatewayBridgePort();
+    const bridge = await this.gatewayBridgeStarter(this.root, preferred);
+    const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
+    if (!token) throw new Error('本地回测服务会话不存在，请重新启动 SparkFlow。');
+    let method: 'GET'|'POST' = 'GET', target = '', bodyValue: unknown;
+    if (endpoint === 'strategies') target = '/api/ibkr-terminal/strategies';
+    else if (endpoint === 'runs') target = '/api/ibkr-terminal/backtests';
+    else if (endpoint === 'jobs') target = '/api/ibkr-terminal/backtests/jobs';
+    else if (endpoint === 'save-strategy') { method = 'POST'; target = '/api/ibkr-terminal/strategies'; bodyValue = strategyDefinitionSchema.parse(payload); }
+    else if (endpoint === 'run') { method = 'POST'; target = '/api/ibkr-terminal/backtests/jobs'; bodyValue = backtestRunSchema.parse(payload); }
+    else if (endpoint === 'cancel') { const value = z.object({ jobId: z.string().regex(/^backtest:[a-f0-9]{32}$/) }).strict().parse(payload); method = 'POST'; target = `/api/ibkr-terminal/backtests/jobs/${value.jobId}/cancel`; bodyValue = {}; }
+    else { const value = z.object({ runHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(payload); target = `/api/ibkr-terminal/backtests/${value.runHash}${endpoint === 'package' ? '/package' : ''}`; }
+    const response = await fetch(`http://127.0.0.1:${bridge.port}${target}`, { method,
+      headers: { Authorization: `Bearer ${token}`, ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
+      ...(method === 'POST' ? { body: JSON.stringify(bodyValue) } : {}), signal: AbortSignal.timeout(endpoint === 'run' ? 15000 : 8000) });
+    const result: any = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof result?.detail === 'string' ? result.detail : 'BACKTEST_OPERATION_FAILED');
+    return result;
+  }
+  async select(source: 'mcp' | 'gateway', key?: string, gatewayMode?: GatewayMode) {
+    this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; await this.syncFlight; this.saved.source = source; this.saved.gatewayMode = gatewayMode ?? this.saved.gatewayMode ?? 'live'; this.saved.selectedKey = source === 'gateway' ? undefined : key;
+    this.quotes = []; this.evidence = []; this.nextEvidence = 0; this.nextSync = 0; this.nextGatewayAttempt = 0; this.connectionDetail = '';
     await this.persist(); await this.sync();
   }
   private briefStatus(): DailyBriefStatus {
@@ -507,15 +640,19 @@ export class IbkrWorkbenchService {
     this.performanceFlight=(async()=>{
       let result=localPerformance(record.history??[],record.snapshot.baseCurrency);
       try{
-        let performanceKey=record.snapshot.accountKey;
-        if(this.saved.source==='gateway'){
-          const official=await this.mcp.snapshot();
-          if(!samePortfolioIdentity(record.snapshot,official))throw new Error('MCP_GATEWAY_ACCOUNT_MISMATCH');
-          performanceKey=official.accountKey;
+        if(this.saved.source==='gateway' && this.saved.gatewayMode === 'paper'){
+          result.note+=' 模拟盘不导入实盘 PortfolioAnalyst 历史。';
+        }else{
+          let performanceKey=record.snapshot.accountKey;
+          if(this.saved.source==='gateway'){
+            const official=await this.mcp.snapshot();
+            if(!samePortfolioIdentity(record.snapshot,official))throw new Error('MCP_GATEWAY_ACCOUNT_MISMATCH');
+            performanceKey=official.accountKey;
+          }
+          const raw=await this.mcp.performance(performanceKey);const data=raw.data;
+          result=normalizePerformance(data,raw.description??'',record.snapshot.baseCurrency);
+          if(this.saved.source==='gateway')result.note+=' Gateway 与 MCP 当前持仓及净值核验一致。';
         }
-        const raw=await this.mcp.performance(performanceKey);const data=raw.data;
-        result=normalizePerformance(data,raw.description??'',record.snapshot.baseCurrency);
-        if(this.saved.source==='gateway')result.note+=' Gateway 与 MCP 当前持仓及净值核验一致。';
       }catch{result.note+=' 官方历史暂不可用，继续积累本地快照。';}
       const benchmark=record.preferences.benchmark??'SPY';result.benchmark=benchmark;
       if(benchmark!=='none'&&result.returnMethod)try{const bm=await this.ai.tool('benchmark',{symbol:benchmark});if(bm.adjusted&&bm.currency===result.currency){result=comparePerformance(result,bm.rows,benchmark);result.benchmarkSource=bm.source;result.benchmarkFetchedAt=new Date().toISOString();}}catch{result.note+=' 基准来源暂不可用。';}
@@ -533,7 +670,7 @@ export function reportHtml(markdown:string){
  const content=markdown.split('\n\n').map(block=>block.startsWith('### ')?`<h3>${inline(block.slice(4))}</h3>`:block.startsWith('## ')?`<h2>${inline(block.slice(3))}</h2>`:block.startsWith('# ')?`<h1>${inline(block.slice(2))}</h1>`:block.startsWith('> ')?`<blockquote>${inline(block.slice(2))}</blockquote>`:block.startsWith('- ')?`<ul>${block.split('\n').map(line=>`<li>${inline(line.replace(/^- /,''))}</li>`).join('')}</ul>`:`<p>${inline(block)}</p>`).join('\n');
  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none';style-src 'unsafe-inline'"><title>SparkFlow · 投资组合研究</title><style>body{background:#050a09;color:#dcebe1;font:15px/1.9 system-ui;max-width:960px;margin:50px auto;padding:24px;overflow-wrap:anywhere}h1{font-size:32px;color:#eff8f2}h2{border-top:1px solid #20352d;padding-top:26px;margin-top:35px;color:#70dcba}h3{color:#b5ddc4;margin-top:26px}p,li{white-space:pre-wrap}a{color:#70dcba}blockquote{border-left:2px solid #53755f;padding:12px 20px;color:#9eb5a6;background:#0b1411}ul{padding-left:22px}@media print{body{background:white;color:#18271e;margin:0;font-size:11pt}h1,h2,h3,a{color:#193e2b}h2,h3{break-after:avoid}blockquote{background:#eff4ef}}</style>${content}</html>`;
 }
-async function body(req: IncomingMessage) { if (!req.headers['content-type']?.startsWith('application/json')) throw new Error('只接受 JSON 请求'); let text = ''; for await (const chunk of req) { text += chunk; if (Buffer.byteLength(text) > 32000) throw new Error('请求过大'); } return JSON.parse(text); }
+async function body(req: IncomingMessage, maxBytes = 32000) { if (!req.headers['content-type']?.startsWith('application/json')) throw new Error('只接受 JSON 请求'); let text = ''; for await (const chunk of req) { text += chunk; if (Buffer.byteLength(text) > maxBytes) throw new Error('请求过大'); } return JSON.parse(text); }
 export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogoScan?: (tickers: string[]) => Promise<unknown>; fetchProfileScan?: ProfileBatchFetcher; fetchLogoImage?: (url: string) => Promise<Uint8Array>; stateDir?: string }): Plugin {
   let service: IbkrWorkbenchService | undefined;
   const install = (server: any) => {
@@ -583,6 +720,12 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
           res.end(oauthCallbackPage(Boolean(current.connection.authorized), synced, error)); return;
         }
         if (req.method === 'GET' && endpoint === 'state') return json(await instance.state());
+        if (req.method === 'GET' && endpoint === 'paper/status') return json(await instance.paperRequest('status'));
+        if (req.method === 'GET' && endpoint === 'backtests/strategies') return json(await instance.backtestRequest('strategies'));
+        if (req.method === 'GET' && endpoint === 'backtests/runs') return json(await instance.backtestRequest('runs'));
+        if (req.method === 'GET' && endpoint === 'backtests/jobs') return json(await instance.backtestRequest('jobs'));
+        if (req.method === 'GET' && endpoint === 'backtests/result') return json(await instance.backtestRequest('result', { runHash: url.searchParams.get('runHash') }));
+        if (req.method === 'GET' && endpoint === 'backtests/package') return json(await instance.backtestRequest('package', { runHash: url.searchParams.get('runHash') }));
         if (req.method === 'GET' && endpoint === 'performance') return json(await instance.performance());
         if(req.method==='GET'&&endpoint.startsWith('research/')) return json(await instance.research(endpoint.slice(9)));
         if (req.method === 'GET' && endpoint === 'quotes') return json(await instance.refreshQuotes());
@@ -595,11 +738,22 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
         }
         if (req.method !== 'POST') return json({ error: '接口不存在' }, 404);
         instance.assertAvailable();
-        const data = await body(req);
+        const data = await body(req, endpoint === 'backtests/run' ? 4 * 1024 * 1024 : 32000);
         if (endpoint === 'connect') return json(await instance.mcp.begin(`http://127.0.0.1:${port()}`));
         if (endpoint === 'disconnect') { await instance.disconnect(); return json({ ok: true, detail: instance.mcp.detail }); }
-        if (endpoint === 'source') { const value = z.object({ source: z.enum(['mcp', 'gateway']), accountKey: z.string().regex(/^live:[a-zA-Z0-9:_-]+$/).optional() }).strict().parse(data); await instance.select(value.source, value.accountKey); return json({ ok: true }); }
+        if (endpoint === 'source') { const value = z.object({ source: z.enum(['mcp', 'gateway']), gatewayMode: z.enum(['live', 'paper']).optional(), accountKey: z.string().regex(/^live:[a-zA-Z0-9:_-]+$/).optional() }).strict().parse(data); await instance.select(value.source, value.accountKey, value.gatewayMode); return json({ ok: true }); }
         if (endpoint === 'gateway-connect') { await instance.connectGateway(); return json(await instance.state()); }
+        if (endpoint === 'paper/contract') return json(await instance.paperRequest('contract', data));
+        if (endpoint === 'paper/transport') return json(await instance.paperRequest('transport', data));
+        if (endpoint === 'paper/configure') return json(await instance.paperRequest('configure', data));
+        if (endpoint === 'paper/preview') return json(await instance.paperRequest('preview', data));
+        if (endpoint === 'paper/confirm') return json(await instance.paperRequest('confirm', data));
+        if (endpoint === 'paper/cancel') return json(await instance.paperRequest('cancel', data));
+        if (endpoint === 'paper/reconcile') return json(await instance.paperRequest('reconcile', data));
+        if (endpoint === 'paper/stop') return json(await instance.paperRequest('stop', data));
+        if (endpoint === 'backtests/strategies') return json(await instance.backtestRequest('save-strategy', data));
+        if (endpoint === 'backtests/run') return json(await instance.backtestRequest('run', data), 202);
+        if (endpoint === 'backtests/cancel') return json(await instance.backtestRequest('cancel', data));
         if (endpoint === 'sync') { await instance.sync(); return json(await instance.state()); }
         if (endpoint === 'preferences') { await instance.preferences(preferencesSchema.parse(data)); return json({ ok: true }); }
         if (endpoint === 'consent') { const v = z.object({ enabled: z.boolean(), fingerprint: z.string().optional() }).strict().parse(data); await instance.grant(v.enabled, v.fingerprint); return json({ ok: true }); }

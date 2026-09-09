@@ -90,6 +90,20 @@ def test_persistent_connection_is_readonly_filters_account_and_closes(tmp_path, 
         assert session.snapshot().state == 'stale'
 
 
+def test_paper_execution_binding_uses_managed_write_capable_handshake(tmp_path, api_event_loop):
+    binding = AccountBinding(mode='paper', accountKey='paper:configured', brokerAccount='TEST-ACCOUNT', confirmed=True, baseCurrency='USD', readonly=False)
+    with SnapshotStore(tmp_path / 'db', allow_fixtures=True) as store:
+        session = AccountSession('paper', store)
+        session.bind(binding)
+        fake = FakeIB()
+        connection = ReadonlyConnection(session, sdk=fake)
+        api_event_loop.run_until_complete(connection.connect())
+        assert len(fake.connects) == 1
+        assert fake.connects[0]['readonly'] is False
+        assert fake.connects[0]['account'] == 'TEST-ACCOUNT'
+        connection.close()
+
+
 def test_wrong_broker_account_disconnects_and_client_zero_is_forbidden(tmp_path, api_event_loop):
     with pytest.raises(ValueError):
         AccountBinding(mode='paper', accountKey='paper:configured', brokerAccount='TEST', confirmed=True, clientId=0)

@@ -57,6 +57,8 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
         source=app.state.market_sources.get('paper')
         if source is None or not source.healthy() or source.binding.mode!='paper':
             raise RiskDenied('PAPER_ACCOUNT_UNAVAILABLE')
+        if source.binding.readonly:
+            raise RiskDenied('PAPER_GATEWAY_READONLY')
         return source
     def flow():
         if app.state.paper_flow is None:
@@ -75,7 +77,8 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
         policy=current.source.scope if current else None
         with ledger._lock:
             orders=ledger._records(binding.accountKey,'paper')[-100:] if binding else []
-        return {'enabled':bool(current and current.enabled and policy.expiresAt>clock()),
+        writable=bool(binding and binding.mode=='paper' and binding.readonly is False)
+        return {'enabled':bool(current and current.enabled and policy.expiresAt>clock()),'available':writable,
             'account':(binding.brokerAccount[:2]+'***'+binding.brokerAccount[-3:]) if binding else None,
             'accountKey':binding.accountKey if binding else None,'policy':policy,'orders':orders,
             'connection':state.connection if state else 'unconfigured','state':state.state if state else 'permission-required',

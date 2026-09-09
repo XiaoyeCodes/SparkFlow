@@ -117,12 +117,12 @@ class ObservedIB(IB):
         self.client.apiEnd += self.disconnectedEvent
         self.RaiseRequestErrors = True
 
-    async def connectReadOnlyAsync(self, host, port, *, clientId, account, timeout=8, **kwargs):
+    async def _connectScopedAsync(self, host, port, *, clientId, account, timeout=8):
         # Handshake first; individual reads report their own completeness.
         # IB.connectAsync unconditionally waits for all-account positions,
         # which can hide a successful account-summary connection.
-        if clientId <= 0 or kwargs.get('readonly') is not True:
-            raise ValueError('explicit readonly client required')
+        if clientId <= 0:
+            raise ValueError('explicit positive client id required')
         self.wrapper.clientId = clientId
         try:
             await self.client.connectAsync(host, port, clientId, timeout)
@@ -132,6 +132,16 @@ class ObservedIB(IB):
             self.disconnect()
             raise
         return self
+
+    async def connectReadOnlyAsync(self, host, port, *, clientId, account, timeout=8, **kwargs):
+        if kwargs.get('readonly') is not True:
+            raise ValueError('explicit readonly client required')
+        return await self._connectScopedAsync(host, port, clientId=clientId, account=account, timeout=timeout)
+
+    async def connectManagedPaperAsync(self, host, port, *, clientId, account, timeout=8, **kwargs):
+        if kwargs.get('readonly') is not False:
+            raise ValueError('explicit paper execution client required')
+        return await self._connectScopedAsync(host, port, clientId=clientId, account=account, timeout=timeout)
 
     async def reqAllOpenOrdersAsync(self):
         if self.wrapper.open_read is not None:

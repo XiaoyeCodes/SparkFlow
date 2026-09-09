@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { IbkrWorkbenchService, oauthCallbackPage } from '../../server/ibkrWorkbench.ts';
 import { normalizeMcpSnapshot } from '../../server/ibkrMcp.ts';
@@ -32,6 +32,137 @@ test('gateway performance imports PortfolioAnalyst history only after MCP portfo
     const rejected=await f.service.performance();
     assert.equal(performanceKey,'');assert.equal(rejected.source,'本地账户快照');assert.match(rejected.note,/官方历史暂不可用/);
   }finally{await f.service.close();}
+});
+test('paper Gateway selection requests only the paper snapshot and persists the selected mode', async () => {
+  await mkdir('tmp/workbench-paper-mode', { recursive: true });
+  const root = await mkdtemp(path.resolve('tmp/workbench-paper-mode/root-'));
+  const dir = path.join(root, 'state');
+  await mkdir(path.join(root, '.sparkflow/ibkr-terminal'), { recursive: true });
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/session.token'), 'test-session-token');
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/bridge.port'), '18765');
+  const snapshot = {
+    ...normalizeMcpSnapshot('PAPER_ACCOUNT', [], { baseCurrency: 'USD', netLiquidation: 100000, cash: [{ currency: 'USD', amount: 100000 }] }),
+    accountKey: 'paper:paper-account', mode: 'paper', detail: '模拟盘只读快照',
+  };
+  const originalFetch = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = async (url, init) => {
+    urls.push(String(url));
+    assert.equal(init.headers.Authorization, 'Bearer test-session-token');
+    return new Response(JSON.stringify(snapshot), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  let localCalls = 0;
+  const service = new IbkrWorkbenchService(root, dir, async () => ({ data: { diff: [] } }), async () => { localCalls++; return {}; });
+  try {
+    await service.start(); clearTimeout(service.timer);
+    await service.select('gateway', undefined, 'paper');
+    assert.deepEqual(urls, ['http://127.0.0.1:18765/api/ibkr-terminal/snapshot?mode=paper']);
+    assert.equal(service.saved.gatewayMode, 'paper');
+    assert.equal(service.saved.selectedKey, 'paper:paper-account');
+    const current = await service.state();
+    assert.equal(current.gatewayMode, 'paper');
+    assert.equal(current.snapshot.mode, 'paper');
+    assert.equal(localCalls, 0);
+    const stored = JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8'));
+    assert.equal(stored.gatewayMode, 'paper');
+    await service.select('mcp');
+    assert.equal(service.saved.gatewayMode, 'paper');
+    await service.select('gateway');
+    assert.equal(service.saved.gatewayMode, 'paper');
+    assert.equal(service.saved.selectedKey, 'paper:paper-account');
+    assert.equal(urls.at(-1), 'http://127.0.0.1:18765/api/ibkr-terminal/snapshot?mode=paper');
+  } finally {
+    globalThis.fetch = originalFetch;
+    await service.close();
+  }
+});
+test('paper order proxy injects the selected paper scope and never exposes the bridge token', async () => {
+  await mkdir('tmp/workbench-paper-orders', { recursive: true });
+  const root = await mkdtemp(path.resolve('tmp/workbench-paper-orders/root-'));
+  const dir = path.join(root, 'state');
+  await mkdir(path.join(root, '.sparkflow/ibkr-terminal'), { recursive: true }); await mkdir(dir, { recursive: true });
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/session.token'), 'private-bridge-token');
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/bridge.port'), '18765');
+  const service = new IbkrWorkbenchService(root, dir, async () => ({}), async () => ({}));
+  const snapshot = { ...normalizeMcpSnapshot('PAPER_ACCOUNT', [], { baseCurrency: 'USD', netLiquidation: 1000, cash: [{ currency: 'USD', amount: 1000 }] }), accountKey: 'paper:selected', mode: 'paper' };
+  service.saved = { version: 1, source: 'gateway', gatewayMode: 'paper', selectedKey: 'paper:selected', records: { 'paper:selected': { snapshot, preferences: { ...defaults }, alerts: [], reports: [], jobs: [], usage: [] } } };
+  const originalFetch = globalThis.fetch; let sent;
+  globalThis.fetch = async (url, init) => { sent = { url: String(url), init }; return new Response(JSON.stringify({ previewId: 'preview:test' }), { headers: { 'content-type': 'application/json' } }); };
+  try {
+    const result = await service.paperRequest('preview', { conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50' });
+    assert.equal(result.previewId, 'preview:test');
+    assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/paper/preview');
+    assert.equal(sent.init.headers.Authorization, 'Bearer private-bridge-token');
+    assert.deepEqual(JSON.parse(sent.init.body), { conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50', accountKey: 'paper:selected', mode: 'paper', orderType: 'LMT', tif: 'DAY' });
+    await assert.rejects(() => service.paperRequest('preview', { accountKey: 'live:other', conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50' }), /请先|无效|结构|unrecognized/i);
+    await service.paperRequest('transport', { explicit: true });
+    assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/gateway/paper-orders');
+    assert.deepEqual(JSON.parse(sent.init.body), { explicit: true });
+    await assert.rejects(() => service.paperRequest('transport', { explicit: false }));
+  } finally { globalThis.fetch = originalFetch; }
+});
+test('backtest proxy accepts only structured user strategies and stamps data inside the Python service', async () => {
+  await mkdir('tmp/workbench-backtests', { recursive: true });
+  const root = await mkdtemp(path.resolve('tmp/workbench-backtests/root-'));
+  const dir = path.join(root, 'state');
+  await mkdir(path.join(root, '.sparkflow/ibkr-terminal'), { recursive: true }); await mkdir(dir, { recursive: true });
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/session.token'), 'private-backtest-token');
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/bridge.port'), '18765');
+  const service = new IbkrWorkbenchService(root, dir, async () => ({}), async () => ({}), async () => ({ data: [] }), async () => ({ port: 18765, reused: true }));
+  const strategy = { strategyId: 'user:test-sma', version: '1.0.0', origin: 'user', name: '测试 SMA', universe: [12], barInterval: '1D',
+    entryRule: '快均线上穿慢均线后，在下一根 bar 开盘建立目标仓位。', exitRule: '快均线不高于慢均线后，在下一根 bar 开盘退出。', parameters: { fastWindow: '2', slowWindow: '5' },
+    signal: { kind: 'sma_cross', priceField: 'close', fastWindow: 2, slowWindow: 5, entryWhen: 'FAST_ABOVE_SLOW', exitWhen: 'FAST_AT_OR_BELOW_SLOW' },
+    positionSizing: { kind: 'fixed_quantity', targetQuantity: '10' }, costs: { commissionPerOrder: '1', commissionPerShare: '0.01', slippageBps: '5' },
+    risk: { allowShort: false, maxPositionQuantity: '10' }, versionNotes: '用户明确录入的结构化回测规则；不构成交易授权。' };
+  const run = { strategyId: strategy.strategyId, strategyVersion: strategy.version, initialCash: '10000', corporateActionsComplete: true,
+    bars: [{ timestamp: '2026-01-02T14:30:00Z', open: '10', high: '11', low: '9', close: '10', volume: '1000', splitRatio: null, dividendPerShare: '0' },
+      { timestamp: '2026-01-03T14:30:00Z', open: '11', high: '12', low: '10', close: '11', volume: '1000', splitRatio: null, dividendPerShare: '0' }] };
+  const originalFetch = globalThis.fetch; const sent = [];
+  globalThis.fetch = async (url, init) => { sent.push({ url: String(url), init }); return new Response(JSON.stringify({ ok: true, jobId: 'backtest:1234567890abcdef1234567890abcdef' }), { headers: { 'content-type': 'application/json' } }); };
+  try {
+    await service.backtestRequest('save-strategy', strategy);
+    await service.backtestRequest('run', run);
+    assert.equal(sent[0].url, 'http://127.0.0.1:18765/api/ibkr-terminal/strategies');
+    assert.equal(sent[1].url, 'http://127.0.0.1:18765/api/ibkr-terminal/backtests/jobs');
+    assert.equal(sent[0].init.headers.Authorization, 'Bearer private-backtest-token');
+    assert.deepEqual(JSON.parse(sent[0].init.body), strategy);
+    assert.deepEqual(JSON.parse(sent[1].init.body), run);
+    await assert.rejects(() => service.backtestRequest('run', { ...run, bars: [{ ...run.bars[0], source: 'ibkr.historicalData' }, run.bars[1]] }));
+    await assert.rejects(() => service.backtestRequest('save-strategy', { ...strategy, origin: 'fixture', strategyId: 'example:test' }));
+    assert.equal(sent.length, 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+test('switching to Gateway automatically starts a missing bridge and confirms the selected account mode', async () => {
+  await mkdir('tmp/workbench-auto-connect', { recursive: true });
+  const root = await mkdtemp(path.resolve('tmp/workbench-auto-connect/root-'));
+  const dir = path.join(root, 'state');
+  await mkdir(path.join(root, '.sparkflow/ibkr-terminal'), { recursive: true });
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/session.token'), 'test-session-token');
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/bridge.port'), '18765');
+  const snapshot = {
+    ...normalizeMcpSnapshot('PAPER_ACCOUNT', [], { baseCurrency: 'USD', netLiquidation: 100000, cash: [{ currency: 'USD', amount: 100000 }] }),
+    accountKey: 'paper:auto-connect', mode: 'paper', detail: '模拟盘只读快照',
+  };
+  let bridgeStarted = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => {
+    if (!bridgeStarted) throw new Error('bridge offline');
+    if (String(url).endsWith('/session')) return new Response(JSON.stringify({ readonly: true, accounts: [] }));
+    return new Response(JSON.stringify(snapshot), { headers: { 'content-type': 'application/json' } });
+  };
+  const service = new IbkrWorkbenchService(root, dir, async () => ({ data: { diff: [] } }), async () => ({}), undefined, async () => { bridgeStarted = true; return { port: 18765, reused: false }; }, async (_root, port, mode) => { assert.equal(port, 18765); assert.equal(mode, 'paper'); return { phase: 'ready', detail: 'API verified', apiPort: 45122 }; });
+  try {
+    await service.start(); clearTimeout(service.timer);
+    await service.select('gateway', undefined, 'paper');
+    assert.equal(bridgeStarted, true);
+    assert.equal(service.saved.selectedKey, 'paper:auto-connect');
+    assert.equal((await service.state()).connection.state, 'connected');
+  } finally {
+    globalThis.fetch = originalFetch;
+    await service.close();
+  }
 });
 async function fixture() {
   await mkdir('tmp/workbench-service', { recursive: true }); const dir = await mkdtemp(path.resolve('tmp/workbench-service/run-'));

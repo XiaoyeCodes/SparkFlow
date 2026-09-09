@@ -47,7 +47,6 @@ export async function startSparkFlowBridge(root: string, preferredPort: number) 
   const runtimeDir = path.join(root, '.sparkflow', 'ibkr-terminal');
   const bindings = path.join(runtimeDir, 'bindings.json');
   const script = path.join(root, 'scripts', 'start-ibkr-terminal.ps1');
-  if (!existsSync(bindings)) throw new Error('尚未建立 Gateway 账户绑定，请先登录 IBKR Gateway 并完成首次只读连接。');
   if (!existsSync(script)) throw new Error('SparkFlow 本地桥接启动脚本不存在。');
 
   if (await isSparkFlowBridge(preferredPort, runtimeDir)) return { port: preferredPort, reused: true };
@@ -57,17 +56,32 @@ export async function startSparkFlowBridge(root: string, preferredPort: number) 
   const stderr = openSync(path.join(runtimeDir, 'bridge.err.log'), 'a');
   let child: ReturnType<typeof spawn>;
   try {
-    child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-BindingFile', bindings, '-Port', String(port)], {
+    child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...(existsSync(bindings) ? ['-BindingFile', bindings] : []), '-Port', String(port)], {
       cwd: root, windowsHide: true, stdio: ['ignore', stdout, stderr],
     });
   } finally { closeSync(stdout); closeSync(stderr); }
+  let launchError: Error | undefined;
+  child.once('error', error => { launchError = error; });
   child.unref();
   await writeFile(path.join(runtimeDir, 'bridge.pid'), String(child.pid ?? ''), 'ascii');
 
   for (let attempt = 0; attempt < 40; attempt += 1) {
     if (await isSparkFlowBridge(port, runtimeDir, 700)) return { port, reused: false };
-    if (child.exitCode !== null) break;
+    if (child.exitCode !== null || launchError) break;
     await new Promise(resolve => setTimeout(resolve, 250));
   }
-  throw new Error(child.exitCode === null ? `本地桥接已启动，但端口 ${port} 未在 10 秒内就绪。` : `本地桥接启动失败，退出码 ${child.exitCode}。`);
+  throw new Error(launchError ? '本地桥接启动失败，请检查 PowerShell 和 Python 运行环境。' : child.exitCode === null ? `本地桥接已启动，但端口 ${port} 未在 10 秒内就绪。` : `本地桥接启动失败，退出码 ${child.exitCode}。`);
+}
+
+export async function discoverSparkFlowGateway(root: string, port: number, mode: 'live' | 'paper') {
+  const token = await sessionToken(path.join(root, '.sparkflow', 'ibkr-terminal'));
+  const response = await fetch(`http://127.0.0.1:${port}/api/ibkr-terminal/gateway/connect`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }), signal: AbortSignal.timeout(40000),
+  });
+  if (response.status === 404 || response.status === 403) throw new Error('本地桥接仍在运行旧版本，请重启 SparkFlow 本地桥接以启用 API 端口自动发现。');
+  if (!response.ok) throw new Error('本地 IBKR API 发现服务暂不可用。');
+  const value = await response.json() as { phase?: string; apiPort?: number; detail?: string };
+  if (!['ready', 'waiting', 'connecting', 'retrying'].includes(value.phase ?? '') || typeof value.detail !== 'string') throw new Error('本地 IBKR API 发现服务返回了无效状态。');
+  return value;
 }
