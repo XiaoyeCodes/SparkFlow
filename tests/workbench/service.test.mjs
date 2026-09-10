@@ -97,7 +97,13 @@ test('paper order proxy injects the selected paper scope and never exposes the b
   const snapshot = { ...normalizeMcpSnapshot('PAPER_ACCOUNT', [], { baseCurrency: 'USD', netLiquidation: 1000, cash: [{ currency: 'USD', amount: 1000 }] }), accountKey: 'paper:selected', mode: 'paper' };
   service.saved = { version: 1, source: 'gateway', gatewayMode: 'paper', selectedKey: 'paper:selected', records: { 'paper:selected': { snapshot, preferences: { ...defaults }, alerts: [], reports: [], jobs: [], usage: [] } } };
   const originalFetch = globalThis.fetch; let sent;
-  globalThis.fetch = async (url, init) => { sent = { url: String(url), init }; return new Response(JSON.stringify({ previewId: 'preview:test' }), { headers: { 'content-type': 'application/json' } }); };
+  globalThis.fetch = async (url, init) => {
+    sent = { url: String(url), init };
+    const result = sent.url.includes('/paper/quote?')
+      ? { conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ',name:'Apple',bid:'101',ask:'102',last:'101.5',close:'100',high:'103',low:'99',minTick:'0.01',state:'realtime',regularHours:true,nextOpen:null,fetchedAt:new Date().toISOString(),source:'IBKR Gateway',detail:'' }
+      : { previewId: 'preview:test' };
+    return new Response(JSON.stringify(result), { headers: { 'content-type': 'application/json' } });
+  };
   try {
     const result = await service.paperRequest('preview', { conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50' });
     assert.equal(result.previewId, 'preview:test');
@@ -116,6 +122,10 @@ test('paper order proxy injects the selected paper scope and never exposes the b
     assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/paper/quote?conId=265598');
     assert.equal(sent.init.method, 'GET');
     assert.equal(sent.init.body, undefined);
+    service.ticketQuotes = { quote: async contract => ({...contract,name:'Apple',bid:'99',ask:'100',last:'99.5',close:'98',high:'101',low:'97',open:'98',volume:'1000',amount:'99000',peDynamic:'30',peStatic:'32',minTick:null,state:'reference',regularHours:null,nextOpen:null,fetchedAt:new Date().toISOString(),source:'东方财富',detail:'',bids:[],asks:[]}) };
+    const merged = await service.paperMarketQuote({ conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ' });
+    assert.equal(merged.bid,'101'); assert.equal(merged.ask,'102'); assert.equal(merged.open,'98');
+    assert.match(merged.source,/IBKR Gateway/);
     await service.paperRequest('contract', { conId: 265598 });
     assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/paper/contract?conId=265598');
     await assert.rejects(() => service.paperRequest('quote', { conId: -1 }));

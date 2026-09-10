@@ -50,6 +50,16 @@ class PaperAccountReconciliation:
                 raise RiskDenied('STALE_ACCOUNT_PROOF')
             with self.rec.ledger._lock:
                 if not self.rec.ledger._records(self.rec.account_key,self.rec.mode):
+                    with self.rec.ledger.transaction():
+                        halt = self.rec.db.execute('SELECT reason FROM order_integrity_halts WHERE mode=? AND account_key=?',
+                            (self.rec.mode,self.rec.account_key)).fetchone()
+                        if halt and halt[0] == 'SDK_SESSION_CHANGED':
+                            from .audit import read_events, append_event
+                            read_events(self.rec.db,self.rec.account_key)
+                            self.rec.db.execute('DELETE FROM order_integrity_halts WHERE mode=? AND account_key=? AND reason=?',
+                                (self.rec.mode,self.rec.account_key,'SDK_SESSION_CHANGED'))
+                            append_event(self.rec.db,self.rec.account_key,'EMPTY_SESSION_HALT_RECOVERED',cash_at.isoformat(),
+                                {'sessionRevision':self.rec.revision,'snapshotId':snapshot.snapshotId})
                     return {'reconciledOrders':0,'detail':'无本系统订单；账户读取完成。'}
             proof=AccountProof(accountKey=snapshot.accountKey,mode=snapshot.mode,sessionRevision=snapshot.sessionRevision,
                 source='fixture' if c._fixture else 'ibkr',snapshotId='account-proof:'+uuid4().hex,

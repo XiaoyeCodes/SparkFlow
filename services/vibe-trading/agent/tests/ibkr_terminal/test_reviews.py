@@ -27,6 +27,49 @@ def draft(**changes):
     return DraftOrder.model_validate(data)
 
 
+@pytest.mark.parametrize('kind,state', [('portfolio','snapshot'), ('broker-snapshot','delayed')])
+def test_manual_paper_preview_accepts_labelled_estimates_and_keeps_cash_checks(tmp_path,kind,state):
+    source=Source()
+    source.current=context(totalCash='1000',referenceKind=kind,quoteState=state)
+    with ledger(tmp_path/'orders.db') as db:
+        service=OrderReviewService(db,source,clock=lambda:NOW)
+        request=draft(orderType='MKT',limitPrice=None)
+        preview=service.preview(request)
+        assert preview.reservedCash=='631.00'
+        assert any('非实时逐笔报价' in warning for warning in preview.warnings)
+        source.current=source.current.model_copy(update={'settledCash':'100'})
+        with pytest.raises(ReviewBlocked,match='INSUFFICIENT_CASH'):
+            service.preview(request)
+        source.current=source.current.model_copy(update={'settledCash':'1000','quoteAt':NOW-timedelta(seconds=31)})
+        with pytest.raises(ReviewBlocked,match='STALE_QUOTE'):
+            service.preview(request)
+
+
+def test_estimates_cannot_enable_automatic_orders(tmp_path):
+    from test_orders import authorization,intent
+    from src.ibkr_terminal.risk import RiskDenied
+    with ledger(tmp_path/'orders.db') as db:
+        db.record_authorization(authorization())
+        with pytest.raises(RiskDenied,match='QUOTE_UNAVAILABLE'):
+            db.reserve(intent(),context(referenceKind='portfolio',quoteState='snapshot'))
+
+
+@pytest.mark.parametrize('cash,available,accepted',[('900','700',True),('900','600',False),('600','900',False)])
+def test_paper_funding_uses_lower_of_cash_and_available_funds(tmp_path,cash,available,accepted):
+    source=Source()
+    source.current=context(settledCash=None,totalCash=cash,availableFunds=available)
+    with ledger(tmp_path/'orders.db') as db:
+        service=OrderReviewService(db,source,clock=lambda:NOW)
+        request=draft(orderType='MKT',limitPrice=None)
+        if accepted:
+            preview=service.preview(request)
+            assert preview.reservedCash=='631.00'
+            assert any('未返回已结算现金' in warning for warning in preview.warnings)
+        else:
+            with pytest.raises(ReviewBlocked,match='INSUFFICIENT_CASH'):
+                service.preview(request)
+
+
 def test_preview_is_side_effect_free_and_confirm_persists_exact_intent_once(tmp_path):
     with ledger(tmp_path / 'orders.db') as db:
         service = OrderReviewService(db, Source(), clock=lambda: NOW)

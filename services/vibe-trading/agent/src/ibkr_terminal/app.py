@@ -96,6 +96,9 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
         denied = boundary(request.headers)
         if denied:
             return JSONResponse({'detail': 'local session or origin rejected'}, status_code=denied)
+        if getattr(app.state, 'bridge_stopping', False) and request.method not in ('GET', 'HEAD'):
+            return JSONResponse({'detail': 'BRIDGE_RESTARTING'}, status_code=503)
+        bridge_shutdown = request.method == 'POST' and request.url.path == '/api/ibkr-terminal/bridge/shutdown' and hasattr(app.state, 'bridge_info')
         review_write = (request.method == 'POST' and order_reviews is not None
             and (request.url.path == '/api/ibkr-terminal/orders/preview'
                 or (request.url.path.startswith('/api/ibkr-terminal/orders/previews/') and request.url.path.endswith('/confirm'))))
@@ -110,7 +113,7 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
             r'/api/ibkr-terminal/strategy-runtime/activation:[0-9a-f]{32}/stop', request.url.path) is not None
         paper_write = paper_ledger is not None and request.method == 'POST' and request.url.path in WRITE_PATHS
         gateway_connect = request.method == 'POST' and request.url.path in ('/api/ibkr-terminal/gateway/connect','/api/ibkr-terminal/gateway/paper-orders') and app.state.gateway_runtime is not None
-        if request.method not in ('GET', 'HEAD') and not gateway_connect and not review_write and not backtest_write and not cancel_write and not report_write and not runtime_stop and not paper_write:
+        if request.method not in ('GET', 'HEAD') and not bridge_shutdown and not gateway_connect and not review_write and not backtest_write and not cancel_write and not report_write and not runtime_stop and not paper_write:
             return JSONResponse({'detail': 'terminal writes are disabled'}, status_code=403)
         response = await call_next(request)
         response.headers['Cache-Control'] = 'no-store'
@@ -124,8 +127,12 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
         paper_available = bool(paper_ledger is not None and paper_source is not None
             and paper_source.binding.mode == 'paper' and paper_source.binding.readonly is False)
         paper_flow = getattr(app.state, 'paper_flow', None)
-        paper_enabled = bool(paper_available and paper_flow is not None and paper_flow.enabled)
+        paper_enabled = bool(paper_available and paper_flow is not None and paper_flow.enabled
+            and paper_flow.source.connection is paper_source and paper_source.healthy()
+            and paper_flow.source.scope.sessionRevision == paper_source.session.revision
+            and paper_flow.source.scope.expiresAt > clock())
         return {'readonly': True, 'accounts': [{'mode': mode, 'accountKey': value.binding.accountKey} for mode, value in app.state.sessions.items() if value.binding],
+            'bridge': getattr(app.state, 'bridge_info', None),
             'gatewayDiscoveryVersion': 1 if app.state.gateway_runtime is not None else 0,
             'orderReviewEnabled': order_reviews is not None,
             'backtestsEnabled': strategy_catalog is not None and backtest_archive is not None,

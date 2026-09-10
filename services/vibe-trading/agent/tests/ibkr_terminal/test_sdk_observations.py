@@ -7,6 +7,21 @@ from src.ibkr_terminal.broker_views import decimal_text, order_view, execution_v
 from src.ibkr_terminal.sdk import ObservedIB
 
 
+def test_dashed_utc_execution_and_exchange_timezone_decode_to_same_instant(api_event_loop):
+    ib = ObservedIB()
+    ib.TimezoneTWS = 'Asia/Shanghai'
+    ib.client.decoder.serverVersion = 178
+    observed = []
+    ib.wrapper.execDetails = lambda req, contract, execution: observed.append(execution.time)
+    fields = ['11', '-1', '20', '265598', 'AAPL', 'STK', '', '0', '', '', 'NASDAQ',
+        'USD', 'AAPL', 'NMS', 'EXEC-1', '', 'TEST', 'NASDAQ', 'BOT', '10', '322.8',
+        '123', '78', '0', '10', '322.8', 'reference', '', '0', '', '1', '0']
+    for wire in ('20260910-14:58:38', '20260910 10:58:38 US/Eastern'):
+        fields[15] = wire
+        ib.client.decoder.handlers[11](fields)
+    assert observed == [datetime(2026, 9, 10, 14, 58, 38, tzinfo=timezone.utc)] * 2
+
+
 class ReadTransport:
     def __init__(self, wrapper):
         self.wrapper = wrapper

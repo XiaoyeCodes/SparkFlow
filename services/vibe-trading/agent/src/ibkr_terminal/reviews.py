@@ -173,6 +173,8 @@ class OrderReviewService:
             reservedCash=reserved['cash'], reservedNotional=reserved['notional'],
             reservedQuantity=reserved['quantity'], testData=loaded.scope.source == 'fixture',
             warnings=(('工程测试数据；不得视为 IBKR 账户事实。',) if loaded.scope.source == 'fixture' else ())
+                + (('资金估算采用美元现金余额与券商可用资金的较低值；IBKR 未返回已结算现金。',) if loaded.context.settledCash is None else ())
+                + ((f'资金估算参考：IBKR {"持仓估值" if loaded.context.referenceKind == "portfolio" else "行情快照"} {loaded.context.referencePrice} USD；非实时逐笔报价，实际成交价由券商确定。',) if loaded.context.referenceKind != 'trade' else ())
                 + (('市价单按实际成交价结算；现金按参考价加 5% 预留，这不是成交价格上限。',) if draft.orderType == 'MKT' else ())
                 + (('确认后会向当前 IBKR 模拟账户发送此笔订单；成交由券商回报确认。',) if self.broker_submission
                     else ('确认仅在本地持久化；券商提交仍保持禁用。',)))

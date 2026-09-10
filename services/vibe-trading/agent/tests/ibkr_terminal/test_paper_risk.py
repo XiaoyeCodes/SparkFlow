@@ -15,6 +15,17 @@ def test_real_account_risk_uses_exact_account_and_portfolio_evidence():
     assert data['settledCash']=='900' and data['dailyLoss']=='12' and data['holdings']==()
 
 
+def test_manual_paper_available_funds_are_not_mislabelled_as_settled_cash():
+    values=[r for r in rows() if r.tag!='SettledCash']+[Item(account='TEST',tag='AvailableFunds',value='800',currency='USD')]
+    data=account_risk('TEST',values,[],[],daily_pnl='0',allow_available_funds=True)
+    assert data['settledCash'] is None and data['availableFunds']=='800' and data['totalCash']=='900'
+    with pytest.raises(RiskDenied,match='MISSING_ACCOUNT_DATA'):
+        account_risk('TEST',values,[],[],daily_pnl='0')
+    values.append(Item(account='TEST',tag='SettledCash',value='-5',currency='USD'))
+    with pytest.raises(RiskDenied,match='MISSING_ACCOUNT_DATA'):
+        account_risk('TEST',values,[],[],daily_pnl='0',allow_available_funds=True)
+
+
 @pytest.mark.parametrize('problem',['settled','pnl','duplicate','portfolio','short','currency'])
 def test_incomplete_or_unsupported_risk_never_becomes_zero(problem):
     values=rows();positions=[];portfolio=[];pnl='0'
@@ -53,19 +64,28 @@ def test_risk_load_uses_latest_daily_loss_and_rejects_changed_cash():
     source.connection=Item(binding=Item(brokerAccount='TEST'),healthy=lambda:True,reconciliation_blocked=False,_fixture=True,
         session=Item(snapshot=lambda:snapshot))
     values=rows()
-    source.ib=Item(accountSummary=lambda _:values)
+    source.ib=Item(cachedAccountSummary=lambda _:values)
     source.clock=lambda:NOW
     source.instrument=Item(conId=12,minTick='0.01',symbol='TEST')
     source.details=Item(liquidSessions=lambda:[Item(start=NOW-timedelta(hours=1),end=NOW+timedelta(hours=1))])
     source.quote=('100',NOW);source.pnl_value='-100';source.pnl_at=NOW
     source.prepared=(snapshot,account_risk('TEST',values,[],[],daily_pnl='0'),NOW)
     assert source.load(draft()).context.dailyLoss=='100'
+    snapshot.positions=(Item(conId=12,quantity='1',marketValue='100'),)
+    updated=Item(**{**snapshot.__dict__,'positions':(Item(conId=12,quantity='1',marketValue='101'),)})
+    source.connection.session.snapshot=lambda:updated
+    assert source.load(draft()).context.dailyLoss=='100'
+    updated.positions=(Item(conId=12,quantity='2',marketValue='202'),)
+    with pytest.raises(ValueError,match='PREVIEW_SOURCE_CHANGED'):
+        source.load(draft())
+    updated.positions=snapshot.positions
     values[1]=Item(account='TEST',tag='SettledCash',value='10',currency='USD')
     with pytest.raises(ValueError,match='PREVIEW_SOURCE_CHANGED'):
         source.load(draft())
 
 
-def test_full_paper_source_prepares_broker_evidence_and_cleans_subscriptions(api_event_loop):
+@pytest.mark.parametrize('case',['limit','market-delayed-receipt','permission-denied','portfolio-estimate','delayed-estimate'])
+def test_full_paper_source_prepares_broker_evidence_and_cleans_subscriptions(api_event_loop,case):
     import asyncio
     from datetime import timedelta
     from test_readonly import FakeEvent
@@ -74,9 +94,14 @@ def test_full_paper_source_prepares_broker_evidence_and_cleans_subscriptions(api
     async def run():
         snapshot=Item(accountKey='paper:engineering',baseCurrency='USD',sessionRevision=1,snapshotId='fresh',state='empty',positions=(),orders=(),
             provenance={'positions':Item(requestCompletedAt=NOW.isoformat())})
+        portfolio=[]
+        if case=='portfolio-estimate':
+            snapshot.positions=(Item(conId=12,quantity='1'),)
+            portfolio=[Item(account='TEST',contract=Item(conId=12,currency='USD'),position=1,marketValue=110,marketPrice=110,averageCost=20)]
         calls=[]
         class Broker:
-            pnlEvent=FakeEvent();pendingTickersEvent=FakeEvent()
+            pnlEvent=FakeEvent();pendingTickersEvent=FakeEvent();errorEvent=FakeEvent()
+            wrapper=Item(reqId2Ticker={})
             def reqPnL(self,account): self.pnlEvent.emit(Item(account=account,modelCode='',dailyPnL=0))
             def cancelPnL(self,account): calls.append('cancel-pnl')
             def isConnected(self): return True
@@ -86,24 +111,41 @@ def test_full_paper_source_prepares_broker_evidence_and_cleans_subscriptions(api
                     liquidSessions=lambda:[Item(start=NOW-timedelta(hours=1),end=NOW+timedelta(hours=1))])]
             def reqTickByTickData(self,contract,*args):
                 ticker=Item(contract=contract,tickByTicks=[Item(tickType=1,price=100,time=NOW)])
-                asyncio.get_running_loop().call_soon(lambda:self.pendingTickersEvent.emit([ticker]))
+                self.wrapper.reqId2Ticker[42]=ticker
+                self.errorEvent.emit(999,10189,'unrelated request')
+                if case in ('permission-denied','portfolio-estimate','delayed-estimate'):
+                    asyncio.get_running_loop().call_later(.02,lambda:self.errorEvent.emit(42,10189,'permission required'))
+                else:
+                    asyncio.get_running_loop().call_later(.02 if case=='market-delayed-receipt' else 0,lambda:self.pendingTickersEvent.emit([ticker]))
                 return ticker
             def cancelTickByTickData(self,*args): calls.append('cancel-ticks')
+            def reqMarketDataType(self,kind): assert kind==3
+            def reqMktData(self,*args): return Item(last=105 if case=='delayed-estimate' else float('nan'),marketDataType=3)
+            def cancelMktData(self,*args): calls.append('cancel-snapshot')
             async def reqMarketRuleAsync(self,rule): return [Item(lowEdge=0,increment=0.01),Item(lowEdge=100,increment=0.05)]
             async def reqAccountSnapshotAsync(self,account):
                 await asyncio.sleep(0)
-                return {'portfolio':[],'values':[]}
+                return {'portfolio':portfolio,'values':[]}
             async def reqFreshSummaryAsync(self): return rows()
-            def accountSummary(self,account): return rows()
+            def cachedAccountSummary(self,account): return rows()
         async def reconcile(): return True
         ib=Broker()
         connection=Item(_ib=ib,binding=Item(brokerAccount='TEST'),healthy=lambda:True,reconciliation_blocked=False,_fixture=True,
             session=Item(snapshot=lambda:snapshot),reconcile=reconcile)
         source=PaperRiskSource(connection,Source().load(draft()).scope,clock=lambda:NOW)
-        prepared=await source.prepare(draft(quantity='1'))
-        assert prepared.context.source=='fixture' and prepared.context.settledCash=='900'
-        assert prepared.context.minTick=='0.05' and prepared.context.quoteAt==NOW and prepared.context.regularHours
+        request=draft(quantity='1',**({'orderType':'MKT','limitPrice':None} if case!='limit' else {}))
+        if case=='permission-denied':
+            with pytest.raises(ValueError,match='PAPER_REFERENCE_UNAVAILABLE'):await source.prepare(request)
+        else:
+            prepared=await source.prepare(request)
+            assert prepared.context.source=='fixture' and prepared.context.settledCash=='900'
+            assert prepared.context.minTick==('0.05' if case=='limit' else '0.01') and prepared.context.quoteAt==NOW and prepared.context.regularHours
+            if case=='portfolio-estimate':
+                assert prepared.context.referencePrice=='110' and prepared.context.referenceKind=='portfolio' and prepared.context.quoteState=='snapshot'
+            elif case=='delayed-estimate':
+                assert prepared.context.referencePrice=='105' and prepared.context.referenceKind=='broker-snapshot' and prepared.context.quoteState=='delayed'
         source.close()
-        assert calls==['cancel-pnl','cancel-ticks']
+        assert calls[-2:]==['cancel-pnl','cancel-ticks']
         assert not ib.pnlEvent.handlers and not ib.pendingTickersEvent.handlers
+        assert not ib.errorEvent.handlers
     api_event_loop.run_until_complete(run())

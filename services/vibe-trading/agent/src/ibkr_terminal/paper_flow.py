@@ -25,6 +25,13 @@ class PaperOrderFlow:
 
     async def preview(self,draft):
         self._scope(draft.accountKey,draft.mode)
+        with self.ledger._lock:
+            halted = self.ledger._db.execute('SELECT 1 FROM order_integrity_halts WHERE mode=? AND account_key=?',
+                (draft.mode,draft.accountKey)).fetchone()
+            pending = any(row.reconciliationRequired or row.submission in ('SUBMITTING','UNKNOWN','RECONCILING')
+                for row in self.ledger._records(draft.accountKey,draft.mode))
+        if (halted or pending) and hasattr(self,'account_reconciliation'):
+            await self.account_reconciliation.run()
         await self.source.prepare(draft)
         self._scope(draft.accountKey,draft.mode)
         return self.reviews.preview(draft)
@@ -95,5 +102,9 @@ class PaperOrderFlow:
 
     def close(self):
         self.enabled=False
+        wrapper = getattr(self.dispatcher.sdk, 'wrapper', None)
+        observer = getattr(wrapper, 'managed_observer', None)
+        if observer is not None and observer.rec.ledger is self.ledger and observer.channel_key == self.dispatcher.channel_key:
+            wrapper.managed_observer = None
         self.dispatcher.close()
         self.source.close()

@@ -222,19 +222,25 @@ class OrderLedger:
             raise RiskDenied('ACCOUNT_INTEGRITY_HALT')
         if any(row.submission in ('UNKNOWN', 'RECONCILING') or row.reconciliationRequired or row.pendingAmendmentId for row in self._records(intent.accountKey, intent.mode) if row.intent.clientIntentId != exclude):
             raise RiskDenied('UNRESOLVED_ORDER')
+        grant = Authorization.model_validate(grant_override.model_dump()) if grant_override is not None else self._grant(intent)
+        self._source(grant.source)
         checkpoint = self._db.execute('SELECT payload FROM order_account_proofs WHERE mode=? AND account_key=? ORDER BY rowid DESC LIMIT 1', (intent.mode, intent.accountKey)).fetchone()
         if checkpoint:
             proof = json.loads(checkpoint[0])
             positions = {str(row.conId): Decimal(row.quantity) for row in context.holdings if Decimal(row.quantity)}
             expected = {key: Decimal(value) for key, value in proof['positions'].items() if Decimal(value)}
             source_time = min(datetime.fromisoformat(proof['cashObservedAt']), datetime.fromisoformat(proof['positionsObservedAt']))
-            if (context.snapshotId != proof['snapshotId'] or context.sessionRevision != proof['sessionRevision']
-                or context.source != proof['source'] or context.asOf != source_time or context.totalCash is None
+            funding = context.settledCash
+            if (funding is None and intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'
+                    and context.availableFunds is not None and context.totalCash is not None):
+                funding = min(Decimal(context.totalCash), Decimal(context.availableFunds))
+            # A completed subsequent broker read has a new snapshot ID. It may
+            # fund the next order when it is newer and cash/shares still agree.
+            if (context.sessionRevision != proof['sessionRevision']
+                or context.source != proof['source'] or context.asOf < source_time or context.totalCash is None
                 or Decimal(context.totalCash) != Decimal(proof['cashBalance']) or positions != expected
-                or context.settledCash is None or Decimal(context.settledCash) > Decimal(proof['cashBalance'])):
+                or funding is None or Decimal(funding) > Decimal(proof['cashBalance'])):
                 raise RiskDenied('STALE_ACCOUNT_CHECKPOINT')
-        grant = Authorization.model_validate(grant_override.model_dump()) if grant_override is not None else self._grant(intent)
-        self._source(grant.source)
         day = now.astimezone(ZoneInfo('America/New_York')).date().isoformat()
         counts = self._db.execute('''SELECT trading_day,created_epoch,intent_id FROM order_intents
             WHERE account_key=? AND mode=?''', (intent.accountKey, intent.mode)).fetchall()

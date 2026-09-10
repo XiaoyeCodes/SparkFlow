@@ -505,3 +505,36 @@
 - 行为：策略回测页可保存不可变的用户 SMA 规则版本，上传 JSON/CSV 日线，明确确认拆股和分红完整性后启动后台回测；服务端重新生成信号并写入数据 SHA256、来源 `user.upload`、成本与版本，支持取消、结果查看和完整重放包导出。结构化策略不执行任意代码，回测不会发送订单，也不构成交易授权。
 - RED／GREEN：生产策略保存及上传回测路由先因 403 失败，再以最小路由和前端操作链实现。`npm run test:ibkr:unit` = 290 Python + 2 JS passed；`npm run test:ibkr:workbench` = 167/167；`npx playwright test --config playwright.ibkr.config.ts --grep "strategy backtest"` = 1/1；`npx tsc -b --pretty false` 与 `npm run build` passed。构建仅保留既有大 chunk 和动态／静态导入提示，Python 仅有既有 Starlette/httpx 弃用警告。
 - BLOCKED：尚未收到用户自己的策略定义和具备使用权的数据，工程 SMA 示例不算用户策略验收。真实 paper 下单仍沿用上一节阻塞条件；本步骤未向券商发送订单。
+
+### 2026-09-10 市价单预览与 Gateway 会话恢复 — 软件 VERIFIED；真实成交 BLOCKED（API 行情权限）
+
+- 根因实测：`paper/status` 显示 enabled=true、0 本系统订单，但策略 scope.sessionRevision=1，当前 Gateway 快照 sessionRevision=3；`paper/reconcile` 返回 `ACCOUNT_PROOF_SCOPE`。旧交易对象仍引用已断开的连接，因此预览报 `RECONCILIATION_REQUIRED`，前端误译为“订单状态尚待券商确认”。
+- 修复：Gateway 连接结束时关闭关联交易对象；状态、预览和配置接口拒绝复用旧连接／旧会话。页面在预览前读取最新状态，按用户本次点击和表单范围重新配置，失败后刷新状态并丢弃旧预览。过期或停止的范围可由用户下一次明确操作重新配置；不自动重发订单。SDK 账户快照请求串行排队，避免后台刷新与下单校验重叠导致连接退出。
+- 行情时序：新订阅等待首条真实 tick／盈亏事件，最多 3 秒；按请求 ID 捕获券商行情错误，不把其他订阅错误归到当前股票。保留真实交易时间与报价新鲜度校验；10189／10089／354／10197 显示明确原因。
+- RED→GREEN：新增旧连接替换、会话变更、断线清理测试初始 4 项失败；并发账户读取初始因 overlapping account reconciliation 失败；市价单首条 tick 延后及 10189 测试初始失败。修复后 `npm run test:ibkr:unit` = 311 Python + 2 JS passed；`npx playwright test --config playwright.ibkr.config.ts --grep 'market ticket|paper ticket previews|paper trading page'` = 5/5；`npx tsc -b --pretty false`、`npm run build` passed。构建保留既有大 chunk 提示，Python 保留既有 Starlette/httpx 弃用警告。
+- 本机验证：确认 0 本系统订单后重启桥接加载修复，`paper/status` 返回 available=true、connected、enabled=false、policy=null、orders=[]，等待用户下一次预览明确本次范围。未提交 Git，未调用订单确认／下单／撤单接口。
+- 当时预检受阻：AAPL 实时行情请求收到 10189，真实 tick 数为 0。这是行情权限拒绝，不是交易权限拒绝；当时项目自身要求实时 tick，后续已按下述修复允许明确标注的模拟盘参考估值，不再要求用户购买行情订阅。离线市价单报文与页面流程通过，不等于真实成交验收通过。
+
+### 2026-09-10 模拟盘预检资金与参考估值修复 — 账户实联预览通过；网页成交待验收
+
+- 根因：预检把实时逐笔行情权限作为交易前提；强制要求此模拟账户未提供的 SettledCash；重复 accountSummary 回调未按账户／指标／币种合并；异步 owner loop 内调用同步 accountSummary 导致 RuntimeError。另将持仓市值波动错误当成持仓数量变化。
+- 修复：人工 paper 订单允许最新完整持仓读取中的 marketPrice 或 IBKR 延迟行情快照用于资金估算；预览明确标注来源及非实时属性，不使用平均成本冒充报价。无 SettledCash 时保留空值并使用美元现金与 AvailableFunds 较低值；不得用此规则放宽自动策略或实盘。仍保留资金、敞口、频率、账户时效、确认及幂等检查。SDK 摘要按键保留最后一次回调并加入美元 ledger／AvailableFunds；确认读取已完成的缓存，不嵌套事件循环。
+- 实联：独立只读连接当前 paper Gateway，使用当前用户交易限额，AAPL 10 股 MKT 的本地预览通过；IBKR 估值参考约 319.37 USD，资金预留约 3358.37 USD。另向券商发起 whatIf=true 的同参数测算，返回 PreSubmitted、warningText 为空、commission=1.00003；此为假设订单测算，未发送可成交订单，不能记为成交。
+- 验证：320 Python + 2 JS 单元测试、6 项相关浏览器测试、TypeScript、生产构建通过；构建保留原有 chunk／混合导入警告。新增用例覆盖无订阅参考估值、重复摘要回调、异步缓存读取、现金较低值检查、真实持仓数量变化与普通估值变化的区别。
+- 待办：自动审批拒绝终止并重启当前桥接进程，未提供进一步原因（blocked by policy）。当前网页服务尚需用户通过启动器重启以加载这些 Python 修改，然后继续核验预览→确认→券商成交回报。已通过异步问题请求用户重启。未提交／推送 Git。
+
+### 2026-09-10 自动更新桥接与模拟盘成交验收 — VERIFIED
+
+- 智能连接对比正在运行的桥接与本地 Python 源码指纹；旧版自动退出并重启，同版健康进程复用。新桥接使用令牌与实例 ID 校验的优雅退出接口，停止接收新写请求并清理连接／运行锁；旧版兼容脚本只结束监听指定端口、启动模块及 runtime 目录均匹配的 Python 进程。并发连接合并，避免启动多个桥接。
+- 修复账户误锁：完整读取后可恢复无系统订单的旧 SDK_SESSION_CHANGED。成交回报中带横线的 UTC 日期先明确时区再交给 SDK，避免 Windows 本地时区造成八小时偏移；历史重复成交仅时间表示错误时保留原始证据、审计修正投影，并在成交／手续费／现金／持仓完整核对后恢复。真实数量、价格、账户或其他冲突仍需处理，不隐藏错误。
+- 连续下单：美元账户现金按美分核对，保留手续费小数精度，不把不足半美分的正常舍入当成现金差异；后续新快照可在时间更新且现金／数量与核对结果一致时继续使用。无 SettledCash 的人工模拟盘继续使用现金与 AvailableFunds 较低值。预览自动核对上一单，不要求手动清理进程或盲目重复下单。
+- 本机真实模拟验收：Chrome 访问实际 5180 页面，AAPL 10 股 MKT 经预览及明确确认后，IBKR 返回订单 20／permId 1411207073、ACKNOWLEDGED／FILLED、成交 10 股、均价 322.80 USD；账户 AAPL 从 10 股变为 20 股。此为真实 IBKR 模拟成交，非工程夹具，未操作实盘。之后只核对与预览，没有新增买单。
+- 重连验收：智能连接成功替换运行中的旧版桥接；成交和审计持久化保留，完整核对后 integrity halt 为空、reservedCash=0、reconciliationRequired=false。再次加载新桥接后，真实网页 AAPL 10 股 MKT 预览返回 HTTP 200，订单数量仍为一笔。
+- 验证：331 Python + 2 JS 单元测试、186 服务测试、6 项相关浏览器回归与 TypeScript 检查通过。实际预览／成交／恢复证据仅保存在忽略目录 tmp/workbench-qa，不含令牌，不提交 Git。当前更改未提交／推送。
+
+### 2026-09-10 订单与持仓自动同步
+
+- 交易页面改为串行轮询，前台每次请求完成后约 2 秒同步，后台降低频率，回到页面立即恢复；请求序号防止旧响应覆盖新订单。移除订单区“刷新订单”和“停止新增订单”按钮，显示自动同步状态。
+- paper/status 在现有模拟交易会话中自动核对待确认／待对账订单，使用路由锁避免与预览、确认并发操作，且按 2 秒间隔限制重复查询。手续费未到或读数暂不一致时保留已有成交并自动重试。返回同一通道的持仓／现金快照供订单页使用，避免父页面缓存导致成交后持仓延后显示。
+- 下单后跟踪同一订单，部分成交、全部成交与撤单回报自动更新交易提示区。自动查询不提交订单、不撤单，也不会自动开启新的交易授权。
+- 验证：新增费用延迟／轮询节流／成交资金释放后端用例通过；332 Python + 2 JS 单元测试通过。独立浏览器用例验证已报单→部分成交→已成交及持仓更新、撤单中→已撤单、重载页面，交易写请求为 0；类型检查与生产构建通过，保留既有构建大小警告。

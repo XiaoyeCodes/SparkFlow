@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { IbkrMcp, atomicJson } from './ibkrMcp.ts';
 import { IbkrMarket, type JsonFetcher } from './ibkrMarket.ts';
-import { EastmoneyTicketQuotes } from './ibkrEastmoneyTicket.ts';
+import { EastmoneyTicketQuotes, mergeBrokerTicketQuote } from './ibkrEastmoneyTicket.ts';
 import { searchStocks } from './ibkrStockSearch.ts';
 import { TicketHistories } from './ibkrTicketHistory.ts';
 import { IbkrProfiles, type ProfileBatchFetcher } from './ibkrProfiles.ts';
@@ -26,7 +26,7 @@ import { emptySnapshot } from '../src/lib/ibkr/store.ts';
 import { validSnapshot } from '../src/lib/ibkr/events.ts';
 import { allowedLocalRequest } from './localRequest.ts';
 import { startSparkFlowBridge, discoverSparkFlowGateway } from './ibkrGatewayBridge.ts';
-import type { AccountSnapshot, Alert, AnalysisJob, AnalysisReport, Evidence, MarketQuote, Preferences, WorkbenchState, AiModel } from '../src/lib/ibkr/workbenchTypes.ts';
+import type { AccountSnapshot, Alert, AnalysisJob, AnalysisReport, Evidence, MarketQuote, PaperQuote, Preferences, WorkbenchState, AiModel } from '../src/lib/ibkr/workbenchTypes.ts';
 
 type BriefAttempt = { id: string; sessionDate: string | null; state: 'running' | 'completed' | 'failed'; startedAt: string; detail?: string; error?: string };
 type AccountRecord = { scheduleRuns?: Record<string, { at: string; error?: string }>; scheduleEffectiveAt?: Partial<Record<'brief' | 'analysis', string>>; briefs?: DailyBrief[]; briefAttempt?: BriefAttempt; snapshot: AccountSnapshot; preferences: Preferences; grant?: { fingerprint: string; at: string }; alerts: Alert[]; reports: AnalysisReport[]; jobs: AnalysisJob[]; usage: { at: string; kind: string }[]; lastDaily?: string; dailyAttempt?: { date: string; at: number }; lastEventSignature?: string; peakNav?: number; research?: Record<string, ResearchCheckpoint>; plans?: AdjustmentPlan[]; history?: PerformancePoint[]; performance?: PortfolioPerformance };
@@ -233,7 +233,7 @@ export class IbkrWorkbenchService {
       const revision = this.generation, mode = this.saved.gatewayMode ?? 'live';
       this.gatewayStartFlight = (async () => {
         const preferred = await this.gatewayBridgePort();
-        const bridge = await this.gatewayBridgeStarter(this.root, preferred);
+        const bridge = await this.gatewayBridgeStarter(this.root, preferred, true);
         if (revision !== this.generation || this.disposed) return bridge.port;
         this.activeGatewayBridgePort = bridge.port;
         const status = await this.gatewayDiscoverer(this.root, bridge.port, mode);
@@ -421,7 +421,15 @@ export class IbkrWorkbenchService {
   async paperMarketQuote(payload: unknown) {
     this.assertAvailable();
     const contract = z.object({ conId: z.number().int().positive(), symbol: z.string().regex(/^[A-Z0-9][A-Z0-9. _\-]{0,19}$/), currency: z.literal('USD'), exchange: z.string().max(20).optional() }).strict().parse(payload);
-    return this.ticketQuotes.quote(contract);
+    const [reference, broker] = await Promise.allSettled([
+      this.ticketQuotes.quote(contract),
+      this.paperRequest('quote', { conId: contract.conId }),
+    ]);
+    if (reference.status === 'fulfilled') return broker.status === 'fulfilled'
+      ? mergeBrokerTicketQuote(reference.value, broker.value as Partial<PaperQuote>)
+      : reference.value;
+    if (broker.status === 'fulfilled') return broker.value;
+    throw reference.reason;
   }
   async paperSearch(payload: unknown) {
     this.assertAvailable();

@@ -1,10 +1,31 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { promisify } from 'node:util';
 import { closeSync, existsSync, openSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import path from 'node:path';
 
 const validPort = (port: number) => Number.isInteger(port) && port >= 1024 && port <= 65535;
+const runFile = promisify(execFile);
+const starts = new Map<string, Promise<{port: number; reused: boolean}>>();
+
+export async function bridgeCodeRevision(directory: string) {
+  const files: string[] = [];
+  async function walk(relative: string) {
+    for (const item of await readdir(path.join(directory, relative), {withFileTypes: true})) {
+      const name = relative ? `${relative}/${item.name}` : item.name;
+      if (item.isDirectory() && item.name !== '__pycache__') await walk(name);
+      else if (item.isFile() && item.name.endsWith('.py')) files.push(name);
+    }
+  }
+  await walk('');
+  const digest = createHash('sha256');
+  for (const name of files.sort()) { digest.update(name + '\0'); digest.update(await readFile(path.join(directory, name))); digest.update('\0'); }
+  return digest.digest('hex');
+}
+
+type BridgeSession = {readonly: true; accounts: unknown[]; bridge?: {codeRevision?: string; instanceId?: string; gracefulRestart?: boolean}};
 
 export function bridgePortCandidates(preferred: number) {
   const values = [preferred];
@@ -32,24 +53,69 @@ async function sessionToken(runtimeDir: string) {
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; return ''; }
 }
 
-export async function isSparkFlowBridge(port: number, runtimeDir: string, timeoutMs = 900) {
+async function readBridgeSession(port: number, runtimeDir: string, timeoutMs = 900): Promise<BridgeSession | null> {
   const token = await sessionToken(runtimeDir);
-  if (!token) return false;
+  if (!token) return null;
   try {
     const response = await fetch(`http://127.0.0.1:${port}/api/ibkr-terminal/session`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(timeoutMs) });
-    if (!response.ok) return false;
-    const value = await response.json() as { readonly?: unknown; accounts?: unknown };
-    return value.readonly === true && Array.isArray(value.accounts);
-  } catch { return false; }
+    if (!response.ok) return null;
+    const value = await response.json() as BridgeSession;
+    return value.readonly === true && Array.isArray(value.accounts) ? value : null;
+  } catch { return null; }
 }
 
-export async function startSparkFlowBridge(root: string, preferredPort: number) {
+export async function isSparkFlowBridge(port: number, runtimeDir: string, timeoutMs = 900) {
+  return (await readBridgeSession(port, runtimeDir, timeoutMs)) !== null;
+}
+
+export async function replaceStaleBridge(session: BridgeSession, expectedRevision: string, actions: {graceful: (instance: string) => Promise<void>; legacy: () => Promise<void>; wait: () => Promise<void>}) {
+  if (session.bridge?.codeRevision === expectedRevision) return false;
+  if (session.bridge?.gracefulRestart && session.bridge.instanceId) await actions.graceful(session.bridge.instanceId);
+  else await actions.legacy();
+  await actions.wait();
+  return true;
+}
+
+export function coordinateBridgeStart(root: string, action: () => Promise<{port: number; reused: boolean}>) {
+  const key = path.resolve(root).toLowerCase();
+  const current = starts.get(key);
+  if (current) return current;
+  const flight = action().finally(() => { if (starts.get(key) === flight) starts.delete(key); });
+  starts.set(key, flight);
+  return flight;
+}
+
+export function startSparkFlowBridge(root: string, preferredPort: number, refreshCode = false) {
+  return coordinateBridgeStart(root, () => startBridge(root, preferredPort, refreshCode));
+}
+
+async function startBridge(root: string, preferredPort: number, refreshCode: boolean) {
   const runtimeDir = path.join(root, '.sparkflow', 'ibkr-terminal');
   const bindings = path.join(runtimeDir, 'bindings.json');
   const script = path.join(root, 'scripts', 'start-ibkr-terminal.ps1');
   if (!existsSync(script)) throw new Error('SparkFlow 本地桥接启动脚本不存在。');
 
-  if (await isSparkFlowBridge(preferredPort, runtimeDir)) return { port: preferredPort, reused: true };
+  const running = await readBridgeSession(preferredPort, runtimeDir);
+  if (running) {
+    if (!refreshCode) return {port: preferredPort, reused: true};
+    const expected = await bridgeCodeRevision(path.join(root, 'services/vibe-trading/agent/src/ibkr_terminal'));
+    const replaced = await replaceStaleBridge(running, expected, {
+      graceful: async instanceId => {
+        const token = await sessionToken(runtimeDir);
+        const response = await fetch(`http://127.0.0.1:${preferredPort}/api/ibkr-terminal/bridge/shutdown`, {method: 'POST', headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'}, body: JSON.stringify({instanceId}), signal: AbortSignal.timeout(5000)});
+        if (!response.ok) throw new Error('桥接服务暂不能重启，请稍后再次点击智能连接。');
+      },
+      legacy: async () => { await runFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'scripts/stop-ibkr-bridge.ps1'), '-RuntimeDirectory', runtimeDir, '-Port', String(preferredPort)], {windowsHide: true, timeout: 15000}); },
+      wait: async () => {
+        for (let attempt = 0; attempt < 60; attempt++) {
+          if (await canListenOnLoopback(preferredPort)) { await new Promise(resolve => setTimeout(resolve, 300)); return; }
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        throw new Error('旧桥接服务尚未退出，请稍后再次点击智能连接。');
+      },
+    });
+    if (!replaced) return {port: preferredPort, reused: true};
+  }
   const port = await findAvailableBridgePort(preferredPort);
   await mkdir(runtimeDir, { recursive: true });
   const stdout = openSync(path.join(runtimeDir, 'bridge.out.log'), 'a');

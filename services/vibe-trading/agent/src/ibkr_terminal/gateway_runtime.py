@@ -106,6 +106,10 @@ class GatewayRuntime:
                 return
             finally:
                 if connection:
+                    current=getattr(self.app.state,'paper_flow',None)
+                    if mode=='paper' and current is not None and current.source.connection is connection:
+                        self.app.state.paper_flow=None
+                        current.close()
                     connection.close(self.status(mode)['detail'])
                     if self.app.state.market_sources.get(mode) is connection:
                         self.app.state.market_sources.pop(mode, None)

@@ -4,11 +4,23 @@ Constructed before connect; no sockets or order requests are made here. This
 wrapper only observes openOrder/orderStatus replies during an explicit read.
 """
 from copy import deepcopy
+import asyncio
+import re
 from types import SimpleNamespace
 
 from ib_async import IB
 from ib_async.client import Client
 from ib_async.wrapper import Wrapper
+
+
+def execution_time_fields(fields):
+    # IB's dashed date/time is UTC. The pinned SDK strips the dash and
+    # incorrectly localizes it to the Windows timezone. Preserve explicit
+    # exchange/operator zones and the SDK's legacy timezone configuration.
+    if len(fields) > 15 and re.fullmatch(r'\d{8}-\d{2}:\d{2}:\d{2}', fields[15]):
+        fields = list(fields)
+        fields[15] = fields[15].replace('-', ' ') + ' UTC'
+    return fields
 
 
 class ObservationWrapper(Wrapper):
@@ -21,11 +33,11 @@ class ObservationWrapper(Wrapper):
     def accountSummary(self, reqId, account, tag, value, currency):
         super().accountSummary(reqId, account, tag, value, currency)
         if self.fresh_summary is not None and reqId == self.fresh_summary['reqId']:
-            self.fresh_summary['rows'].append(deepcopy(self.acctSummary[(account, tag, currency)]))
+            self.fresh_summary['rows'][(account, tag, currency)] = deepcopy(self.acctSummary[(account, tag, currency)])
 
     def accountSummaryEnd(self, reqId):
         if self.fresh_summary is not None and reqId == self.fresh_summary['reqId']:
-            self._endReq(reqId, self.fresh_summary['rows'])
+            self._endReq(reqId, list(self.fresh_summary['rows'].values()))
         else:
             super().accountSummaryEnd(reqId)
 
@@ -114,8 +126,11 @@ class ObservedIB(IB):
         self.wrapper = ObservationWrapper(self)
         self.wrapper.managed_observer = managed_observer
         self.client = Client(self.wrapper)
+        decode_execution = self.client.decoder.handlers[11]
+        self.client.decoder.handlers[11] = lambda fields: decode_execution(execution_time_fields(fields))
         self.client.apiEnd += self.disconnectedEvent
         self.RaiseRequestErrors = True
+        self._account_snapshot_lock = asyncio.Lock()
 
     async def _connectScopedAsync(self, host, port, *, clientId, account, timeout=8):
         # Handshake first; individual reads report their own completeness.
@@ -154,6 +169,12 @@ class ObservedIB(IB):
             self.wrapper.open_read = self.wrapper.status_read = None
 
     async def reqAccountSnapshotAsync(self, account):
+        # Background refresh and order risk checks share one IB subscription.
+        # Queue complete reads so neither caller consumes the other's replies.
+        async with self._account_snapshot_lock:
+            return await self._account_snapshot_once(account)
+
+    async def _account_snapshot_once(self, account):
         if self.wrapper.account_read is not None or 'accountValues' in self.wrapper._futures:
             raise RuntimeError('overlapping account reconciliation')
         observed = {'account': account, 'values': {}, 'portfolio': {}}
@@ -168,14 +189,18 @@ class ObservedIB(IB):
             self.wrapper.account_read = None
             self.wrapper._endReq('accountValues')
 
+    def cachedAccountSummary(self, account):
+        """Read already observed values without entering the SDK sync event loop."""
+        return [row for row in self.wrapper.acctSummary.values() if row.account == account]
+
     async def reqFreshSummaryAsync(self):
         if self.wrapper.fresh_summary is not None:
             raise RuntimeError('overlapping risk summary request')
         req_id = self.client.getReqId()
-        self.wrapper.fresh_summary = {'reqId': req_id, 'rows': []}
+        self.wrapper.fresh_summary = {'reqId': req_id, 'rows': {}}
         try:
             future = self.wrapper.startReq(req_id)
-            self.client.reqAccountSummary(req_id, 'All', 'NetLiquidation,SettledCash,TotalCashValue')
+            self.client.reqAccountSummary(req_id, 'All', 'NetLiquidation,SettledCash,TotalCashValue,AvailableFunds,$LEDGER:USD')
             return await future
         finally:
             try:

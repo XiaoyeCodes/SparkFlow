@@ -88,8 +88,11 @@ def main():
             store.close()
 
     app.router.lifespan_context = lifespan
+    from .bridge_lifecycle import install_lifecycle
+    server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=args.port, access_log=False, timeout_graceful_shutdown=5))
+    install_lifecycle(app, server)
     try:
-        uvicorn.run(app, host='127.0.0.1', port=args.port, access_log=False)
+        server.run()
     finally:
         lease.close()
 

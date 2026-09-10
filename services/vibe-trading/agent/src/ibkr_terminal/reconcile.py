@@ -6,12 +6,13 @@ unexplained external cash/position changes pause reconciliation.
 """
 import hashlib
 import json
-from decimal import Decimal, localcontext
+from decimal import Decimal, localcontext, ROUND_HALF_UP
+from datetime import timezone
 from typing import Literal
 
 from pydantic import AwareDatetime, Field, model_validator
 
-from .audit import append_event
+from .audit import append_event, read_events
 from .risk import Amount, Identifier, RiskContext, RiskDenied, canonical
 from .schemas import Contract, DecimalText
 from .identity import ReadOrderEvidence
@@ -70,6 +71,8 @@ class AccountProof(Contract):
 
 def event_identity(event, *, execution=False):
     body = event.model_dump(mode='json', exclude={'eventId', 'observedAt', 'sessionRevision'})
+    if event.executedAt is not None:
+        body['executedAt'] = event.executedAt.astimezone(timezone.utc).isoformat()
     # Request/reconnect receipt times are not execution identity.
     if execution:
         body.pop('kind')
@@ -154,6 +157,50 @@ class OrderReconciler:
     def _fill_total(self, record):
         return sum((Decimal(event.quantity) for event in self._executions() if event.permId == record.permId and event.clientId == record.clientId and event.orderId == record.orderId), Decimal(0))
 
+    def _execution_time_replay(self, old, event):
+        """Repair the legacy UTC-as-local projection, retaining original evidence.
+
+        Only an otherwise identical paper fill, replayed with a timestamp near
+        the original live receipt, qualifies. Financial/ownership conflicts
+        still halt. Recovery of a prior halt additionally needs an account proof.
+        """
+        if event.kind != 'fill' or event.source != 'ibkr' or event.mode != 'paper':
+            return False
+        prior = self.db.execute('SELECT payload FROM order_fills WHERE mode=? AND account_key=? AND exec_id=?',
+            (self.mode, self.account_key, event.execId)).fetchone()
+        if not prior:
+            return False
+        current = BrokerEvent.model_validate_json(prior[0])
+        if event_identity(current) == event_identity(event):
+            return True
+        if event_identity(old.model_copy(update={'executedAt': event.executedAt})) != event_identity(event):
+            return False
+        delta = abs((event.executedAt - old.executedAt).total_seconds())
+        if (not 900 <= delta <= 14 * 3600 or delta % 900 != 0
+                or abs((old.observedAt - event.executedAt).total_seconds()) > 60
+                or event.observedAt <= old.observedAt):
+            return False
+        read_events(self.db, self.account_key)
+        self.db.execute('UPDATE order_fills SET payload=? WHERE mode=? AND account_key=? AND exec_id=?',
+            (event.model_dump_json(), self.mode, self.account_key, event.execId))
+        append_event(self.db, self.account_key, 'EXECUTION_TIME_NORMALIZED', event.observedAt.isoformat(),
+            {'eventId': event.eventId, 'execId': event.execId, 'original': old.model_dump(mode='json'),
+             'replayed': event.model_dump(mode='json')})
+        return True
+
+    def _recoverable_time_halt(self):
+        events = read_events(self.db, self.account_key)
+        for index in range(len(events) - 1, -1, -1):
+            if events[index]['kind'] in ('EMPTY_SESSION_HALT_RECOVERED', 'EXECUTION_TIME_HALT_RECOVERED'):
+                events = events[index + 1:]
+                break
+        repaired = {e['details']['eventId'] for e in events if e['kind'] == 'EXECUTION_TIME_NORMALIZED'}
+        conflicts = [e for e in events if e['kind'] == 'BROKER_EVIDENCE_CONFLICT']
+        rejected = [e for e in events if e['kind'] == 'SDK_EVIDENCE_REJECTED']
+        return bool(conflicts) and all(e['details'].get('code') == 'CONFLICTING_EVENT_ID'
+            and e['details'].get('eventId') in repaired for e in conflicts) and all(
+            e['details'].get('code') == 'CONFLICTING_EVENT_ID' for e in rejected)
+
     def apply(self, event):
         event = BrokerEvent.model_validate(event.model_dump())
         self._scope(event)
@@ -163,9 +210,10 @@ class OrderReconciler:
                 arithmetic.prec = 80
                 record = self._matched(event)
                 identity = event_identity(event)
-                old = self.db.execute('SELECT identity FROM order_broker_events WHERE mode=? AND account_key=? AND event_id=?', (self.mode, self.account_key, event.eventId)).fetchone()
+                old = self.db.execute('SELECT payload FROM order_broker_events WHERE mode=? AND account_key=? AND event_id=?', (self.mode, self.account_key, event.eventId)).fetchone()
                 if old:
-                    if old[0] != identity:
+                    original = BrokerEvent.model_validate_json(old[0])
+                    if event_identity(original) != identity and not self._execution_time_replay(original, event):
                         raise RiskDenied('CONFLICTING_EVENT_ID')
                     return record
                 if event.kind == 'fill':
@@ -317,7 +365,9 @@ class OrderReconciler:
             records = self.ledger._records(self.account_key, self.mode)
             if not records or any((row.source == 'fixture') != (proof.source == 'fixture') for row in records):
                 raise RiskDenied('EVENT_SOURCE')
-            if self.db.execute('SELECT 1 FROM order_integrity_halts WHERE mode=? AND account_key=?', (self.mode, self.account_key)).fetchone():
+            halt = self.db.execute('SELECT reason FROM order_integrity_halts WHERE mode=? AND account_key=?', (self.mode, self.account_key)).fetchone()
+            recover_time = halt and halt[0] == 'CONFLICTING_EVENT_ID' and self._recoverable_time_halt()
+            if halt and not recover_time:
                 raise RiskDenied('ACCOUNT_INTEGRITY_HALT')
             event_times = [BrokerEvent.model_validate_json(row[0]).observedAt for row in self.db.execute('SELECT payload FROM order_broker_events WHERE mode=? AND account_key=?', (self.mode, self.account_key))]
             latest = max(event_times) if event_times else None
@@ -336,7 +386,12 @@ class OrderReconciler:
                 sign = 1 if fill.side == 'BUY' else -1
                 positions[fill.conId] = positions.get(fill.conId, Decimal(0)) + sign * Decimal(fill.quantity)
                 expected_cash -= sign * Decimal(fill.quantity) * Decimal(fill.price) + Decimal(fees[fill.execId].commission)
-            if expected_cash != Decimal(proof.cashBalance):
+            reported_cash = Decimal(proof.cashBalance)
+            # USD account summaries are rounded to cents, while IB commissions
+            # can contain fractional cents. Never tolerate a whole-cent gap.
+            if expected_cash != reported_cash and not (proof.source == 'ibkr'
+                    and reported_cash == reported_cash.quantize(Decimal('.01'))
+                    and expected_cash.quantize(Decimal('.01'), rounding=ROUND_HALF_UP) == reported_cash):
                 raise RiskDenied('CASH_MISMATCH')
             if {key: value for key, value in positions.items() if value} != {key: Decimal(value) for key, value in proof.positions.items() if Decimal(value)}:
                 raise RiskDenied('POSITION_MISMATCH')
@@ -369,6 +424,11 @@ class OrderReconciler:
             if existing and existing[0] != canonical(proof):
                 raise RiskDenied('SNAPSHOT_ID_CONFLICT')
             self.db.execute('INSERT OR IGNORE INTO order_account_proofs VALUES(?,?,?,?)', (self.mode, self.account_key, proof.snapshotId, canonical(proof)))
+            if recover_time:
+                self.db.execute('DELETE FROM order_integrity_halts WHERE mode=? AND account_key=? AND reason=?',
+                    (self.mode, self.account_key, 'CONFLICTING_EVENT_ID'))
+                append_event(self.db, self.account_key, 'EXECUTION_TIME_HALT_RECOVERED', self.ledger.clock().isoformat(),
+                    {'snapshotId': proof.snapshotId, 'watermark': proof.watermark})
             for record in updated:
                 self.ledger._replace(record, 'ACCOUNT_RECONCILED', snapshotId=proof.snapshotId, watermark=proof.watermark)
             return updated

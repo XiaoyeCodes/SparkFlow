@@ -132,10 +132,12 @@ class RiskContext(Contract):
     reconciled: bool
     asOf: AwareDatetime
     quoteAt: AwareDatetime
-    quoteState: Literal['realtime', 'delayed', 'frozen', 'disconnected', 'missing']
+    quoteState: Literal['realtime', 'delayed', 'frozen', 'disconnected', 'missing', 'snapshot']
+    referenceKind: Literal['trade', 'portfolio', 'broker-snapshot'] = 'trade'
     conId: int = Field(gt=0, strict=True)
     referencePrice: Amount | None
     settledCash: Amount | None
+    availableFunds: Amount | None = None
     totalCash: Amount | None = None  # separate from settled/available funds
     netLiquidation: Amount | None
     dailyLoss: Amount | None
@@ -184,11 +186,20 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
     require(not context.halted, 'HALTED')
     require(context.regularHours, 'OUTSIDE_RTH')
     require(context.openOrdersComplete, 'EXTERNAL_ORDER_RISK_UNKNOWN')
-    require(context.quoteState == 'realtime', 'QUOTE_UNAVAILABLE')
+    estimated = (intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'
+        and context.referenceKind in ('portfolio', 'broker-snapshot')
+        and context.quoteState in ('snapshot', 'delayed'))
+    require(context.quoteState == 'realtime' and context.referenceKind == 'trade' or estimated, 'QUOTE_UNAVAILABLE')
     limits = grant.limits
-    require(0 <= (now - context.quoteAt).total_seconds() <= limits.maxQuoteAgeSeconds, 'STALE_QUOTE')
+    # For an explicitly labelled estimate this is the broker snapshot receipt,
+    # not a fabricated trade timestamp. It is valid only for manual paper orders.
+    require(0 <= (now - context.quoteAt).total_seconds() <= (30 if estimated else limits.maxQuoteAgeSeconds), 'STALE_QUOTE')
     require(0 <= (now - context.asOf).total_seconds() <= limits.maxAccountAgeSeconds, 'STALE_ACCOUNT')
-    require(all(getattr(context, name) is not None for name in ('settledCash', 'netLiquidation', 'dailyLoss', 'referencePrice')), 'MISSING_ACCOUNT_DATA')
+    funding = context.settledCash
+    if (funding is None and intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'
+        and context.availableFunds is not None and context.totalCash is not None):
+        funding = min(Decimal(context.totalCash), Decimal(context.availableFunds))
+    require(funding is not None and all(getattr(context, name) is not None for name in ('netLiquidation', 'dailyLoss', 'referencePrice')), 'MISSING_ACCOUNT_DATA')
     require(context.market == 'US' and context.secType == 'STK' and context.currency == context.baseCurrency == 'USD' and Decimal(context.multiplier) == 1, 'UNSUPPORTED_CONTRACT')
     require(intent.tif == 'DAY' and (intent.orderType == 'LMT' or
         intent.orderType == 'MKT' and intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'), 'UNSUPPORTED_ORDER_POLICY')
@@ -228,7 +239,7 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
         require(notional <= Decimal(limits.maxOrderNotional), 'ORDER_NOTIONAL_LIMIT')
         pending_notional = remaining_quantity * price
         cash = (pending_notional if intent.side == 'BUY' else Decimal(0)) + fee
-        require(Decimal(context.settledCash) >= Decimal(reserved['cash']) + cash, 'INSUFFICIENT_CASH')
+        require(Decimal(funding) >= Decimal(reserved['cash']) + cash, 'INSUFFICIENT_CASH')
         holding = next((row for row in context.holdings if row.conId == intent.conId), None)
         if intent.side == 'SELL':
             available = Decimal(holding.quantity) if holding else Decimal(0)

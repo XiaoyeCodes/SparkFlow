@@ -152,12 +152,15 @@ def test_runtime_detects_disconnect_and_waits_for_manual_reconnect(tmp_path, api
                 assert runtime.status('paper')['apiPort'] == 45123
                 assert len(runtime.tasks) == 1
                 assert not connections[0].connected
+                closed=[]
+                app.state.paper_flow=SimpleNamespace(source=SimpleNamespace(connection=connections[-1]),close=lambda:closed.append(True))
                 await asyncio.gather(*(runtime.connect('paper') for _ in range(3)))
                 assert len(connections) == 2
             finally:
                 await runtime.close()
             assert all(task.done() for task in runtime.tasks.values())
             assert not app.state.market_sources
+            assert closed==[True] and app.state.paper_flow is None
     api_event_loop.run_until_complete(scenario())
 
 

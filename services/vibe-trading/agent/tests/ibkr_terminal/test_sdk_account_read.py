@@ -44,13 +44,38 @@ def test_fresh_summary_has_request_scope_and_always_cancels_subscription(api_eve
             def isConnected(self): return False
             def getReqId(self): return 90
             def reqAccountSummary(self,req_id,group,tags):
+                assert 'AvailableFunds' in tags and '$LEDGER:USD' in tags
                 calls.append(('request',req_id))
                 ib.wrapper.accountSummary(89,'TEST','SettledCash','9999','USD')
+                ib.wrapper.accountSummary(req_id,'TEST','SettledCash','40','USD')
                 ib.wrapper.accountSummary(req_id,'TEST','SettledCash','50','USD')
                 ib.wrapper.accountSummaryEnd(req_id)
             def cancelAccountSummary(self,req_id): calls.append(('cancel',req_id))
         ib.client=Client()
         rows=await ib.reqFreshSummaryAsync()
         assert [(r.tag,r.value) for r in rows]==[('SettledCash','50')]
+        # This runs inside the owner loop. A synchronous SDK network helper
+        # would raise "event loop already running" instead of reading cache.
+        assert ib.cachedAccountSummary('TEST') == rows
         assert calls==[('request',90),('cancel',90)]
+    api_event_loop.run_until_complete(run())
+
+
+def test_background_and_order_account_reads_queue_without_disconnecting(api_event_loop):
+    async def run():
+        ib=ObservedIB();calls=[]
+        class Client:
+            def isConnected(self):return False
+            def reqAccountUpdates(self,subscribe,account):
+                if not subscribe:return
+                calls.append(account)
+                def reply():
+                    ib.wrapper.updateAccountValue('TotalCashValue',str(len(calls)*100),'USD',account)
+                    ib.wrapper.accountDownloadEnd(account)
+                asyncio.get_running_loop().call_later(.01,reply)
+        ib.client=Client()
+        first,second=await asyncio.gather(ib.reqAccountSnapshotAsync('TEST'),ib.reqAccountSnapshotAsync('TEST'))
+        assert calls==['TEST','TEST']
+        assert first['values'][0].value=='100' and second['values'][0].value=='200'
+        assert ib.wrapper.account_read is None
     api_event_loop.run_until_complete(run())

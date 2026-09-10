@@ -159,7 +159,7 @@ def test_released_reservation_cannot_be_spent_again_using_pre_fill_account_snaps
         rec.reconcile(fresh)
         with pytest.raises(RiskDenied, match='STALE_ACCOUNT_CHECKPOINT'):
             db.reserve(intent('stale-next', quantity='9'), context(totalCash='1000'))
-        db.reserve(intent('fresh-next', quantity='1'), context(snapshotId=fresh.snapshotId, asOf=fresh.cashObservedAt,
+        db.reserve(intent('fresh-next', quantity='1'), context(snapshotId='subsequent-broker-read', asOf=fresh.cashObservedAt+timedelta(seconds=1),
             totalCash='801.75', settledCash='801.75', holdings=[dict(conId=12, quantity='2', marketValue='200', currency='USD')]))
 
 
@@ -180,3 +180,51 @@ def test_unexplained_reopening_of_terminal_order_pauses_account(tmp_path):
         rec.apply(event('cancel', status='CANCELLED', filled='0', remaining='0'))
         with pytest.raises(RiskDenied, match='CONFLICTING_TERMINAL_STATUS'):
             rec.apply(event('reopened', status='OPEN', filled='0', remaining='6'))
+
+
+def real_source_projection(db):
+    rec = setup(db)
+    with db.transaction():
+        row = db.get('paper:engineering', 'paper', 'intent-1')
+        db._replace(row.model_copy(update={'source': 'user', 'testData': False}), 'ENGINEERING_SOURCE')
+    return rec
+
+
+def test_legacy_timezone_replay_preserves_original_and_recovers_only_after_full_proof(tmp_path):
+    from src.ibkr_terminal.audit import append_event, read_events
+    with ledger(tmp_path/'time.db') as db:
+        rec = real_source_projection(db)
+        original = fill('fill-a', 'EX-1', '6', '99', source='ibkr').model_copy(
+            update={'executedAt': NOW - timedelta(hours=8)})
+        rec.apply(original)
+        rec.apply(fee('fee-a', 'EX-1', '1.00003').model_copy(update={'source':'ibkr'}))
+        rec.apply(event('filled', status='FILLED', filled='6', remaining='0', source='ibkr'))
+        with db.transaction():
+            db._db.execute('INSERT INTO order_integrity_halts VALUES(?,?,?)', ('paper','paper:engineering','CONFLICTING_EVENT_ID'))
+            append_event(db._db,'paper:engineering','BROKER_EVIDENCE_CONFLICT',NOW.isoformat(),
+                {'code':'CONFLICTING_EVENT_ID','eventId':'fill-a'})
+        corrected = original.model_copy(update={'executedAt':NOW,'observedAt':NOW+timedelta(seconds=1)})
+        rec.apply(corrected)
+        rec.apply(corrected)  # replay is idempotent; no duplicate fill
+        assert rec.executions()[0].executedAt == NOW
+        assert len(rec.executions()) == 1
+        stored = db._db.execute("SELECT payload FROM order_broker_events WHERE event_id='fill-a'").fetchone()[0]
+        assert BrokerEvent.model_validate_json(stored).executedAt == NOW-timedelta(hours=8)
+        with pytest.raises(RiskDenied, match='CASH_MISMATCH'):
+            rec.reconcile(proof(rec, source='ibkr', cashBalance='405.01', positions={12:'6'}))
+        assert db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
+        rec.reconcile(proof(rec, source='ibkr', cashBalance='405.00', positions={12:'6'}))
+        assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
+        assert db.reservations('paper:engineering','paper')['cash'] == '0'
+        assert read_events(db._db,'paper:engineering')[-2]['kind'] == 'EXECUTION_TIME_HALT_RECOVERED'
+
+
+@pytest.mark.parametrize('changes', [{'price':'100'}, {'quantity':'5'}, {'executedAt':NOW-timedelta(hours=1)}, {'executedAt':NOW-timedelta(seconds=30)}])
+def test_timezone_repair_does_not_accept_financial_or_arbitrary_timestamp_conflicts(tmp_path, changes):
+    with ledger(tmp_path/'bad-time.db') as db:
+        rec = real_source_projection(db)
+        original = fill('fill-a','EX-1','6','99',source='ibkr').model_copy(update={'executedAt':NOW-timedelta(hours=8)})
+        rec.apply(original)
+        replay = original.model_copy(update={'executedAt':NOW,'observedAt':NOW+timedelta(seconds=1),**changes})
+        with pytest.raises(RiskDenied,match='CONFLICTING_EVENT_ID'):
+            rec.apply(replay)

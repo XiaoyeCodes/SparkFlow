@@ -8,6 +8,30 @@ from decimal import Decimal
 from src.ibkr_terminal.reconcile import OrderReconciler
 
 
+def test_next_preview_reconciles_prior_order_before_preparing_or_sending(tmp_path,api_event_loop):
+    from types import SimpleNamespace
+    async def run():
+        with ledger(tmp_path/'orders.db') as db,harness(db) as values:
+            dispatcher,sdk,packets,_,_,instrument=values
+            source=Source(); calls=[]
+            async def prepare(d):
+                calls.append('prepare')
+                return source.load(d)
+            source.prepare=prepare; source.instrument=instrument
+            flow=PaperOrderFlow(dispatcher,source,enabled=True,clock=lambda:NOW)
+            preview=await flow.preview(draft(quantity='1'))
+            flow.confirm(preview.previewId,preview.bodyHash,explicit=True)
+            async def reconcile():
+                calls.append('reconcile')
+                raise RiskDenied('COMMISSION_PENDING')
+            flow.account_reconciliation=SimpleNamespace(run=reconcile)
+            calls.clear()
+            with pytest.raises(RiskDenied,match='COMMISSION_PENDING'):
+                await flow.preview(draft(quantity='1'))
+            assert calls == ['reconcile'] and len(packets)==1
+    api_event_loop.run_until_complete(run())
+
+
 def test_market_order_reserves_cash_without_sending_a_limit_and_is_idempotent(tmp_path,api_event_loop):
     async def run():
         with ledger(tmp_path/'orders.db') as db,harness(db) as values:

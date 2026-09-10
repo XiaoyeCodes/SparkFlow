@@ -7,6 +7,21 @@ from test_orders import ledger,NOW
 from test_order_events import setup,event,fill,fee
 
 
+@pytest.mark.parametrize('reason,recovered',[('SDK_SESSION_CHANGED',True),('CONFLICTING_TERMINAL_STATUS',False)])
+def test_empty_session_halt_recovers_only_after_completed_account_proof(tmp_path,api_event_loop,reason,recovered):
+    from src.ibkr_terminal.reconcile import OrderReconciler
+    async def run():
+        with ledger(tmp_path/'orders') as db:
+            rec=OrderReconciler(db,'paper:engineering','paper',1)
+            db._db.execute('INSERT INTO order_integrity_halts VALUES(?,?,?)',('paper','paper:engineering',reason))
+            conn=connection(rec,quantity='0')
+            conn.session.snapshot().snapshotId='verified-snapshot'
+            await PaperAccountReconciliation(conn,rec,clock=lambda:NOW+timedelta(seconds=2)).run()
+            assert (db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone() is None)==recovered
+            assert any(e['kind']=='EMPTY_SESSION_HALT_RECOVERED' for e in db.audit('paper:engineering'))==recovered
+    api_event_loop.run_until_complete(run())
+
+
 def connection(rec,*,cash='900.5',quantity='1',during=None):
     snapshot=NS(accountKey=rec.account_key,mode='paper',sessionRevision=1,state='ready',baseCurrency='USD',
         positions=[NS(conId=12,quantity=quantity)],provenance={'positions':NS(requestCompletedAt=(NOW+timedelta(seconds=1)).isoformat())})
