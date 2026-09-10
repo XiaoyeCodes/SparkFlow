@@ -222,7 +222,7 @@ export class IbkrWorkbenchService {
   }
   async tick() {
     if (this.storageError || this.disposed) return;
-    if (Date.now() >= this.nextSync && (this.saved.source === 'gateway' || this.saved.selectedKey || this.mcp.status().authorized)) await this.sync();
+    if (Date.now() >= this.nextSync && (this.saved.source === 'gateway' ? this.gatewayConnected() : Boolean(this.saved.selectedKey || this.mcp.status().authorized))) await this.sync();
     const record = this.record(); if (!record || record.snapshot.state === 'stale' || !record.grant) return;
     await this.runSchedules();
   }
@@ -433,9 +433,16 @@ export class IbkrWorkbenchService {
     return result;
   }
   async select(source: 'mcp' | 'gateway', key?: string, gatewayMode?: GatewayMode) {
-    this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; await this.syncFlight; this.saved.source = source; this.saved.gatewayMode = gatewayMode ?? this.saved.gatewayMode ?? 'live'; this.saved.selectedKey = source === 'gateway' ? undefined : key;
+    const mode = gatewayMode ?? this.saved.gatewayMode ?? 'live';
+    if (source === this.saved.source && mode === (this.saved.gatewayMode ?? 'live') && (source === 'gateway' || !key || key === this.saved.selectedKey)) return;
+    this.researchAbort?.abort(); this.briefAbort?.abort(); const revision = ++this.generation, previousSync = this.syncFlight;
+    this.saved.source = source; this.saved.gatewayMode = mode; this.saved.selectedKey = source === 'gateway' ? undefined : key;
     this.quotes = []; this.evidence = []; this.nextEvidence = 0; this.nextSync = 0; this.nextGatewayAttempt = 0; this.connectionDetail = '';
-    await this.persist(); await this.sync();
+    await this.persist();
+    if (source === 'mcp') void (async () => {
+      await previousSync;
+      if (revision === this.generation && !this.disposed) await this.sync();
+    })().catch(() => {});
   }
   private briefStatus(): DailyBriefStatus {
     const record = this.record(), schedule = briefSchedule(new Date());

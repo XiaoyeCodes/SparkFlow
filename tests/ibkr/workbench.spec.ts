@@ -356,6 +356,33 @@ test('connection settings select an explicit paper Gateway without presenting it
   await expect.poll(() => paperConsole.evaluate(element => getComputedStyle(element).getPropertyValue('--connection-accent').trim())).toBe('#e2b55e');
 });
 
+test('source cards respond immediately and disconnected Gateway does not poll until intelligent connect', async ({ page }) => {
+  const data = state();
+  let releaseSource!: () => void;
+  const sourceGate = new Promise<void>(resolve => { releaseSource = resolve; });
+  let sourceRequests = 0, syncRequests = 0;
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/source', async route => {
+    sourceRequests++;
+    await sourceGate;
+    data.source = 'gateway'; data.gatewayMode = 'paper'; data.connection.state = 'disconnected';
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/ibkr-workbench/sync', route => { syncRequests++; return route.fulfill({ json: data }); });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
+
+  const paper = page.getByRole('button', { name: /IB Gateway 模拟盘/ });
+  await paper.click();
+  await expect(paper).toHaveAttribute('aria-pressed', 'true', { timeout: 250 });
+  await expect(page.getByText('模拟盘 Gateway 尚未连接', { exact: true })).toBeVisible({ timeout: 250 });
+  await expect.poll(() => sourceRequests).toBe(1);
+  await page.waitForTimeout(2200);
+  expect(syncRequests).toBe(0);
+  releaseSource();
+  await expect(paper).toHaveAttribute('aria-pressed', 'true');
+});
+
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
   test(`authorized account selector uses the rounded terminal treatment at ${viewport.width}px`, async ({ page }) => {
     const data = state(true);

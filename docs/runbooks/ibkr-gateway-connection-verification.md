@@ -1,8 +1,8 @@
 # Gateway 自动连接修复验证（2026-09-09）
 
-本次修复解决三个连接链路缺口：智能连接只有 HTTP 桥接启动而没有 API 发现；Python 后台首次失败或断线后永久退出；页面静默轮询只读旧快照且覆盖了具体失败提示。
+连接流程由用户在设置页点击「智能连接」启动：按钮会完成 HTTP 桥接、API 发现、账户核对和快照同步。未连接状态不会自动探测或重试，页面也不执行两秒轮询。
 
-实现位于 `gateway_discovery.py`、`gateway_runtime.py`、`ibkrGatewayBridge.ts` 和 `ibkrWorkbench.ts`。端口发现使用本机进程监听信息、显式 Socket 配置、已有绑定和默认候选；通过 IB 协议受管账户回报核对身份。后台保留独立模式的恢复任务，页面请求取消不终止后台恢复，重复连接合并。新绑定只读，既有账户权限不会由智能连接升级；受管 paper 会话保留 clientId。
+实现位于 `gateway_discovery.py`、`gateway_runtime.py`、`ibkrGatewayBridge.ts` 和 `ibkrWorkbench.ts`。端口发现使用本机进程监听信息、显式 Socket 配置、已有绑定和默认候选；通过 IB 协议受管账户回报核对身份。来源切换不触发连接，重复的手动连接请求合并。连接成功后保留正常快照同步；新绑定只读，既有账户权限不会由智能连接升级；受管 paper 会话保留 clientId。
 
 验证结果：
 

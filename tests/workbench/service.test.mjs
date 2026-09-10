@@ -33,7 +33,7 @@ test('gateway performance imports PortfolioAnalyst history only after MCP portfo
     assert.equal(performanceKey,'');assert.equal(rejected.source,'本地账户快照');assert.match(rejected.note,/官方历史暂不可用/);
   }finally{await f.service.close();}
 });
-test('paper Gateway selection requests only the paper snapshot and persists the selected mode', async () => {
+test('paper Gateway selection is immediate and reads the account only after an explicit sync', async () => {
   await mkdir('tmp/workbench-paper-mode', { recursive: true });
   const root = await mkdtemp(path.resolve('tmp/workbench-paper-mode/root-'));
   const dir = path.join(root, 'state');
@@ -57,12 +57,15 @@ test('paper Gateway selection requests only the paper snapshot and persists the 
   try {
     await service.start(); clearTimeout(service.timer);
     await service.select('gateway', undefined, 'paper');
-    assert.deepEqual(urls, ['http://127.0.0.1:18765/api/ibkr-terminal/snapshot?mode=paper']);
+    assert.deepEqual(urls, []);
     assert.equal(service.saved.gatewayMode, 'paper');
-    assert.equal(service.saved.selectedKey, 'paper:paper-account');
+    assert.equal(service.saved.selectedKey, undefined);
     const current = await service.state();
     assert.equal(current.gatewayMode, 'paper');
     assert.equal(current.snapshot.mode, 'paper');
+    await service.sync(false);
+    assert.deepEqual(urls, ['http://127.0.0.1:18765/api/ibkr-terminal/snapshot?mode=paper']);
+    assert.equal(service.saved.selectedKey, 'paper:paper-account');
     assert.equal(localCalls, 0);
     const stored = JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8'));
     assert.equal(stored.gatewayMode, 'paper');
@@ -70,6 +73,8 @@ test('paper Gateway selection requests only the paper snapshot and persists the 
     assert.equal(service.saved.gatewayMode, 'paper');
     await service.select('gateway');
     assert.equal(service.saved.gatewayMode, 'paper');
+    assert.equal(service.saved.selectedKey, undefined);
+    await service.sync(false);
     assert.equal(service.saved.selectedKey, 'paper:paper-account');
     assert.equal(urls.at(-1), 'http://127.0.0.1:18765/api/ibkr-terminal/snapshot?mode=paper');
   } finally {
@@ -133,7 +138,7 @@ test('backtest proxy accepts only structured user strategies and stamps data ins
     assert.equal(sent.length, 2);
   } finally { globalThis.fetch = originalFetch; }
 });
-test('switching to Gateway automatically starts a missing bridge and confirms the selected account mode', async () => {
+test('switching to Gateway waits for intelligent connect before starting a missing bridge', async () => {
   await mkdir('tmp/workbench-auto-connect', { recursive: true });
   const root = await mkdtemp(path.resolve('tmp/workbench-auto-connect/root-'));
   const dir = path.join(root, 'state');
@@ -156,6 +161,9 @@ test('switching to Gateway automatically starts a missing bridge and confirms th
   try {
     await service.start(); clearTimeout(service.timer);
     await service.select('gateway', undefined, 'paper');
+    assert.equal(bridgeStarted, false);
+    assert.equal(service.saved.selectedKey, undefined);
+    await service.connectGateway();
     assert.equal(bridgeStarted, true);
     assert.equal(service.saved.selectedKey, 'paper:auto-connect');
     assert.equal((await service.state()).connection.state, 'connected');

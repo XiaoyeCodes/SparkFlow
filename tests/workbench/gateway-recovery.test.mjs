@@ -28,10 +28,13 @@ async function fixture(mode = 'paper') {
     close: async () => { globalThis.fetch = originalFetch; await service.close(); } };
 }
 
-for (const mode of ['paper', 'live']) test(`${mode} background sync starts and discovers a gateway without clicking or a binding file`, async () => {
+for (const mode of ['paper', 'live']) test(`${mode} gateway waits for an explicit intelligent-connect request before discovery`, async () => {
   const f = await fixture(mode);
   try {
     await f.service.tick();
+    assert.equal(f.starts(), 0); assert.equal(f.discoveries(), 0);
+    assert.equal((await f.service.state()).connection.state, 'unconfigured');
+    await f.service.connectGateway();
     assert.equal(f.starts(), 1); assert.equal(f.discoveries(), 1);
     assert.equal((await f.service.state()).snapshot.mode, mode);
     assert.equal((await f.service.state()).connection.state, 'connected');
