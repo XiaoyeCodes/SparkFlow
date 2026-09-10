@@ -84,10 +84,13 @@ def test_discovery_does_not_silently_replace_a_saved_account():
 
 
 def test_first_connection_requires_a_unique_mode_compatible_account():
-    selected = choose_binding('paper', [(45122, ('DU12345',))], [])
+    selected = choose_binding('paper', [(45122, ('DUR12345',))], [])
     assert selected.mode == 'paper' and selected.port == 45122 and selected.readonly is True
+    assert selected.brokerAccount == 'DUR12345'
     with pytest.raises(DiscoveryError, match='多个'):
-        choose_binding('paper', [(4002, ('DU12345', 'DU67890'))], [])
+        choose_binding('paper', [(4002, ('DUR12345', 'DU67890'))], [])
+    with pytest.raises(DiscoveryError):
+        choose_binding('paper', [(4002, ('U12345', 'DU-INVALID'))], [])
     with pytest.raises(DiscoveryError):
         choose_binding('live', [(4001, ('UNKNOWN',))], [])
 

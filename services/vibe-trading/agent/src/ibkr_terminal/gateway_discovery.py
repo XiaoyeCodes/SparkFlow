@@ -80,7 +80,7 @@ def choose_binding(mode, results, bindings):
         # The selected mode is explicit. Account identifiers only reject an
         # incompatible mode; a port number is never evidence of live/paper identity.
         candidates = [(port, account) for port, accounts in results for account in accounts
-            if re.fullmatch(r'DU\d+' if mode == 'paper' else r'U\d+', account)]
+            if isinstance(account, str) and re.fullmatch(r'DU[A-Z0-9]{1,30}' if mode == 'paper' else r'U\d+', account)]
         identities = {account for _, account in candidates}
         if len(identities) == 1:
             port, account = candidates[0]
