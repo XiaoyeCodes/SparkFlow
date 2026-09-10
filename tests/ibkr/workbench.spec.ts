@@ -167,6 +167,15 @@ test('authorized connection failure is distinct from logged out and an existing 
   await expect(page.getByText('无法获取授权地址', { exact: true })).toHaveCount(0);
 });
 
+test('MCP authorization errors are shown as actionable Chinese status', async ({ page }) => {
+  const data = state(); data.connection.authorized = false; data.connection.state = 'authorization-required'; data.connection.detail = 'MCP_AUTHORIZATION_REQUIRED';
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
+  await expect(page.locator('.awb-connection-console').getByText('官方 MCP 授权尚未完成或已经失效，请重新连接 IBKR 后同步当前账户。', { exact: true })).toBeVisible();
+  await expect(page.getByText('MCP_AUTHORIZATION_REQUIRED', { exact: true })).toHaveCount(0);
+});
+
 test('account settings submit only chosen preferences and consent fingerprint', async ({ page }) => {
   const data = state(true); let sent: unknown;
   await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
