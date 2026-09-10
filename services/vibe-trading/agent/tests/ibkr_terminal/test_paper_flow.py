@@ -4,6 +4,48 @@ from src.ibkr_terminal.risk import RiskDenied
 from test_native_dispatch import harness
 from test_orders import ledger,NOW
 from test_reviews import Source,draft
+from decimal import Decimal
+from src.ibkr_terminal.reconcile import OrderReconciler
+
+
+def test_market_order_reserves_cash_without_sending_a_limit_and_is_idempotent(tmp_path,api_event_loop):
+    async def run():
+        with ledger(tmp_path/'orders.db') as db,harness(db) as values:
+            dispatcher,sdk,packets,_,_,instrument=values
+            source=Source()
+            async def prepare(d): return source.load(d)
+            source.prepare=prepare; source.instrument=instrument
+            flow=PaperOrderFlow(dispatcher,source,enabled=True,clock=lambda:NOW)
+            preview=await flow.preview(draft(quantity='1',orderType='MKT',limitPrice=None))
+            assert preview.orderType=='MKT' and preview.limitPrice is None
+            assert Decimal(preview.reservedCash)==Decimal('106')
+            assert any('5%' in warning for warning in preview.warnings)
+            source.current=source.current.model_copy(update={'referencePrice':'101'})
+            row=flow.confirm(preview.previewId,preview.bodyHash,explicit=True)
+            assert row.intent.limitPrice is None and row.intent.orderType=='MKT'
+            assert Decimal(row.reservationPrice)==Decimal('106.05')
+            assert Decimal(row.reservedCash)==Decimal('107.05')
+            assert len(packets)==1 and b'MKT\x00' in packets[0] and b'LMT\x00' not in packets[0]
+            again=flow.confirm(preview.previewId,preview.bodyHash,explicit=True)
+            assert again.intent==row.intent and len(packets)==1
+            rec=OrderReconciler(db,row.intent.accountKey,'paper',1)
+            assert Decimal(rec._full_hold(row).reservedCash)==Decimal('107.05')
+    api_event_loop.run_until_complete(run())
+
+
+@pytest.mark.parametrize('change,code', [({'regularHours':False},'OUTSIDE_RTH'),({'quoteState':'missing'},'QUOTE_UNAVAILABLE'),({'settledCash':'1'},'INSUFFICIENT_CASH')])
+def test_market_order_preserves_session_quote_and_cash_checks(tmp_path,api_event_loop,change,code):
+    async def run():
+        with ledger(tmp_path/'orders.db') as db,harness(db) as values:
+            dispatcher,sdk,packets,_,_,instrument=values
+            source=Source(); source.current=source.current.model_copy(update=change)
+            async def prepare(d): return source.load(d)
+            source.prepare=prepare; source.instrument=instrument
+            flow=PaperOrderFlow(dispatcher,source,enabled=True,clock=lambda:NOW)
+            with pytest.raises(ValueError,match=code):
+                await flow.preview(draft(quantity='1',orderType='MKT',limitPrice=None))
+            assert packets==[]
+    api_event_loop.run_until_complete(run())
 
 
 def test_paper_confirmation_reaches_native_wire_once_with_bound_permission(tmp_path,api_event_loop):

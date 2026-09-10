@@ -5,7 +5,8 @@ import pytest
 
 from src.ibkr_terminal.broker import OrderExecutor
 from src.ibkr_terminal.reconcile import OrderReconciler, BrokerEvent, AccountProof
-from src.ibkr_terminal.risk import RiskDenied
+from src.ibkr_terminal.risk import RiskDenied, intent_hash
+from decimal import Decimal
 from test_orders import NOW, authorization, context, intent, ledger
 from test_submission import FakeBroker
 
@@ -68,6 +69,26 @@ def test_partial_fill_cancel_race_keeps_cash_until_broker_state_and_cash_agree(t
         assert db.reservations('paper:engineering', 'paper')['cash'] == '0'
         row = db.get('paper:engineering', 'paper', 'intent-1')
         assert row.execution == 'CANCELLED' and not row.reconciliationRequired
+
+
+def test_market_partial_fill_reconciles_actual_price_and_cancel_releases_only_proven_cash(tmp_path):
+    with ledger(tmp_path/'market.db') as db:
+        market = intent(orderType='MKT',limitPrice=None)
+        db.record_authorization(authorization(kind='manual',confirmedIntentHash=intent_hash(market)))
+        db.reserve(market,context(totalCash='1000'))
+        OrderExecutor(db,FakeBroker()).submit('paper:engineering','paper','intent-1',context(totalCash='1000'))
+        rec = OrderReconciler(db,'paper:engineering','paper',1)
+        assert Decimal(db.reservations('paper:engineering','paper')['cash']) == Decimal('631')
+        rec.apply(fill('market-fill','MKT-1','2','110'))
+        rec.apply(event('market-partial',status='PARTIALLY_FILLED',filled='2',remaining='4'))
+        rec.apply(fee('market-fee','MKT-1','0.25'))
+        rec.reconcile(proof(rec,cashBalance='779.75',positions={12:'2'}))
+        assert Decimal(db.reservations('paper:engineering','paper')['cash']) == Decimal('441')
+        rec.request_cancel('intent-1','market-cancel')
+        rec.apply(event('market-cancelled',status='CANCELLED',filled='2',remaining='0'))
+        assert Decimal(db.reservations('paper:engineering','paper')['cash']) > 0
+        rec.reconcile(proof(rec,cashBalance='779.75',positions={12:'2'}))
+        assert db.reservations('paper:engineering','paper')['cash'] == '0'
 
 
 def test_duplicates_and_stale_open_status_cannot_double_fill_or_reopen_terminal_order(tmp_path):

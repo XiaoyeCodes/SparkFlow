@@ -15,7 +15,7 @@ export const gateways: Gateway[] = [
   { title: '星图情报', path: '/starmap', eyebrow: 'INTEL MAP', Icon: Radar, tone: 'blue' },
   { title: '星河航道', path: '/galaxy', eyebrow: 'GALAXY', Icon: Orbit, tone: 'silver' },
   { title: '极速通道', path: '/hyperspeed', eyebrow: 'HYPERSPEED', Icon: Zap, tone: 'blue' },
-  { title: 'IBKR 账户', path: '/ibkr', eyebrow: 'PAPER / READ ONLY', Icon: Landmark, tone: 'green' },
+  { title: '交易模拟', path: '/ibkr', eyebrow: 'IBKR / READ ONLY', Icon: Landmark, tone: 'green' },
   { title: '定投工具', path: '/trader', eyebrow: 'ETF CORE', Icon: ChartNoAxesCombined, tone: 'green' },
   { title: '推荐书籍', path: '/stack', eyebrow: 'READING', Icon: BookOpenText, tone: 'warm' },
   { title: '个人项目集', path: '/artifacts', eyebrow: 'SHIPPED', Icon: Boxes, tone: 'silver' },

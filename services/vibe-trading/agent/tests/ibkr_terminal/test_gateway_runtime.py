@@ -103,7 +103,7 @@ def test_async_discovery_scans_process_custom_ports(api_event_loop):
     assert result.port == 45122
 
 
-def test_runtime_recovers_after_late_login_and_disconnect_without_browser_requests(tmp_path, api_event_loop):
+def test_runtime_detects_disconnect_and_waits_for_manual_reconnect(tmp_path, api_event_loop):
     async def scenario():
         with SnapshotStore(tmp_path / 'db') as store:
             app = create_app(store=store, session_token='test')
@@ -131,12 +131,23 @@ def test_runtime_recovers_after_late_login_and_disconnect_without_browser_reques
             runtime = GatewayRuntime(app, tmp_path / 'bindings.json', [binding()], discover=discover, factory=Connection, retry_seconds=.01)
             try:
                 first = await runtime.connect('paper')
-                assert first['phase'] == 'retrying'
+                assert first['phase'] == 'disconnected'
+                await asyncio.sleep(.04)
+                assert discoveries == ['paper']
+                await runtime.connect('paper')
                 async def ready(count):
                     while len(connections) < count or runtime.status('paper')['phase'] != 'ready':
                         await asyncio.sleep(.005)
                 await asyncio.wait_for(ready(1), 1)
                 connections[0].connected = False
+                async def disconnected():
+                    while runtime.status('paper')['phase'] != 'disconnected':
+                        await asyncio.sleep(.005)
+                await asyncio.wait_for(disconnected(), 1)
+                assert app.state.sessions['paper'].snapshot().connection == 'disconnected'
+                await asyncio.sleep(.04)
+                assert len(connections) == 1
+                await runtime.connect('paper')
                 await asyncio.wait_for(ready(2), 1)
                 assert runtime.status('paper')['apiPort'] == 45123
                 assert len(runtime.tasks) == 1

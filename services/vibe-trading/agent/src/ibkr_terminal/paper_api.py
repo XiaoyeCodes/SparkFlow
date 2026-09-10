@@ -17,7 +17,7 @@ from .managed_events import ManagedOrderObserver
 from .reconcile import OrderReconciler
 
 PREFIX='/api/ibkr-terminal/paper/'
-READ_PATHS={PREFIX+'status',PREFIX+'contract',PREFIX+'reconcile'}
+READ_PATHS={PREFIX+'status',PREFIX+'contract',PREFIX+'quote',PREFIX+'reconcile'}
 WRITE_PATHS={PREFIX+p for p in ('configure','preview','confirm','cancel','stop')}
 
 
@@ -77,25 +77,40 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
         policy=current.source.scope if current else None
         with ledger._lock:
             orders=ledger._records(binding.accountKey,'paper')[-100:] if binding else []
+            from .paper_views import order_display
+            fills=OrderReconciler(ledger,binding.accountKey,'paper',source.session.revision).executions() if binding else []
+            orders=[order_display(record,fills) for record in orders]
         writable=bool(binding and binding.mode=='paper' and binding.readonly is False)
         return {'enabled':bool(current and current.enabled and policy.expiresAt>clock()),'available':writable,
+            'supportedOrderTypes':['LMT','MKT'],
             'account':(binding.brokerAccount[:2]+'***'+binding.brokerAccount[-3:]) if binding else None,
             'accountKey':binding.accountKey if binding else None,'policy':policy,'orders':orders,
             'connection':state.connection if state else 'unconfigured','state':state.state if state else 'permission-required',
             'detail':state.detail if state else '等待指定模拟账户连接。'}
 
     @app.get(PREFIX+'contract')
-    async def contract(symbol:str):
+    async def contract(symbol:str='',conId:int=0):
         from ib_async import Contract as IbContract
         import re
-        if not re.fullmatch(r'[A-Za-z][A-Za-z0-9. -]{0,15}',symbol):
+        if not (conId > 0 and not symbol) and not (conId == 0 and re.fullmatch(r'[A-Za-z][A-Za-z0-9. -]{0,15}',symbol)):
             return JSONResponse({'detail':'INVALID_SYMBOL'},status_code=422)
         try:
             async with lock:
                 source=connection()
-                rows=await asyncio.wait_for(source._ib.reqContractDetailsAsync(IbContract(symbol=symbol.upper(),secType='STK',exchange='SMART',currency='USD')),4)
+                rows=await asyncio.wait_for(source._ib.reqContractDetailsAsync(IbContract(conId=conId,symbol=symbol.upper(),secType='STK',exchange='SMART',currency='USD')),4)
                 return [{'conId':r.contract.conId,'symbol':r.contract.symbol,'currency':r.contract.currency,
                     'exchange':r.contract.primaryExchange,'name':r.longName} for r in rows[:20] if r.contract.secType=='STK']
+        except Exception as exc:
+            return error(exc)
+
+    @app.get(PREFIX+'quote')
+    async def quote(conId:int):
+        if conId <= 0:
+            return JSONResponse({'detail':'INVALID_CONTRACT'},status_code=422)
+        try:
+            async with lock:
+                from .paper_quote import read_quote
+                return await read_quote(connection(),conId,clock)
         except Exception as exc:
             return error(exc)
 

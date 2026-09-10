@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from uuid import uuid4
 
 from .audit import append_event, read_events
-from .risk import Authorization, OrderIntent, RiskContext, RiskDenied, canonical, check_risk, intent_hash
+from .risk import Authorization, OrderIntent, RiskContext, RiskDenied, canonical, check_risk, intent_hash, reservation_price
 from .schemas import Contract
 from .identity import BrokerIdentity, BrokerSession
 
@@ -34,6 +34,7 @@ class OrderRecord(Contract):
     reservedCash: str
     reservedNotional: str
     reservedQuantity: str
+    reservationPrice: str | None = None
     orderId: int | None = None
     clientId: int | None = None
     permId: int | None = None
@@ -263,7 +264,8 @@ class OrderLedger:
             return previous
         grant, reserved, day = self._validate(intent, context, now)
         record = OrderRecord(intent=intent, bodyHash=body_hash, source=grant.source, submission='PERSISTED', execution='PENDING',
-            reservedCash=reserved['cash'], reservedNotional=reserved['notional'], reservedQuantity=reserved['quantity'])
+            reservedCash=reserved['cash'], reservedNotional=reserved['notional'], reservedQuantity=reserved['quantity'],
+            reservationPrice=format(reservation_price(intent, context), 'f') if intent.orderType == 'MKT' else None)
         self._db.execute('INSERT INTO order_intents VALUES(?,?,?,?,?,?,?)', (intent.mode, intent.accountKey, intent.clientIntentId, record.model_dump_json(), canonical(context), day, now.timestamp()))
         append_event(self._db, intent.accountKey, 'INTENT_RESERVED', now.isoformat(), {'clientIntentId': intent.clientIntentId,
             'bodyHash': body_hash, 'contextHash': hashlib.sha256(canonical(context).encode()).hexdigest(), 'reservation': reserved})
@@ -345,7 +347,12 @@ class OrderLedger:
             if record.submission != 'PERSISTED':
                 return record, False
             now = self.clock()
-            self._validate(record.intent, context, now, exclude=intent_id)
+            _, reserved, _ = self._validate(record.intent, context, now, exclude=intent_id)
+            if record.intent.orderType == 'MKT':
+                record = record.model_copy(update={
+                    'reservationPrice': format(max(Decimal(record.reservationPrice), reservation_price(record.intent, context)), 'f'),
+                    **{field: format(max(Decimal(getattr(record, field)), Decimal(reserved[key])), 'f')
+                       for field, key in [('reservedCash','cash'), ('reservedNotional','notional'), ('reservedQuantity','quantity')]}})
             identity = self._allocate_identity(record, channel)
             record = record.model_copy(update={'submission': 'SUBMITTING', 'identity': identity, 'orderId': identity.orderId, 'clientId': identity.clientId})
             # A unique durable attempt is claimed before calling any broker.

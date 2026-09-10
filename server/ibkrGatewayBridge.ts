@@ -82,6 +82,6 @@ export async function discoverSparkFlowGateway(root: string, port: number, mode:
   if (response.status === 404 || response.status === 403) throw new Error('本地桥接仍在运行旧版本，请重启 SparkFlow 本地桥接以启用 API 端口自动发现。');
   if (!response.ok) throw new Error('本地 IBKR API 发现服务暂不可用。');
   const value = await response.json() as { phase?: string; apiPort?: number; detail?: string };
-  if (!['ready', 'waiting', 'connecting', 'retrying'].includes(value.phase ?? '') || typeof value.detail !== 'string') throw new Error('本地 IBKR API 发现服务返回了无效状态。');
+  if (!['ready', 'waiting', 'connecting', 'retrying', 'disconnected'].includes(value.phase ?? '') || typeof value.detail !== 'string') throw new Error('本地 IBKR API 发现服务返回了无效状态。');
   return value;
 }

@@ -5,6 +5,7 @@ create an authorization or reserve funds. Confirmation only persists an exact
 intent; broker transport remains a separate, disabled boundary.
 """
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import hashlib
 from typing import Literal, Protocol
 from uuid import uuid4
@@ -30,14 +31,18 @@ class DraftOrder(Contract):
     conId: int = Field(gt=0, strict=True)
     side: Literal['BUY', 'SELL']
     quantity: Amount
-    orderType: Literal['LMT']
-    limitPrice: Amount
+    orderType: Literal['LMT', 'MKT']
+    limitPrice: Amount | None = None
     tif: Literal['DAY']
 
     @model_validator(mode='after')
     def valid_scope(self):
         if not self.accountKey.startswith(f'{self.mode}:'):
             raise ValueError('invalid account namespace')
+        if self.orderType == 'LMT' and (self.limitPrice is None or Decimal(self.limitPrice) <= 0):
+            raise ValueError('positive limit price required')
+        if self.orderType == 'MKT' and (self.mode != 'paper' or self.limitPrice is not None):
+            raise ValueError('market orders require paper mode and no limit price')
         return self
 
 
@@ -74,8 +79,8 @@ class OrderPreview(Contract):
     currency: Identifier
     side: Literal['BUY', 'SELL']
     quantity: Amount
-    orderType: Literal['LMT']
-    limitPrice: Amount
+    orderType: Literal['LMT', 'MKT']
+    limitPrice: Amount | None
     tif: Literal['DAY']
     snapshotId: Identifier
     reservedCash: Amount
@@ -168,7 +173,8 @@ class OrderReviewService:
             reservedCash=reserved['cash'], reservedNotional=reserved['notional'],
             reservedQuantity=reserved['quantity'], testData=loaded.scope.source == 'fixture',
             warnings=(('工程测试数据；不得视为 IBKR 账户事实。',) if loaded.scope.source == 'fixture' else ())
-                + (('确认后会向当前 IBKR 模拟账户发送此笔限价单；成交由券商回报确认。',) if self.broker_submission
+                + (('市价单按实际成交价结算；现金按参考价加 5% 预留，这不是成交价格上限。',) if draft.orderType == 'MKT' else ())
+                + (('确认后会向当前 IBKR 模拟账户发送此笔订单；成交由券商回报确认。',) if self.broker_submission
                     else ('确认仅在本地持久化；券商提交仍保持禁用。',)))
         stored = StoredPreview(draft=draft, sourceInput=loaded, intent=intent, authorization=grant, preview=preview)
         self.ledger.save_preview(preview_id, draft.accountKey, draft.mode, body_hash, canonical(stored), expires_at.timestamp())

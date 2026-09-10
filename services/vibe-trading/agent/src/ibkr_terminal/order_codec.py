@@ -44,18 +44,19 @@ def encode_order(command, binding, instrument):
         raise RiskDenied('UNSUPPORTED_COMMAND')
     command = type(command).model_validate(command.model_dump())
     identity, intent, binding, instrument = _scope(command.identity, command.intent, binding, instrument)
-    if intent.orderType != 'LMT' or intent.tif != 'DAY':
+    if intent.tif != 'DAY' or (intent.orderType == 'MKT' and (binding.mode != 'paper' or isinstance(command, ModificationCommand))):
         raise RiskDenied('UNSUPPORTED_ORDER_POLICY')
-    price, tick = Decimal(intent.limitPrice), Decimal(instrument.minTick)
+    price, tick = Decimal(intent.limitPrice) if intent.limitPrice is not None else None, Decimal(instrument.minTick)
     with localcontext() as arithmetic:
         arithmetic.prec = 80
-        if price <= 0 or tick <= 0 or price % tick or Decimal(intent.quantity) % Decimal(instrument.minQuantity):
+        if tick <= 0 or price is not None and (price <= 0 or price % tick) or Decimal(intent.quantity) % Decimal(instrument.minQuantity):
             raise RiskDenied('INVALID_ORDER_INCREMENT')
     native_contract = IbContract(conId=instrument.conId, symbol=instrument.symbol, secType=instrument.secType,
         currency=instrument.currency, exchange=instrument.exchange, primaryExchange=instrument.primaryExchange or '', multiplier='1')
     native_order = Order(orderId=identity.orderId, clientId=identity.clientId, permId=command.permId if isinstance(command, ModificationCommand) else 0,
         account=binding.brokerAccount, orderRef=identity.orderRef, action=intent.side, totalQuantity=Decimal(intent.quantity),
-        orderType='LMT', lmtPrice=price, tif='DAY', outsideRth=False, transmit=True)
+        orderType=intent.orderType, tif='DAY', outsideRth=False, transmit=True,
+        **({'lmtPrice': price} if price is not None else {}))
     return native_contract, native_order
 
 

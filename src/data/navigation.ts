@@ -6,5 +6,6 @@ export const primaryNavigation: PrimaryNavigationItem[] = [
   { label: '每日简报', path: '/council' },
   { label: '今日新闻', path: '/signals' },
   { label: 'AI助手', path: '/assistant' },
+  { label: '交易模拟', path: '/ibkr' },
   { label: '定投工具', path: '/trader' }
 ];

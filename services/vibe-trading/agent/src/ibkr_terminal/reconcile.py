@@ -124,13 +124,22 @@ class OrderReconciler:
             fees[event.execId] = event
         return fees
 
+    def _reservation_price(self, record):
+        if record.terms.limitPrice is not None:
+            return Decimal(record.terms.limitPrice)
+        if record.terms.orderType != 'MKT' or record.reservationPrice is None:
+            raise RiskDenied('MISSING_MARKET_RESERVATION')
+        observed = [Decimal(fill.price) for fill in self._executions()
+            if (fill.permId, fill.clientId, fill.orderId) == (record.permId, record.clientId, record.orderId)]
+        return max([Decimal(record.reservationPrice), *observed])
+
     def _full_hold(self, record):
         # Authorization expiry/revocation never prevents following existing risk.
         row = self.db.execute('SELECT payload FROM order_authorizations WHERE id=?', (record.terms.authorizationId,)).fetchone()
         fee = Decimal(json.loads(row[0])['limits']['feeReserve'])
         with localcontext() as arithmetic:
             arithmetic.prec = 80
-            value = Decimal(record.terms.quantity) * Decimal(record.terms.limitPrice)
+            value = Decimal(record.terms.quantity) * self._reservation_price(record)
             return record.model_copy(update={'reservedCash': format((value if record.intent.side == 'BUY' else Decimal(0)) + fee, 'f'),
                 'reservedNotional': format(value if record.intent.side == 'BUY' else Decimal(0), 'f'),
                 'reservedQuantity': record.terms.quantity if record.intent.side == 'SELL' else '0', 'reconciliationRequired': True})
@@ -350,9 +359,9 @@ class OrderReconciler:
                     changes = dict(reservedCash='0', reservedNotional='0', reservedQuantity='0', reconciliationRequired=False)
                 else:
                     original = self._full_hold(record)
-                    full_value = Decimal(record.terms.quantity) * Decimal(record.terms.limitPrice) if record.intent.side == 'BUY' else Decimal(0)
+                    full_value = Decimal(record.terms.quantity) * self._reservation_price(record) if record.intent.side == 'BUY' else Decimal(0)
                     fee_hold = Decimal(original.reservedCash) - full_value
-                    pending_value = remaining * Decimal(record.terms.limitPrice) if record.intent.side == 'BUY' else Decimal(0)
+                    pending_value = remaining * self._reservation_price(record) if record.intent.side == 'BUY' else Decimal(0)
                     changes = dict(reservedCash=format(pending_value + fee_hold, 'f'), reservedNotional=format(pending_value, 'f'),
                         reservedQuantity=format(remaining if record.intent.side == 'SELL' else Decimal(0), 'f'), reconciliationRequired=False)
                 updated.append(record.model_copy(update=changes))

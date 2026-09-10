@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Holding } from '../../lib/ibkr/workbenchTypes';
 
-export function HoldingLogo({ holding }: { holding: Holding }) {
+export function HoldingLogo({ holding }: { holding: Pick<Holding, 'symbol' | 'currency' | 'assetType' | 'exchange'> }) {
   const { symbol, currency, assetType, exchange } = holding;
   const query = new URLSearchParams({ symbol, currency, assetType: assetType ?? '', exchange: exchange ?? '' }).toString();
   const [image, setImage] = useState<{ key: string; src: string } | null>(null);

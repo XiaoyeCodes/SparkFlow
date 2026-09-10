@@ -103,3 +103,41 @@ test('expired snapshots are not advertised as connected', async () => {
     assert.equal((await f.service.state()).connection.state, 'disconnected');
   } finally { await f.close(); }
 });
+
+for (const mode of ['paper', 'live']) test(`${mode} status observes a closed broker without discovery or clearing holdings`, async () => {
+  const f = await fixture(mode);
+  try {
+    await f.service.connectGateway();
+    const before = (await f.service.state()).snapshot;
+    let probes = 0;
+    globalThis.fetch = async (url, init) => {
+      probes++;
+      assert.match(String(url), new RegExp(`snapshot\\?mode=${mode}$`));
+      assert.equal(init.headers.Authorization, 'Bearer private-local-token');
+      return new Response(JSON.stringify({ ...f.snapshot, connection: 'disconnected', state: 'stale' }));
+    };
+    f.service.nextGatewayHealth = 0;
+    const [a, b] = await Promise.all([f.service.state(), f.service.state()]);
+    assert.equal(probes, 1);
+    for (const current of [a, b]) {
+      assert.equal(current.connection.state, 'disconnected');
+      assert.equal(current.snapshot.snapshotId, before.snapshotId);
+      assert.deepEqual(current.snapshot.positions, before.positions);
+      assert.match(current.connection.detail, /智能连接/);
+    }
+    await f.service.tick(); await f.service.state();
+    assert.equal(probes, 1); assert.equal(f.discoveries(), 1);
+  } finally { await f.close(); }
+});
+
+test('a dead local bridge stops advertising an online account', async () => {
+  const f = await fixture();
+  try {
+    await f.service.connectGateway();
+    globalThis.fetch = async () => { throw new Error('connection refused'); };
+    const current = await f.service.state();
+    assert.equal(current.connection.state, 'disconnected');
+    assert.match(current.connection.detail, /桥接服务/);
+    assert.equal(f.discoveries(), 1);
+  } finally { await f.close(); }
+});

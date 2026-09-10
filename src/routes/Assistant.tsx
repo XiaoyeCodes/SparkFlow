@@ -27,6 +27,7 @@ import { ResearchHistoryItem } from '../components/ResearchHistoryItem';
 import { exportSparkFlowResearchPdf } from '../lib/exportResearchPdf';
 import { buildPortfolioAnalysisPrompt, displayAssistantPrompt, portfolioAnalysisStarterPrompt } from '../lib/ibkr/assistantPrompt';
 import type { WorkbenchState } from '../lib/ibkr/workbenchTypes';
+import './Assistant.css';
 
 type AssistantRouteState = {
   starmapContext?: string;
@@ -354,6 +355,7 @@ export function Assistant() {
   const activeAttemptRef = useRef('');
   const completedAttemptsRef = useRef(new Set<string>());
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<HTMLFormElement | null>(null);
   const latestQuestionEndRef = useRef<HTMLDivElement | null>(null);
   const pendingQuestionScrollRef = useRef<ScrollBehavior | null>(null);
   const pendingHistoryScrollRef = useRef(false);
@@ -364,6 +366,22 @@ export function Assistant() {
   const isRunning = runState === 'connecting' || runState === 'researching';
   const isStopping = isRunning && stoppingSessionId === sessionId;
   const latestUserMessageId = [...messages].reverse().find((message) => message.role === 'user')?.id || '';
+  const resizePromptInput = useCallback(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    const composerBefore = composerRef.current?.getBoundingClientRect();
+    const keepBottomPinned = Boolean(composerBefore && composerBefore.bottom > 0 && composerBefore.top < window.innerHeight);
+    const maxHeight = Math.max(120, Math.min(320, Math.floor(window.innerHeight * 0.38)));
+    input.style.height = '0px';
+    const contentHeight = input.scrollHeight;
+    input.style.height = `${Math.max(44, Math.min(contentHeight, maxHeight))}px`;
+    input.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+    const composerAfter = composerRef.current?.getBoundingClientRect();
+    if (keepBottomPinned && composerBefore && composerAfter) {
+      const shift = composerAfter.bottom - composerBefore.bottom;
+      if (Math.abs(shift) > 0.5) window.scrollBy({ top: shift, behavior: 'instant' });
+    }
+  }, []);
 
   const applyProgressSnapshot = useCallback((sid: string, snapshot: ResearchSnapshot) => {
     writeResearchSnapshot(sid, snapshot);
@@ -561,6 +579,15 @@ export function Assistant() {
   useEffect(() => {
     window.localStorage.setItem(sidebarStorageKey, String(historyCollapsed));
   }, [historyCollapsed]);
+
+  useLayoutEffect(() => {
+    resizePromptInput();
+  }, [prompt, resizePromptInput]);
+
+  useEffect(() => {
+    window.addEventListener('resize', resizePromptInput);
+    return () => window.removeEventListener('resize', resizePromptInput);
+  }, [resizePromptInput]);
 
   useLayoutEffect(() => {
     if (!pendingHistoryScrollRef.current) return;
@@ -1104,7 +1131,7 @@ export function Assistant() {
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+              <div className="assistant-history-scroll min-h-0 flex-1 overflow-y-auto px-2 py-3">
                 {sessionsLoading ? (
                   <div className="space-y-2 px-2 py-1">
                     {[0, 1, 2, 3].map((item) => (
@@ -1280,8 +1307,9 @@ export function Assistant() {
 
           <div className="sticky bottom-0 z-20 border-t border-white/10 bg-[#08090b]/95 pb-2 pt-4 backdrop-blur-xl">
             <form
+              ref={composerRef}
               onSubmit={submit}
-              className="flex min-h-16 items-center gap-2 rounded-[32px] border border-white/18 bg-[#111216] py-2 pl-5 pr-2 transition focus-within:border-white/38"
+              className="flex min-h-16 items-end gap-2 rounded-[32px] border border-white/18 bg-[#111216] py-2 pl-5 pr-2 transition focus-within:border-white/38"
             >
               <textarea
                 ref={inputRef}
@@ -1290,7 +1318,7 @@ export function Assistant() {
                 onKeyDown={handleInputKeyDown}
                 maxLength={5000}
                 rows={1}
-                className="m-0 block min-h-11 max-h-28 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-2.5 text-sm leading-6 text-white outline-none [field-sizing:content] placeholder:text-white/32"
+                className="assistant-prompt-scroll m-0 block min-h-11 min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent px-0 py-2.5 text-sm leading-6 text-white outline-none placeholder:text-white/32"
                 placeholder="输入公司、市场、策略或投资问题..."
                 aria-label="深度研究问题"
               />

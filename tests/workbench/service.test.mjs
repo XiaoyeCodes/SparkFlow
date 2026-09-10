@@ -104,11 +104,24 @@ test('paper order proxy injects the selected paper scope and never exposes the b
     assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/paper/preview');
     assert.equal(sent.init.headers.Authorization, 'Bearer private-bridge-token');
     assert.deepEqual(JSON.parse(sent.init.body), { conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50', accountKey: 'paper:selected', mode: 'paper', orderType: 'LMT', tif: 'DAY' });
+    await service.paperRequest('preview', { conId: 12, side: 'BUY', quantity: '10', orderType: 'MKT' });
+    assert.deepEqual(JSON.parse(sent.init.body), { conId: 12, side: 'BUY', quantity: '10', accountKey: 'paper:selected', mode: 'paper', orderType: 'MKT', limitPrice: null, tif: 'DAY' });
+    await assert.rejects(() => service.paperRequest('preview', { conId: 12, side: 'BUY', quantity: '10', orderType: 'MKT', limitPrice: '100' }));
     await assert.rejects(() => service.paperRequest('preview', { accountKey: 'live:other', conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50' }), /请先|无效|结构|unrecognized/i);
     await service.paperRequest('transport', { explicit: true });
     assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/gateway/paper-orders');
     assert.deepEqual(JSON.parse(sent.init.body), { explicit: true });
     await assert.rejects(() => service.paperRequest('transport', { explicit: false }));
+    await service.paperRequest('quote', { conId: 265598 });
+    assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/paper/quote?conId=265598');
+    assert.equal(sent.init.method, 'GET');
+    assert.equal(sent.init.body, undefined);
+    await service.paperRequest('contract', { conId: 265598 });
+    assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/paper/contract?conId=265598');
+    await assert.rejects(() => service.paperRequest('quote', { conId: -1 }));
+    await assert.rejects(() => service.paperRequest('contract', { conId: 265598, symbol: 'AAPL' }));
+    service.saved.gatewayMode = 'live';
+    await assert.rejects(() => service.paperRequest('quote', { conId: 265598 }), /模拟盘/);
   } finally { globalThis.fetch = originalFetch; }
 });
 test('backtest proxy accepts only structured user strategies and stamps data inside the Python service', async () => {

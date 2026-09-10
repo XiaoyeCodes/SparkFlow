@@ -97,21 +97,28 @@ class PaperRiskSource:
             raise RiskDenied('CONTRACT_SCOPE')
         if self.instrument is None or self.instrument.conId != draft.conId:
             await self.resolve(con_id=draft.conId)
-        exchanges = self.details.validExchanges.split(',')
-        rules = self.details.marketRuleIds.split(',')
-        if 'SMART' not in exchanges or len(exchanges) != len(rules):
-            raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
-        rule_id = rules[exchanges.index('SMART')]
-        if not rule_id.isdigit():
-            raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
-        ladder = await self.ib.reqMarketRuleAsync(int(rule_id))
-        applicable = [r for r in ladder or [] if decimal_text(r.lowEdge) is not None and Decimal(str(r.lowEdge)) <= Decimal(draft.limitPrice)]
-        if not applicable:
-            raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
-        tick = decimal_text(max(applicable, key=lambda r:Decimal(str(r.lowEdge))).increment)
-        if tick is None or Decimal(tick) <= 0:
-            raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
-        self.instrument = self.instrument.model_copy(update={'minTick':tick})
+        try:
+            regular = any(s.start <= self.clock() < s.end for s in self.details.liquidSessions())
+        except Exception as exc:
+            raise ReviewBlocked('TRADING_HOURS_UNAVAILABLE') from exc
+        if not regular:
+            raise ReviewBlocked('OUTSIDE_RTH')
+        if draft.orderType == 'LMT':
+            exchanges = self.details.validExchanges.split(',')
+            rules = self.details.marketRuleIds.split(',')
+            if 'SMART' not in exchanges or len(exchanges) != len(rules):
+                raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
+            rule_id = rules[exchanges.index('SMART')]
+            if not rule_id.isdigit():
+                raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
+            ladder = await self.ib.reqMarketRuleAsync(int(rule_id))
+            applicable = [r for r in ladder or [] if decimal_text(r.lowEdge) is not None and Decimal(str(r.lowEdge)) <= Decimal(draft.limitPrice)]
+            if not applicable:
+                raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
+            tick = decimal_text(max(applicable, key=lambda r:Decimal(str(r.lowEdge))).increment)
+            if tick is None or Decimal(tick) <= 0:
+                raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
+            self.instrument = self.instrument.model_copy(update={'minTick':tick})
         if not await self.connection.reconcile():
             raise RiskDenied('RECONCILIATION_REQUIRED')
         # Account summary and portfolio are separate completed broker reads.

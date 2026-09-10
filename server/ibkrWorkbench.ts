@@ -13,6 +13,9 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { IbkrMcp, atomicJson } from './ibkrMcp.ts';
 import { IbkrMarket, type JsonFetcher } from './ibkrMarket.ts';
+import { EastmoneyTicketQuotes } from './ibkrEastmoneyTicket.ts';
+import { searchStocks } from './ibkrStockSearch.ts';
+import { TicketHistories } from './ibkrTicketHistory.ts';
 import { IbkrProfiles, type ProfileBatchFetcher } from './ibkrProfiles.ts';
 import { createIbkrAi } from './ibkrAi.ts';
 import { accountRisk, defaults, digest, newYorkClock, preferencesSchema } from './ibkrWorkbenchCore.ts';
@@ -45,7 +48,10 @@ const paperLimitsSchema = z.object({
   feeReserve: decimalAmount,
 }).strict();
 const paperConfigureSchema = z.object({ conIds: z.array(z.number().int().positive()).min(1).max(20), expiresAt: z.string().datetime({ offset: true }), limits: paperLimitsSchema, explicit: z.literal(true) }).strict();
-const paperPreviewSchema = z.object({ conId: z.number().int().positive(), side: z.enum(['BUY', 'SELL']), quantity: decimalAmount, limitPrice: decimalAmount }).strict();
+const paperPreviewSchema = z.union([
+  z.object({ conId: z.number().int().positive(), side: z.enum(['BUY', 'SELL']), quantity: decimalAmount, limitPrice: decimalAmount, orderType: z.literal('LMT').optional() }).strict(),
+  z.object({ conId: z.number().int().positive(), side: z.enum(['BUY', 'SELL']), quantity: decimalAmount, orderType: z.literal('MKT') }).strict(),
+]);
 const paperConfirmSchema = z.object({ previewId: z.string().min(1).max(128), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), explicit: z.literal(true) }).strict();
 const paperCancelSchema = z.object({ intentId: z.string().min(1).max(128), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), explicit: z.literal(true) }).strict();
 const strategyIdSchema = z.string().min(1).max(128).regex(/^user:[A-Za-z0-9][A-Za-z0-9:_-]*$/);
@@ -144,7 +150,11 @@ export class IbkrWorkbenchService {
   private scheduleStartedAt = new Date().toISOString();
   private connectionDetail = ''; private storageError = ''; private ai; private ownsLease = false;
   private nextGatewayAttempt = 0;
+  private gatewayHealthFlight?: Promise<void>;
+  private nextGatewayHealth = 0;
   readonly mcp: IbkrMcp; readonly market: IbkrMarket; readonly profiles: IbkrProfiles;
+  private ticketQuotes = new EastmoneyTicketQuotes(url => this.fetchJson(url));
+  private ticketHistories = new TicketHistories(url=>this.fetchJson(url));
   constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] }), private gatewayBridgeStarter: GatewayBridgeStarter = startSparkFlowBridge, private gatewayDiscoverer = discoverSparkFlowGateway) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
   async start() {
     this.scheduleStartedAt = new Date().toISOString();
@@ -168,6 +178,32 @@ export class IbkrWorkbenchService {
   private gatewayConnected() {
     const snapshot = this.record()?.snapshot;
     return Boolean(snapshot && snapshot.mode === (this.saved.gatewayMode ?? 'live') && snapshot.connection === 'connected' && ['ready', 'empty'].includes(snapshot.state) && snapshot.asOf && Date.now() - Date.parse(snapshot.asOf) < 180000);
+  }
+  private async checkGatewayHealth() {
+    if (this.saved.source !== 'gateway' || this.storageError || this.disposed || this.syncFlight || this.gatewayStartFlight) return;
+    if (this.gatewayHealthFlight) return this.gatewayHealthFlight;
+    const record = this.record();
+    if (!record || record.snapshot.connection !== 'connected' || Date.now() < this.nextGatewayHealth) return;
+    const revision = this.generation, snapshot = record.snapshot, mode = this.saved.gatewayMode ?? 'live';
+    this.gatewayHealthFlight = (async () => {
+      let detail = '';
+      try {
+        const port = await this.gatewayBridgePort();
+        const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
+        const response = await fetch(`http://127.0.0.1:${port}/api/ibkr-terminal/snapshot?mode=${mode}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2000) });
+        if (!response.ok) throw new Error('BRIDGE_UNAVAILABLE');
+        const value = await response.json();
+        if (!validSnapshot(value) || value.mode !== mode || value.accountKey !== snapshot.accountKey || value.testData) throw new Error('INVALID_HEALTH_SCOPE');
+        if (value.connection !== 'connected') detail = 'IBKR Gateway 已断开，请登录客户端后点击“智能连接”。';
+      } catch { detail = '无法确认本机 IBKR 连接，已停止显示为在线；请检查客户端和桥接服务后点击“智能连接”。'; }
+      if (detail && revision === this.generation && record === this.record() && record.snapshot === snapshot && !this.syncFlight && !this.gatewayStartFlight && !this.disposed) {
+        this.connectionDetail = detail;
+        record.snapshot = { ...snapshot, state: 'stale', connection: 'disconnected', detail };
+        this.nextSync = 0;
+        await this.persist();
+      }
+    })();
+    try { await this.gatewayHealthFlight; } finally { this.gatewayHealthFlight = undefined; this.nextGatewayHealth = Date.now() + 3000; }
   }
   private scheduleBoundary(record: AccountRecord) {
     const configured = record.scheduleEffectiveAt?.analysis;
@@ -217,12 +253,13 @@ export class IbkrWorkbenchService {
     await this.syncFlight;
     if (revision !== this.generation || this.disposed) return port;
     await this.sync(false);
-    if (!this.gatewayConnected()) throw new GatewayConnectionError(this.connectionDetail || 'API 已就绪，账户快照仍在同步；系统会自动重试。');
+    if (!this.gatewayConnected()) throw new GatewayConnectionError(this.connectionDetail || 'API 已就绪，账户快照尚未同步，请点击智能连接重试。');
     return port;
   }
   async tick() {
     if (this.storageError || this.disposed) return;
-    if (Date.now() >= this.nextSync && (this.saved.source === 'gateway' ? this.gatewayConnected() : Boolean(this.saved.selectedKey || this.mcp.status().authorized))) await this.sync();
+    await this.checkGatewayHealth();
+    if (Date.now() >= this.nextSync && (this.saved.source === 'gateway' ? this.gatewayConnected() : Boolean(this.saved.selectedKey || this.mcp.status().authorized))) await this.sync(false);
     const record = this.record(); if (!record || record.snapshot.state === 'stale' || !record.grant) return;
     await this.runSchedules();
   }
@@ -370,6 +407,7 @@ export class IbkrWorkbenchService {
   async modelStatus() { try { this.model = await this.ai.status(); } catch { this.model = { provider: '', model: '', fingerprint: '', configured: false }; } return this.model; }
   async refreshQuotes() { const snapshot = this.record()?.snapshot; const revision = this.generation; if (!snapshot) return this.quotes; const quotes = await this.market.quotes(snapshot.positions); if (revision === this.generation) this.quotes = quotes; return revision === this.generation ? quotes : []; }
   async state(): Promise<WorkbenchState> {
+    await this.checkGatewayHealth();
     await this.modelStatus(); const record = this.record(); const today = newYorkClock(new Date()).date;
     const gatewayMode = this.saved.gatewayMode ?? 'live';
     let snapshot = record?.snapshot ?? emptySnapshot(this.saved.source === 'gateway' ? gatewayMode : 'live');
@@ -380,7 +418,22 @@ export class IbkrWorkbenchService {
     const performance = this.saved.source === 'gateway' ? gatewayPerformance(record?.history ?? [], snapshot.baseCurrency, gatewayMode) : record?.performance ?? localPerformance(record?.history ?? [], snapshot.baseCurrency);
     return { source: this.saved.source, gatewayMode, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || snapshot.detail || `IB Gateway ${gatewayMode === 'paper' ? '模拟盘' : '实盘'}只读服务`, port: gatewayPort, tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { analysis: this.scheduleStatus() }, metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance, researchServices:(this.model as any).researchServices??[] };
   }
-  async paperRequest(endpoint: 'status'|'contract'|'transport'|'configure'|'preview'|'confirm'|'cancel'|'reconcile'|'stop', payload?: unknown) {
+  async paperMarketQuote(payload: unknown) {
+    this.assertAvailable();
+    const contract = z.object({ conId: z.number().int().positive(), symbol: z.string().regex(/^[A-Z0-9][A-Z0-9. _\-]{0,19}$/), currency: z.literal('USD'), exchange: z.string().max(20).optional() }).strict().parse(payload);
+    return this.ticketQuotes.quote(contract);
+  }
+  async paperSearch(payload: unknown) {
+    this.assertAvailable();
+    const {query} = z.object({query:z.string().trim().min(1).max(60)}).strict().parse(payload);
+    return searchStocks(query,url=>this.fetchJson(url));
+  }
+  async paperHistory(payload:unknown) {
+    this.assertAvailable();
+    const {period,...contract}=z.object({conId:z.number().int().positive(),symbol:z.string().regex(/^[A-Z0-9][A-Z0-9. _\-]{0,19}$/),currency:z.literal('USD'),exchange:z.string().max(20).optional(),period:z.enum(['intraday','day','week','month','year'])}).strict().parse(payload);
+    return this.ticketHistories.history(contract,period);
+  }
+  async paperRequest(endpoint: 'status'|'contract'|'quote'|'transport'|'configure'|'preview'|'confirm'|'cancel'|'reconcile'|'stop', payload?: unknown) {
     this.assertAvailable();
     if (this.saved.source !== 'gateway' || this.saved.gatewayMode !== 'paper') throw new Error('请先选择并连接 IB Gateway 模拟盘。');
     const record = this.record();
@@ -388,19 +441,22 @@ export class IbkrWorkbenchService {
     const port = await this.gatewayBridgePort();
     const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
     if (!token) throw new Error('本地桥接会话令牌不存在，请重新启动智能连接。');
-    const method = ['status','contract','reconcile'].includes(endpoint) ? 'GET' : 'POST';
+    const method = ['status','contract','quote','reconcile'].includes(endpoint) ? 'GET' : 'POST';
     let suffix = endpoint;
     let bodyValue: unknown;
     if (endpoint === 'contract') {
-      const value = z.object({ symbol: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9. -]{0,15}$/) }).strict().parse(payload);
-      suffix += `?symbol=${encodeURIComponent(value.symbol.toUpperCase())}`;
+      const value = z.union([z.object({ symbol: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9. -]{0,15}$/) }).strict(), z.object({ conId: z.number().int().positive() }).strict()]).parse(payload);
+      suffix += 'symbol' in value ? `?symbol=${encodeURIComponent(value.symbol.toUpperCase())}` : `?conId=${value.conId}`;
+    } else if (endpoint === 'quote') {
+      const value = z.object({ conId: z.number().int().positive() }).strict().parse(payload);
+      suffix += `?conId=${value.conId}`;
     } else if (endpoint === 'transport') bodyValue = z.object({ explicit: z.literal(true) }).strict().parse(payload);
     else if (endpoint === 'configure') {
       const value = paperConfigureSchema.parse(payload);
       bodyValue = { ...value, accountKey: record.snapshot.accountKey, mode: 'paper' };
     } else if (endpoint === 'preview') {
       const value = paperPreviewSchema.parse(payload);
-      bodyValue = { ...value, accountKey: record.snapshot.accountKey, mode: 'paper', orderType: 'LMT', tif: 'DAY' };
+      bodyValue = { ...value, accountKey: record.snapshot.accountKey, mode: 'paper', orderType: value.orderType ?? 'LMT', tif: 'DAY', ...((value.orderType === 'MKT') ? { limitPrice: null } : {}) };
     } else if (endpoint === 'confirm') bodyValue = paperConfirmSchema.parse(payload);
     else if (endpoint === 'cancel') bodyValue = paperCancelSchema.parse(payload);
     const target = endpoint === 'transport' ? '/api/ibkr-terminal/gateway/paper-orders' : `/api/ibkr-terminal/paper/${suffix}`;
@@ -409,6 +465,7 @@ export class IbkrWorkbenchService {
       ...(method === 'POST' ? { body: JSON.stringify(bodyValue ?? {}) } : {}), signal: AbortSignal.timeout(endpoint === 'transport' ? 40000 : endpoint === 'preview' || endpoint === 'reconcile' ? 15000 : 8000),
     });
     const result: any = await response.json().catch(() => ({}));
+    if (endpoint === 'quote' && response.status === 404) throw new Error('PAPER_BRIDGE_UPDATE_REQUIRED');
     if (!response.ok) throw new Error(typeof result?.detail === 'string' ? result.detail : 'PAPER_OPERATION_FAILED');
     return result;
   }
@@ -754,6 +811,10 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
         if (endpoint === 'source') { const value = z.object({ source: z.enum(['mcp', 'gateway']), gatewayMode: z.enum(['live', 'paper']).optional(), accountKey: z.string().regex(/^live:[a-zA-Z0-9:_-]+$/).optional() }).strict().parse(data); await instance.select(value.source, value.accountKey, value.gatewayMode); return json({ ok: true }); }
         if (endpoint === 'gateway-connect') { await instance.connectGateway(); return json(await instance.state()); }
         if (endpoint === 'paper/contract') return json(await instance.paperRequest('contract', data));
+        if (endpoint === 'paper/search') return json(await instance.paperSearch(data));
+        if (endpoint === 'paper/quote') return json(await instance.paperRequest('quote', data));
+        if (endpoint === 'paper/market-quote') return json(await instance.paperMarketQuote(data));
+        if (endpoint === 'paper/history') return json(await instance.paperHistory(data));
         if (endpoint === 'paper/transport') return json(await instance.paperRequest('transport', data));
         if (endpoint === 'paper/configure') return json(await instance.paperRequest('configure', data));
         if (endpoint === 'paper/preview') return json(await instance.paperRequest('preview', data));

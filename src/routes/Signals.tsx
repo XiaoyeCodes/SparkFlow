@@ -1,20 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
+  Activity,
   AlertCircle,
   ArrowUpRight,
+  BriefcaseBusiness,
   Check,
   ChevronDown,
+  CircuitBoard,
   ExternalLink,
   Flame,
+  Globe2,
+  Landmark,
   Languages,
   Loader2,
   Newspaper,
   Pause,
   Play,
   RefreshCw,
+  ShieldAlert,
   Sparkles,
+  Sprout,
+  UsersRound,
   X
 } from 'lucide-react';
 import { PageTransition } from '../components/PageTransition';
@@ -571,16 +580,59 @@ function ActionButton({ onClick, loading, disabled, icon, label, primary = false
   );
 }
 
+type NewsVisual = {
+  icon: LucideIcon;
+  code: string;
+  tone: string;
+  rgb: string;
+};
+
+function newsVisual(item: NewsItem): NewsVisual {
+  const text = `${item.title} ${item.summary || ''} ${item.categoryLabel}`.toLowerCase();
+  if (/(战争|冲突|袭击|制裁|军方|军演|geopolit|war\b|attack)/i.test(text)) {
+    return { icon: ShieldAlert, code: 'ALERT', tone: 'alert', rgb: '231, 107, 96' };
+  }
+  if (/(人工智能|\bai\b|芯片|半导体|机器人|算力|模型|科技|software|chip|robot)/i.test(text)) {
+    return { icon: CircuitBoard, code: 'TECH', tone: 'tech', rgb: '89, 172, 255' };
+  }
+  if (/(央行|利率|债券|股市|指数|汇率|通胀|金融|商业|盈利|market|stock|bond|rate)/i.test(text)) {
+    return { icon: BriefcaseBusiness, code: 'MARKET', tone: 'market', rgb: '232, 173, 89' };
+  }
+  if (/(政策|政府|国务院|监管|法规|选举|会议|policy|government|regulat)/i.test(text)) {
+    return { icon: Landmark, code: 'POLICY', tone: 'policy', rgb: '183, 145, 245' };
+  }
+  if (/(医疗|健康|药品|医院|疾病|health|medical|drug)/i.test(text)) {
+    return { icon: Activity, code: 'HEALTH', tone: 'health', rgb: '238, 124, 151' };
+  }
+  if (/(气候|能源|农业|粮食|环境|碳|climate|energy|farm)/i.test(text)) {
+    return { icon: Sprout, code: 'CLIMATE', tone: 'climate', rgb: '114, 214, 151' };
+  }
+  const fallback: Record<NewsItem['category'], NewsVisual> = {
+    tech: { icon: CircuitBoard, code: 'TECH', tone: 'tech', rgb: '89, 172, 255' },
+    finance: { icon: BriefcaseBusiness, code: 'MARKET', tone: 'market', rgb: '232, 173, 89' },
+    society: { icon: UsersRound, code: 'SOCIAL', tone: 'social', rgb: '103, 219, 193' },
+    livelihood: { icon: Landmark, code: 'PUBLIC', tone: 'policy', rgb: '183, 145, 245' },
+    world: { icon: Globe2, code: 'GLOBAL', tone: 'global', rgb: '87, 207, 211' }
+  };
+  return fallback[item.category];
+}
+
 function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsItem; index: number; onSelectSource: (source: string) => void; sortMode: NewsSortMode; now: number }) {
   const reducedMotion = useReducedMotion();
   const priority = newsPriority(item.weight);
+  const visual = newsVisual(item);
+  const VisualIcon = visual.icon;
   const metricLabel = sortMode === 'importance' ? '重要' : sortMode === 'heat' ? '热度' : sortMode === 'source' ? (item.sourceRank ? '榜序' : '序号') : '权重';
   const metric = sortMode === 'importance' ? item.importance : sortMode === 'heat' ? (item.sourceRank || item.sourceHeat ? item.heat : '—') : sortMode === 'source' ? (item.sourceRank || item.sourceOrder || '—') : item.weight;
   return (
-    <motion.article className="signals-item"
+    <motion.article className={`signals-item is-${priority} tone-${visual.tone}`} style={{ '--signals-item-rgb': visual.rgb } as CSSProperties}
       initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: Math.min(index * 0.02, 0.16) }}>
-      <span className={`signals-priority is-${priority}`} title={item.weightLabel} aria-label={item.weightLabel} />
+      <div className="signals-item-visual" aria-hidden="true">
+        <span><VisualIcon size={18} strokeWidth={1.65} /></span>
+        <small>{visual.code}</small>
+        <i className={`signals-priority is-${priority}`} />
+      </div>
       <div className="signals-item-body">
         <div className="signals-item-meta">
           <time dateTime={newsTimestamp(item.publishedAt) ? item.publishedAt : undefined}>{formatNewsTime(item.publishedAt)}</time>

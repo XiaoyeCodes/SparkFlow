@@ -1,4 +1,4 @@
-"""Supervise read-only sessions across late login, socket changes and disconnects."""
+"""Monitor manually connected sessions and report disconnects without reconnecting."""
 import asyncio
 import contextlib
 
@@ -28,7 +28,7 @@ class GatewayRuntime:
         else:
             self.attempts[mode].clear()
             self.wakes[mode].set()
-        # A browser request has a bound, while recovery survives its cancellation.
+        # A manual connection attempt may finish after its browser request ends.
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self.attempts[mode].wait(), 35)
         return self.status(mode)
@@ -99,10 +99,11 @@ class GatewayRuntime:
             except asyncio.CancelledError:
                 raise
             except Exception as error:
-                detail = str(error) if isinstance(error, DiscoveryError) else f'IBKR 账户连接暂不可用（{type(error).__name__}），正在自动重新识别端口并恢复。'
-                self.statuses[mode] = {'phase': 'retrying', 'detail': detail}
+                detail = str(error) if isinstance(error, DiscoveryError) else 'IBKR Gateway 已断开，请登录客户端后点击“智能连接”。'
+                self.statuses[mode] = {'phase': 'disconnected', 'detail': detail}
                 session.disconnected(detail)
                 self.attempts[mode].set()
+                return
             finally:
                 if connection:
                     connection.close(self.status(mode)['detail'])

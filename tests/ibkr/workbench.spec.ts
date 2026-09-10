@@ -263,6 +263,25 @@ test('gateway actions place smart connect on the left and disconnect on the righ
   await expect.poll(() => smartConnects).toBe(1);
 });
 
+for (const mode of ['live', 'paper'] as const) test(`${mode} Gateway updates a dropped connection even while quotes are stalled`, async ({ page }) => {
+  const data = state(true); data.source = 'gateway'; data.gatewayMode = mode;
+  data.snapshot.mode = mode;
+  let connects = 0, syncs = 0;
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', async route => { await new Promise(resolve => setTimeout(resolve, 12000)); await route.fulfill({ json: [] }).catch(() => {}); });
+  await page.route('**/api/ibkr-workbench/gateway-connect', route => { connects++; return route.fulfill({ json: data }); });
+  await page.route('**/api/ibkr-workbench/sync', route => { syncs++; return route.fulfill({ json: data }); });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
+  const panel = page.locator('.awb-connection-console');
+  await expect(panel).toHaveAttribute('data-connection-state', 'connected');
+  data.connection.state = 'disconnected'; data.connection.detail = 'IBKR Gateway 已断开，请登录客户端后点击“智能连接”。';
+  data.snapshot.connection = 'disconnected'; data.snapshot.state = 'stale';
+  await expect(panel).toHaveAttribute('data-connection-state', 'disconnected', { timeout: 8000 });
+  await expect(panel.getByRole('button', { name: '智能连接', exact: true })).toBeEnabled();
+  await expect(panel).toContainText('IBKR Gateway 已断开');
+  expect(connects).toBe(0); expect(syncs).toBe(0);
+});
+
 test('connected Gateway disconnect action releases the active connection', async ({ page }) => {
   const data = state(true);
   data.source = 'gateway';
@@ -298,23 +317,97 @@ test('paper trading page is honest while Gateway API remains readonly', async ({
   await expect(page.getByRole('button', { name: '开启本次模拟盘交易' })).toHaveCount(0);
 });
 
-test('paper policy form requires user limits and sends an explicit bounded scope', async ({ page }) => {
+test('paper ticket previews before sending and restores broker contracts after reload', async ({ page }) => {
   const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
-  const baseStatus = { enabled: false, available: true, account: 'DU***EST', accountKey: 'paper:ui-test', policy: null, orders: [], connection: 'connected', state: 'ready', detail: 'paper snapshot' };
-  let configured: any;
+  const stock = { conId: 265598, symbol: 'AAPL', currency: 'USD', exchange: 'NASDAQ', name: 'Apple Inc.' };
+  let current: any = { enabled: false, available: true, account: 'DU***EST', accountKey: 'paper:ui-test', policy: null, orders: [], connection: 'connected', state: 'ready', detail: 'paper snapshot' };
+  let configured: any, draft: any, confirmed = 0;
+  await page.route('**/api/ibkr-workbench/paper/history', route => {
+    const {period,symbol}=route.request().postDataJSON();
+    return route.fulfill({json:{period,symbol,bars:Array.from({length:20},(_,i)=>({time:period==='intraday'?`2026-09-09 21:${30+i}`:`2026-08-${String(i+1).padStart(2,'0')}`,open:248+i/10,high:251+i/10,low:247+i/10,close:250+i/10,volume:100+i*10})),source:'东方财富',adjustment:'不复权',timeZone:period==='intraday'?'北京时间':'交易日期',asOf:'2026-09-09',note:'工程测试数据'}});
+  });
+  await page.route('**/api/ibkr-workbench/logo?*', route => {
+    expect(new URL(route.request().url()).searchParams.get('assetType')).toBe('STK');
+    return route.fulfill({ json: { src: '/stock-logos/us-AAPL.svg' } });
+  });
+  const quote = { ...stock, last: '250', close: '248', bid: '249.99', ask: '250.01', high: '251', low: '247', minTick: null, state: 'reference', regularHours: null, nextOpen: null, asOf: '2026-09-09T20:00:00Z', fetchedAt: new Date().toISOString(), source: '东方财富', detail: '', bids: [{level:1,price:'249.99',size:'100'},{level:2,price:'249.98',size:'200'},{level:3,price:'249.97',size:'300'}], asks: [{level:1,price:'250.01',size:'100'},{level:2,price:'250.02',size:'200'},{level:3,price:'250.03',size:'300'}] };
   await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
   await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
-  await page.route('**/api/ibkr-workbench/paper/status', route => route.fulfill({ json: baseStatus }));
-  await page.route('**/api/ibkr-workbench/paper/contract', route => route.fulfill({ json: [{ conId: 265598, symbol: 'AAPL', currency: 'USD', exchange: 'NASDAQ', name: 'Apple Inc.' }] }));
-  await page.route('**/api/ibkr-workbench/paper/configure', route => { configured = route.request().postDataJSON(); return route.fulfill({ json: { ...baseStatus, enabled: true, policy: { conIds: [265598], expiresAt: configured.expiresAt } } }); });
+  await page.route('**/api/ibkr-workbench/paper/status', route => route.fulfill({ json: current }));
+  await page.route('**/api/ibkr-workbench/paper/contract', route => route.fulfill({ json: [stock] }));
+  await page.route('**/api/ibkr-workbench/paper/market-quote', route => route.fulfill({ json: quote }));
+  await page.route('**/api/ibkr-workbench/paper/configure', route => {
+    configured = route.request().postDataJSON();
+    current = { ...current, enabled: true, policy: { conIds: [265598], expiresAt: configured.expiresAt, limits: configured.limits } };
+    return route.fulfill({ json: current });
+  });
+  await page.route('**/api/ibkr-workbench/paper/preview', route => {
+    draft = route.request().postDataJSON();
+    return route.fulfill({ json: { ...draft, ...stock, previewId: 'preview:test', bodyHash: 'a'.repeat(64), expiresAt: new Date(Date.now() + 30000).toISOString(), mode: 'paper', accountKey: 'paper:ui-test', reservedNotional: '2500.10', reservedCash: '2505.10', warnings: [] } });
+  });
+  await page.route('**/api/ibkr-workbench/paper/confirm', async route => {
+    confirmed++;
+    expect(route.request().postDataJSON()).toEqual({ previewId: 'preview:test', bodyHash: 'a'.repeat(64), explicit: true });
+    const row = { bodyHash: 'a'.repeat(64), intent: { ...draft, clientIntentId: 'order:test' }, execution: 'FILLED', submission: 'ACKNOWLEDGED', brokerOrderId: 123, filledQuantity: '10', averageFillPrice: '250' };
+    current = { ...current, orders: [row] }; await route.fulfill({ json: row });
+  });
   await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
-  await expect(page.getByRole('button', { name: '开启本次模拟盘交易' })).toBeDisabled();
-  await page.getByLabel('搜索模拟盘合约').fill('AAPL'); await page.getByRole('button', { name: '查询 IBKR 合约' }).click(); await page.getByRole('button', { name: /AAPL.*Apple/ }).click();
-  for (const [label,value] of [['单笔最大名义金额','500'],['账户最大总敞口','5000'],['单一标的最大权重','30'],['当日最大亏损','200'],['每日最大订单数','5'],['每分钟最大订单数','1'],['限价偏离行情上限','2'],['手续费预留','2']] as const) await page.getByLabel(label).fill(value);
-  await page.getByRole('button', { name: '开启本次模拟盘交易' }).click();
-  await expect.poll(()=>configured?.conIds).toEqual([265598]);
-  expect(configured.explicit).toBe(true); expect(configured.limits.maxSymbolWeight).toBe('0.3'); expect(configured.limits.maxPriceDeviation).toBe('0.02');
-  await expect(page.getByRole('heading', { name: '1. 新订单' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '开启模拟交易并预览' })).toBeDisabled();
+  await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
+  expect(configured).toBeUndefined(); expect(confirmed).toBe(0);
+  await expect(page.getByLabel('单笔最大名义金额')).not.toBeVisible();
+  await page.getByRole('button', { name: /卖一价/ }).click();
+  await expect(page.getByLabel('限价（USD）')).toHaveValue('250.01');
+  await expect(page.locator('.pt-market .pt-depth')).toHaveCount(0);
+  await expect(page.locator('.pt-ticket .pt-depth')).toHaveCount(1);
+  for(const name of ['日K','周K','月K','年K','分时']){
+    await page.getByRole('tab',{name,exact:true}).click();
+    await expect(page.locator('.pt-chart-canvas')).toHaveAttribute('aria-label',new RegExp(name));
+    await expect(page.getByLabel('限价（USD）')).toHaveValue('250.01');
+  }
+  const chartBox=await page.locator('.pt-chart-canvas').boundingBox();
+  expect(chartBox).not.toBeNull();
+  await page.mouse.move(chartBox!.x+chartBox!.width*.55,chartBox!.y+chartBox!.height*.45);
+  const chartTooltip=page.getByRole('tooltip',{name:'K线行情详情'});
+  await expect(chartTooltip).toBeVisible();
+  await expect(chartTooltip).toContainText('涨跌幅');
+  await expect(chartTooltip).toContainText('成交量');
+  await expect(chartTooltip).toContainText('估算成交额');
+  await page.mouse.move(chartBox!.x-5,chartBox!.y+chartBox!.height*.45);
+  await expect(chartTooltip).toHaveCount(0);
+  await expect(page.getByLabel('数量（整股）')).toHaveValue('10');
+  await expect(page.locator('.pt-estimate')).toContainText('2,500.10');
+  await page.getByText('模拟交易设置', { exact: true }).click();
+  await page.getByLabel('单笔最大名义金额').fill('5000');
+  await page.getByRole('button', { name: '开启模拟交易并预览' }).click();
+  await expect(page.getByRole('dialog', { name: '确认模拟订单' })).toBeVisible();
+  expect(configured.conIds).toEqual([265598]); expect(configured.explicit).toBe(true);
+  expect(configured.limits.maxSymbolWeight).toBe('0.3');
+  expect(draft).toEqual({ conId: 265598, side: 'BUY', quantity: '10', limitPrice: '250.01' });
+  expect(confirmed).toBe(0);
+  await page.getByRole('button', { name: '返回修改' }).click();
+  await page.getByLabel('数量（整股）').fill('1.5');
+  await expect(page.getByRole('button', { name: '预览买入订单' })).toBeDisabled();
+  await page.getByLabel('数量（整股）').fill('10');
+  await page.getByRole('button', { name: '预览买入订单' }).click();
+  await page.getByRole('button', { name: '确认发送模拟订单' }).click();
+  await expect(page.locator('.pt-order-state')).toHaveText('已成交');
+  expect(confirmed).toBe(1);
+  await page.reload();
+  await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
+  await expect(page.locator('.pt-activity tbody')).toContainText('AAPL');
+  await expect(page.locator('.pt-stock-mark .has-logo img')).toHaveCount(1);
+  await expect(page.locator('.pt-activity .has-logo img')).toHaveCount(1);
+  await page.getByRole('tab', { name: /^持仓/ }).click();
+  await expect(page.locator('.pt-activity .has-logo img')).toHaveCount(1);
+  await page.getByRole('tab', { name: /^订单/ }).click();
+  await expect(page.getByLabel('限价（USD）')).toHaveValue('');
+  expect(confirmed).toBe(1);
+  await mkdir('output/ibkr', { recursive: true });
+  await page.screenshot({ path: 'output/ibkr/paper-ticket-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'output/ibkr/paper-ticket-mobile.png', fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test('strategy backtest saves an immutable user rule and runs only after complete data acknowledgement', async ({ page }) => {
@@ -976,4 +1069,95 @@ test('analysis workspace truthfully starts a new analysis after a consumed model
   await page.screenshot({ path: 'tmp/workbench-qa/analysis-retry.png', fullPage: true });
   await retryButton.click();
   await expect.poll(() => restarted).toEqual({id:data.jobs[0].id});
+});
+
+test('Chinese company search resolves a chosen share class with IBKR before selecting it', async ({ page }) => {
+  const data=state(true);data.source='gateway';data.gatewayMode='paper';data.snapshot.mode='paper';
+  const resolved:string[]=[];let trades=0;
+  await page.route('**/api/ibkr-workbench/state',r=>r.fulfill({json:data}));
+  await page.route('**/api/ibkr-workbench/quotes',r=>r.fulfill({json:[]}));
+  await page.route('**/api/ibkr-workbench/paper/**',r=>{
+    const path=new URL(r.request().url()).pathname;
+    if(path.endsWith('/history'))return r.fulfill({json:{...r.request().postDataJSON(),bars:[]}});
+    if(path.endsWith('/status'))return r.fulfill({json:{enabled:false,available:true,orders:[],connection:'connected',state:'ready'}});
+    if(path.endsWith('/search')){
+      expect(r.request().postDataJSON()).toEqual({query:'伯克希尔'});
+      return r.fulfill({json:[{symbol:'BRK.A',brokerSymbol:'BRK A',name:'伯克希尔哈撒韦-A',exchange:'NYSE',kind:'股票'},{symbol:'BRK.B',brokerSymbol:'BRK B',name:'伯克希尔哈撒韦-B',exchange:'NYSE',kind:'股票'}]});
+    }
+    if(path.endsWith('/contract')){
+      const {symbol}=r.request().postDataJSON();resolved.push(symbol);
+      return r.fulfill({json:[{conId:symbol==='BRK B'?99:265598,symbol,currency:'USD',exchange:symbol==='BRK B'?'NYSE':'NASDAQ',name:symbol}]});
+    }
+    if(path.endsWith('/market-quote'))return r.fulfill({json:{...r.request().postDataJSON(),state:'missing',fetchedAt:new Date().toISOString()}});
+    trades++;return r.fulfill({status:400,json:{error:'unexpected write'}});
+  });
+  await page.route('**/api/ibkr-workbench/logo?*',r=>r.fulfill({json:{src:null}}));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
+  await page.getByLabel('搜索模拟盘合约').fill('伯克希尔');
+  await page.getByRole('button',{name:'搜索股票',exact:true}).click();
+  await expect(page.locator('.pt-search-results button')).toHaveCount(2);
+  expect(resolved).toEqual(['AAPL']);
+  await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
+  await page.locator('.pt-search-results button').filter({hasText:'BRK.B'}).click();
+  await expect(page.locator('.pt-stock-heading')).toContainText('BRK B');
+  await expect(page.locator('.pt-stock-heading')).toContainText('伯克希尔哈撒韦-B');
+  expect(resolved).toEqual(['AAPL','BRK B']);expect(trades).toBe(0);
+});
+
+test('Eastmoney refresh preserves typed order and focus without inventing depth or sending orders', async ({ page }) => {
+  const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper';
+  const stock = {conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ'};
+  let reads=0, trades=0;
+  await page.route('**/api/ibkr-workbench/state',r=>r.fulfill({json:data}));
+  await page.route('**/api/ibkr-workbench/quotes',r=>r.fulfill({json:[]}));
+  await page.route('**/api/ibkr-workbench/paper/**',r=>{
+    const path = new URL(r.request().url()).pathname;
+    if(path.endsWith('/history'))return r.fulfill({json:{...r.request().postDataJSON(),bars:[]}});
+    if(path.endsWith('/status')) return r.fulfill({json:{enabled:false,available:true,orders:[],connection:'connected',state:'ready'}});
+    if(path.endsWith('/contract')) return r.fulfill({json:[stock]});
+    if(path.endsWith('/market-quote')) {
+      reads++;
+      if(reads>2) return r.fulfill({status:502,json:{error:'upstream unavailable'}});
+      return r.fulfill({json:{...stock,last:reads===1?'315.34':'315.35',state:'reference',source:'东方财富',asOf:'2026-09-09T20:00:00Z',fetchedAt:new Date().toISOString(),bids:[],asks:[]}});
+    }
+    trades++; return r.fulfill({status:400,json:{error:'unexpected operation'}});
+  });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  await expect(page.locator('.pt-quote-caption')).toContainText('2026/9/10 04:00:00');
+  await expect(page.locator('.pt-depth button:disabled')).toHaveCount(6);
+  const limit = page.getByLabel('限价（USD）');
+  await limit.fill('310.12');
+  await expect.poll(()=>reads,{timeout:10000}).toBeGreaterThanOrEqual(2);
+  await expect(limit).toHaveValue('310.12'); await expect(limit).toBeFocused();
+  await expect(page.locator('.pt-quote-caption')).toContainText('参考行情');
+  await expect.poll(()=>reads,{timeout:10000}).toBeGreaterThanOrEqual(3);
+  await expect(page.locator('.pt-quote-caption')).toContainText('上次报价');
+  await expect(page.locator('.pt-quote-caption')).toContainText('2026/9/10 04:00:00');
+  await expect(limit).toHaveValue('310.12'); await expect(limit).toBeFocused();
+  expect(trades).toBe(0);
+});
+
+test('market ticket sends no limit price and shows a closed-session rejection without claiming execution', async ({ page }) => {
+  const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
+  const stock = {conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ',name:'Apple Inc.'};
+  const current = {supportedOrderTypes:['LMT','MKT'],enabled:true,available:true,account:'DU***EST',accountKey:'paper:ui-test',policy:{conIds:[265598],expiresAt:new Date(Date.now()+3600000).toISOString(),limits:{feeReserve:'5',maxOrderNotional:'10000'}},orders:[],connection:'connected',state:'ready',detail:''};
+  let sent: any; let confirmations = 0;
+  await page.route('**/api/ibkr-workbench/state',r=>r.fulfill({json:data}));
+  await page.route('**/api/ibkr-workbench/quotes',r=>r.fulfill({json:[]}));
+  await page.route('**/api/ibkr-workbench/paper/status',r=>r.fulfill({json:current}));
+  await page.route('**/api/ibkr-workbench/paper/contract',r=>r.fulfill({json:[stock]}));
+  await page.route('**/api/ibkr-workbench/paper/market-quote',r=>r.fulfill({json:{...stock,bid:null,ask:null,last:null,close:null,high:null,low:null,state:'missing',regularHours:false,nextOpen:null,fetchedAt:new Date().toISOString()}}));
+  await page.route('**/api/ibkr-workbench/paper/preview',r=>{sent=r.request().postDataJSON();return r.fulfill({status:409,json:{error:'OUTSIDE_RTH'}});});
+  await page.route('**/api/ibkr-workbench/paper/confirm',r=>{confirmations++;return r.fulfill({json:{}});});
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
+  await page.getByRole('button',{name:'市价单',exact:true}).click();
+  await expect(page.getByLabel('限价（USD）')).toHaveCount(0);
+  await expect(page.getByLabel('数量（整股）')).toHaveValue('10');
+  await page.getByRole('button',{name:'预览买入订单'}).click();
+  await expect(page.getByRole('alert')).toContainText('不在美股常规交易时段');
+  expect(sent).toEqual({conId:265598,side:'BUY',quantity:'10',orderType:'MKT'});
+  expect(confirmations).toBe(0);
+  await expect(page.getByRole('dialog',{name:'确认模拟订单'})).toHaveCount(0);
 });

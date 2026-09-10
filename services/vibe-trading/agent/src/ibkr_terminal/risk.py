@@ -161,6 +161,11 @@ def intent_hash(intent: OrderIntent):
     return hashlib.sha256(canonical(intent).encode()).hexdigest()
 
 
+def reservation_price(intent, context):
+    # A market reservation is an estimate, never a price sent to the broker.
+    return Decimal(intent.limitPrice) if intent.orderType == 'LMT' else Decimal(context.referencePrice) * Decimal('1.05')
+
+
 def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: int, minute_count: int,
     purpose='new_order', confirmation_hash=None, filled_quantity='0'):
     def require(condition, code):
@@ -185,8 +190,8 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
     require(0 <= (now - context.asOf).total_seconds() <= limits.maxAccountAgeSeconds, 'STALE_ACCOUNT')
     require(all(getattr(context, name) is not None for name in ('settledCash', 'netLiquidation', 'dailyLoss', 'referencePrice')), 'MISSING_ACCOUNT_DATA')
     require(context.market == 'US' and context.secType == 'STK' and context.currency == context.baseCurrency == 'USD' and Decimal(context.multiplier) == 1, 'UNSUPPORTED_CONTRACT')
-    # P3.1 only reserves bounded DAY limit orders; market/GTC policy is pending.
-    require(intent.orderType == 'LMT' and intent.tif == 'DAY', 'UNSUPPORTED_ORDER_POLICY')
+    require(intent.tif == 'DAY' and (intent.orderType == 'LMT' or
+        intent.orderType == 'MKT' and intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'), 'UNSUPPORTED_ORDER_POLICY')
     require(len({row.conId for row in context.holdings}) == len(context.holdings) and all(row.currency == 'USD' for row in context.holdings), 'INCOMPLETE_HOLDINGS')
     with localcontext() as arithmetic:
         arithmetic.prec = 80
@@ -208,14 +213,14 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
             reserved['symbols'][key] = str(Decimal(reserved['symbols'].get(key, '0')) + pending)
             if external.side == 'SELL':
                 reserved['quantity'][key] = str(Decimal(reserved['quantity'].get(key, '0')) + Decimal(external.remaining))
-        quantity, price = Decimal(intent.quantity), Decimal(intent.limitPrice)
+        quantity, price = Decimal(intent.quantity), reservation_price(intent, context)
         remaining_quantity = quantity - Decimal(filled_quantity)
         require(remaining_quantity > 0, 'QUANTITY_NOT_ABOVE_FILLED')
         tick, step = Decimal(context.minTick), Decimal(context.minQuantity)
         require(tick > 0 and step >= 1 and step == step.to_integral_value(), 'INVALID_CONTRACT_RULES')
-        require(quantity == quantity.to_integral_value() and quantity % step == 0 and price % tick == 0, 'INVALID_ORDER_INCREMENT')
+        require(quantity == quantity.to_integral_value() and quantity % step == 0 and (intent.orderType == 'MKT' or price % tick == 0), 'INVALID_ORDER_INCREMENT')
         reference = Decimal(context.referencePrice)
-        require(reference > 0 and abs(price - reference) <= reference * Decimal(limits.maxPriceDeviation), 'PRICE_DEVIATION')
+        require(reference > 0 and (intent.orderType == 'MKT' or abs(price - reference) <= reference * Decimal(limits.maxPriceDeviation)), 'PRICE_DEVIATION')
         require(Decimal(context.dailyLoss) < Decimal(limits.maxDailyLoss), 'DAILY_LOSS_LIMIT')
         require(daily_count < limits.maxDailyOrders, 'DAILY_ORDER_LIMIT')
         require(minute_count < limits.maxOrdersPerMinute, 'ORDER_FREQUENCY_LIMIT')
