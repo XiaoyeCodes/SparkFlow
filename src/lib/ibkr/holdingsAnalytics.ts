@@ -33,6 +33,14 @@ export function holdingsReturnSeries(performance: PortfolioPerformance | undefin
   const end = series[series.length - 1];
   const cutoff = end && range ? Date.parse(end.date) - range * 86400000 : -Infinity;
   const window = series.filter(point => Date.parse(point.date) >= cutoff);
+  if (!method) {
+    const visible = window.filter(point => point.nav !== null);
+    const base = visible[0]?.nav;
+    const points = base != null && base !== 0 ? visible.map(point => ({ date: point.date, nav: point.nav, value: point.nav === null ? null : point.nav / base - 1 })) : [];
+    const count = points.length;
+    return { points, count, start: points[0]?.date, end: points[points.length - 1]?.date, value: count >= 2 ? points[points.length - 1]?.value ?? null : null, method, kind: 'nav' as const,
+      note: '本地账户净值变动（含出入金），用于观察资产轨迹，不代表投资收益率或盈亏金额。' };
+  }
   const first = window.findIndex(point => point.cumulativeReturn !== null);
   const visible = first < 0 ? [] : window.slice(first);
   const base = visible[0]?.cumulativeReturn;
@@ -42,7 +50,7 @@ export function holdingsReturnSeries(performance: PortfolioPerformance | undefin
     value: point.cumulativeReturn === null ? null : method === 'TWR' ? (1 + point.cumulativeReturn) / (1 + base!) - 1 : point.cumulativeReturn,
   })) : [];
   const count = points.filter(point => point.value !== null).length;
-  return { points, count, start: points[0]?.date, end: points[points.length - 1]?.date, value: count >= 2 ? points[points.length - 1]?.value ?? null : null, method,
+  return { points, count, start: points[0]?.date, end: points[points.length - 1]?.date, value: count >= 2 ? points[points.length - 1]?.value ?? null : null, method, kind: 'return' as const,
     note: method === 'TWR' ? '时间加权收益率 · 区间起点归零，剔除出入金影响；非盈亏金额。' : method === 'MWR' ? '资金加权收益率 · 原始累计口径，未按所选区间重算；非盈亏金额。' : '缺少已核实的收益率历史，暂不以资产净值变化代替盈亏。' };
 }
 

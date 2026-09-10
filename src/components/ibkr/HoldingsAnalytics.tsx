@@ -26,6 +26,8 @@ export function HoldingsAnalytics({ snapshot, performance, range = 90, onRange, 
   const navPoint = hover === null ? returns.points[returns.points.length - 1] : returns.points[hover];
   const navValue = navPoint?.nav ?? null;
   const performanceCurrency = performance?.currency || allocation.currency;
+  const localNav = returns.kind === 'nav';
+  const performanceTitle = localNav ? '账户净值轨迹' : '账户收益曲线';
   const ink = print ? '#61798b' : '#89a496';
   const grid = print ? '#dce5ec' : '#20392e';
   return <section className={`holdings-analytics${print ? ' ha-print' : ''}`} aria-label="持仓图表总览">
@@ -38,15 +40,15 @@ export function HoldingsAnalytics({ snapshot, performance, range = 90, onRange, 
       <Donut slices={allocation.assets} label="账户持仓、现金与其他净资产构成" center={allocation.total && allocation.cash !== null ? `${(allocation.cash / allocation.total * 100).toFixed(1)}%` : '—'} caption="现金占净值" print={print}/>
       <div className="ha-balances"><div><span>持仓市值</span><b>{chartMoney(allocation.invested)}</b></div><div><span>现金余额</span><b>{chartMoney(allocation.cash)}</b></div></div><footer>{allocation.assetNote}</footer>
     </article>
-    <article className="ha-card ha-performance" aria-label="账户盈亏曲线"><header><div><span className="ha-kicker">PERFORMANCE</span><h2>账户盈亏曲线</h2></div>{!print && <div className="ha-ranges" aria-label="收益曲线日期范围">{([30, 90, 0] as const).map(days => <button key={days} type="button" aria-pressed={range === days} onClick={() => { setHover(null); onRange?.(days); }}>{days === 0 ? '全部' : `${days}天`}</button>)}</div>}</header>
-      <div className="ha-return"><div className="ha-return-values"><strong className={value !== null && value < 0 ? 'ha-down' : 'ha-up'}>{chartPercent(value)}</strong><div className="ha-return-amount"><span>{point ? '当日账户净值' : '期末账户净值'}</span><b>{chartMoney(navValue)}<small>{performanceCurrency}</small></b></div></div><span>{point ? point.date : returns.method === 'MWR' ? '原始累计收益率 · MWR' : returns.method === 'TWR' ? '区间收益率 · TWR' : '收益率 · 待同步'}</span></div>
-      {returns.count >= 2 ? <svg className="ha-line" viewBox="0 0 400 194" role="img" aria-label={`账户收益率曲线 ${returns.start} 至 ${returns.end}`} onMouseLeave={() => setHover(null)} onMouseMove={event => { const bounds = event.currentTarget.getBoundingClientRect(); const x = (event.clientX - bounds.left) / bounds.width * 400; const nearest = geometry.coordinates.reduce((best, p, index, list) => Math.abs(p.x - x) < Math.abs(list[best].x - x) ? index : best, 0); setHover(nearest); }}>
+    <article className="ha-card ha-performance" aria-label={performanceTitle}><header><div><span className="ha-kicker">PERFORMANCE</span><h2>{performanceTitle}</h2></div>{!print && <div className="ha-ranges" aria-label={`${localNav ? '净值' : '收益'}曲线日期范围`}>{([30, 90, 0] as const).map(days => <button key={days} type="button" aria-pressed={range === days} onClick={() => { setHover(null); onRange?.(days); }}>{days === 0 ? '全部' : `${days}天`}</button>)}</div>}</header>
+      <div className="ha-return"><div className="ha-return-values"><strong className={value !== null && value < 0 ? 'ha-down' : 'ha-up'}>{chartPercent(value)}</strong><div className="ha-return-amount"><span>{point ? '当日账户净值' : '期末账户净值'}</span><b>{chartMoney(navValue)}<small>{performanceCurrency}</small></b></div></div><span>{point ? point.date : localNav ? '所选区间净值变动 · 含出入金' : returns.method === 'MWR' ? '原始累计收益率 · MWR' : returns.method === 'TWR' ? '区间收益率 · TWR' : '收益率 · 待同步'}</span></div>
+      {returns.count >= 2 ? <svg className="ha-line" viewBox="0 0 400 194" role="img" aria-label={`账户${localNav ? '净值变动' : '收益率'}曲线 ${returns.start} 至 ${returns.end}`} onMouseLeave={() => setHover(null)} onMouseMove={event => { const bounds = event.currentTarget.getBoundingClientRect(); const x = (event.clientX - bounds.left) / bounds.width * 400; const nearest = geometry.coordinates.reduce((best, p, index, list) => Math.abs(p.x - x) < Math.abs(list[best].x - x) ? index : best, 0); setHover(nearest); }}>
         {geometry.ticks.map((tick, index) => <g key={index}><line x1="49" x2="380" y1={tick.y} y2={tick.y} stroke={grid}/><text x="43" y={tick.y + 4} textAnchor="end" fill={ink} fontSize="10" fontFamily="Arial">{(tick.value * 100).toFixed(1)}%</text></g>)}
         <line x1="49" x2="380" y1={geometry.zero} y2={geometry.zero} stroke={ink} strokeDasharray="3 5" opacity="0.6"/>
         <path d={geometry.path} fill="none" stroke={print ? '#168665' : '#68d9b6'} strokeWidth="2.3" strokeLinejoin="round"/>
         {point?.y != null && <g><line x1={point.x} x2={point.x} y1="18" y2="164" stroke={ink} strokeDasharray="3 4"/><circle cx={point.x} cy={point.y} r="4" fill="#68d9b6"/></g>}
         <text x="49" y="189" fill={ink} fontSize="10" fontFamily="Arial">{returns.start}</text><text x="380" y="189" textAnchor="end" fill={ink} fontSize="10" fontFamily="Arial">{returns.end}</text>
-      </svg> : <div className="ha-no-history">收益历史不足两个有效日期<br/><small>同步到有效记录后自动展示</small></div>}
+      </svg> : <div className="ha-no-history">{localNav ? '本地净值历史不足两个有效日期' : '收益历史不足两个有效日期'}<br/><small>{localNav ? '每次成功同步后按日积累' : '同步到有效记录后自动展示'}</small></div>}
       <footer><span>{returns.note}</span><span>{performance?.source || 'IBKR'} · {returns.count} 个有效日期{print ? ` · ${range ? `最近 ${range} 天` : '全部历史'}` : ''}</span></footer>
     </article>
   </section>;

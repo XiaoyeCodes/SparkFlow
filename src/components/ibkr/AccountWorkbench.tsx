@@ -51,10 +51,9 @@ export function AccountWorkbench() {
   const [holdingSort, setHoldingSort] = useState<HoldingSort | null>(null);
   const [holdingsRange, setHoldingsRange] = useState<HoldingsRange>(90);
   const [sourceChoice, setSourceChoice] = useState<SourceChoice | null>(null);
+  const [pendingConnection, setPendingConnection] = useState<SourceChoice | null>(null);
   const [menu,setMenu]=useState(false); const [filter,setFilter]=useState('all'); const [chosenAlert,setChosenAlert]=useState<Alert>(); const [chosenPlan,setChosenPlan]=useState<AdjustmentPlan>(); const [reportId,setReportId]=useState<string>();const [planReportId,setPlanReportId]=useState<string>();const [selectedJobId,setSelectedJobId]=useState<string>();
   const revision = useRef(0);
-  const sourceChoiceRevision = useRef(0);
-  const sourceChoiceQueue = useRef<Promise<void>>(Promise.resolve());
   const refresh = useCallback(async () => { const current = ++revision.current; const value = await request<WorkbenchState>('state'); if (current === revision.current) setState(value); }, []);
   useEffect(() => {
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>; let disposed = false;
@@ -66,32 +65,51 @@ export function AccountWorkbench() {
     try { await request(endpoint, payload); await refresh(); } catch (e) { const message = e instanceof Error ? e.message : '操作失败'; try { await refresh(); } catch { /* Preserve the action error when refreshing state also fails. */ } setError(message); } finally { setBusy(''); }
   };
   const selectSource = (source: SourceChoice['source'], gatewayMode: SourceChoice['gatewayMode'] = state?.gatewayMode ?? 'live') => {
-    if (!state || (!sourceChoice && state.source === source && state.gatewayMode === gatewayMode)) return;
-    const choice = { source, gatewayMode }, current = ++sourceChoiceRevision.current;
-    setSourceChoice(choice); setError('');
-    sourceChoiceQueue.current = sourceChoiceQueue.current.catch(() => {}).then(async () => {
-      try {
-        await request('source', source === 'gateway' ? choice : { source });
-        const value = await request<WorkbenchState>('state');
-        if (current === sourceChoiceRevision.current) { setState(value); setSourceChoice(null); }
-      } catch (e) {
-        if (current !== sourceChoiceRevision.current) return;
-        try { await refresh(); } catch { /* Keep the source-selection error visible. */ }
-        setSourceChoice(null); setError(e instanceof Error ? e.message : '账户来源切换失败');
-      }
-    });
+    if (!state) return;
+    const choice = { source, gatewayMode };
+    const current = state.source === source && (source === 'mcp' || state.gatewayMode === gatewayMode);
+    setSourceChoice(current ? null : choice);
+    setError('');
   };
-  const connect = async () => {
+  const sameSource = (choice: SourceChoice) => Boolean(state && state.source === choice.source && (choice.source === 'mcp' || state.gatewayMode === choice.gatewayMode));
+  const hasCurrentConnection = Boolean(state && (state.connection.state === 'connected' || state.snapshot.connection === 'connected' || state.connection.authorized));
+  const activateConnection = async (choice: SourceChoice, replaceCurrent: boolean) => {
+    if (!state || busy) return;
     // Open synchronously from the user gesture; never navigate an unvalidated authorization URL.
-    const popup = window.open('about:blank', '_blank'); if (popup) { popup.opener = null; popup.document.title = '正在连接 IBKR'; popup.document.body.textContent = '正在获取 IBKR 官方授权地址…'; }
-    setBusy('connect'); setError('');
-    try { const result = await request<{ authorizationUrl?: string; detail: string; state: string }>('connect', {});
-      if (!result.authorizationUrl) { popup?.close(); if (result.state === 'connected') { await request('sync', {}); await refresh(); return; } throw new Error(result.detail || '无法获取授权地址'); }
+    const popup = choice.source === 'mcp' ? window.open('about:blank', '_blank') : null;
+    if (popup) { popup.opener = null; popup.document.title = '正在连接 IBKR'; popup.document.body.textContent = '正在获取 IBKR 官方授权地址…'; }
+    setPendingConnection(null); setBusy(choice.source === 'mcp' ? 'connect' : 'gateway-connect'); setError('');
+    try {
+      if (replaceCurrent) await request('disconnect', {});
+      if (!sameSource(choice)) await request('source', choice.source === 'gateway' ? choice : { source: choice.source });
+      if (choice.source === 'gateway') {
+        await request('gateway-connect', {});
+        await refresh(); setSourceChoice(null); return;
+      }
+      const result = await request<{ authorizationUrl?: string; detail: string; state: string }>('connect', {});
+      if (!result.authorizationUrl) {
+        popup?.close();
+        if (result.state === 'connected') { await request('sync', {}); await refresh(); setSourceChoice(null); return; }
+        throw new Error(result.detail || '无法获取授权地址');
+      }
       const url = new URL(result.authorizationUrl); if (url.protocol !== 'https:' || url.hostname !== 'api.ibkr.com') { popup?.close(); throw new Error('官方授权地址校验失败'); }
       if (popup) popup.location.href = url.href; else window.location.assign(url.href);
-      await refresh();
-    } catch (e) { popup?.close(); setError(e instanceof Error ? e.message : '连接失败'); } finally { setBusy(''); }
+      await refresh(); setSourceChoice(null);
+    } catch (e) {
+      popup?.close();
+      try { await refresh(); } catch { /* Preserve the connection error. */ }
+      setError(e instanceof Error ? e.message : '连接失败');
+    } finally { setBusy(''); }
   };
+  const connect = (choice: SourceChoice) => {
+    if (!sameSource(choice) && hasCurrentConnection) { setPendingConnection(choice); return; }
+    void activateConnection(choice, false);
+  };
+  useEffect(() => {
+    if (!pendingConnection) return;
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setPendingConnection(null); };
+    document.addEventListener('keydown', close); return () => document.removeEventListener('keydown', close);
+  }, [pendingConnection]);
   const snapshot=state?.snapshot; const latest=state?.reports.find(r=>r.kind!=='chat'); const holding=snapshot?.positions.find(p=>p.conId===selected);
   const exportAccountPdf = async () => {
     if (!state || exporting) return;
@@ -134,6 +152,7 @@ export function AccountWorkbench() {
   {tab==='alerts'&&<><div className="awb-filter">{[['all','全部'],['opportunity','机会'],['risk','风险'],['watch','已关注'],['resolved','已处理']].map(([key,label])=><button aria-pressed={filter===key} key={key} onClick={()=>setFilter(key)}>{label} <small>{state.alerts.filter(a=>key==='all'||key==='watch'&&a.watched||key==='resolved'&&a.resolved||a.kind===key).length}</small></button>)}</div><div className="awb-risk-grid"><div className="awb-stack">{state.alerts.filter(a=>filter==='all'||filter==='watch'&&a.watched||filter==='resolved'&&a.resolved||a.kind===filter).map(a=><article className={`awb-panel awb-risk-card ${a.resolved?'resolved':''} ${chosenAlert?.id===a.id?'selected':''}`} key={a.id}><span className={`awb-tag ${a.kind==='risk'?'attention':''}`}>{a.kind==='risk'?'优先关注':a.kind==='opportunity'?'机会观察':'事件提醒'}</span><h2>{a.title}</h2><p className="awb-affected">影响资产　{a.symbols.join(' · ')||'整体组合'}</p><p>{a.detail}</p>{a.trigger&&<p>触发条件　{a.trigger}</p>}<div className="awb-risk-card-actions"><small>{a.resolved?'已处理':a.read?'已读':'未读'} · {time(a.createdAt)}</small><button onClick={()=>void act('alert','alerts',{id:a.id,action:'watch'})}>{a.watched?'取消关注':'加入观察'}</button>{!a.resolved&&<button onClick={()=>void act('alert','alerts',{id:a.id,action:'resolve'})}>已处理</button>}<button className="awb-outline" onClick={()=>{setChosenAlert(a);setChosenPlan(undefined);void act('alert','alerts',{id:a.id,action:'read'});}}>查看调整计划</button></div>{a.reportId&&<button onClick={()=>{if(state.reports.some(r=>r.id===a.reportId)){setReportId(a.reportId);navigate('reports');}else void request<AnalysisReport>(`reports/${a.reportId}/json`).then(setReport).catch(()=>setError('报告暂不可用'));}}>查看证据与报告 <ArrowUpRight size={13}/></button>}</article>)}{!state.alerts.length&&<section className="awb-panel awb-empty">暂无提醒，可在右侧制定自己的计划。</section>}{!!state.plans?.length&&<section className="awb-panel"><h2>已保存计划</h2>{state.plans.map(p=><button className="awb-saved-plan" key={p.id} onClick={()=>{setChosenPlan(p);setChosenAlert(undefined);}}><span>{p.title}</span><small>{{watching:'观察中',triggered:'条件满足',handled:'已处理',invalidated:'已失效'}[p.status]}</small><ChevronRight size={14}/></button>)}</section>}</div><aside><PlanPanel key={chosenPlan?.id??chosenAlert?.id??planReportId??'new'} reportId={planReportId} state={state} alert={chosenAlert} existing={chosenPlan} onSaved={refresh}/></aside></div></>}
   {tab==='settings'&&<WorkbenchSettings state={state} busy={busy} act={act} connect={connect} sourceChoice={sourceChoice} selectSource={selectSource}/>}</>}
   {tab!=='overview'&&tab!=='holdings'&&tab!=='valuation'&&<footer className="awb-footer"><span><ShieldCheck size={13}/>{state?.source==='gateway'&&state.gatewayMode==='paper'?'模拟账户 · 每笔下单单独确认':'真实账户只读'} · 操作建议由你审核</span><span>本机服务运行期间持续更新</span></footer>}</div>
+  {pendingConnection&&state&&<div className="awb-connection-confirm-backdrop" onClick={()=>setPendingConnection(null)}><section className="awb-connection-confirm" role="alertdialog" aria-modal="true" aria-labelledby="awb-connection-confirm-title" aria-describedby="awb-connection-confirm-description" onClick={event=>event.stopPropagation()}><span className="awb-eyebrow">CONNECTION SWITCH</span><h2 id="awb-connection-confirm-title">切换账户连接？</h2><p id="awb-connection-confirm-description">一次只能同时连接一个账户通道。开启<strong>{pendingConnection.source==='mcp'?'官方 MCP':pendingConnection.gatewayMode==='paper'?'IB Gateway 模拟盘':'IB Gateway 实盘'}</strong>将导致<strong>{state.source==='mcp'?'官方 MCP':state.gatewayMode==='paper'?'IB Gateway 模拟盘':'IB Gateway 实盘'}</strong>连接断开，确定吗？</p><div><button onClick={()=>setPendingConnection(null)}>取消</button><button className="primary" onClick={()=>void activateConnection(pendingConnection,true)}>确定并切换</button></div></section></div>}
   {holding&&<div className="awb-overlay" onClick={()=>setSelected(null)}><aside className="awb-drawer" role="dialog" aria-modal="true" aria-label={`${holding.symbol} 持仓详情`} onClick={e=>e.stopPropagation()}><button className="awb-close" onClick={()=>setSelected(null)} aria-label="关闭持仓详情"><X/></button><span className="awb-eyebrow">HOLDING DETAIL</span><h1>{holding.symbol}</h1><p>{holding.name??holding.symbol} · {holdingIndustryDetails(holding)}</p><div className="awb-detail-metrics"><div><small>持仓数量</small><b>{formatQuantity(holding.quantity)}</b></div><div><small>券商成本</small><b>{money(holding.averageCost)}</b></div><div><small>券商市值</small><b>{money(holding.marketValue)}</b></div></div><HoldingChart holding={holding} quote={state?.quotes.find(q=>q.conId===holding.conId)}/><Fundamentals holding={holding} report={latest}/><HoldingViews holding={holding} report={latest}/><h2>关联证据</h2>{latest?.evidence.filter(e=>e.symbols.includes(holding.symbol)).map(e=><a className="awb-detail-evidence" key={e.id} href={e.url} target="_blank" rel="noreferrer">{e.title}<small>{e.source} · 发布 {e.publishedAt?time(e.publishedAt):'未核实'}</small></a>)}</aside></div>}{report&&<ReportModal report={report} close={()=>setReport(null)}/>}</main>;
 }
 function AccountPicker({ accounts, value, connected, disabled, onChange }: { accounts: WorkbenchState['connection']['accounts']; value: string; connected: boolean; disabled: boolean; onChange: (value: string) => void }) {
@@ -174,18 +193,19 @@ function AccountPicker({ accounts, value, connected, disabled, onChange }: { acc
   </div>;
 }
 
-function ConnectionSettings({ state, busy, act, connect, sourceChoice, selectSource }: { state: WorkbenchState; busy: string; act: (name: string, endpoint: string, data?: unknown) => Promise<void>; connect: () => Promise<void>; sourceChoice: SourceChoice | null; selectSource: (source: SourceChoice['source'], gatewayMode?: SourceChoice['gatewayMode']) => void }) {
+function ConnectionSettings({ state, busy, act, connect, sourceChoice, selectSource }: { state: WorkbenchState; busy: string; act: (name: string, endpoint: string, data?: unknown) => Promise<void>; connect: (choice: SourceChoice) => void; sourceChoice: SourceChoice | null; selectSource: (source: SourceChoice['source'], gatewayMode?: SourceChoice['gatewayMode']) => void }) {
   const visibleSource = sourceChoice?.source ?? state.source;
   const visibleGatewayMode = sourceChoice?.gatewayMode ?? state.gatewayMode;
-  const connecting = busy === 'connect' || (visibleSource === 'mcp' && Boolean(sourceChoice)) || state.connection.state === 'connecting';
-  const connected = !connecting && state.connection.state === 'connected';
+  const viewingActive = visibleSource === state.source && (visibleSource === 'mcp' || visibleGatewayMode === state.gatewayMode);
+  const connecting = visibleSource === 'mcp' && (busy === 'connect' || viewingActive && state.connection.state === 'connecting');
+  const connected = viewingActive && !connecting && state.connection.state === 'connected';
   const phase = connecting ? 'connecting' : connected ? 'connected' : 'disconnected';
-  const authorized = Boolean(state.connection.authorized || state.connection.accounts.length);
+  const authorized = viewingActive && Boolean(state.connection.authorized || state.connection.accounts.length);
   const copy = phase === 'connected'
     ? { kicker: 'SECURE CHANNEL ONLINE', title: 'IBKR 已连接', badge: '已连接', detail: state.connection.detail || '只读账户通道工作正常。' }
     : phase === 'connecting'
       ? { kicker: 'AUTHENTICATING', title: '正在建立安全连接', badge: '连接中', detail: '正在等待 IBKR 官方授权响应，请在新窗口完成登录。' }
-      : { kicker: 'CHANNEL OFFLINE', title: authorized ? '授权需要恢复' : '尚未连接 IBKR', badge: authorized ? '需要重连' : '未连接', detail: state.connection.detail || '连接后才能读取真实持仓与账户快照。' };
+      : { kicker: 'CHANNEL OFFLINE', title: authorized ? '授权需要恢复' : '尚未连接 IBKR', badge: authorized ? '需要重连' : '未连接', detail: !viewingActive ? '当前连接保持不变；点击连接后再确认是否切换至官方 MCP。' : state.connection.detail || '连接后才能读取真实持仓与账户快照。' };
   const StatusIcon = phase === 'connected' ? CircleCheck : phase === 'connecting' ? LoaderCircle : WifiOff;
   return <section className="awb-panel awb-connection-panel">
     <h2><Link2 size={18} />账户连接</h2>
@@ -199,7 +219,7 @@ function ConnectionSettings({ state, busy, act, connect, sourceChoice, selectSou
       </header>
       <div className="awb-connection-route" aria-hidden="true"><span className={phase !== 'disconnected' ? 'is-active' : ''}>IBKR</span><i className={phase !== 'disconnected' ? 'is-active' : ''} /><span className={phase === 'connected' ? 'is-active' : phase === 'connecting' ? 'is-pending' : ''}>READ ONLY</span><i className={phase === 'connected' ? 'is-active' : ''} /><span className={phase === 'connected' ? 'is-active' : ''}>SPARKFLOW</span></div>
       <div className="awb-connection-actions">
-        <button className={`awb-connect-primary ${phase === 'disconnected' ? 'primary' : ''}`} disabled={!!busy || phase === 'connecting'} onClick={() => void connect()}>{phase === 'connected' ? <RefreshCw size={15} /> : phase === 'connecting' ? <LoaderCircle size={15} className="awb-spin" /> : <Link2 size={15} />}{phase === 'connected' ? '重新授权' : phase === 'connecting' ? '正在连接 IBKR…' : authorized ? '重新连接 IBKR' : '连接 IBKR'}</button>
+        <button className={`awb-connect-primary ${phase === 'disconnected' ? 'primary' : ''}`} disabled={!!busy || phase === 'connecting'} onClick={() => connect({source:'mcp',gatewayMode:state.gatewayMode})}>{phase === 'connected' ? <RefreshCw size={15} /> : phase === 'connecting' ? <LoaderCircle size={15} className="awb-spin" /> : <Link2 size={15} />}{phase === 'connected' ? '重新授权' : phase === 'connecting' ? '正在连接 IBKR…' : authorized ? '重新连接 IBKR' : '连接 IBKR'}</button>
         {(authorized || connected) && <button className="awb-disconnect" disabled={!!busy} onClick={() => void act('disconnect', 'disconnect')}><Unplug size={14} />断开连接</button>}
       </div>
       {state.connection.accounts.length > 0 ? <AccountPicker accounts={state.connection.accounts} value={state.snapshot.accountKey} connected={connected} disabled={!!busy} onChange={accountKey => void act('source', 'source', { source: 'mcp', accountKey })} /> : connected && <div className="awb-connection-account"><Radio size={14} /><span>只读账户通道已建立</span><b>{state.snapshot.baseCurrency || 'IBKR'}</b></div>}
@@ -207,8 +227,8 @@ function ConnectionSettings({ state, busy, act, connect, sourceChoice, selectSou
     {visibleSource === 'gateway' && (() => {
       const paper = visibleGatewayMode === 'paper';
       const gatewayLabel = paper ? '模拟盘 Gateway' : '实盘 Gateway';
-      const switchingToGateway = Boolean(sourceChoice);
-      const gatewayConnected = !switchingToGateway && state.connection.state === 'connected';
+      const viewingActiveGateway = state.source === 'gateway' && state.gatewayMode === visibleGatewayMode;
+      const gatewayConnected = viewingActiveGateway && state.connection.state === 'connected';
       const gatewayConnecting = !gatewayConnected && busy === 'gateway-connect';
       const gatewayPhase = gatewayConnected ? 'connected' : gatewayConnecting ? 'connecting' : 'disconnected';
       const GatewayIcon = gatewayConnected ? CircleCheck : gatewayConnecting ? LoaderCircle : WifiOff;
@@ -216,7 +236,7 @@ function ConnectionSettings({ state, busy, act, connect, sourceChoice, selectSou
         ? { kicker: 'LOCAL CHANNEL ONLINE', title: `${gatewayLabel} 已连接`, badge: '已连接', detail: state.connection.detail || '本机只读账户通道工作正常。' }
         : gatewayConnecting
           ? { kicker: 'SCANNING LOCAL CHANNEL', title: '正在检测本机通道', badge: '检测中', detail: state.connection.detail || '正在识别本机 IBKR API 端口并核对账户，连接成功后会立即同步。' }
-          : { kicker: 'LOCAL CHANNEL OFFLINE', title: `${gatewayLabel} 尚未连接`, badge: '未连接', detail: switchingToGateway ? '账户来源已切换；点击“智能连接”后检测端口并同步。' : state.connection.detail || '点击“智能连接”后检测本机桥接服务与 Gateway API Socket。' };
+          : { kicker: 'LOCAL CHANNEL OFFLINE', title: `${gatewayLabel} 尚未连接`, badge: '未连接', detail: !viewingActiveGateway ? '当前连接保持不变；点击“智能连接”后再确认是否切换。' : state.connection.detail || '点击“智能连接”后检测本机桥接服务与 Gateway API Socket。' };
       return <div className={`awb-connection-console is-${gatewayPhase} ${paper ? 'is-paper' : 'is-live'}`} data-connection-state={gatewayPhase} aria-live="polite">
         <header className="awb-connection-console-head">
           <span className="awb-connection-state-icon"><GatewayIcon size={20} className={gatewayConnecting ? 'awb-spin' : ''} /></span>
@@ -224,10 +244,10 @@ function ConnectionSettings({ state, busy, act, connect, sourceChoice, selectSou
           <span className="awb-connection-badge"><i />{gatewayCopy.badge}</span>
         </header>
         <div className="awb-connection-route" aria-hidden="true"><span className={gatewayPhase !== 'disconnected' ? 'is-active' : ''}>{paper ? 'PAPER GATEWAY' : 'LIVE GATEWAY'}</span><i className={gatewayPhase !== 'disconnected' ? 'is-active' : ''}/><span className={gatewayPhase === 'connected' ? 'is-active' : gatewayPhase === 'connecting' ? 'is-pending' : ''}>LOCAL BRIDGE</span><i className={gatewayPhase === 'connected' ? 'is-active' : ''}/><span className={gatewayPhase === 'connected' ? 'is-active' : ''}>SPARKFLOW</span></div>
-        <div className="awb-gateway-monitor"><span><Radio size={13}/>{gatewayConnected ? '连接成功，账户将按正常周期同步' : '等待手动启动智能连接'}</span><small>{!switchingToGateway && state.connection.port ? `BRIDGE · 127.0.0.1:${state.connection.port}` : '点击后自动匹配端口'}</small></div>
+        <div className="awb-gateway-monitor"><span><Radio size={13}/>{gatewayConnected ? '连接成功，账户将按正常周期同步' : '等待手动启动智能连接'}</span><small>{viewingActiveGateway && state.connection.port ? `BRIDGE · 127.0.0.1:${state.connection.port}` : '点击后自动匹配端口'}</small></div>
         <div className="awb-connection-actions awb-gateway-actions">
-          <button className="awb-connect-primary primary" disabled={!!busy || gatewayConnected || switchingToGateway} onClick={() => void act('gateway-connect', 'gateway-connect')}><PlugZap size={15} className={busy === 'gateway-connect' ? 'awb-pulse' : ''}/>{busy === 'gateway-connect' ? '正在智能连接…' : gatewayConnected ? '已智能连接' : '智能连接'}</button>
-          <button className="awb-connect-primary awb-gateway-manual" disabled={!!busy} onClick={() => void act('gateway-sync', 'sync')}><RefreshCw size={15} className={busy === 'gateway-sync' ? 'awb-spin' : ''}/>{busy === 'gateway-sync' ? '正在检测…' : '立即检测并同步'}</button>
+          <button className="awb-connect-primary primary" disabled={!!busy || gatewayConnected} onClick={() => connect({source:'gateway',gatewayMode:visibleGatewayMode})}><PlugZap size={15} className={busy === 'gateway-connect' ? 'awb-pulse' : ''}/>{busy === 'gateway-connect' ? '正在智能连接…' : gatewayConnected ? '已智能连接' : '智能连接'}</button>
+          <button className="awb-disconnect" disabled={!!busy || !gatewayConnected} onClick={() => void act('disconnect', 'disconnect')}><Unplug size={14}/>{busy === 'disconnect' ? '正在断开…' : '断开连接'}</button>
         </div>
       </div>;
     })()}
@@ -235,7 +255,7 @@ function ConnectionSettings({ state, busy, act, connect, sourceChoice, selectSou
   </section>;
 }
 
-function WorkbenchSettings({ state, busy, act, connect, sourceChoice, selectSource }: { state: WorkbenchState; busy: string; act: (name: string, endpoint: string, data?: unknown) => Promise<void>; connect: () => Promise<void>; sourceChoice: SourceChoice | null; selectSource: (source: SourceChoice['source'], gatewayMode?: SourceChoice['gatewayMode']) => void }) {
+function WorkbenchSettings({ state, busy, act, connect, sourceChoice, selectSource }: { state: WorkbenchState; busy: string; act: (name: string, endpoint: string, data?: unknown) => Promise<void>; connect: (choice: SourceChoice) => void; sourceChoice: SourceChoice | null; selectSource: (source: SourceChoice['source'], gatewayMode?: SourceChoice['gatewayMode']) => void }) {
   const [preferences, setPreferences] = useState<Preferences>(state.preferences);
   useEffect(() => setPreferences(state.preferences), [state.snapshot.accountKey]);
   const field = (key: 'targetWeight' | 'cashFloor' | 'maxDrawdown', label: string) => <label>{label}<div className="awb-input-unit"><input type="number" min="0" max="100" step="1" value={preferences[key] === null ? '' : Number((preferences[key]! * 100).toFixed(2))} placeholder="尚未设置" onChange={e => setPreferences({ ...preferences, [key]: e.target.value === '' ? null : Number(e.target.value) / 100 })} />%</div></label>;

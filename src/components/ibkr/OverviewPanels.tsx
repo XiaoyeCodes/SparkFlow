@@ -58,7 +58,8 @@ function curve(points: { x: number; y: number }[]) {
 
 export function PerformancePanel({ state }: { state: WorkbenchState }) {
   const account = state.snapshot.accountKey;
-  const [remote, setRemote] = useState<{ account: string; value: PortfolioPerformance }>();
+  const channel = `${state.source}:${state.source === 'gateway' ? state.gatewayMode : 'official'}:${account}`;
+  const [remote, setRemote] = useState<{ channel: string; value: PortfolioPerformance }>();
   const [range, setRange] = useState<number | 'all'>(30), [mode, setMode] = useState<'nav' | 'return'>('nav'), [hover, setHover] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [chartRef, { width: chartWidth, height: chartHeight }] = useSvgSize(690, 240);
@@ -71,11 +72,11 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
       if (!r.ok) throw new Error('历史暂不可用');
       const value = await r.json();
       if (!Array.isArray(value.points)) throw new Error('历史格式无效');
-      if (!controller.signal.aborted) setRemote({ account, value });
+      if (!controller.signal.aborted) setRemote({ channel, value });
     }).catch(() => { if (!controller.signal.aborted) setFailed(true); });
     return () => controller.abort();
-  }, [account, state.preferences.benchmark, state.performance?.fetchedAt]);
-  const fetched = remote?.account === account ? remote.value : undefined;
+  }, [channel, state.preferences.benchmark, state.performance?.fetchedAt]);
+  const fetched = remote?.channel === channel ? remote.value : undefined;
   const performance = fetched && (!state.performance?.fetchedAt || Date.parse(fetched.fetchedAt ?? '') >= Date.parse(state.performance.fetchedAt)) ? fetched : state.performance ?? fetched;
   const all = chartSeries(performance), last = all.slice(-1)[0];
   const points = range === 'all' ? all : all.filter(p => !last || Date.parse(p.date) >= Date.parse(last.date) - range * 86400000);
@@ -110,6 +111,12 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
   const tooltipX = hover !== null && selected ? Math.max(8, Math.min(chartWidth - tooltipWidth - 8, x(hover) + 16 + tooltipWidth <= chartWidth - 8 ? x(hover) + 16 : x(hover) - tooltipWidth - 16)) : 8;
   const tooltipId = `performance-detail-${gradient}`;
   const monthly = monthlyReturns(performance), extent = Math.max(.01, ...monthly.map(m => Math.abs(m.value ?? 0)));
+  const localHistory = !performance?.returnMethod;
+  const firstNav = all.find(point => point.nav !== null), navPoints = all.filter(point => point.nav !== null), latestNav = navPoints[navPoints.length - 1];
+  const localNavChange = firstNav?.nav != null && latestNav?.nav != null && firstNav.date < latestNav.date ? latestNav.nav - firstNav.nav : null;
+  const emptyCopy = state.source === 'mcp'
+    ? { title: state.connection.authorized ? '正在等待 PortfolioAnalyst 历史' : '请先连接官方 MCP', detail: state.connection.authorized ? '当前账户同步后会读取官方历史；本地快照也会按日保留' : '完成 IBKR 官方授权后读取当前账户及 PortfolioAnalyst 历史' }
+    : { title: `开始积累 ${state.gatewayMode === 'paper' ? '模拟盘' : '实盘'}净值轨迹`, detail: points.length ? '有效观测不足，至少两个不同日期后显示曲线' : '智能连接并成功同步后，SparkFlow 会按日保存该 Gateway 账户净值' };
   return <section className="awb-panel awb-performance awb-performance-redesign" aria-label="资产表现">
     <div className="awb-chart-toolbar"><div className="awb-chart-tabs">{[['nav', '资产净值'], ['return', '投资收益']].map(([value, label]) => <button key={value} aria-pressed={mode === value} disabled={value === 'return' && !performance?.returnMethod} onClick={() => { setMode(value as typeof mode); setHover(null); }}>{label}</button>)}</div><div className="awb-period-tabs">{([[7, '1周'], [30, '1月'], [90, '3月'], [365, '1年'], ['all', '全部']] as const).map(([value, label]) => <button key={value} aria-pressed={range === value} title={value === 'all' ? '全部可用历史' : undefined} onClick={() => { setRange(value); setHover(null); }}>{label}</button>)}</div></div>
     <div className="awb-chart-reading"><span>{selected && hover !== null ? `${selected.date} · ${mode === 'nav' ? amount(values[hover]) : signed(values[hover])}` : mode === 'nav' ? `资产净值 · ${performance?.currency ?? state.snapshot.baseCurrency ?? '币种待核实'}` : twr ? '时间加权收益 · 所选区间' : '资金加权累计收益 · 原始口径'}</span><small>{performance?.source ?? '历史尚未取得'}</small></div>
@@ -133,11 +140,16 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
       </dl>
       <p>{twr && returnAnchor ? `区间起点 ${returnAnchor.date}。` : ''}{previous ? `上一观测 ${previous.date}。` : '无上一观测。'}净值变动包含资金进出，不等于投资盈亏。</p>
       <small>{performance?.source ?? '来源待核实'}</small>
-    </div>}</div> : <div className="awb-chart-empty"><strong>开始积累真实账户轨迹</strong><p>{points.length ? '有效观测不足，至少两个点后显示曲线' : '官方历史尚未取得，同步后保存本地净值'}</p></div>}
+    </div>}</div> : <div className="awb-chart-empty"><strong>{emptyCopy.title}</strong><p>{emptyCopy.detail}</p></div>}
     <div className="awb-chart-legend">{state.metrics?.sectors.slice(0, 3).map((s, i) => <span key={s.name}><i style={{ background: colors[i] }}/>{industryLabel(s.name)} {percent(s.weight)}</span>)}<span><i style={{ background: colors[5] }}/>现金 {percent(overviewAllocation(state.snapshot).cashWeight)}</span>{hasBenchmark && <span><i style={{ background: '#a49ddb' }}/>{performance?.benchmark} 基准</span>}</div>
     <p className="awb-overview-note">{performance?.note ?? '净值变化含出入金，不能直接视为投资收益。'}{failed && ' 历史刷新失败，保留已有记录。'}</p>
     {hasBenchmark && <div className="awb-performance-stats"><span>区间超额 <b>{signed(points.map((_, i) => values[i] !== null && benchmark[i] !== null ? values[i]! - benchmark[i]! : null).filter(v => v !== null).slice(-1)[0])}</b></span><span>波动率比较 <b>{performance?.volatilityRatio == null ? '至少需要 60 个共同交易日' : `${performance.volatilityRatio.toFixed(2)}×（完整共同历史）`}</b></span><small>{performance?.benchmarkSource ?? '基准未取得'}</small></div>}
-    <div className="awb-performance-bottom"><div className="awb-return-summary" aria-label="收益摘要">
+    {localHistory ? <div className="awb-performance-bottom awb-performance-local-bottom"><div className="awb-return-summary" aria-label="本地净值摘要">
+      <div className="awb-inception-return"><small>历史记录</small><b>{all.filter(point => point.nav !== null).length} 个日期</b><span>{state.source === 'gateway' ? `IB Gateway ${state.gatewayMode === 'paper' ? '模拟盘' : '实盘'}` : 'MCP 当前账户快照'}</span></div>
+      <div><small>起始净值</small><b>{amount(firstNav?.nav)}</b><span>{firstNav?.date ?? '等待首次同步'}</span></div>
+      <div><small>最新净值</small><b>{amount(latestNav?.nav)}</b><span>{latestNav?.date ?? '等待首次同步'}</span></div>
+      <div><small>净值变动 · 含出入金</small><b className={localNavChange == null ? '' : localNavChange < 0 ? 'negative' : 'positive'}>{localNavChange !== null && localNavChange > 0 ? '+' : ''}{amount(localNavChange)}</b><span>不作为投资收益率</span></div>
+    </div><div className="awb-monthly awb-local-history-note"><div className="awb-section-heading"><h3>当前历史口径</h3><small>{performance?.source ?? '来源待同步'}</small></div><p>{state.source === 'gateway' ? 'Gateway 提供当前账户账面数据；这里展示 SparkFlow 按日保存的独立净值轨迹。实盘与模拟盘分别保存，不从 MCP 借用历史。' : '当前账户由 MCP 同步；PortfolioAnalyst 收益历史可用后会自动切换为经过券商核实的 TWR 或 MWR。'}</p></div></div> : <div className="awb-performance-bottom"><div className="awb-return-summary" aria-label="收益摘要">
       <div className="awb-inception-return" title={performance?.inception?.note ?? '等待 IBKR 核实自始以来的完整业绩'}>
         <small>自始以来总回报</small>
         <b className={performance?.inception?.value == null ? '' : performance.inception.value < 0 ? 'negative' : 'positive'}>{signed(performance?.inception?.value)}</b>
@@ -147,7 +159,7 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
     <div className="awb-monthly"><div className="awb-section-heading"><h3>月度收益率</h3><small>最近 6 个月 · TWR</small></div>
       {monthly.some(m => m.value !== null) ? <svg className="awb-month-chart" ref={monthRef} viewBox={`0 0 ${monthWidth} ${monthHeight}`} role="img" aria-label="月度收益率柱状图"><path d={`M0 ${monthHeight / 2 - 3}H${monthWidth}`} stroke="#304337"/>{monthly.map((m, i) => { const xx = (i + .5) * monthWidth / 6, zero = monthHeight / 2 - 3, height = Math.abs(m.value ?? 0) / extent * Math.max(8, (monthHeight - 42) / 2); return <g key={m.month}><title>{m.month}：{signed(m.value)} · {m.start ?? '起点缺失'} 至 {m.end ?? '终点缺失'}</title>{m.value === null ? <text x={xx} y={zero - 5} textAnchor="middle">—</text> : <><rect x={xx - 13} y={m.value >= 0 ? zero - height : zero} width="26" height={Math.max(1, height)} rx="3" fill={m.value >= 0 ? '#2bb88b' : '#c66559'}/><text x={xx} y={m.value >= 0 ? zero - 5 - height : zero + 11 + height} textAnchor="middle">{signed(m.value)}</text></>}<text x={xx} y={monthHeight - 3} textAnchor="middle">{m.month.slice(5)}月{m.partial ? '*' : ''}</text></g>; })}</svg> : <div className="awb-monthly-empty">暂不足以计算月度收益：需要 TWR 和相邻月界观测。</div>}
       <small>按实际月界观测计算；缺失月份留空。{last ? `最新月份截至 ${last.date}，标 * 为截至该日。` : ''}</small>
-    </div></div>
+    </div></div>}
   </section>;
 }
 

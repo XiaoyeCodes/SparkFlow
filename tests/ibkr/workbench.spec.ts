@@ -202,7 +202,7 @@ for (const scenario of [
   });
 }
 
-test('gateway settings quietly auto-detect until connected and then stop polling', async ({ page }) => {
+test('gateway settings stay idle until the user starts intelligent connect', async ({ page }) => {
   const data = state();
   data.source = 'gateway';
   data.connection.state = 'unconfigured';
@@ -210,32 +210,17 @@ test('gateway settings quietly auto-detect until connected and then stop polling
   const probes: number[] = [];
   await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
   await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
-  await page.route('**/api/ibkr-workbench/sync', async route => {
-    probes.push(Date.now());
-    await new Promise(resolve => setTimeout(resolve, 800));
-    if (probes.length >= 2) {
-      const connected = state(true);
-      Object.assign(data, connected, { source: 'gateway' });
-      data.connection.port = 18765;
-      data.connection.detail = '本机只读账户通道工作正常。';
-    }
-    await route.fulfill({ json: data });
-  });
+  await page.route('**/api/ibkr-workbench/sync', route => { probes.push(Date.now()); return route.fulfill({ json: data }); });
   await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
   const console = page.locator('.awb-connection-console');
-  await expect.poll(() => probes.length, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
-  expect(probes[1] - probes[0]).toBeGreaterThanOrEqual(1900);
-  await expect(console).toHaveAttribute('data-connection-state', 'connected');
-  await expect(console.getByText('实盘 Gateway 已连接', { exact: true })).toBeVisible();
-  await expect(console.locator('.awb-connection-badge')).toHaveText('已连接');
-  await expect(console.getByText('连接成功，自动检测已停止', { exact: true })).toBeVisible();
-  await expect(console.getByText('BRIDGE · 127.0.0.1:18765', { exact: true })).toBeVisible();
-  const count = probes.length;
+  await expect(console).toHaveAttribute('data-connection-state', 'disconnected');
+  await expect(console.getByText('等待手动启动智能连接', { exact: true })).toBeVisible();
+  await expect(console.getByRole('button', { name: '智能连接', exact: true })).toBeEnabled();
   await page.waitForTimeout(2300);
-  expect(probes).toHaveLength(count);
+  expect(probes).toHaveLength(0);
   await page.getByRole('button', { name: '账户总览', exact: true }).click();
   await page.waitForTimeout(2300);
-  expect(probes).toHaveLength(count);
+  expect(probes).toHaveLength(0);
 });
 
 test('gateway scanning keeps the actual API mismatch visible', async ({ page }) => {
@@ -246,12 +231,12 @@ test('gateway scanning keeps the actual API mismatch visible', async ({ page }) 
   await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
   await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
   const console = page.locator('.awb-connection-console');
-  await expect(console).toHaveAttribute('data-connection-state', 'connecting');
+  await expect(console).toHaveAttribute('data-connection-state', 'disconnected');
   await expect(console.getByText(data.connection.detail, { exact: true })).toBeVisible();
   await expect(console.getByRole('button', { name: '智能连接', exact: true })).toBeEnabled();
 });
 
-test('gateway actions place smart connect on the left and manual sync on the right', async ({ page }) => {
+test('gateway actions place smart connect on the left and disconnect on the right', async ({ page }) => {
   const data = state(); data.source = 'gateway'; data.connection.state = 'unconfigured'; data.connection.port = 18765;
   let smartConnects = 0;
   await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
@@ -260,11 +245,37 @@ test('gateway actions place smart connect on the left and manual sync on the rig
   await page.route('**/api/ibkr-workbench/gateway-connect', route => { smartConnects += 1; return route.fulfill({ json: data }); });
   await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
   const smart = page.getByRole('button', { name: '智能连接', exact: true });
-  const manual = page.getByRole('button', { name: '立即检测并同步', exact: true });
-  const [smartBox, manualBox] = await Promise.all([smart.boundingBox(), manual.boundingBox()]);
-  expect(smartBox!.x).toBeLessThan(manualBox!.x);
+  const disconnect = page.getByRole('button', { name: '断开连接', exact: true });
+  const [smartBox, disconnectBox] = await Promise.all([smart.boundingBox(), disconnect.boundingBox()]);
+  expect(smartBox!.x).toBeLessThan(disconnectBox!.x);
+  await expect(disconnect).toBeDisabled();
+  await expect(page.getByRole('button', { name: '立即检测并同步', exact: true })).toHaveCount(0);
   await smart.click();
   await expect.poll(() => smartConnects).toBe(1);
+});
+
+test('connected Gateway disconnect action releases the active connection', async ({ page }) => {
+  const data = state(true);
+  data.source = 'gateway';
+  data.gatewayMode = 'live';
+  data.connection.port = 18765;
+  let disconnects = 0;
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/disconnect', route => {
+    disconnects += 1;
+    data.connection.state = 'unconfigured';
+    data.snapshot.connection = 'disconnected';
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
+
+  const disconnect = page.getByRole('button', { name: '断开连接', exact: true });
+  await expect(disconnect).toBeEnabled();
+  await disconnect.click();
+  await expect.poll(() => disconnects).toBe(1);
+  await expect(page.getByText('实盘 Gateway 尚未连接', { exact: true })).toBeVisible();
+  await expect(disconnect).toBeDisabled();
 });
 
 test('paper trading page is honest while Gateway API remains readonly', async ({ page }) => {
@@ -329,25 +340,33 @@ test('strategy backtest saves an immutable user rule and runs only after complet
   expect(JSON.stringify(run)).not.toContain('ibkr.historicalData');
 });
 
-test('connection settings select an explicit paper Gateway without presenting it as live', async ({ page }) => {
+test('connection settings preview an explicit paper Gateway and connect it only on demand', async ({ page }) => {
   const data = state();
-  let selected: unknown;
+  let selected: unknown; let smartConnects = 0;
   await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
   await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
   await page.route('**/api/ibkr-workbench/source', route => {
     selected = route.request().postDataJSON();
     data.source = 'gateway';
     data.gatewayMode = 'paper';
-    data.connection.state = 'connected';
-    data.snapshot = { ...data.snapshot, mode: 'paper', accountKey: 'paper:ui-test', connection: 'connected', state: 'empty', snapshotId: 'paper-snapshot', asOf: new Date().toISOString() };
+    data.connection.state = 'unconfigured';
     return route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/ibkr-workbench/gateway-connect', route => {
+    smartConnects += 1; data.connection.state = 'connected';
+    data.snapshot = { ...data.snapshot, mode: 'paper', accountKey: 'paper:ui-test', connection: 'connected', state: 'empty', snapshotId: 'paper-snapshot', asOf: new Date().toISOString() };
+    return route.fulfill({ json: data });
   });
   await page.route('**/api/ibkr-workbench/sync', route => route.fulfill({ json: data }));
   await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
 
   await expect(page.getByRole('button', { name: /IB Gateway 模拟盘/ })).toBeVisible();
   await page.getByRole('button', { name: /IB Gateway 模拟盘/ }).click();
+  expect(selected).toBeUndefined();
+  await expect(page.getByText('模拟盘 Gateway 尚未连接', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '智能连接', exact: true }).click();
   await expect.poll(() => selected).toEqual({ source: 'gateway', gatewayMode: 'paper' });
+  await expect.poll(() => smartConnects).toBe(1);
   await expect(page.getByRole('button', { name: /IB Gateway 模拟盘/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('模拟盘 Gateway 已连接', { exact: true })).toBeVisible();
   await expect(page.getByText('PAPER GATEWAY', { exact: true })).toBeVisible();
@@ -356,18 +375,23 @@ test('connection settings select an explicit paper Gateway without presenting it
   await expect.poll(() => paperConsole.evaluate(element => getComputedStyle(element).getPropertyValue('--connection-accent').trim())).toBe('#e2b55e');
 });
 
-test('source cards respond immediately and disconnected Gateway does not poll until intelligent connect', async ({ page }) => {
-  const data = state();
-  let releaseSource!: () => void;
-  const sourceGate = new Promise<void>(resolve => { releaseSource = resolve; });
-  let sourceRequests = 0, syncRequests = 0;
+test('source cards preserve the current connection and confirmed smart connect replaces it in order', async ({ page }) => {
+  const data = state(true);
+  const calls: string[] = []; let syncRequests = 0;
   await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
   await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
-  await page.route('**/api/ibkr-workbench/source', async route => {
-    sourceRequests++;
-    await sourceGate;
-    data.source = 'gateway'; data.gatewayMode = 'paper'; data.connection.state = 'disconnected';
+  await page.route('**/api/ibkr-workbench/disconnect', route => {
+    calls.push('disconnect'); data.connection.state = 'unconfigured'; data.connection.authorized = false; data.snapshot.connection = 'disconnected';
     return route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/ibkr-workbench/source', route => {
+    calls.push('source'); data.source = 'gateway'; data.gatewayMode = 'paper'; data.connection.state = 'unconfigured';
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/ibkr-workbench/gateway-connect', route => {
+    calls.push('gateway-connect'); data.connection.state = 'connected';
+    data.snapshot = { ...data.snapshot, mode: 'paper', accountKey: 'paper:ui-test', connection: 'connected', state: 'empty', snapshotId: 'paper-snapshot', asOf: new Date().toISOString() };
+    return route.fulfill({ json: data });
   });
   await page.route('**/api/ibkr-workbench/sync', route => { syncRequests++; return route.fulfill({ json: data }); });
   await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
@@ -376,11 +400,21 @@ test('source cards respond immediately and disconnected Gateway does not poll un
   await paper.click();
   await expect(paper).toHaveAttribute('aria-pressed', 'true', { timeout: 250 });
   await expect(page.getByText('模拟盘 Gateway 尚未连接', { exact: true })).toBeVisible({ timeout: 250 });
-  await expect.poll(() => sourceRequests).toBe(1);
-  await page.waitForTimeout(2200);
+  expect(calls).toEqual([]);
   expect(syncRequests).toBe(0);
-  releaseSource();
-  await expect(paper).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '智能连接', exact: true }).click();
+  const dialog = page.getByRole('alertdialog', { name: '切换账户连接？' });
+  await expect(dialog).toContainText('一次只能同时连接一个账户通道');
+  await expect(dialog).toContainText('IB Gateway 模拟盘');
+  await expect(dialog).toContainText('官方 MCP');
+  await mkdir('tmp/workbench-qa', { recursive: true });
+  await page.screenshot({ path: 'tmp/workbench-qa/connection-switch-confirm.png', fullPage: true });
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  expect(calls).toEqual([]);
+  await page.getByRole('button', { name: '智能连接', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '确定并切换', exact: true }).click();
+  await expect.poll(() => calls).toEqual(['disconnect', 'source', 'gateway-connect']);
+  await expect(page.getByText('模拟盘 Gateway 已连接', { exact: true })).toBeVisible();
 });
 
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
@@ -595,7 +629,7 @@ test('overview presents sourced returns, allocation, currency-separated PnL and 
   await expect(page.getByRole('heading', { name: '把账户快照，变成可执行的研究结论' })).toBeVisible();
 });
 
-test('overview never substitutes NAV changes or reference sample scores for missing research and returns', async ({ page }) => {
+test('overview labels local NAV changes without presenting them as investment returns', async ({ page }) => {
   const data = state(true);
   data.performance = { source: '本地账户快照', fetchedAt: '2026-09-07', currency: 'USD', returnMethod: null, benchmark: 'none', note: '净值含入金', points: [{ date: '2026-08-31', nav: 10, cumulativeReturn: null }, { date: '2026-09-07', nav: 1000, cumulativeReturn: null }] };
   await page.route('**/api/ibkr-workbench/state', r => r.fulfill({ json: data }));
@@ -603,7 +637,9 @@ test('overview never substitutes NAV changes or reference sample scores for miss
   await page.route('**/api/ibkr-workbench/performance', r => r.fulfill({ json: data.performance }));
   await page.goto('http://127.0.0.1:5187/ibkr');
   await expect(page.getByRole('button', { name: '投资收益', exact: true })).toBeDisabled();
-  await expect(page.locator('.awb-return-summary b')).toHaveText(['—', '—', '—', '—']);
+  await expect(page.locator('.awb-return-summary b')).toHaveText(['2 个日期', '10.00', '1,000.00', '+990.00']);
+  await expect(page.locator('.awb-return-summary')).toContainText('净值变动 · 含出入金');
+  await expect(page.locator('.awb-return-summary')).toContainText('不作为投资收益率');
   await expect(page.getByRole('img', { name: '月度收益率柱状图' })).toHaveCount(0);
   await expect(page.locator('.awb-brief-redesign')).toContainText('今天还没有账户分析结论');
   await expect(page.locator('.awb-brief-redesign')).toContainText('启动服务不会自动补跑');

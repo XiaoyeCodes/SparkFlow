@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePerformance, comparePerformance, localPerformance, samePortfolioIdentity } from '../../server/ibkrPortfolio.ts';
+import { normalizePerformance, comparePerformance, localPerformance, gatewayPerformance } from '../../server/ibkrPortfolio.ts';
 
 const description = 'cumulative returns expressed as fractions';
 function fixture() {
@@ -36,10 +36,11 @@ test('unknown return units are withheld; MWR and zero returns retain their expli
   raw.accounts.account.periods.YTD.cps[1] = raw.accounts.account.periods['1Y'].cps[1] = 0;
   assert.equal(normalize(raw).inception.value, 0);
 });
-test('gateway history can reuse MCP only after current portfolio identity matches', () => {
-  const snapshot=(accountKey,quantity='2',nav='1000')=>({accountKey,baseCurrency:'USD',metrics:{netLiquidation:nav},positions:[{conId:12,symbol:'AAPL',currency:'USD',quantity}]});
-  assert.equal(samePortfolioIdentity(snapshot('gateway'),snapshot('mcp','2','1004.99')),true);
-  assert.equal(samePortfolioIdentity(snapshot('gateway'),snapshot('mcp','3')),false);
-  assert.equal(samePortfolioIdentity(snapshot('gateway'),snapshot('mcp','2','1005.01')),false);
-  assert.equal(samePortfolioIdentity({...snapshot('gateway'),positions:[]},snapshot('mcp')),false);
+test('gateway performance is explicitly labeled as separate local NAV history', () => {
+  const points=[{date:'2026-09-08',nav:1000,cumulativeReturn:null}];
+  assert.deepEqual(gatewayPerformance(points,'USD','live'),{
+    points,source:'IB Gateway 实盘 · 本地净值快照',currency:'USD',returnMethod:null,benchmark:'SPY',fetchedAt:'2026-09-08',
+    note:'当前数据来自 IB Gateway 实盘。历史曲线由 SparkFlow 按日保存净值快照；净值变化包含出入金，不作为投资收益率或盈亏金额。'
+  });
+  assert.match(gatewayPerformance(points,'USD','paper').source,/模拟盘/);
 });

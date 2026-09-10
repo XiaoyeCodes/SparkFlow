@@ -17,7 +17,7 @@ import { IbkrProfiles, type ProfileBatchFetcher } from './ibkrProfiles.ts';
 import { createIbkrAi } from './ibkrAi.ts';
 import { accountRisk, defaults, digest, newYorkClock, preferencesSchema } from './ibkrWorkbenchCore.ts';
 import { createResearch, runResearch, researchFailure, type ResearchCheckpoint } from './ibkrResearch.ts';
-import { portfolioMetrics, localPerformance, comparePerformance, normalizePerformance, samePortfolioIdentity, simulatePlan, planSchema } from './ibkrPortfolio.ts';
+import { portfolioMetrics, localPerformance, gatewayPerformance, comparePerformance, normalizePerformance, simulatePlan, planSchema } from './ibkrPortfolio.ts';
 import type { AdjustmentPlan, PortfolioPerformance, PerformancePoint } from '../src/lib/ibkr/workbenchTypes.ts';
 import { emptySnapshot } from '../src/lib/ibkr/store.ts';
 import { validSnapshot } from '../src/lib/ibkr/events.ts';
@@ -377,7 +377,8 @@ export class IbkrWorkbenchService {
     const priority = (alert: Alert) => alert.resolved ? 5 : ['margin', 'cash-floor'].includes(alert.key) ? 0 : alert.kind === 'risk' ? 1 : alert.kind === 'change' ? 2 : 3;
     const alerts = [...(record?.alerts ?? [])].sort((a, b) => priority(a) - priority(b) || b.createdAt.localeCompare(a.createdAt));
     const gatewayPort = this.saved.source === 'gateway' ? await this.gatewayBridgePort().catch(() => undefined) : undefined;
-    return { source: this.saved.source, gatewayMode, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || snapshot.detail || `IB Gateway ${gatewayMode === 'paper' ? '模拟盘' : '实盘'}只读服务`, port: gatewayPort, tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { analysis: this.scheduleStatus() }, metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance:record?.performance??localPerformance(record?.history??[],snapshot.baseCurrency), researchServices:(this.model as any).researchServices??[] };
+    const performance = this.saved.source === 'gateway' ? gatewayPerformance(record?.history ?? [], snapshot.baseCurrency, gatewayMode) : record?.performance ?? localPerformance(record?.history ?? [], snapshot.baseCurrency);
+    return { source: this.saved.source, gatewayMode, connection: this.saved.source === 'mcp' ? { ...this.mcp.status(), detail: this.storageError || this.connectionDetail || this.mcp.detail } : { state: snapshot.connection, detail: this.storageError || this.connectionDetail || snapshot.detail || `IB Gateway ${gatewayMode === 'paper' ? '模拟盘' : '实盘'}只读服务`, port: gatewayPort, tools: [], accounts: [] }, snapshot, quotes: this.quotes, evidence: this.evidence, alerts, reports: record?.reports ?? [], jobs: record?.jobs ?? [], preferences: record?.preferences ?? defaults, ai: { ...this.model, enabled: Boolean(record?.grant && record.grant.fingerprint === this.model.fingerprint), fields: ['脱敏持仓', '现金', '风险指标', '行情', '新闻与宏观证据'], usedToday: record?.usage.filter(u => newYorkClock(new Date(u.at)).date === today).length ?? 0 }, nextSyncAt: this.nextSync ? new Date(this.nextSync).toISOString() : null, calendarSupported: briefSchedule(new Date()).calendarSupported, schedules: { analysis: this.scheduleStatus() }, metrics:portfolioMetrics(snapshot,record?.preferences.cashFloor,record?.preferences.targetWeight), plans:record?.plans??[], performance, researchServices:(this.model as any).researchServices??[] };
   }
   async paperRequest(endpoint: 'status'|'contract'|'transport'|'configure'|'preview'|'confirm'|'cancel'|'reconcile'|'stop', payload?: unknown) {
     this.assertAvailable();
@@ -643,30 +644,32 @@ export class IbkrWorkbenchService {
   async performance(){
     const record=this.record();if(!record)throw new Error('请先连接账户');
     if(this.performanceFlight)return this.performanceFlight;
-    if(record.performance?.inception&&record.performance.fetchedAt&&Date.now()-Date.parse(record.performance.fetchedAt)<900000 && record.performance.source==='IBKR PortfolioAnalyst')return record.performance;
+    const source=this.saved.source,gatewayMode=this.saved.gatewayMode??'live';
+    if(source==='gateway'){
+      const result=gatewayPerformance(record.history??[],record.snapshot.baseCurrency,gatewayMode);
+      result.fetchedAt=new Date().toISOString();record.performance=result;await this.persist();return result;
+    }
+    if(record.performance?.inception&&record.performance.fetchedAt&&Date.now()-Date.parse(record.performance.fetchedAt)<900000&&record.performance.source==='IBKR PortfolioAnalyst')return record.performance;
     this.performanceFlight=(async()=>{
       let result=localPerformance(record.history??[],record.snapshot.baseCurrency);
       try{
-        if(this.saved.source==='gateway' && this.saved.gatewayMode === 'paper'){
-          result.note+=' 模拟盘不导入实盘 PortfolioAnalyst 历史。';
-        }else{
-          let performanceKey=record.snapshot.accountKey;
-          if(this.saved.source==='gateway'){
-            const official=await this.mcp.snapshot();
-            if(!samePortfolioIdentity(record.snapshot,official))throw new Error('MCP_GATEWAY_ACCOUNT_MISMATCH');
-            performanceKey=official.accountKey;
-          }
-          const raw=await this.mcp.performance(performanceKey);const data=raw.data;
-          result=normalizePerformance(data,raw.description??'',record.snapshot.baseCurrency);
-          if(this.saved.source==='gateway')result.note+=' Gateway 与 MCP 当前持仓及净值核验一致。';
-        }
-      }catch{result.note+=' 官方历史暂不可用，继续积累本地快照。';}
+        const raw=await this.mcp.performance(record.snapshot.accountKey);const data=raw.data;
+        result=normalizePerformance(data,raw.description??'',record.snapshot.baseCurrency);
+      }catch{result.source='MCP 当前账户 · 本地净值快照';result.note+=' PortfolioAnalyst 历史暂不可用；请检查 MCP 授权，当前仅保留由 MCP 同步得到的本地净值快照。';}
       const benchmark=record.preferences.benchmark??'SPY';result.benchmark=benchmark;
       if(benchmark!=='none'&&result.returnMethod)try{const bm=await this.ai.tool('benchmark',{symbol:benchmark});if(bm.adjusted&&bm.currency===result.currency){result=comparePerformance(result,bm.rows,benchmark);result.benchmarkSource=bm.source;result.benchmarkFetchedAt=new Date().toISOString();}}catch{result.note+=' 基准来源暂不可用。';}
       result.fetchedAt=new Date().toISOString();record.performance=result;await this.persist();return result;
     })();try{return await this.performanceFlight;}finally{this.performanceFlight=undefined;}
   }
-  async disconnect() { this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; await this.syncFlight; const record = this.record(); if (record) { record.grant = undefined; record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: '账户已断开。' }; } await this.mcp.disconnect(); this.saved.selectedKey = undefined; this.quotes = []; this.evidence = []; await this.persist(); }
+  async disconnect() {
+    this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; await this.syncFlight;
+    const source = this.saved.source, record = this.record();
+    if (record) { record.grant = undefined; record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: '账户已断开。' }; }
+    if (source === 'mcp') await this.mcp.disconnect();
+    else { this.activeGatewayBridgePort = undefined; this.nextGatewayAttempt = 0; this.connectionDetail = '本地账户连接已断开。'; }
+    this.saved.selectedKey = undefined; this.quotes = []; this.evidence = []; this.nextSync = 0;
+    await this.persist();
+  }
   async report(id: string) { if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error('无效报告标识'); const report = JSON.parse(await readFile(path.join(this.directory, `${id}.report.json`), 'utf8')) as AnalysisReport; if (report.accountKey !== this.saved.selectedKey) throw new Error('报告不属于当前账户'); return report; }
   async close() { this.disposed = true; this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; if (this.timer) clearTimeout(this.timer); this.ai.close(); await this.syncFlight; await this.performanceFlight?.catch(()=>{}); await Promise.all([this.activeAnalysis, this.activeBrief]); await this.writeQueue; await this.mcp.close(); if (this.ownsLease) { this.ownsLease = false; await unlink(path.join(this.directory, 'worker.lock')).catch(() => {}); } }
 }

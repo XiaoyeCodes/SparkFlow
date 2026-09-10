@@ -50,7 +50,11 @@ test('TWR compounds selected dates and does not infer profit from cash-inflated 
   expect(model.points.map(point => point.nav)).toEqual([1100, 1200]);
   expect(holdingsReturnSeries(history(), 0).value).toBeCloseTo(.2);
   const data = history(); data.returnMethod = null;
-  expect(holdingsReturnSeries(data, 30).points).toEqual([]);
+  const local = holdingsReturnSeries(data, 30);
+  expect(local.kind).toBe('nav');
+  expect(local.points.map(point => point.nav)).toEqual([1100, 1200]);
+  expect(local.value).toBeCloseTo(1200 / 1100 - 1);
+  expect(local.note).toContain('含出入金');
   data.returnMethod = 'MWR';
   expect(holdingsReturnSeries(data, 30).value).toBe(.2);
 });
@@ -61,6 +65,20 @@ test('missing returns preserve chart gaps and do not substitute earlier end valu
   expect(returnGeometry(model.points).path.match(/M/g)).toHaveLength(2);
   data.points[2].cumulativeReturn = null;
   expect(holdingsReturnSeries(data, 0).value).toBeNull();
+});
+
+test('Gateway holdings show a labeled local NAV trajectory instead of an empty return chart', async ({ page }) => {
+  const data = snapshot();
+  const performance: PortfolioPerformance = { source: 'IB Gateway 实盘 · 本地净值快照', fetchedAt: '2026-09-08T05:00:00Z', currency: 'USD', returnMethod: null, benchmark: 'SPY', note: '含出入金', points: [{ date: '2026-09-07', nav: 1000, cumulativeReturn: null }, { date: '2026-09-08', nav: 1020, cumulativeReturn: null }] };
+  const state = { source: 'gateway', gatewayMode: 'live', snapshot: data, performance, connection: { state: 'connected', detail: 'fixture', tools: [], accounts: [] }, quotes: [], evidence: [], alerts: [], reports: [], jobs: [], preferences: { horizon: 'both', targetWeight: null, cashFloor: null, maxDrawdown: null, daily: false, eventAnalysis: false, maxAutomatic: 0, cooldownMinutes: 60, maxAiCalls: 12 }, ai: { configured: false, enabled: false, fields: [], usedToday: 0 }, nextSyncAt: null, calendarSupported: true };
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: state }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/logo?*', route => route.fulfill({ json: {} }));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=holdings');
+  await expect(page.getByRole('article', { name: '账户净值轨迹' })).toBeVisible();
+  await expect(page.locator('.ha-return strong')).toHaveText('+2.00%');
+  await expect(page.locator('.ha-performance')).toContainText('含出入金');
+  await expect(page.getByRole('img', { name: /账户净值变动曲线/ })).toBeVisible();
 });
 
 test('holdings charts respond to range changes and export the same range', async ({ page }) => {

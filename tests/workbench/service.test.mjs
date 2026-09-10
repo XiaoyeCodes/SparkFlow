@@ -15,22 +15,26 @@ test('OAuth landing distinguishes authorization from data sync and never reflect
   assert.match(oauthCallbackPage(true, false, 'MCP_ACCOUNTS_TOOL_UNSUPPORTED'), /返回账户工作台/);
   assert.ok(!oauthCallbackPage(false, false, '<script>secret-token</script>').includes('secret-token'));
 });
-test('gateway performance imports PortfolioAnalyst history only after MCP portfolio verification', async () => {
+test('gateway performance stays on its own local history and never calls MCP', async () => {
   const f=await fixture();
   try{
-    f.service.saved.source='gateway';f.record.preferences.benchmark='none';
-    const position={conId:12,symbol:'AAPL',currency:'USD',position:2,marketValue:500,unrealizedPnl:20};
-    f.record.snapshot=normalizeMcpSnapshot('GATEWAY_ACCOUNT',[position],{baseCurrency:'USD',netLiquidation:1000,cash:[{currency:'USD',amount:500}]});
-    const official=normalizeMcpSnapshot('MCP_ACCOUNT',[position],{baseCurrency:'USD',netLiquidation:1002,cash:[{currency:'USD',amount:502}]});
-    f.service.mcp.snapshot=async()=>official;
+    f.service.saved.source='gateway';f.service.saved.gatewayMode='live';f.record.preferences.benchmark='none';
+    f.record.history=[{date:'2026-09-08',nav:1000,cumulativeReturn:null},{date:'2026-09-09',nav:1002,cumulativeReturn:null}];
+    f.record.performance={source:'IBKR PortfolioAnalyst',fetchedAt:new Date().toISOString(),currency:'USD',returnMethod:'TWR',benchmark:'SPY',note:'stale cross-source cache',points:[]};
+    let mcpCalls=0;f.service.mcp.performance=async()=>{mcpCalls++;throw new Error('must not run');};
+    const result=await f.service.performance();
+    assert.equal(mcpCalls,0);assert.equal(result.source,'IB Gateway 实盘 · 本地净值快照');assert.equal(result.returnMethod,null);assert.equal(result.points.length,2);
+    const current=await f.service.state();assert.equal(current.performance.source,'IB Gateway 实盘 · 本地净值快照');
+  }finally{await f.service.close();}
+});
+test('MCP performance uses PortfolioAnalyst for the currently selected MCP account', async () => {
+  const f=await fixture();
+  try{
+    f.service.saved.source='mcp';f.record.preferences.benchmark='none';
     let performanceKey='';
     f.service.mcp.performance=async key=>{performanceKey=key;return {description:'cumulative returns expressed as fractions',data:{portfolio_measure:'TWR',accounts:{verified:{base_currency:'USD',start:'20260908',end:'20260909',periods:{'1Y':{start_date:'20260101',start_nav:100,dates:['20260908','20260909'],nav:[1000,1002],cps:[0,.002]}}}}}};};
-    const imported=await f.service.performance();
-    assert.equal(performanceKey,official.accountKey);assert.equal(imported.source,'IBKR PortfolioAnalyst');assert.match(imported.note,/核验一致/);
-    f.record.performance=undefined;performanceKey='';
-    f.service.mcp.snapshot=async()=>({...official,positions:[{...official.positions[0],quantity:'3'}]});
-    const rejected=await f.service.performance();
-    assert.equal(performanceKey,'');assert.equal(rejected.source,'本地账户快照');assert.match(rejected.note,/官方历史暂不可用/);
+    const result=await f.service.performance();
+    assert.equal(performanceKey,f.record.snapshot.accountKey);assert.equal(result.source,'IBKR PortfolioAnalyst');assert.equal(result.returnMethod,'TWR');
   }finally{await f.service.close();}
 });
 test('paper Gateway selection is immediate and reads the account only after an explicit sync', async () => {
@@ -183,6 +187,23 @@ async function fixture() {
   service.saved.selectedKey = snapshot.accountKey; service.saved.records[snapshot.accountKey] = record;
   return { service, record, dir, calls: () => calls };
 }
+test('disconnect releases only the active connection source', async () => {
+  const f = await fixture(); let mcpDisconnects = 0;
+  f.service.mcp.disconnect = async () => { mcpDisconnects++; };
+  try {
+    f.service.saved.source = 'gateway';
+    f.record.snapshot = { ...f.record.snapshot, mode: 'live', connection: 'connected', state: 'ready' };
+    await f.service.disconnect();
+    assert.equal(mcpDisconnects, 0);
+    assert.equal(f.service.saved.selectedKey, undefined);
+
+    f.service.saved.source = 'mcp'; f.service.saved.selectedKey = f.record.snapshot.accountKey;
+    f.record.snapshot = { ...f.record.snapshot, connection: 'connected', state: 'ready' };
+    await f.service.disconnect();
+    assert.equal(mcpDisconnects, 1);
+    assert.equal(f.service.saved.selectedKey, undefined);
+  } finally { await f.service.close(); }
+});
 test('report generation persists frozen evidence and duplicate concurrent requests invoke only one model', async () => {
   const f = await fixture();
   try {
