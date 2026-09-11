@@ -179,7 +179,7 @@ def test_raw_open_order_matches_unknown_without_inventing_fill_counters(tmp_path
 
 
 @pytest.mark.parametrize('field,value', [('account', 'OTHER'), ('orderRef', 'EXTERNAL'),
-    ('totalQuantity', Decimal('7')), ('lmtPrice', 101.0), ('outsideRth', True)])
+    ('totalQuantity', Decimal('7')), ('lmtPrice', 101.0)])
 def test_unknown_read_requires_full_identity_and_order_body(tmp_path, field, value):
     from ib_async import OrderState
     with ledger(tmp_path / 'orders.db') as db:
@@ -198,6 +198,15 @@ def test_what_if_open_reply_never_acknowledges_a_submission(tmp_path):
         order.whatIf = True
         assert observer.open_order(71, contract, order, OrderState(status='Submitted')) is None
         assert db.get('paper:engineering', 'paper', 'intent-1').submission == 'UNKNOWN'
+
+
+def test_legacy_regular_hours_only_paper_order_can_still_be_reconciled(tmp_path):
+    from ib_async import OrderState
+    with ledger(tmp_path / 'orders.db') as db:
+        _, observer, contract, order = unknown_bridge(db)
+        order.outsideRth = False  # Existing order created before the policy upgrade.
+        observer.open_order(71, contract, order, OrderState(status='Submitted'))
+        assert db.get('paper:engineering', 'paper', 'intent-1').submission == 'ACKNOWLEDGED'
 
 
 def test_raw_amendment_ack_keeps_identity_and_hold_until_account_proof(tmp_path, api_event_loop):

@@ -44,7 +44,7 @@ def encode_order(command, binding, instrument):
         raise RiskDenied('UNSUPPORTED_COMMAND')
     command = type(command).model_validate(command.model_dump())
     identity, intent, binding, instrument = _scope(command.identity, command.intent, binding, instrument)
-    if intent.tif != 'DAY' or (intent.orderType == 'MKT' and (binding.mode != 'paper' or isinstance(command, ModificationCommand))):
+    if intent.tif != 'DAY' or (intent.orderType == 'MKT' and isinstance(command, ModificationCommand)):
         raise RiskDenied('UNSUPPORTED_ORDER_POLICY')
     price, tick = Decimal(intent.limitPrice) if intent.limitPrice is not None else None, Decimal(instrument.minTick)
     with localcontext() as arithmetic:
@@ -53,9 +53,10 @@ def encode_order(command, binding, instrument):
             raise RiskDenied('INVALID_ORDER_INCREMENT')
     native_contract = IbContract(conId=instrument.conId, symbol=instrument.symbol, secType=instrument.secType,
         currency=instrument.currency, exchange=instrument.exchange, primaryExchange=instrument.primaryExchange or '', multiplier='1')
+    # Both broker-routed modes opt into eligible pre-market/after-hours sessions.
     native_order = Order(orderId=identity.orderId, clientId=identity.clientId, permId=command.permId if isinstance(command, ModificationCommand) else 0,
         account=binding.brokerAccount, orderRef=identity.orderRef, action=intent.side, totalQuantity=Decimal(intent.quantity),
-        orderType=intent.orderType, tif='DAY', outsideRth=False, transmit=True,
+        orderType=intent.orderType, tif='DAY', outsideRth=True, transmit=True,
         **({'lmtPrice': price} if price is not None else {}))
     return native_contract, native_order
 

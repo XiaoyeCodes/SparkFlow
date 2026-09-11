@@ -50,7 +50,10 @@ class OrderIntent(Contract):
 
 
 class RiskLimits(Contract):
-    maxOrderNotional: Amount
+    # Retained as an optional legacy field so existing saved policies continue
+    # to load. It is intentionally not enforced: order size is governed by
+    # cash, leverage, total-exposure and symbol-weight checks below.
+    maxOrderNotional: Amount | None = None
     maxTotalExposure: Amount
     maxSymbolWeight: Amount
     maxDailyLoss: Amount
@@ -63,9 +66,11 @@ class RiskLimits(Contract):
 
     @model_validator(mode='after')
     def valid_limits(self):
-        for field in ('maxOrderNotional', 'maxTotalExposure', 'maxDailyLoss'):
+        for field in ('maxTotalExposure', 'maxDailyLoss'):
             if Decimal(getattr(self, field)) <= 0:
                 raise ValueError('positive risk limit required')
+        if self.maxOrderNotional is not None and Decimal(self.maxOrderNotional) <= 0:
+            raise ValueError('positive legacy risk limit required')
         if not 0 < Decimal(self.maxSymbolWeight) <= 1 or not 0 <= Decimal(self.maxPriceDeviation) <= 1:
             raise ValueError('invalid risk ratio')
         return self
@@ -184,7 +189,9 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
     require(intent.conId == context.conId and intent.conId in grant.conIds, 'CONTRACT_SCOPE')
     require(context.connected and context.reconciled, 'RECONCILIATION_REQUIRED')
     require(not context.halted, 'HALTED')
-    require(context.regularHours, 'OUTSIDE_RTH')
+    # Broker-routed paper and live orders explicitly opt into eligible
+    # pre-market/after-hours sessions. Backtests keep their original session rule.
+    require(context.regularHours or intent.mode in ('paper', 'live'), 'OUTSIDE_RTH')
     require(context.openOrdersComplete, 'EXTERNAL_ORDER_RISK_UNKNOWN')
     estimated = (intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'
         and context.referenceKind in ('portfolio', 'broker-snapshot')
@@ -202,7 +209,7 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
     require(funding is not None and all(getattr(context, name) is not None for name in ('netLiquidation', 'dailyLoss', 'referencePrice')), 'MISSING_ACCOUNT_DATA')
     require(context.market == 'US' and context.secType == 'STK' and context.currency == context.baseCurrency == 'USD' and Decimal(context.multiplier) == 1, 'UNSUPPORTED_CONTRACT')
     require(intent.tif == 'DAY' and (intent.orderType == 'LMT' or
-        intent.orderType == 'MKT' and intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'), 'UNSUPPORTED_ORDER_POLICY')
+        intent.orderType == 'MKT' and grant.kind == 'manual' and purpose == 'new_order'), 'UNSUPPORTED_ORDER_POLICY')
     require(len({row.conId for row in context.holdings}) == len(context.holdings) and all(row.currency == 'USD' for row in context.holdings), 'INCOMPLETE_HOLDINGS')
     with localcontext() as arithmetic:
         arithmetic.prec = 80
@@ -235,8 +242,7 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
         require(Decimal(context.dailyLoss) < Decimal(limits.maxDailyLoss), 'DAILY_LOSS_LIMIT')
         require(daily_count < limits.maxDailyOrders, 'DAILY_ORDER_LIMIT')
         require(minute_count < limits.maxOrdersPerMinute, 'ORDER_FREQUENCY_LIMIT')
-        notional, fee = quantity * price, Decimal(limits.feeReserve)
-        require(notional <= Decimal(limits.maxOrderNotional), 'ORDER_NOTIONAL_LIMIT')
+        fee = Decimal(limits.feeReserve)
         pending_notional = remaining_quantity * price
         cash = (pending_notional if intent.side == 'BUY' else Decimal(0)) + fee
         require(Decimal(funding) >= Decimal(reserved['cash']) + cash, 'INSUFFICIENT_CASH')

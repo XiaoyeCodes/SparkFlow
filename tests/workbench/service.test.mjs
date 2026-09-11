@@ -122,10 +122,19 @@ test('paper order proxy injects the selected paper scope and never exposes the b
     assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/paper/quote?conId=265598');
     assert.equal(sent.init.method, 'GET');
     assert.equal(sent.init.body, undefined);
-    service.ticketQuotes = { quote: async contract => ({...contract,name:'Apple',bid:'99',ask:'100',last:'99.5',close:'98',high:'101',low:'97',open:'98',volume:'1000',amount:'99000',peDynamic:'30',peStatic:'32',minTick:null,state:'reference',regularHours:null,nextOpen:null,fetchedAt:new Date().toISOString(),source:'东方财富',detail:'',bids:[],asks:[]}) };
+    let selectedSource;
+    service.ticketQuotes = { quote: async (contract,dataSource) => {selectedSource=dataSource;return {...contract,name:'Apple',bid:'99',ask:'100',last:'99.5',close:'98',high:'101',low:'97',open:'98',volume:'1000',amount:'99000',peDynamic:'30',peStatic:'32',minTick:null,state:'reference',regularHours:null,nextOpen:null,fetchedAt:new Date().toISOString(),source:dataSource==='tencent'?'腾讯财经':'东方财富',detail:'',bids:[],asks:[]};} };
     const merged = await service.paperMarketQuote({ conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ' });
     assert.equal(merged.bid,'101'); assert.equal(merged.ask,'102'); assert.equal(merged.open,'98');
-    assert.match(merged.source,/IBKR Gateway/);
+    assert.equal(selectedSource,'tencent');
+    assert.equal(merged.source,'腾讯财经');
+    assert.equal(merged.last,'99.5');
+    await service.paperMarketQuote({conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ',dataSource:'eastmoney'});
+    assert.equal(selectedSource,'eastmoney');
+    await assert.rejects(service.paperMarketQuote({conId:265598,symbol:'AAPL',currency:'USD',dataSource:'unknown'}));
+    service.ticketHistories={history:async(contract,period,dataSource)=>({symbol:contract.symbol,period,source:dataSource})};
+    assert.equal((await service.paperHistory({conId:265598,symbol:'AAPL',currency:'USD',period:'day'})).source,'tencent');
+    assert.equal((await service.paperHistory({conId:265598,symbol:'AAPL',currency:'USD',period:'day',dataSource:'eastmoney'})).source,'eastmoney');
     await service.paperRequest('contract', { conId: 265598 });
     assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/paper/contract?conId=265598');
     await assert.rejects(() => service.paperRequest('quote', { conId: -1 }));
@@ -133,6 +142,33 @@ test('paper order proxy injects the selected paper scope and never exposes the b
     service.saved.gatewayMode = 'live';
     await assert.rejects(() => service.paperRequest('quote', { conId: 265598 }), /模拟盘/);
   } finally { globalThis.fetch = originalFetch; }
+});
+test('paper preview upgrades a stale bridge once and retries the side-effect-free request', async () => {
+  const root = await mkdtemp(path.resolve('tmp/workbench-paper-orders/upgrade-'));
+  const dir = path.join(root, 'state');
+  await mkdir(path.join(root, '.sparkflow/ibkr-terminal'), { recursive: true }); await mkdir(dir, { recursive: true });
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/session.token'), 'private-bridge-token');
+  await writeFile(path.join(root, '.sparkflow/ibkr-terminal/bridge.port'), '18765');
+  let starts=0,previews=0,restored;
+  const service = new IbkrWorkbenchService(root, dir, async () => ({}), async () => ({}), undefined,
+    async (_root,port,refreshCode)=>{starts++;assert.equal(port,18765);assert.equal(refreshCode,true);return {port,reused:false};},
+    async ()=>({phase:'ready',detail:'ready'}));
+  const snapshot = { ...normalizeMcpSnapshot('PAPER_ACCOUNT', [], { baseCurrency: 'USD', netLiquidation: 1000, cash: [{ currency: 'USD', amount: 1000 }] }), accountKey: 'paper:selected', mode: 'paper' };
+  service.saved = { version: 1, source: 'gateway', gatewayMode: 'paper', selectedKey: 'paper:selected', records: { 'paper:selected': { snapshot, preferences: { ...defaults }, alerts: [], reports: [], jobs: [], usage: [] } } };
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=async(url,init)=>{
+    const target=String(url);
+    if(target.endsWith('/paper/status'))return new Response(JSON.stringify({policy:{conIds:[12],expiresAt:new Date(Date.now()+3600000).toISOString(),limits:{maxOrderNotional:'1000',maxTotalExposure:'1000',maxSymbolWeight:'1',maxDailyLoss:'50',maxDailyOrders:10,maxOrdersPerMinute:10,maxQuoteAgeSeconds:10,maxAccountAgeSeconds:30,maxPriceDeviation:'0.05',feeReserve:'1'}}}),{headers:{'content-type':'application/json'}});
+    if(target.endsWith('/paper/configure')){restored=JSON.parse(init.body);return new Response(JSON.stringify({enabled:true}),{headers:{'content-type':'application/json'}});}
+    previews++;return previews===1
+      ?new Response(JSON.stringify({detail:'OUTSIDE_RTH'}),{status:409,headers:{'content-type':'application/json'}})
+      :new Response(JSON.stringify({previewId:'preview:upgraded'}),{headers:{'content-type':'application/json'}});
+  };
+  try {
+    const result=await service.paperRequest('preview',{conId:12,side:'BUY',quantity:'2',limitPrice:'100.50'});
+    assert.equal(result.previewId,'preview:upgraded');assert.equal(starts,1);assert.equal(previews,2);
+    assert.equal(restored.accountKey,'paper:selected');assert.equal(restored.mode,'paper');assert.deepEqual(restored.conIds,[12]);
+  } finally {globalThis.fetch=originalFetch;await service.close();}
 });
 test('backtest proxy accepts only structured user strategies and stamps data inside the Python service', async () => {
   await mkdir('tmp/workbench-backtests', { recursive: true });

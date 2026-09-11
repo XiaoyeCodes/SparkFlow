@@ -157,8 +157,8 @@ class PaperRiskSource:
             regular = any(s.start <= self.clock() < s.end for s in self.details.liquidSessions())
         except Exception as exc:
             raise ReviewBlocked('TRADING_HOURS_UNAVAILABLE') from exc
-        if not regular:
-            raise ReviewBlocked('OUTSIDE_RTH')
+        # Paper orders may be submitted outside RTH. Eligibility and the final
+        # accepted state remain broker/exchange decisions.
         if draft.orderType == 'LMT':
             exchanges = self.details.validExchanges.split(',')
             rules = self.details.marketRuleIds.split(',')

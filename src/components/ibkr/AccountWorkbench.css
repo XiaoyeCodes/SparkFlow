@@ -316,10 +316,6 @@
 .account-workbench .awb-provenance,.account-workbench .awb-footer{font-size:11px;line-height:1.8}
 .account-workbench :is(input,textarea)::placeholder{color:var(--awb-text-muted);opacity:1}
 .account-workbench button:disabled{opacity:.72}
-.account-workbench .pt-depth-side button:disabled{opacity:1;color:var(--awb-text-muted)}
-.account-workbench .pt-depth-side.asks button:not(:disabled) b{color:#efaaa0}
-.account-workbench .pt-workspace .pt-depth>p{font-size:12px!important;color:var(--awb-text-secondary)!important}
-.account-workbench .pt-depth-heading small{font-size:11px}
 .awb-connection-console.is-paper.is-connected{border-color:rgba(226,181,94,.46);background:radial-gradient(circle at 8% 0%,rgba(226,181,94,.14),transparent 42%),linear-gradient(145deg,#1b180e,#0a0e0a 70%);box-shadow:inset 0 1px rgba(255,241,196,.04),0 0 0 1px rgba(226,181,94,.04),0 14px 38px rgba(0,0,0,.22),0 0 24px rgba(226,181,94,.045)}
 .awb-connection-console.is-paper.is-connected .awb-connect-primary{border-color:rgba(226,181,94,.34);background:rgba(226,181,94,.09);color:#efd294}
 

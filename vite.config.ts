@@ -401,7 +401,15 @@ async function fetchText(url: string, timeoutMs = 9000) {
 
 async function fetchJson(url: string, timeoutMs = 9000) {
   const text = await fetchText(url, timeoutMs);
-  return JSON.parse(text);
+  try { return JSON.parse(text); }
+  catch {
+    // Some quote/search providers label JSONP or a single JS string assignment as
+    // application/json. Parse only these narrowly validated wrappers; never eval.
+    const jsonp = text.trim().match(/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?\(([\s\S]*)\)\s*;?$/);
+    if (jsonp) return JSON.parse(jsonp[1]);
+    if (/^v_hint="(?:\\.|[^"\\])*";?$/s.test(text.trim())) return text.trim();
+    throw new SyntaxError('上游返回了无法识别的数据格式');
+  }
 }
 
 async function fetchJsonWithRetry(url: string, attempts = 2, timeoutMs = 9000) {
@@ -12737,7 +12745,19 @@ export default defineConfig({
     react(),
     ibkrValuationPlugin(),
     ibkrWorkbenchPlugin({
-      fetchJson: url => fetchJsonWithRetry(url, 2, 12000),
+      fetchJson: async url => {
+        // Tencent's US minute endpoint can time out on the direct route even
+        // when its quote endpoint works. Reuse the configured foreign proxy.
+        if (new URL(url).hostname === 'web.ifzq.gtimg.cn') {
+          let lastError: unknown;
+          for (const route of ['proxy', 'direct'] as const) {
+            try { return JSON.parse(await fetchRoutedText(url, route, route === 'proxy' ? 8000 : 3500, 'application/json')); }
+            catch (error) { lastError = error; }
+          }
+          throw lastError;
+        }
+        return fetchJsonWithRetry(url, 2, 12000);
+      },
       fetchLogoImage: async url => {
         for (const route of ['proxy', 'direct'] as const) {
           try {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseStockSearch,searchStocks} from '../../server/ibkrStockSearch.ts';
+import {parseStockSearch,parseTencentStockSearch,searchStocks} from '../../server/ibkrStockSearch.ts';
 import {EastmoneyTicketQuotes} from '../../server/ibkrEastmoneyTicket.ts';
 
 const company = {Classify:'UsStock',MktNum:'106',Code:'BRK_B',Name:'伯克希尔哈撒韦-B',TypeUS:'1'};
@@ -21,4 +21,19 @@ test('Gateway share-class symbols use corresponding Eastmoney quote identifiers'
   });
   const quote=await provider.quote({conId:1,symbol:'BRK B',currency:'USD',exchange:'NYSE'});
   assert.equal(quote.symbol,'BRK B');assert.equal(quote.last,'500');
+});
+test('Chinese search falls back to Tencent suggestions and ranks the exact company ahead of themed ETFs',async()=>{
+  const raw='v_hint="us~aapl.oq~\\u82f9\\u679c~pg~GP^us~aapy.am~\\u82f9\\u679c\\u671f\\u6743\\u6536\\u76caETF~pgqqsy~GP^hk~11063~\\u82f9\\u679c\\u6cd5\\u5174~pgfx~QZ"';
+  const rows=parseTencentStockSearch(raw,'苹果');
+  assert.deepEqual(rows.map(row=>row.symbol),['AAPL','AAPY']);
+  assert.deepEqual(rows[0],{symbol:'AAPL',brokerSymbol:'AAPL',name:'苹果',exchange:'NASDAQ',kind:'股票'});
+  assert.equal(rows[1].kind,'ETF');
+  const requested=[];
+  const fallback=await searchStocks('苹果',async url=>{requested.push(url);if(url.includes('eastmoney'))throw new SyntaxError("Unexpected token 'j'");return raw;});
+  assert.equal(fallback[0].symbol,'AAPL');
+  assert.equal(new URL(requested[1]).searchParams.get('q'),'苹果');
+});
+test('malformed provider scripts are never evaluated and return a stable user-facing error',async()=>{
+  assert.throws(()=>parseTencentStockSearch('v_hint=(globalThis.pwned=true)','苹果'),/暂不可用/);
+  await assert.rejects(()=>searchStocks('苹果',async()=>'{not json'),/中文股票搜索暂不可用/);
 });

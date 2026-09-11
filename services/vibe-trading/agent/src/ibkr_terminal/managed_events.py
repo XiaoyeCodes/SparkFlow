@@ -78,8 +78,10 @@ class ManagedOrderObserver:
             row = self._candidate(order_id, order.clientId)
             if row is None:
                 return None
+            # Accept both Outside RTH values while reconciling legacy orders;
+            # False only narrows the session and cannot widen an owned order.
             if (order.orderId != order_id or order.account != self.binding.brokerAccount
-                or order.orderRef != row.identity.orderRef or order.outsideRth
+                or order.orderRef != row.identity.orderRef
                 or order.parentId != 0 or order.ocaGroup or order.conditions):
                 raise RiskDenied('SDK_OPEN_ORDER_SCOPE')
             if (contract.conId, contract.secType, contract.currency) != (row.intent.conId, 'STK', 'USD'):

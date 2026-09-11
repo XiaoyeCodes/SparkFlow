@@ -84,7 +84,7 @@ def test_risk_load_uses_latest_daily_loss_and_rejects_changed_cash():
         source.load(draft())
 
 
-@pytest.mark.parametrize('case',['limit','market-delayed-receipt','permission-denied','portfolio-estimate','delayed-estimate'])
+@pytest.mark.parametrize('case',['limit','closed-limit','closed-market','market-delayed-receipt','permission-denied','portfolio-estimate','delayed-estimate'])
 def test_full_paper_source_prepares_broker_evidence_and_cleans_subscriptions(api_event_loop,case):
     import asyncio
     from datetime import timedelta
@@ -108,19 +108,20 @@ def test_full_paper_source_prepares_broker_evidence_and_cleans_subscriptions(api
             async def reqContractDetailsAsync(self,contract):
                 return [Item(contract=Contract(conId=12,symbol='TEST',secType='STK',currency='USD',primaryExchange='NASDAQ'),
                     minTick=0.01,validExchanges='SMART',marketRuleIds='26',
-                    liquidSessions=lambda:[Item(start=NOW-timedelta(hours=1),end=NOW+timedelta(hours=1))])]
+                    liquidSessions=lambda:([Item(start=NOW-timedelta(hours=3),end=NOW-timedelta(hours=2))]
+                        if case in ('closed-limit','closed-market') else [Item(start=NOW-timedelta(hours=1),end=NOW+timedelta(hours=1))]))]
             def reqTickByTickData(self,contract,*args):
                 ticker=Item(contract=contract,tickByTicks=[Item(tickType=1,price=100,time=NOW)])
                 self.wrapper.reqId2Ticker[42]=ticker
                 self.errorEvent.emit(999,10189,'unrelated request')
-                if case in ('permission-denied','portfolio-estimate','delayed-estimate'):
+                if case in ('closed-limit','closed-market','permission-denied','portfolio-estimate','delayed-estimate'):
                     asyncio.get_running_loop().call_later(.02,lambda:self.errorEvent.emit(42,10189,'permission required'))
                 else:
                     asyncio.get_running_loop().call_later(.02 if case=='market-delayed-receipt' else 0,lambda:self.pendingTickersEvent.emit([ticker]))
                 return ticker
             def cancelTickByTickData(self,*args): calls.append('cancel-ticks')
             def reqMarketDataType(self,kind): assert kind==3
-            def reqMktData(self,*args): return Item(last=105 if case=='delayed-estimate' else float('nan'),marketDataType=3)
+            def reqMktData(self,*args): return Item(last=105 if case in ('closed-limit','closed-market','delayed-estimate') else float('nan'),marketDataType=3)
             def cancelMktData(self,*args): calls.append('cancel-snapshot')
             async def reqMarketRuleAsync(self,rule): return [Item(lowEdge=0,increment=0.01),Item(lowEdge=100,increment=0.05)]
             async def reqAccountSnapshotAsync(self,account):
@@ -133,16 +134,17 @@ def test_full_paper_source_prepares_broker_evidence_and_cleans_subscriptions(api
         connection=Item(_ib=ib,binding=Item(brokerAccount='TEST'),healthy=lambda:True,reconciliation_blocked=False,_fixture=True,
             session=Item(snapshot=lambda:snapshot),reconcile=reconcile)
         source=PaperRiskSource(connection,Source().load(draft()).scope,clock=lambda:NOW)
-        request=draft(quantity='1',**({'orderType':'MKT','limitPrice':None} if case!='limit' else {}))
+        request=draft(quantity='1',**({'orderType':'MKT','limitPrice':None} if case not in ('limit','closed-limit') else {}))
         if case=='permission-denied':
             with pytest.raises(ValueError,match='PAPER_REFERENCE_UNAVAILABLE'):await source.prepare(request)
         else:
             prepared=await source.prepare(request)
             assert prepared.context.source=='fixture' and prepared.context.settledCash=='900'
-            assert prepared.context.minTick==('0.05' if case=='limit' else '0.01') and prepared.context.quoteAt==NOW and prepared.context.regularHours
+            assert prepared.context.minTick==('0.05' if case in ('limit','closed-limit') else '0.01') and prepared.context.quoteAt==NOW
+            assert prepared.context.regularHours is (case not in ('closed-limit','closed-market'))
             if case=='portfolio-estimate':
                 assert prepared.context.referencePrice=='110' and prepared.context.referenceKind=='portfolio' and prepared.context.quoteState=='snapshot'
-            elif case=='delayed-estimate':
+            elif case in ('closed-limit','closed-market','delayed-estimate'):
                 assert prepared.context.referencePrice=='105' and prepared.context.referenceKind=='broker-snapshot' and prepared.context.quoteState=='delayed'
         source.close()
         assert calls[-2:]==['cancel-pnl','cancel-ticks']

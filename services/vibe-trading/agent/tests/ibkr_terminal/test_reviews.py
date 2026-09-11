@@ -54,6 +54,17 @@ def test_estimates_cannot_enable_automatic_orders(tmp_path):
             db.reserve(intent(),context(referenceKind='portfolio',quoteState='snapshot'))
 
 
+@pytest.mark.parametrize('order_type',['LMT','MKT'])
+def test_closed_session_preview_enables_outside_rth_and_keeps_broker_acceptance_explicit(tmp_path,order_type):
+    source = Source()
+    source.current = context(regularHours=False, referenceKind='broker-snapshot', quoteState='delayed')
+    with ledger(tmp_path / 'orders.db') as db:
+        service = OrderReviewService(db, source, clock=lambda: NOW, broker_submission=True)
+        preview = service.preview(draft(quantity='1',orderType=order_type,limitPrice=None if order_type=='MKT' else '100'))
+        assert any('已启用盘前盘后交易' in warning for warning in preview.warnings)
+        assert any('挂起或拒绝' in warning for warning in preview.warnings)
+
+
 @pytest.mark.parametrize('cash,available,accepted',[('900','700',True),('900','600',False),('600','900',False)])
 def test_paper_funding_uses_lower_of_cash_and_available_funds(tmp_path,cash,available,accepted):
     source=Source()

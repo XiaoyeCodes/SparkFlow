@@ -18,7 +18,37 @@ export function parseStockSearch(raw: any, query: string): PaperSearchCandidate[
   }).slice(0,20);
 }
 
+export function parseTencentStockSearch(raw: unknown, query: string): PaperSearchCandidate[] {
+  if (typeof raw !== 'string' || raw.length > 200_000) throw new Error('中文股票搜索暂不可用，请稍后重试或输入股票代码。');
+  const assignment = raw.trim().match(/^v_hint=("(?:\\.|[^"\\])*");?$/s);
+  if (!assignment) throw new Error('中文股票搜索暂不可用，请稍后重试或输入股票代码。');
+  let decoded: string;
+  try { decoded = JSON.parse(assignment[1]); } catch { throw new Error('中文股票搜索暂不可用，请稍后重试或输入股票代码。'); }
+  const seen = new Set<string>();
+  const rows = decoded.split('^').flatMap(entry => {
+    const [market, identifier, name] = entry.split('~');
+    if (market !== 'us' || typeof identifier !== 'string' || typeof name !== 'string') return [];
+    const match = identifier.toUpperCase().match(/^([A-Z][A-Z0-9]*(?:\.[A-Z])?)\.(OQ|N|AM|P)$/);
+    if (!match || seen.has(match[1])) return [];
+    seen.add(match[1]);
+    const exchange = match[2] === 'OQ' ? 'NASDAQ' : match[2] === 'N' ? 'NYSE' : 'AMEX';
+    return [{ symbol: match[1], brokerSymbol: match[1].replace('.', ' '), name: name.trim(), exchange, kind: /ETF/i.test(name) ? 'ETF' : '股票' } satisfies PaperSearchCandidate];
+  });
+  const normalized = query.trim().toLocaleLowerCase();
+  const rank = (row: PaperSearchCandidate) => row.symbol.toLocaleLowerCase() === normalized ? 0
+    : row.name.toLocaleLowerCase() === normalized && row.kind === '股票' ? 1
+    : row.name.toLocaleLowerCase().startsWith(normalized) && row.kind === '股票' ? 2
+    : row.name.toLocaleLowerCase().includes(normalized) && row.kind === '股票' ? 3
+    : row.name.toLocaleLowerCase().startsWith(normalized) ? 4 : 5;
+  return rows.sort((a, b) => rank(a) - rank(b)).slice(0, 20);
+}
+
 export async function searchStocks(query: string, get: JsonFetcher) {
-  const url = 'https://searchapi.eastmoney.com/api/suggest/get?' + new URLSearchParams({input:query,type:'14',count:'30'});
-  return parseStockSearch(await get(url),query);
+  const eastmoney = 'https://searchapi.eastmoney.com/api/suggest/get?' + new URLSearchParams({input:query,type:'14',token:'D43BF722C8E33BDC906FB84D85E326E8',count:'30'});
+  try { return parseStockSearch(await get(eastmoney), query); }
+  catch {
+    const tencent = 'https://smartbox.gtimg.cn/s3/?' + new URLSearchParams({q:query,t:'all'});
+    try { return parseTencentStockSearch(await get(tencent), query); }
+    catch { throw new Error('中文股票搜索暂不可用，请稍后重试或输入股票代码。'); }
+  }
 }

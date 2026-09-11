@@ -1,6 +1,8 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {AreaSeries,CandlestickSeries,HistogramSeries,ColorType,CrosshairMode,createChart,type IChartApi,type ISeriesApi,type Time,type UTCTimestamp} from 'lightweight-charts';
-import type {PaperContract,TicketHistory,TicketPeriod} from '../../lib/ibkr/workbenchTypes';
+import type {PaperContract,TicketHistory,TicketPeriod,TicketDataSource} from '../../lib/ibkr/workbenchTypes';
+import {ticketPriceChange} from '../../lib/ibkr/ticketPriceChange';
+import {usesPinnedIntradayZoom,zoomTicketRange} from '../../lib/ibkr/ticketChartRange';
 
 const periods: [TicketPeriod,string][]=[['intraday','分时'],['day','日K'],['week','周K'],['month','月K'],['year','年K']];
 const price=(value:number)=>value.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:3});
@@ -34,13 +36,15 @@ const intradaySession=(data:TicketHistory):SessionRange|null=>{
 type HoverDetail={left:number;top:number;time:string;open:number;high:number;low:number;close:number;change:number;changePct:number;volume:number|null;amount:number|null;reference:string};
 function Canvas({data}:{data:TicketHistory}){
   const host=useRef<HTMLDivElement>(null),api=useRef<IChartApi|null>(null),series=useRef<ISeriesApi<'Area'>|ISeriesApi<'Candlestick'>|null>(null),volumes=useRef<ISeriesApi<'Histogram'>|null>(null),fitted=useRef(false);
+  const dataLogicalRange=useRef<{first:number;last:number}|null>(null);
   const hoverRows=useRef(new Map<string,Omit<HoverDetail,'left'|'top'>>());
   const [hover,setHover]=useState<HoverDetail|null>(null);
-  const intraday=data.period==='intraday';
+  const intraday=data.period==='intraday',pinnedZoom=usesPinnedIntradayZoom(data.period);
   const session=useMemo(()=>intraday?intradaySession(data):null,[data,intraday]);
   useEffect(()=>{
     if(!host.current)return;
-    const chart=createChart(host.current,{autoSize:true,height:390,layout:{background:{type:ColorType.Solid,color:'transparent'},textColor:'#dedede',fontSize:12,fontFamily:getComputedStyle(host.current).fontFamily},grid:{vertLines:{color:'#183127'},horzLines:{color:'#20392c'}},crosshair:{mode:CrosshairMode.Normal},rightPriceScale:{borderColor:'#2a4235',scaleMargins:{top:.08,bottom:.25}},timeScale:{borderColor:'#2a4235',timeVisible:intraday,secondsVisible:false},localization:{locale:'zh-CN',timeFormatter:(time:Time)=> typeof time==='number'?new Date(time*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):typeof time==='string'?time:`${time.year}-${time.month}-${time.day}`}});
+    const container=host.current;
+    const chart=createChart(container,{autoSize:true,height:390,layout:{background:{type:ColorType.Solid,color:'transparent'},textColor:'#dedede',fontSize:12,fontFamily:getComputedStyle(container).fontFamily},grid:{vertLines:{color:'#183127'},horzLines:{color:'#20392c'}},crosshair:{mode:CrosshairMode.Normal},rightPriceScale:{borderColor:'#2a4235',scaleMargins:{top:.08,bottom:.25}},...(pinnedZoom?{handleScale:{mouseWheel:false}}:{}),timeScale:{borderColor:'#2a4235',timeVisible:intraday,secondsVisible:false,...(pinnedZoom?{fixLeftEdge:true,fixRightEdge:false}:{})},localization:{locale:'zh-CN',timeFormatter:(time:Time)=> typeof time==='number'?new Date(time*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):typeof time==='string'?time:`${time.year}-${time.month}-${time.day}`}});
     if(intraday)chart.applyOptions({timeScale:{tickMarkFormatter:(time:Time)=>typeof time==='number'?new Date(time*1000).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}):String(time)}});
     api.current=chart;fitted.current=false;
     series.current=intraday?chart.addSeries(AreaSeries,{lineColor:'#70d6b2',topColor:'#367e6045',bottomColor:'#367e6000',lineWidth:2,priceLineVisible:false}):chart.addSeries(CandlestickSeries,{upColor:'#70cda9',downColor:'#df9588',borderVisible:false,wickUpColor:'#70cda9',wickDownColor:'#df9588',priceLineVisible:false});
@@ -56,19 +60,26 @@ function Canvas({data}:{data:TicketHistory}){
       const top=Math.max(10,Math.min(host.current.clientHeight-tooltipHeight-10,event.point.y-80));
       setHover({...detail,left,top});
     });
-    return()=>{chart.remove();api.current=null;series.current=null;volumes.current=null;};
-  },[intraday]);
+    const wheel=(event:WheelEvent)=>{
+      if(event.deltaY===0||!host.current)return;
+      const scale=chart.timeScale(),range=scale.getVisibleLogicalRange(),dataRange=dataLogicalRange.current;
+      if(!range||!dataRange)return;
+      const bounds=host.current.getBoundingClientRect(),cursor=scale.coordinateToLogical(event.clientX-bounds.left);
+      if(cursor===null)return;
+      event.preventDefault();
+      scale.setVisibleLogicalRange(zoomTicketRange(range,Number(cursor),dataRange.first,dataRange.last,event.deltaY));
+    };
+    if(pinnedZoom)container.addEventListener('wheel',wheel,{passive:false});
+    return()=>{if(pinnedZoom)container.removeEventListener('wheel',wheel);chart.remove();api.current=null;series.current=null;volumes.current=null;dataLogicalRange.current=null;};
+  },[intraday,pinnedZoom]);
   useEffect(()=>{
     if(!series.current||!volumes.current)return;
     setHover(null);
     const parsedRows=data.bars.map(bar=>({...bar,label:bar.time,time:intraday?Date.parse(bar.time.replace(' ','T')+':00+08:00')/1000 as UTCTimestamp:bar.time as Time}));
     const rows=session?parsedRows.filter(bar=>typeof bar.time==='number'&&bar.time>=session.from&&bar.time<=session.to):parsedRows;
-    const opening=rows[0]?.open;
     hoverRows.current=new Map(rows.map((bar,index)=>{
-      const reference=intraday||index===0?opening:rows[index-1]?.close;
-      const base=Number.isFinite(reference)&&reference!>0?reference!:bar.open;
-      const change=bar.close-base;
-      return [timeKey(bar.time),{time:intraday?bar.label.slice(5):bar.label,open:bar.open,high:bar.high,low:bar.low,close:bar.close,change,changePct:base?change/base:0,volume:bar.volume,amount:bar.volume===null?null:bar.volume*bar.close,reference:intraday||index===0?'较开盘':'较前收'}];
+      const change=ticketPriceChange(data,bar,index===0?undefined:rows[index-1]);
+      return [timeKey(bar.time),{time:intraday?bar.label.slice(5):bar.label,open:bar.open,high:bar.high,low:bar.low,close:bar.close,change:change.change,changePct:change.changePct,volume:bar.volume,amount:bar.volume===null?null:bar.volume*bar.close,reference:change.label}];
     }));
     if(intraday){
       const actual=new Map(rows.map(bar=>[bar.time,bar.close]));
@@ -76,6 +87,10 @@ function Canvas({data}:{data:TicketHistory}){
       (series.current as ISeriesApi<'Area'>).setData(timeline.map(time=>actual.has(time)?{time,value:actual.get(time)!}:{time}));
     }
     else (series.current as ISeriesApi<'Candlestick'>).setData(rows);
+    dataLogicalRange.current=pinnedZoom&&rows.length?{
+      first:Number(api.current?.timeScale().timeToIndex(rows[0].time,true)??0),
+      last:Number(api.current?.timeScale().timeToIndex(rows[rows.length-1].time,true)??rows.length-1),
+    }:null;
     volumes.current.setData(rows.flatMap(bar=>bar.volume===null?[]:[{time:bar.time,value:bar.volume,color:bar.close>=bar.open?'#5dae8a55':'#c9857855'}]));
     if(!fitted.current){
       if(intraday&&session)api.current?.timeScale().setVisibleRange({from:session.from,to:session.to});
@@ -83,7 +98,7 @@ function Canvas({data}:{data:TicketHistory}){
       else api.current?.timeScale().fitContent();
       fitted.current=true;
     }
-  },[data,intraday,session]);
+  },[data,intraday,pinnedZoom,session]);
   const tone=hover?(hover.change>0?'up':hover.change<0?'down':'flat'):'flat';
   return <><div className="pt-chart-hover">移动鼠标查看行情详情 · 拖动或滚轮缩放</div><div className="pt-chart-stage">
     <div className="pt-chart-canvas" ref={host} role="img" aria-label={`${data.symbol} ${periods.find(p=>p[0]===data.period)?.[1]}走势图${session?`，完整交易时段 ${session.openLabel} 至${session.closeLabel}`:''}，共 ${data.bars.length} 个数据点`}/>
@@ -93,19 +108,19 @@ function Canvas({data}:{data:TicketHistory}){
         <div className="is-price"><dt>价格</dt><dd>{price(hover.close)}</dd></div>
         <div><dt>涨跌额</dt><dd className="pt-chart-trend">{signed(hover.change)}</dd></div>
         <div><dt>涨跌幅</dt><dd className="pt-chart-trend">{signed(hover.changePct*100)}%</dd></div>
-        <div><dt>开盘</dt><dd>{price(hover.open)}</dd></div>
+        {!data.pointPrices&&<><div><dt>开盘</dt><dd>{price(hover.open)}</dd></div>
         <div><dt>最高</dt><dd>{price(hover.high)}</dd></div>
-        <div><dt>最低</dt><dd>{price(hover.low)}</dd></div>
+        <div><dt>最低</dt><dd>{price(hover.low)}</dd></div></>}
         <div><dt>成交量</dt><dd>{hover.volume===null?'未提供':compact(hover.volume,'股')}</dd></div>
         <div><dt>估算成交额</dt><dd>{hover.amount===null?'未提供':`$${compact(hover.amount)}`}</dd></div>
       </dl>
     </div>}
   </div></>;
 }
-export function TicketPriceChart({contract}:{contract?:PaperContract}){
+export function TicketPriceChart({contract,dataSource='tencent'}:{contract?:PaperContract;dataSource?:TicketDataSource}){
   const [period,setPeriod]=useState<TicketPeriod>('intraday'),[revision,setRevision]=useState(0),[response,setResponse]=useState<{key:string;data:TicketHistory}|null>(null),[status,setStatus]=useState({key:'',loading:false,error:''});
   const cache=useRef(new Map<string,TicketHistory>());
-  const key=JSON.stringify([contract?.conId,contract?.symbol,contract?.exchange,period]);
+  const key=JSON.stringify([contract?.conId,contract?.symbol,contract?.exchange,period,dataSource]);
   const data=response?.key===key?response.data:cache.current.get(key);
   const session=data?.period==='intraday'?intradaySession(data):null;
   useEffect(()=>{
@@ -115,7 +130,7 @@ export function TicketPriceChart({contract}:{contract?:PaperContract}){
       if(document.hidden){timer=setTimeout(()=>void load(),30000);return;}
       setStatus({key,loading:true,error:''});
       try{
-        const r=await fetch('/api/ibkr-workbench/paper/history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conId:contract.conId,symbol:contract.symbol,currency:contract.currency,exchange:contract.exchange,period}),signal:controller.signal});
+        const r=await fetch('/api/ibkr-workbench/paper/history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conId:contract.conId,symbol:contract.symbol,currency:contract.currency,exchange:contract.exchange,period,dataSource}),signal:controller.signal});
         const value=await r.json();if(!r.ok)throw new Error(value.error||'历史行情暂不可用');
         if(controller.signal.aborted)return;
         cache.current.set(key,value);if(cache.current.size>20)cache.current.delete(cache.current.keys().next().value!);

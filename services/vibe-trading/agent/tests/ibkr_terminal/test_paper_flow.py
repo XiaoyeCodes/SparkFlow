@@ -57,7 +57,7 @@ def test_market_order_reserves_cash_without_sending_a_limit_and_is_idempotent(tm
     api_event_loop.run_until_complete(run())
 
 
-@pytest.mark.parametrize('change,code', [({'regularHours':False},'OUTSIDE_RTH'),({'quoteState':'missing'},'QUOTE_UNAVAILABLE'),({'settledCash':'1'},'INSUFFICIENT_CASH')])
+@pytest.mark.parametrize('change,code', [({'quoteState':'missing'},'QUOTE_UNAVAILABLE'),({'settledCash':'1'},'INSUFFICIENT_CASH')])
 def test_market_order_preserves_session_quote_and_cash_checks(tmp_path,api_event_loop,change,code):
     async def run():
         with ledger(tmp_path/'orders.db') as db,harness(db) as values:
@@ -69,6 +69,20 @@ def test_market_order_preserves_session_quote_and_cash_checks(tmp_path,api_event
             with pytest.raises(ValueError,match=code):
                 await flow.preview(draft(quantity='1',orderType='MKT',limitPrice=None))
             assert packets==[]
+    api_event_loop.run_until_complete(run())
+
+
+def test_market_order_outside_rth_reaches_native_paper_order(tmp_path,api_event_loop):
+    async def run():
+        with ledger(tmp_path/'orders.db') as db,harness(db) as values:
+            dispatcher,sdk,packets,_,_,instrument=values
+            source=Source();source.current=source.current.model_copy(update={'regularHours':False,'referenceKind':'broker-snapshot','quoteState':'delayed'})
+            async def prepare(d): return source.load(d)
+            source.prepare=prepare;source.instrument=instrument
+            flow=PaperOrderFlow(dispatcher,source,enabled=True,clock=lambda:NOW)
+            preview=await flow.preview(draft(quantity='1',orderType='MKT',limitPrice=None))
+            row=flow.confirm(preview.previewId,preview.bodyHash,explicit=True)
+            assert row.intent.orderType=='MKT' and len(packets)==1
     api_event_loop.run_until_complete(run())
 
 

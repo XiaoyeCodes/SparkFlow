@@ -36,7 +36,7 @@ type Saved = { version: 1; source: 'mcp' | 'gateway'; gatewayMode?: GatewayMode;
 const safeUrl = (url: unknown) => { try { const u = new URL(String(url)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
 const decimalAmount = z.string().regex(/^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$/);
 const paperLimitsSchema = z.object({
-  maxOrderNotional: decimalAmount,
+  maxOrderNotional: decimalAmount.nullish(),
   maxTotalExposure: decimalAmount,
   maxSymbolWeight: decimalAmount,
   maxDailyLoss: decimalAmount,
@@ -420,15 +420,20 @@ export class IbkrWorkbenchService {
   }
   async paperMarketQuote(payload: unknown) {
     this.assertAvailable();
-    const contract = z.object({ conId: z.number().int().positive(), symbol: z.string().regex(/^[A-Z0-9][A-Z0-9. _\-]{0,19}$/), currency: z.literal('USD'), exchange: z.string().max(20).optional() }).strict().parse(payload);
+    const {dataSource,...contract} = z.object({ conId: z.number().int().positive(), symbol: z.string().regex(/^[A-Z0-9][A-Z0-9. _\-]{0,19}$/), currency: z.literal('USD'), exchange: z.string().max(20).optional(), dataSource:z.enum(['tencent','eastmoney']).default('tencent') }).strict().parse(payload);
     const [reference, broker] = await Promise.allSettled([
-      this.ticketQuotes.quote(contract),
+      this.ticketQuotes.quote(contract,dataSource),
       this.paperRequest('quote', { conId: contract.conId }),
     ]);
-    if (reference.status === 'fulfilled') return broker.status === 'fulfilled'
-      ? mergeBrokerTicketQuote(reference.value, broker.value as Partial<PaperQuote>)
-      : reference.value;
-    if (broker.status === 'fulfilled') return broker.value;
+    if (reference.status === 'fulfilled') {
+      if(broker.status!=='fulfilled')return reference.value;
+      const merged=mergeBrokerTicketQuote(reference.value,broker.value as Partial<PaperQuote>);
+      // The source switch controls displayed market prices. IBKR still supplies
+      // executable bid/ask references and performs order validation separately.
+      return {...merged,last:reference.value.last,state:reference.value.state,
+        asOf:reference.value.asOf,fetchedAt:reference.value.fetchedAt,
+        source:reference.value.source};
+    }
     throw reference.reason;
   }
   async paperSearch(payload: unknown) {
@@ -438,17 +443,14 @@ export class IbkrWorkbenchService {
   }
   async paperHistory(payload:unknown) {
     this.assertAvailable();
-    const {period,...contract}=z.object({conId:z.number().int().positive(),symbol:z.string().regex(/^[A-Z0-9][A-Z0-9. _\-]{0,19}$/),currency:z.literal('USD'),exchange:z.string().max(20).optional(),period:z.enum(['intraday','day','week','month','year'])}).strict().parse(payload);
-    return this.ticketHistories.history(contract,period);
+    const {period,dataSource,...contract}=z.object({conId:z.number().int().positive(),symbol:z.string().regex(/^[A-Z0-9][A-Z0-9. _\-]{0,19}$/),currency:z.literal('USD'),exchange:z.string().max(20).optional(),period:z.enum(['intraday','day','week','month','year']),dataSource:z.enum(['tencent','eastmoney']).default('tencent')}).strict().parse(payload);
+    return this.ticketHistories.history(contract,period,dataSource);
   }
   async paperRequest(endpoint: 'status'|'contract'|'quote'|'transport'|'configure'|'preview'|'confirm'|'cancel'|'reconcile'|'stop', payload?: unknown) {
     this.assertAvailable();
     if (this.saved.source !== 'gateway' || this.saved.gatewayMode !== 'paper') throw new Error('请先选择并连接 IB Gateway 模拟盘。');
     const record = this.record();
     if (!record || record.snapshot.mode !== 'paper' || !record.snapshot.accountKey.startsWith('paper:')) throw new Error('尚未取得当前模拟账户快照。');
-    const port = await this.gatewayBridgePort();
-    const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
-    if (!token) throw new Error('本地桥接会话令牌不存在，请重新启动智能连接。');
     const method = ['status','contract','quote','reconcile'].includes(endpoint) ? 'GET' : 'POST';
     let suffix = endpoint;
     let bodyValue: unknown;
@@ -468,11 +470,35 @@ export class IbkrWorkbenchService {
     } else if (endpoint === 'confirm') bodyValue = paperConfirmSchema.parse(payload);
     else if (endpoint === 'cancel') bodyValue = paperCancelSchema.parse(payload);
     const target = endpoint === 'transport' ? '/api/ibkr-terminal/gateway/paper-orders' : `/api/ibkr-terminal/paper/${suffix}`;
-    const response = await fetch(`http://127.0.0.1:${port}${target}`, {
-      method, headers: { Authorization: `Bearer ${token}`, ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
-      ...(method === 'POST' ? { body: JSON.stringify(bodyValue ?? {}) } : {}), signal: AbortSignal.timeout(endpoint === 'transport' ? 40000 : endpoint === 'preview' || endpoint === 'reconcile' ? 15000 : 8000),
-    });
-    const result: any = await response.json().catch(() => ({}));
+    const request = async (port: number, requestTarget=target, requestMethod=method, requestBody:unknown=bodyValue) => {
+      const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
+      if (!token) throw new Error('本地桥接会话令牌不存在，请重新启动智能连接。');
+      const response = await fetch(`http://127.0.0.1:${port}${requestTarget}`, {
+        method:requestMethod, headers: { Authorization: `Bearer ${token}`, ...(requestMethod === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
+        ...(requestMethod === 'POST' ? { body: JSON.stringify(requestBody ?? {}) } : {}), signal: AbortSignal.timeout(endpoint === 'transport' ? 40000 : endpoint === 'preview' || endpoint === 'reconcile' ? 15000 : 8000),
+      });
+      return {response,result:await response.json().catch(() => ({})) as any};
+    };
+    const initialPort=await this.gatewayBridgePort();
+    let attempt = await request(initialPort);
+    // A running bridge may predate the current paper-order policy. Upgrade it
+    // once, restore its scoped paper policy, and replay only the side-effect-free preview.
+    if (endpoint === 'preview' && !attempt.response.ok && ['OUTSIDE_RTH','ORDER_NOTIONAL_LIMIT'].includes(attempt.result?.detail)) {
+      const priorStatus=await request(initialPort,'/api/ibkr-terminal/paper/status','GET');
+      const policy=priorStatus.response.ok?paperConfigureSchema.safeParse({
+        conIds:priorStatus.result?.policy?.conIds,expiresAt:priorStatus.result?.policy?.expiresAt,
+        limits:priorStatus.result?.policy?.limits,explicit:true,
+      }):null;
+      const upgradedPort=await this.ensureGateway();
+      if (policy?.success) {
+        const restored=await request(upgradedPort,'/api/ibkr-terminal/paper/configure','POST',{
+          ...policy.data,accountKey:record.snapshot.accountKey,mode:'paper',
+        });
+        if (!restored.response.ok) throw new Error(typeof restored.result?.detail === 'string' ? restored.result.detail : 'PAPER_OPERATION_FAILED');
+      }
+      attempt = await request(upgradedPort);
+    }
+    const {response,result} = attempt;
     if (endpoint === 'quote' && response.status === 404) throw new Error('PAPER_BRIDGE_UPDATE_REQUIRED');
     if (!response.ok) throw new Error(typeof result?.detail === 'string' ? result.detail : 'PAPER_OPERATION_FAILED');
     return result;

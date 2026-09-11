@@ -98,7 +98,7 @@ def test_paper_policy_rejects_a_readonly_gateway_binding(tmp_path,api_event_loop
         app.state.market_sources['paper']=SimpleNamespace(binding=binding,session=app.state.sessions['paper'],healthy=lambda:True,_fixture=False)
         body={'accountKey':'paper:engineering','mode':'paper','conIds':[12],
             'expiresAt':(now+timedelta(hours=2)).isoformat(),'explicit':True,'limits':{
-                'maxOrderNotional':'100','maxTotalExposure':'1000','maxSymbolWeight':'0.5','maxDailyLoss':'50',
+                'maxTotalExposure':'1000','maxSymbolWeight':'0.5','maxDailyLoss':'50',
                 'maxDailyOrders':5,'maxOrdersPerMinute':1,'maxQuoteAgeSeconds':5,'maxAccountAgeSeconds':20,
                 'maxPriceDeviation':'0.05','feeReserve':'1'}}
         with TestClient(app,base_url='http://127.0.0.1:8765',backend_options={'loop_factory':lambda:api_event_loop}) as client:

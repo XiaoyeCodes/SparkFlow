@@ -36,6 +36,8 @@ type ChinaHeatmapStock = {
   sourceUrl: string;
 };
 
+export type HeatmapStockSelection = Pick<ChinaHeatmapStock, 'code' | 'name' | 'exchange'>;
+
 type ChinaHeatmapResponse = {
   generatedAt: string;
   count: number;
@@ -141,7 +143,7 @@ const US_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   loadingText: '正在整理美股主要公司热力图',
   errorFallback: '美股热力图加载失败',
   defaultCoverage: '纳斯达克与纽交所总市值前 320 家公司',
-  industryDisplayPriority: ['信息技术', '金融'],
+  industryDisplayPriority: ['信息技术', '金融', '通讯服务', '通信服务'],
   logoPath: (stock) => `/stock-logos/us-${stock.code}.svg`,
 };
 
@@ -594,8 +596,8 @@ export function HongKongMarketHeatmap() {
   return <RegionalMarketHeatmap config={HONG_KONG_HEATMAP_CONFIG} />;
 }
 
-export function UsMarketHeatmap() {
-  return <RegionalMarketHeatmap config={US_HEATMAP_CONFIG} />;
+export function UsMarketHeatmap({ compact = false, onStockSelect }: { compact?: boolean; onStockSelect?: (stock: HeatmapStockSelection) => void } = {}) {
+  return <RegionalMarketHeatmap config={US_HEATMAP_CONFIG} compact={compact} onStockSelect={onStockSelect} />;
 }
 
 export function CryptoMarketHeatmap() {
@@ -787,7 +789,7 @@ function MapControl({
   );
 }
 
-function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
+function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { config: RegionalHeatmapConfig; compact?: boolean; onStockSelect?: (stock: HeatmapStockSelection) => void }) {
   const mapShellRef = useRef<HTMLDivElement | null>(null);
   const { ref, size } = useContainerSize();
   const initialCacheRef = useRef(readRegionalHeatmapCache(config));
@@ -795,11 +797,14 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
   const [loading, setLoading] = useState(() => !initialCacheRef.current);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [activeIndustry, setActiveIndustry] = useState<string | null>(null);
+  const [activeIndustry, setActiveIndustry] = useState<string | null>(
+    compact && config.sessionMarket === 'us' ? '信息技术' : null,
+  );
   const [selectedCode, setSelectedCode] = useState('');
   const [hoveredCode, setHoveredCode] = useState('');
   const [hoveredIndustry, setHoveredIndustry] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
+  const [compactRevealAll, setCompactRevealAll] = useState(false);
   const [mapView, setMapView] = useState<MapView>(DEFAULT_MAP_VIEW);
   const [dragging, setDragging] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -865,14 +870,32 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
   }, [load]);
 
   useEffect(() => {
-    const onFullscreenChange = () => setFullscreen(document.fullscreenElement === mapShellRef.current);
+    const onFullscreenChange = () => {
+      const isFullscreen = document.fullscreenElement === mapShellRef.current;
+      setFullscreen(isFullscreen);
+      if (!isFullscreen && compact) {
+        setCompactRevealAll(false);
+        setMapView(DEFAULT_MAP_VIEW);
+      }
+    };
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, []);
+  }, [compact]);
+
+  const compactFeaturedStocks = useMemo(() => (data?.stocks ?? []).filter((stock) => (
+    ['信息技术', '金融', '通讯服务', '通信服务'].includes(stock.industry)
+  )), [data?.stocks]);
+  const compactFeaturedOnly = compact
+    && config.sessionMarket === 'us'
+    && !fullscreen
+    && !activeIndustry
+    && !compactRevealAll
+    && compactFeaturedStocks.length > 0;
+  const layoutStocks = compactFeaturedOnly ? compactFeaturedStocks : data?.stocks ?? [];
 
   const baseLayout = useMemo(
     () => calculateLayout(
-      data?.stocks ?? [],
+      layoutStocks,
       size,
       activeIndustry,
       data?.industryMarketCaps,
@@ -882,7 +905,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       config.industryAreaMultipliers,
       config.stockAreaMultipliers,
     ),
-    [activeIndustry, config.industryAreaExponent, config.industryAreaMultipliers, config.industryDisplayPriority, config.stockAreaExponent, config.stockAreaMultipliers, data?.industryMarketCaps, data?.stocks, size],
+    [activeIndustry, config.industryAreaExponent, config.industryAreaMultipliers, config.industryDisplayPriority, config.stockAreaExponent, config.stockAreaMultipliers, data?.industryMarketCaps, layoutStocks, size],
   );
   const scaledSize = useMemo(() => ({
     width: Math.max(0, Math.round(size.width * mapView.scale)),
@@ -890,7 +913,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
   }), [mapView.scale, size.height, size.width]);
   const layout = useMemo(
     () => calculateLayout(
-      data?.stocks ?? [],
+      layoutStocks,
       scaledSize,
       activeIndustry,
       data?.industryMarketCaps,
@@ -900,7 +923,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       config.industryAreaMultipliers,
       config.stockAreaMultipliers,
     ),
-    [activeIndustry, config.industryAreaExponent, config.industryAreaMultipliers, config.industryDisplayPriority, config.stockAreaExponent, config.stockAreaMultipliers, data?.industryMarketCaps, data?.stocks, scaledSize],
+    [activeIndustry, config.industryAreaExponent, config.industryAreaMultipliers, config.industryDisplayPriority, config.stockAreaExponent, config.stockAreaMultipliers, data?.industryMarketCaps, layoutStocks, scaledSize],
   );
   const industryNodes = useMemo(
     () => activeIndustry ? [] : layout?.children ?? [],
@@ -1035,6 +1058,11 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
       };
+      if (compactFeaturedOnly && factor > 1) {
+        setCompactRevealAll(true);
+        setMapView(zoomMapView(DEFAULT_MAP_VIEW, 2, anchor, size, maxZoom));
+        return;
+      }
       setMapView((current) => zoomMapView(
         current,
         current.scale * factor,
@@ -1046,7 +1074,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
 
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
-  }, [maxZoom, ref, size]);
+  }, [compactFeaturedOnly, maxZoom, ref, size]);
 
   useEffect(() => {
     setMapView((current) => clampMapView(current, size, maxZoom));
@@ -1094,13 +1122,30 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
 
   const resetView = useCallback(() => {
     setActiveIndustry(null);
+    setCompactRevealAll(false);
     setSelectedCode('');
     setHoveredCode('');
     setHoveredIndustry('');
     setMapView(DEFAULT_MAP_VIEW);
   }, []);
 
+  const activateStock = useCallback((stock: ChinaHeatmapStock) => {
+    setSelectedCode((current) => current === stock.code ? '' : stock.code);
+    onStockSelect?.(stock);
+  }, [onStockSelect]);
+
   const zoomIn = useCallback(() => {
+    if (compactFeaturedOnly) {
+      setCompactRevealAll(true);
+      setMapView(zoomMapView(
+        DEFAULT_MAP_VIEW,
+        2,
+        { x: size.width / 2, y: size.height / 2 },
+        size,
+        maxZoom,
+      ));
+      return;
+    }
     setMapView((current) => zoomMapView(
       current,
       current.scale * 1.35,
@@ -1108,9 +1153,14 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       size,
       maxZoom,
     ));
-  }, [maxZoom, size]);
+  }, [compactFeaturedOnly, maxZoom, size]);
 
   const zoomOut = useCallback(() => {
+    if (compact && !fullscreen && compactRevealAll && mapView.scale <= 1.4) {
+      setCompactRevealAll(false);
+      setMapView(DEFAULT_MAP_VIEW);
+      return;
+    }
     setMapView((current) => zoomMapView(
       current,
       current.scale / 1.35,
@@ -1118,10 +1168,10 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       size,
       maxZoom,
     ));
-  }, [maxZoom, size]);
+  }, [compact, compactRevealAll, fullscreen, mapView.scale, maxZoom, size]);
 
   const beginDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (mapView.scale <= MIN_ZOOM || event.button !== 0) return;
+    if ((mapView.scale <= MIN_ZOOM && !compactFeaturedOnly) || event.button !== 0) return;
     if ((event.target as HTMLElement).closest('[data-map-fixed]')) return;
     if (dragRef.current) return;
 
@@ -1144,7 +1194,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       clickTarget,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-  }, [mapView]);
+  }, [compactFeaturedOnly, mapView]);
 
   const moveDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
@@ -1160,12 +1210,20 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       setDragging(true);
     }
 
+    if (compactFeaturedOnly) {
+      if (deltaX < -5) {
+        setCompactRevealAll(true);
+        setMapView(clampMapView({ scale: 2, x: deltaX, y: 0 }, size, maxZoom));
+      }
+      return;
+    }
+
     setMapView((current) => clampMapView({
       scale: current.scale,
       x: drag.x + deltaX,
       y: drag.y + deltaY,
     }, size, maxZoom));
-  }, [maxZoom, size]);
+  }, [compactFeaturedOnly, maxZoom, size]);
 
   const endDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
@@ -1188,8 +1246,8 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
     if (drag.clickTarget) {
       suppressClickRef.current = true;
       if (drag.clickTarget.type === 'stock') {
-        const code = drag.clickTarget.value;
-        setSelectedCode((current) => current === code ? '' : code);
+        const stock = data?.stocks.find((item) => item.code === drag.clickTarget?.value);
+        if (stock) activateStock(stock);
       } else {
         openIndustry(drag.clickTarget.value);
       }
@@ -1197,12 +1255,12 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
         suppressClickRef.current = false;
       }, 0);
     }
-  }, [openIndustry]);
+  }, [activateStock, data?.stocks, openIndustry]);
 
   const selectStock = useCallback((stock: ChinaHeatmapStock) => {
     if (suppressClickRef.current) return;
-    setSelectedCode((current) => current === stock.code ? '' : stock.code);
-  }, []);
+    activateStock(stock);
+  }, [activateStock]);
 
   const selectIndustry = useCallback((industry: string) => {
     if (suppressClickRef.current) return;
@@ -1217,7 +1275,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
     await mapShellRef.current?.requestFullscreen();
   }, []);
 
-  const searchControl = searchPortal ? createPortal(
+  const searchControl = !compact && searchPortal ? createPortal(
     <div className="relative z-[70] w-full">
       <div className="flex h-10 items-center gap-2 rounded-md border border-white/14 bg-[#0b0d10] px-3 shadow-[0_10px_28px_rgba(0,0,0,0.24)] transition-colors focus-within:border-[#69d5ff]/55">
         <Search size={15} className="shrink-0 text-white/42" />
@@ -1324,20 +1382,28 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       <div
         ref={mapShellRef}
         className="flex h-full min-h-0 flex-col bg-[#060708] text-white"
-        aria-label={config.ariaLabel}
+        aria-label={compact ? `迷你${config.ariaLabel}` : config.ariaLabel}
+        data-industry-scope={activeIndustry ?? (compactFeaturedOnly ? 'featured' : 'all')}
       >
-      <div className="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-white/10 bg-[#080a0c] px-3 py-2 text-[10px] text-white/48">
-        <div className="flex min-w-0 items-center gap-2.5">
+      <div className={`regional-heatmap-status flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-white/10 bg-[#080a0c] px-3 text-[10px] text-white/48 ${compact ? 'min-h-8 py-1.5' : 'min-h-10 py-2'}`}>
+        {compact && activeIndustry ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <button type="button" onClick={resetView} className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-semibold text-white/78 transition hover:bg-white/8 hover:text-white">
+              <ChevronLeft size={14}/>
+              全部
+            </button>
+            <span className="text-white/24">·</span>
+            <strong className="truncate text-[11px] text-white/82">{activeIndustry}</strong>
+          </div>
+        ) : <div className="flex min-w-0 items-center gap-2.5">
           <i className={`h-2 w-2 shrink-0 rounded-full ${sessionToneClass}`} />
           <strong className="shrink-0 text-[11px] text-white/78">{sessionStatus.label}</strong>
-          <span className="truncate">{sessionStatus.detail}</span>
-          <span className="hidden text-white/28 md:inline">·</span>
-          <span className="hidden md:inline">{sessionStatus.location} {sessionStatus.localTime.slice(0, 5)}</span>
-        </div>
+          {!compact ? <><span className="truncate">{sessionStatus.detail}</span><span className="hidden text-white/28 md:inline">·</span><span className="hidden md:inline">{sessionStatus.location} {sessionStatus.localTime.slice(0, 5)}</span></> : null}
+        </div>}
         <div className="flex items-center gap-2.5">
-          <span className="hidden lg:inline">下次：{sessionStatus.nextLabel}</span>
-          <span className="text-white/28">·</span>
-          <span>{quoteFreshnessLabel} · 每 {refreshSeconds} 秒检查</span>
+          {compact && activeIndustry ? <><i className={`h-2 w-2 shrink-0 rounded-full ${sessionToneClass}`} /><span>{sessionStatus.label}</span></> : null}
+          {!compact ? <><span className="hidden lg:inline">下次：{sessionStatus.nextLabel}</span><span className="text-white/28">·</span></> : null}
+          <span>{compact ? quoteFreshnessLabel : `${quoteFreshnessLabel} · 每 ${refreshSeconds} 秒检查`}</span>
           <a
             href={sessionStatus.sourceUrl}
             target="_blank"
@@ -1350,8 +1416,8 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
           </a>
         </div>
       </div>
-      {activeIndustry ? (
-        <div className="flex h-10 shrink-0 items-center border-b border-white/14 bg-[#090a0c] px-2">
+      {activeIndustry && !compact ? (
+        <div className="regional-heatmap-breadcrumb flex h-10 shrink-0 items-center border-b border-white/14 bg-[#090a0c] px-2">
           <button
             type="button"
             onClick={resetView}
@@ -1368,7 +1434,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
       <div
         ref={ref}
         className={`relative min-h-0 flex-1 overflow-hidden bg-[#0b0c0e] ${
-          mapView.scale > MIN_ZOOM ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : ''
+          mapView.scale > MIN_ZOOM || compactFeaturedOnly ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : ''
         }`}
         style={{ touchAction: 'none' }}
         data-zoom-scale={mapView.scale.toFixed(3)}
@@ -1507,7 +1573,7 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
           </MapControl>
         </div>
 
-        {focusedStock ? (
+        {focusedStock && !compact ? (
           <div
             data-map-fixed
             className="absolute bottom-4 left-1/2 z-40 flex max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-4 rounded-md border border-white/12 bg-[#17191d]/96 px-4 py-3 shadow-[0_14px_36px_rgba(0,0,0,0.48)] backdrop-blur-xl"
@@ -1595,12 +1661,12 @@ function RegionalMarketHeatmap({ config }: { config: RegionalHeatmapConfig }) {
         ) : null}
       </div>
 
-      <div className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-white/10 bg-[#090a0c] px-3 py-2 text-[11px] text-white/48">
+      <div className={`flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-white/10 bg-[#090a0c] px-3 text-white/48 ${compact ? 'min-h-8 py-1 text-[9px]' : 'min-h-11 py-2 text-[11px]'}`}>
         <div className="flex items-center gap-3">
           <span className="font-semibold text-white/64">{data?.source ?? '东方财富'}</span>
-          <span>{activeIndustry ? `${activeIndustry} · 点击个股查看详情` : data?.coverage ?? config.defaultCoverage}</span>
-          <span>{quoteFreshnessLabel} · 每 {refreshSeconds} 秒检查</span>
-          {isPublicSnapshotMarket && data?.quotePolicy ? (
+          {!compact ? <span>{activeIndustry ? `${activeIndustry} · 点击个股查看详情` : data?.coverage ?? config.defaultCoverage}</span> : null}
+          {!compact ? <span>{quoteFreshnessLabel} · 每 {refreshSeconds} 秒检查</span> : null}
+          {!compact && isPublicSnapshotMarket && data?.quotePolicy ? (
             <span className="text-[#d6b566]" title={data.quotePolicy}>非 {publicSnapshotExchange} 直连；3 秒为检查频率，行情可能延迟</span>
           ) : null}
         </div>

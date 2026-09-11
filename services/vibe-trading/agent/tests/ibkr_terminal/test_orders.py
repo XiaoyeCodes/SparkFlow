@@ -85,7 +85,6 @@ def test_independent_connections_atomically_share_cash_and_exposure(tmp_path):
     ({'asOf': NOW - timedelta(seconds=31)}, 'STALE_ACCOUNT'),
     ({'quoteState': 'delayed'}, 'QUOTE_UNAVAILABLE'),
     ({'reconciled': False}, 'RECONCILIATION_REQUIRED'),
-    ({'regularHours': False}, 'OUTSIDE_RTH'),
     ({'halted': True}, 'HALTED'),
     ({'dailyLoss': None}, 'MISSING_ACCOUNT_DATA'),
     ({'dailyLoss': '50'}, 'DAILY_LOSS_LIMIT'),
@@ -111,6 +110,31 @@ def test_manual_consent_binds_exact_preview_and_revocation_is_immediate(tmp_path
         db.revoke_authorization(manual.authorizationId)
         with pytest.raises(RiskDenied, match='AUTHORIZATION_REVOKED'):
             db.reserve(intent(), context())
+
+
+def test_paper_orders_allow_outside_rth_for_automatic_limits_and_manual_market_orders(tmp_path):
+    order = intent(key='automatic-outside')
+    with ledger(tmp_path / 'orders.db') as db:
+        db.record_authorization(authorization())
+        row = db.reserve(order, context(regularHours=False))
+        assert row.submission == 'PERSISTED'
+        assert row.intent.orderType == 'LMT' and row.intent.tif == 'DAY'
+    market = intent(key='manual-market-outside', orderType='MKT', limitPrice=None)
+    with ledger(tmp_path / 'market-orders.db') as db:
+        db.record_authorization(authorization(kind='manual', confirmedIntentHash=intent_hash(market)))
+        row = db.reserve(market, context(regularHours=False, referenceKind='broker-snapshot', quoteState='delayed'))
+        assert row.submission == 'PERSISTED' and row.intent.orderType == 'MKT'
+
+
+def test_live_orders_allow_outside_rth_and_single_order_limit_is_not_enforced(tmp_path):
+    live_order = intent(key='live-outside', accountKey='live:engineering', mode='live', quantity='2')
+    live_grant = authorization(accountKey='live:engineering', mode='live',
+        limits={**authorization().limits.model_dump(), 'maxOrderNotional': '100'})
+    live_context = context(accountKey='live:engineering', mode='live', regularHours=False)
+    with ledger(tmp_path / 'live-orders.db') as db:
+        db.record_authorization(live_grant)
+        row = db.reserve(live_order, live_context)
+        assert row.submission == 'PERSISTED' and row.reservedNotional == '200'
 
 
 def test_sell_reserves_only_owned_whole_shares_and_never_finances_new_buys(tmp_path):

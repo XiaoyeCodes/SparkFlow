@@ -8,6 +8,18 @@ const state = (connected = false): WorkbenchState => ({ source: 'mcp', gatewayMo
   snapshot: { ...emptySnapshot('live'), ...(connected ? { snapshotId: 'test-snapshot', accountKey: 'live:ui-test', connection: 'connected' as const, state: 'ready' as const, baseCurrency: 'USD', asOf: new Date().toISOString(), testData: true, source: 'fixture' as const, metrics: { netLiquidation: '125000', unrealizedPnl: '8500', buyingPower: '40000', maintenanceMargin: '12000' }, cash: [{ currency: 'USD', amount: '18000' }], positions: [{ accountKey: 'live:ui-test', conId: 1, symbol: 'AAPL', currency: 'USD', quantity: '100', averageCost: '180', marketValue: '21000', unrealizedPnl: '3000', assetType: 'STK', exchange: 'NASDAQ', name: 'Apple · 工程测试', sector: 'Technology', industry: 'Consumer Electronics', instrumentType: 'STK' }] } : {}) },
   quotes: connected ? [{ conId: 1, symbol: 'AAPL', price: 212, changePercent: 1.2, asOf: '2026-09-04T20:00:00Z', fetchedAt: new Date().toISOString(), source: '东方财富', status: 'delayed', currency: 'USD', sourceUrl: 'https://example.com' }] : [], evidence: [], alerts: [], reports: [], jobs: [], preferences: { horizon: 'both', targetWeight: null, cashFloor: null, maxDrawdown: null, daily: true, eventAnalysis: true, maxAutomatic: 4, cooldownMinutes: 60, maxAiCalls: 12 }, ai: { provider: 'fixture', model: 'test-model', fingerprint: 'test-only', configured: true, enabled: false, fields: ['脱敏持仓', '现金', '风险指标'], usedToday: 0 }, nextSyncAt: null, calendarSupported: true });
 
+const usHeatmapFixture = {
+  generatedAt: '2026-09-11T04:00:00Z', count: 6, coverage: '测试美股', source: '工程测试数据', sourceUrl: 'https://example.com', quoteStatus: 'closed', refreshIntervalMs: 3000,
+  stocks: [
+    { code: 'AAPL', name: '苹果', price: 250, previousClose: 248, changePercent: 0.81, marketCap: 3500, industry: '信息技术', sourceUrl: 'https://example.com/aapl' },
+    { code: 'MSFT', name: '微软', price: 510, previousClose: 512, changePercent: -0.39, marketCap: 3200, industry: '信息技术', sourceUrl: 'https://example.com/msft' },
+    { code: 'JPM', name: '摩根大通', price: 310, previousClose: 305, changePercent: 1.64, marketCap: 900, industry: '金融', sourceUrl: 'https://example.com/jpm' },
+    { code: 'BAC', name: '美国银行', price: 55, previousClose: 56, changePercent: -1.79, marketCap: 400, industry: '金融', sourceUrl: 'https://example.com/bac' },
+    { code: 'GOOG', name: '谷歌', price: 310, previousClose: 309, changePercent: 0.32, marketCap: 2800, industry: '通讯服务', sourceUrl: 'https://example.com/goog' },
+    { code: 'CAT', name: '卡特彼勒', price: 610, previousClose: 605, changePercent: 0.83, marketCap: 500, industry: '工业', sourceUrl: 'https://example.com/cat' },
+  ],
+};
+
 test('account PDF pagination preserves every holding', () => {
   const fixture = state(true).snapshot.positions[0];
   const positions = Array.from({ length: 30 }, (_, index) => ({ ...fixture, conId: index + 1, symbol: `TEST${index + 1}` }));
@@ -317,7 +329,7 @@ test('paper trading page is honest while Gateway API remains readonly', async ({
   await expect(page.getByRole('button', { name: '开启本次模拟盘交易' })).toHaveCount(0);
 });
 
-test('paper trading cards stay compact and equal height on desktop', async ({ page }) => {
+test('paper trading cards gain vertical chart space and stay equal height on desktop', async ({ page }) => {
   const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
   const stock = { conId: 265598, symbol: 'AAPL', currency: 'USD', exchange: 'NASDAQ', name: 'Apple Inc.' };
   const quote = { ...stock, last: '250', close: '248', bid: '249.99', ask: '250.01', high: '251', low: '247', state: 'reference', regularHours: null, nextOpen: null, fetchedAt: new Date().toISOString(), source: '东方财富', bids: [], asks: [] };
@@ -327,6 +339,7 @@ test('paper trading cards stay compact and equal height on desktop', async ({ pa
   await page.route('**/api/ibkr-workbench/paper/status', route => route.fulfill({ json: { enabled: true, available: true, account: 'DU***EST', accountKey: 'paper:ui-test', policy: { conIds: [stock.conId], limits: { feeReserve: '5', maxOrderNotional: '10000' } }, orders: [], connection: 'connected', state: 'ready', supportedOrderTypes: ['LMT', 'MKT'] } }));
   await page.route('**/api/ibkr-workbench/paper/contract', route => route.fulfill({ json: [stock] }));
   await page.route('**/api/ibkr-workbench/paper/market-quote', route => route.fulfill({ json: quote }));
+  await page.route('**/api/us-market-heatmap*', route => route.fulfill({ json: usHeatmapFixture }));
   await page.route('**/api/ibkr-workbench/paper/history', route => route.fulfill({ json: { bars: [], period: 'intraday', symbol: stock.symbol } }));
   await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
   await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
@@ -336,9 +349,43 @@ test('paper trading cards stay compact and equal height on desktop', async ({ pa
   ]);
   expect(marketCard).not.toBeNull();
   expect(ticketCard).not.toBeNull();
+  expect(Math.abs(marketCard!.width - ticketCard!.width)).toBeLessThanOrEqual(1);
   expect(Math.abs(marketCard!.height - ticketCard!.height)).toBeLessThanOrEqual(1);
-  expect(marketCard!.height).toBeLessThan(1100);
+  await expect(page.locator('.pt-chart-empty')).toHaveCSS('height', '445px');
+  await expect(page.locator('.pt-ticket-heatmap')).toHaveCSS('height', '460px');
   await expect(page.locator('.pt-order-entry-grid')).toHaveCSS('grid-template-columns', /\d+(?:\.\d+)?px \d+(?:\.\d+)?px/);
+});
+
+test('clicking a mini heatmap stock synchronizes the left quote and order symbol', async ({ page }) => {
+  const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
+  const aapl = { conId: 265598, symbol: 'AAPL', currency: 'USD', exchange: 'NASDAQ', name: 'Apple Inc.' };
+  const msft = { conId: 272093, symbol: 'MSFT', currency: 'USD', exchange: 'NASDAQ', name: 'Microsoft Corp.' };
+  const resolved: string[] = [];
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/paper/status', route => route.fulfill({ json: { supportedOrderTypes: ['LMT', 'MKT'], enabled: true, available: true, account: 'DU***EST', accountKey: 'paper:ui-test', policy: { conIds: [aapl.conId], limits: { feeReserve: '5', maxOrderNotional: '10000' } }, orders: [], connection: 'connected', state: 'ready' } }));
+  await page.route('**/api/ibkr-workbench/paper/contract', route => {
+    const query = route.request().postDataJSON();
+    const contract = query?.symbol === 'MSFT' ? msft : aapl;
+    resolved.push(contract.symbol);
+    return route.fulfill({ json: [contract] });
+  });
+  await page.route('**/api/ibkr-workbench/paper/market-quote', route => {
+    const query = route.request().postDataJSON();
+    const contract = query.conId === msft.conId ? msft : aapl;
+    const last = contract.symbol === 'MSFT' ? '510' : '250';
+    return route.fulfill({ json: { ...contract, last, close: last, bid: last, ask: last, high: last, low: last, state: 'reference', regularHours: null, nextOpen: null, fetchedAt: new Date().toISOString(), source: 'fixture', bids: [], asks: [] } });
+  });
+  await page.route('**/api/ibkr-workbench/paper/history', route => route.fulfill({ json: { ...route.request().postDataJSON(), bars: [] } }));
+  await page.route('**/api/us-market-heatmap*', route => route.fulfill({ json: usHeatmapFixture }));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
+  await page.locator('[data-stock-code="MSFT"]').click();
+  await expect(page.locator('.pt-stock-heading')).toContainText('MSFT');
+  await expect(page.getByLabel('搜索模拟盘合约')).toHaveValue('MSFT');
+  await expect(page.locator('.pt-price strong')).toHaveText('510.00');
+  await expect(page.getByLabel('限价（USD）')).toHaveValue('510');
+  expect(resolved).toEqual(['AAPL', 'MSFT']);
 });
 
 test('paper ticket automatically switches its internal stock scope when the user selects another verified stock', async ({ page }) => {
@@ -386,8 +433,20 @@ test('paper ticket automatically switches its internal stock scope when the user
 
   await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
   await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
+  const heatmapHeightBeforeSearch = (await page.locator('.pt-ticket-heatmap').boundingBox())?.height;
+  const marketHeightBeforeSearch = (await page.locator('.pt-market').boundingBox())?.height;
+  const ticketHeightBeforeSearch = (await page.locator('.pt-ticket').boundingBox())?.height;
   await page.getByLabel('搜索模拟盘合约').fill('MSFT');
   await page.getByRole('button', { name: '搜索股票' }).click();
+  await expect(page.locator('.awb-paper-contract-results button').filter({ hasText: 'MSFT' }).locator('.awb-company-icon')).toBeVisible();
+  const heatmapHeightWithResults = (await page.locator('.pt-ticket-heatmap').boundingBox())?.height;
+  const marketHeightWithResults = (await page.locator('.pt-market').boundingBox())?.height;
+  const ticketHeightWithResults = (await page.locator('.pt-ticket').boundingBox())?.height;
+  expect(heatmapHeightBeforeSearch).toBe(460);
+  expect(heatmapHeightWithResults).toBe(460);
+  expect(marketHeightWithResults).toBe(marketHeightBeforeSearch);
+  expect(ticketHeightWithResults).toBe(ticketHeightBeforeSearch);
+  expect(Math.abs((marketHeightWithResults || 0) - (ticketHeightWithResults || 0))).toBeLessThanOrEqual(1);
   await page.locator('.awb-paper-contract-results button').filter({ hasText: 'MSFT' }).click();
   await expect(page.locator('.pt-stock-heading')).toContainText('MSFT');
   await expect(page.getByText(/不在本次交易范围|请选择已授权股票/)).toHaveCount(0);
@@ -441,14 +500,104 @@ test('a completed limit order refreshes its entry price before the next consecut
   await expect(page.getByText('PRICE_DEVIATION',{exact:true})).toHaveCount(0);
 });
 
+for(const width of [1440,390])test(`paper source switch persists and ignores late responses at ${width}px`,async({page})=>{
+  await page.setViewportSize({width,height:1000});
+  const data=state(true);data.source='gateway';data.gatewayMode='paper';data.snapshot.mode='paper';data.snapshot.accountKey='paper:ui-test';
+  const stock={conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ',name:'Apple Inc.'};
+  const calls:{kind:string;source:string}[]=[];
+  let delay=false,release:()=>void=()=>{};
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  await page.route('**/api/ibkr-workbench/state',route=>route.fulfill({json:data}));
+  await page.route('**/api/ibkr-workbench/quotes',route=>route.fulfill({json:[]}));
+  await page.route('**/api/ibkr-workbench/logo?*',route=>route.fulfill({json:{src:'/stock-logos/us-AAPL.svg'}}));
+  await page.route('**/api/ibkr-workbench/paper/status',route=>route.fulfill({json:{enabled:false,available:true,accountKey:'paper:ui-test',connection:'connected',orders:[]}}));
+  await page.route('**/api/ibkr-workbench/paper/contract',route=>route.fulfill({json:[stock]}));
+  await page.route('**/api/ibkr-workbench/paper/history',async route=>{
+    const {dataSource,period}=route.request().postDataJSON();calls.push({kind:'history',source:dataSource});
+    if(delay&&dataSource==='eastmoney')await gate;
+    const price=dataSource==='tencent'?100:200;
+    await route.fulfill({json:{symbol:'AAPL',period,source:dataSource==='tencent'?'腾讯财经':'东方财富',asOf:'2026-09-11 04:00',adjustment:'不复权',timeZone:'北京时间',bars:[{time:period==='intraday'?'2026-09-10 21:30':'2026-09-10',open:price,close:price,high:price,low:price,volume:100}]}}).catch(()=>{});
+  });
+  await page.route('**/api/ibkr-workbench/paper/market-quote',async route=>{
+    const {dataSource}=route.request().postDataJSON();calls.push({kind:'quote',source:dataSource});
+    if(delay&&dataSource==='eastmoney')await gate;
+    await route.fulfill({json:{...stock,last:dataSource==='tencent'?'100':'200',open:'99',close:'99',high:'102',low:'98',peTtm:dataSource==='tencent'?'37.45':'36.97',peDynamic:dataSource==='tencent'?'35.60':null,peStatic:dataSource==='tencent'?'43.78':'42.55',state:'reference',source:dataSource==='tencent'?'腾讯财经':'东方财富',fetchedAt:new Date().toISOString(),bids:[],asks:[]}});
+  });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  const controls=page.getByRole('group',{name:'行情数据源'}),qq=controls.getByRole('button',{name:'腾讯',exact:true}),em=controls.getByRole('button',{name:'东财',exact:true});
+  await expect(qq).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.pt-price strong')).toHaveText('100.00');
+  await expect(page.locator('.pt-chart-foot')).toContainText('腾讯财经');
+  await expect(page.getByRole('article',{name:'市盈率（动） 35.60',exact:true})).toBeVisible();
+  await em.click();
+  await expect(page.locator('.pt-price strong')).toHaveText('200.00');
+  await expect(page.locator('.pt-chart-foot')).toContainText('东方财富');
+  await expect(page.getByRole('article',{name:'市盈率（静） 42.55',exact:true})).toBeVisible();
+  await expect(page.getByRole('article',{name:/市盈率（动）/})).toHaveCount(0);
+  await page.reload();
+  await expect(em).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.pt-price strong')).toHaveText('200.00');
+  await expect(page.getByRole('article',{name:'市盈率（静） 42.55',exact:true})).toBeVisible();
+  await qq.click();
+  await expect(page.locator('.pt-price strong')).toHaveText('100.00');
+  delay=true;calls.length=0;
+  await em.click();
+  await expect.poll(()=>calls.some(call=>call.kind==='quote'&&call.source==='eastmoney')).toBe(true);
+  await qq.click();release();
+  await expect(page.locator('.pt-price strong')).toHaveText('100.00');
+  await expect(page.locator('.pt-chart-foot')).toContainText('腾讯财经');
+  await expect(em).toHaveAttribute('aria-pressed','false');
+  await expect(page.getByRole('article',{name:'市盈率（动） 35.60',exact:true})).toBeVisible();
+  await expect(page.getByRole('article',{name:/市盈率（静）/})).toHaveCount(0);
+  for(const period of ['日K','周K','月K','年K'])await page.getByRole('tab',{name:period,exact:true}).click();
+  await expect.poll(()=>calls.filter(call=>call.kind==='history'&&call.source==='tencent').length).toBeGreaterThan(0);
+  const box=await controls.boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
+  const heading=await page.locator('.pt-stock-heading h2').boundingBox();
+  expect(heading!.x+heading!.width<=box!.x||heading!.y+heading!.height<=box!.y).toBe(true);
+  await page.locator('.pt-market').screenshot({path:`tmp/source-switch-${width}.png`});
+});
+
+for (const peCase of [
+  {name:'Tencent native dynamic',values:{peTtm:'37.45',peDynamic:'35.60',peStatic:'43.78',peSource:'腾讯财经'},label:'市盈率（TTM） 37.45',dynamicLabel:'市盈率（动） 35.60'},
+  {name:'Eastmoney native static',values:{peTtm:'36.97',peDynamic:null,peStatic:'42.55',peSource:'东方财富'},label:'市盈率（TTM） 36.97',dynamicLabel:'市盈率（静） 42.55'},
+  {name:'Tencent TTM without substituting static',values:{peTtm:'37.45',peStatic:'43.78',peSource:'腾讯财经'},label:'市盈率（TTM） 37.45',dynamicLabel:'市盈率（动） 未提供'},
+  {name:'negative static and TTM',values:{peTtm:'-237.68',peDynamic:'-22',peStatic:'-395.64',peSource:'东方财富'},label:'市盈率（TTM） -237.68',dynamicLabel:'市盈率（静） -395.64'},
+  {name:'unqualified backup',values:{peRatio:'37.45',peRatioSource:'腾讯财经'},label:'市盈率（TTM） 未提供',dynamicLabel:'市盈率（动） 未提供'},
+  {name:'missing data',values:{},label:'市盈率（TTM） 未提供',dynamicLabel:'市盈率（动） 未提供'},
+]) test(`paper PE cards render ${peCase.name} with the correct basis`, async ({page}) => {
+  const isEastmoney='peSource' in peCase.values && peCase.values.peSource==='东方财富';
+  await page.addInitScript(source=>localStorage.setItem('sparkflow:paper-data-source',source),isEastmoney?'eastmoney':'tencent');
+  const data=state(true);data.source='gateway';data.gatewayMode='paper';data.snapshot.mode='paper';data.snapshot.accountKey='paper:ui-test';
+  const stock={conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ'};
+  await page.route('**/api/ibkr-workbench/state',route=>route.fulfill({json:data}));
+  await page.route('**/api/ibkr-workbench/quotes',route=>route.fulfill({json:[]}));
+  await page.route('**/api/ibkr-workbench/logo?*',route=>route.fulfill({json:{src:'/stock-logos/us-AAPL.svg'}}));
+  await page.route('**/api/ibkr-workbench/paper/status',route=>route.fulfill({json:{enabled:false,available:true,accountKey:'paper:ui-test',connection:'connected',orders:[]}}));
+  await page.route('**/api/ibkr-workbench/paper/contract',route=>route.fulfill({json:[stock]}));
+  await page.route('**/api/ibkr-workbench/paper/history',route=>route.fulfill({json:{bars:[],period:'intraday',source:'fixture',timeZone:'北京时间'}}));
+  await page.route('**/api/ibkr-workbench/paper/market-quote',route=>route.fulfill({json:{...stock,...peCase.values,last:'148.18',open:'145',close:'147.55',high:'154.70',low:'144.89',state:'reference',source:'东方财富',fetchedAt:new Date().toISOString(),bids:[],asks:[]}}));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  await expect(page.getByRole('article',{name:peCase.label,exact:true})).toBeVisible();
+  await expect(page.getByRole('article',{name:peCase.dynamicLabel,exact:true})).toBeVisible();
+  if (peCase.name==='Tencent native dynamic' || peCase.name==='Eastmoney native static') {
+    const card=page.getByRole('article',{name:peCase.dynamicLabel,exact:true});
+    await expect(card).toHaveAttribute('title',/接口原值/);
+    await expect(card.getByText('财报年化')).toHaveCount(0);
+    await page.locator('.pt-market-facts').screenshot({path:`tmp/${isEastmoney?'eastmoney-static':'tencent-native-dynamic'}-cards.png`});
+  }
+  await expect(page.getByRole('article',{name:isEastmoney?/市盈率（动）/:/市盈率（静）/})).toHaveCount(0);
+  await expect(page.getByRole('article',{name:'今开 145.00',exact:true})).toBeVisible();
+  await expect(page.locator('.pt-market-fact')).toHaveCount(8);
+});
+
 test('paper ticket previews before sending and restores broker contracts after reload', async ({ page }) => {
   const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
   const stock = { conId: 265598, symbol: 'AAPL', currency: 'USD', exchange: 'NASDAQ', name: 'Apple Inc.' };
-  let current: any = { enabled: false, available: true, account: 'DU***EST', accountKey: 'paper:ui-test', policy: null, orders: [], connection: 'connected', state: 'ready', detail: 'paper snapshot' };
+  let current: any = { supportedOrderTypes: ['LMT', 'MKT'], enabled: false, available: true, account: 'DU***EST', accountKey: 'paper:ui-test', policy: null, orders: [], connection: 'connected', state: 'ready', detail: 'paper snapshot' };
   let configured: any, draft: any, confirmed = 0;
   await page.route('**/api/ibkr-workbench/paper/history', route => {
     const {period,symbol}=route.request().postDataJSON();
-    return route.fulfill({json:{period,symbol,bars:Array.from({length:20},(_,i)=>({time:period==='intraday'?`2026-09-09 21:${30+i}`:`2026-08-${String(i+1).padStart(2,'0')}`,open:248+i/10,high:251+i/10,low:247+i/10,close:250+i/10,volume:100+i*10})),source:'东方财富',adjustment:'不复权',timeZone:period==='intraday'?'北京时间':'交易日期',asOf:'2026-09-09',note:'工程测试数据'}});
+    return route.fulfill({json:{period,symbol,bars:Array.from({length:20},(_,i)=>({time:period==='intraday'?`2026-09-09 21:${30+i}`:`2026-08-${String(i+1).padStart(2,'0')}`,open:248+i/10,high:251+i/10,low:247+i/10,close:250+i/10,volume:100+i*10})),source:'东方财富',adjustment:'不复权',timeZone:period==='intraday'?'北京时间':'交易日期',asOf:'2026-09-09',previousClose:248,note:'工程测试数据'}});
   });
   await page.route('**/api/ibkr-workbench/logo?*', route => {
     expect(new URL(route.request().url()).searchParams.get('assetType')).toBe('STK');
@@ -460,6 +609,7 @@ test('paper ticket previews before sending and restores broker contracts after r
   await page.route('**/api/ibkr-workbench/paper/status', route => route.fulfill({ json: current }));
   await page.route('**/api/ibkr-workbench/paper/contract', route => route.fulfill({ json: [stock] }));
   await page.route('**/api/ibkr-workbench/paper/market-quote', route => route.fulfill({ json: quote }));
+  await page.route('**/api/us-market-heatmap*', route => route.fulfill({ json: usHeatmapFixture }));
   await page.route('**/api/ibkr-workbench/paper/configure', route => {
     configured = route.request().postDataJSON();
     current = { ...current, enabled: true, policy: { conIds: [265598], expiresAt: configured.expiresAt, limits: configured.limits } };
@@ -476,17 +626,60 @@ test('paper ticket previews before sending and restores broker contracts after r
     current = { ...current, orders: [row] }; await route.fulfill({ json: row });
   });
   await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
-  await expect(page.getByRole('button', { name: '开启模拟交易并预览' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '开启模拟交易并预览' })).toBeEnabled();
   await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
   await expect(page.locator('.pt-market-fact')).toHaveCount(8);
   await expect(page.getByRole('article', { name: '市盈率（动） 28.36' })).toBeVisible();
-  await expect(page.getByRole('article', { name: '市盈率（静） 31.42' })).toBeVisible();
+  await expect(page.getByRole('article', { name: '市盈率（TTM） 未提供' })).toBeVisible();
   expect(configured).toBeUndefined(); expect(confirmed).toBe(0);
   await expect(page.getByLabel('单笔最大名义金额')).not.toBeVisible();
-  await page.getByRole('button', { name: /卖一价/ }).click();
+  await expect(page.getByText('三档买卖盘', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('当前股票持仓', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/报价每 5 秒/)).toHaveCount(0);
+  const miniHeatmap = page.getByLabel('迷你美股大盘热力图');
+  await expect(miniHeatmap).toBeVisible();
+  await expect(miniHeatmap).toContainText('工程测试数据');
+  await expect(miniHeatmap).toHaveAttribute('data-industry-scope', '信息技术');
+  await expect(miniHeatmap.locator('[data-stock-code="AAPL"]')).toHaveCount(1);
+  await expect(miniHeatmap.locator('[data-stock-code="MSFT"]')).toHaveCount(1);
+  await expect(miniHeatmap.locator('[data-stock-code="GOOG"]')).toHaveCount(0);
+  const heatmapBox = await page.locator('.pt-ticket-heatmap').boundingBox();
+  const ticketFormBox = await page.locator('.pt-ticket-form').boundingBox();
+  expect(heatmapBox).not.toBeNull(); expect(ticketFormBox).not.toBeNull();
+  expect(heatmapBox!.y + heatmapBox!.height).toBeLessThanOrEqual(ticketFormBox!.y);
+  const heatmapStatus = miniHeatmap.locator('.regional-heatmap-status');
+  const backToAll = miniHeatmap.getByRole('button', { name: '全部', exact: true });
+  await expect(backToAll).toBeVisible();
+  await expect(miniHeatmap.locator('.regional-heatmap-breadcrumb')).toHaveCount(0);
+  const statusBox = await heatmapStatus.boundingBox();
+  const backBox = await backToAll.boundingBox();
+  expect(statusBox).not.toBeNull(); expect(backBox).not.toBeNull();
+  expect(backBox!.y).toBeGreaterThanOrEqual(statusBox!.y);
+  expect(backBox!.y + backBox!.height).toBeLessThanOrEqual(statusBox!.y + statusBox!.height);
+  await backToAll.click();
+  await expect(miniHeatmap).toHaveAttribute('data-industry-scope', 'featured');
+  await expect(miniHeatmap.locator('[data-industry]')).toHaveCount(3);
+  await expect(miniHeatmap.locator('[data-industry="工业"]')).toHaveCount(0);
+  const miniCanvasBox = await miniHeatmap.locator('[data-zoom-scale]').boundingBox();
+  expect(miniCanvasBox).not.toBeNull();
+  await page.mouse.move(miniCanvasBox!.x + miniCanvasBox!.width * .75, miniCanvasBox!.y + miniCanvasBox!.height * .5);
+  await page.mouse.down();
+  await page.mouse.move(miniCanvasBox!.x + miniCanvasBox!.width * .25, miniCanvasBox!.y + miniCanvasBox!.height * .5, { steps: 6 });
+  await page.mouse.up();
+  await expect(miniHeatmap).toHaveAttribute('data-industry-scope', 'all');
+  await expect(miniHeatmap.locator('[data-industry="工业"]')).toHaveCount(1);
+  await expect(page.getByLabel('限价（USD）')).toHaveValue('250');
+  await page.getByRole('button', { name: '提高限价' }).click();
+  await expect(page.getByLabel('限价（USD）')).toHaveValue('251.00');
+  await page.getByRole('button', { name: '降低限价' }).click();
+  await expect(page.getByLabel('限价（USD）')).toHaveValue('250.00');
+  await page.getByRole('button', { name: '市价单', exact: true }).click();
+  await expect(page.getByLabel('限价（USD）')).toHaveCount(0);
+  await page.getByRole('button', { name: '限价单', exact: true }).click();
+  await expect(page.getByLabel('限价（USD）')).toHaveValue('250');
+  await page.getByLabel('限价（USD）').fill('250.01');
   await expect(page.getByLabel('限价（USD）')).toHaveValue('250.01');
-  await expect(page.locator('.pt-market .pt-depth')).toHaveCount(0);
-  await expect(page.locator('.pt-ticket .pt-depth')).toHaveCount(1);
+  await expect(page.locator('.pt-depth')).toHaveCount(0);
   for(const name of ['日K','周K','月K','年K','分时']){
     await page.getByRole('tab',{name,exact:true}).click();
     await expect(page.locator('.pt-chart-canvas')).toHaveAttribute('aria-label',new RegExp(name));
@@ -496,12 +689,27 @@ test('paper ticket previews before sending and restores broker contracts after r
   await expect(page.locator('.pt-chart-canvas')).toHaveAttribute('aria-label',/完整交易时段 21:30 至次日 04:00/);
   const chartBox=await page.locator('.pt-chart-canvas').boundingBox();
   expect(chartBox).not.toBeNull();
+  expect(chartBox!.height).toBeGreaterThanOrEqual(350);
+  await page.locator('.pt-market').screenshot({path:'tmp/market-chart-expanded.png'});
   await page.mouse.move(chartBox!.x+chartBox!.width*.03,chartBox!.y+chartBox!.height*.45);
   const chartTooltip=page.getByRole('tooltip',{name:'K线行情详情'});
   await expect(chartTooltip).toBeVisible();
+  await expect(chartTooltip).toContainText('较昨收');
+  await expect(chartTooltip).not.toContainText('较开盘');
   await expect(chartTooltip).toContainText('涨跌幅');
   await expect(chartTooltip).toContainText('成交量');
   await expect(chartTooltip).toContainText('估算成交额');
+  await page.mouse.move(chartBox!.x+chartBox!.width*.45,chartBox!.y+chartBox!.height*.45);
+  await page.mouse.down();
+  await page.mouse.move(chartBox!.x+chartBox!.width*.95,chartBox!.y+chartBox!.height*.45,{steps:8});
+  await page.mouse.up();
+  await page.mouse.move(chartBox!.x+chartBox!.width*.2,chartBox!.y+chartBox!.height*.45);
+  await page.mouse.wheel(0,1800);
+  await expect(page.locator('.pt-chart-canvas')).toHaveAttribute('aria-label',/完整交易时段/);
+  await page.locator('.pt-chart-stage').screenshot({path:'tmp/chart-left-edge-locked.png'});
+  await page.mouse.move(chartBox!.x+chartBox!.width*.8,chartBox!.y+chartBox!.height*.45);
+  for(let step=0;step<8;step++)await page.mouse.wheel(0,-100);
+  await page.locator('.pt-chart-stage').screenshot({path:'tmp/chart-blank-zoom-anchor.png'});
   await page.mouse.move(chartBox!.x+chartBox!.width*.55,chartBox!.y+chartBox!.height*.45);
   await expect(chartTooltip).toHaveCount(0);
   await page.mouse.move(chartBox!.x-5,chartBox!.y+chartBox!.height*.45);
@@ -509,10 +717,11 @@ test('paper ticket previews before sending and restores broker contracts after r
   await expect(page.getByLabel('数量（整股）')).toHaveValue('10');
   await expect(page.locator('.pt-estimate')).toContainText('2,500.10');
   await page.getByText('模拟交易设置', { exact: true }).click();
-  await page.getByLabel('单笔最大名义金额').fill('5000');
+  await expect(page.getByText('单笔金额不设上限 · 首次预览时开启模拟交易风控。', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '开启模拟交易并预览' }).click();
   await expect(page.getByRole('dialog', { name: '确认模拟订单' })).toBeVisible();
   expect(configured.conIds).toEqual([265598]); expect(configured.explicit).toBe(true);
+  expect(configured.limits.maxOrderNotional).toBeUndefined();
   expect(configured.limits.maxSymbolWeight).toBe('0.3');
   expect(draft).toEqual({ conId: 265598, side: 'BUY', quantity: '10', limitPrice: '250.01' });
   expect(confirmed).toBe(0);
@@ -532,7 +741,7 @@ test('paper ticket previews before sending and restores broker contracts after r
   await page.getByRole('tab', { name: /^持仓/ }).click();
   await expect(page.locator('.pt-activity .has-logo img')).toHaveCount(1);
   await page.getByRole('tab', { name: /^订单/ }).click();
-  await expect(page.getByLabel('限价（USD）')).toHaveValue('');
+  await expect(page.getByLabel('限价（USD）')).toHaveValue('250');
   expect(confirmed).toBe(1);
   await mkdir('output/ibkr', { recursive: true });
   await page.screenshot({ path: 'output/ibkr/paper-ticket-desktop.png', fullPage: true });
@@ -1256,7 +1465,7 @@ test('Eastmoney refresh preserves typed order and focus without inventing depth 
   });
   await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
   await expect(page.locator('.pt-quote-caption')).toContainText('2026/9/10 04:00:00');
-  await expect(page.locator('.pt-depth button:disabled')).toHaveCount(6);
+  await expect(page.getByText('三档买卖盘', { exact: true })).toHaveCount(0);
   const limit = page.getByLabel('限价（USD）');
   await limit.fill('310.12');
   await expect.poll(()=>reads,{timeout:10000}).toBeGreaterThanOrEqual(2);
@@ -1269,7 +1478,7 @@ test('Eastmoney refresh preserves typed order and focus without inventing depth 
   expect(trades).toBe(0);
 });
 
-test('market ticket sends no limit price and shows a closed-session rejection without claiming execution', async ({ page }) => {
+test('market ticket can preview outside RTH without sending a limit price', async ({ page }) => {
   const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
   const stock = {conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ',name:'Apple Inc.'};
   const current = {supportedOrderTypes:['LMT','MKT'],enabled:true,available:true,account:'DU***EST',accountKey:'paper:ui-test',policy:{conIds:[265598],expiresAt:new Date(Date.now()+3600000).toISOString(),limits:{feeReserve:'5',maxOrderNotional:'10000'}},orders:[],connection:'connected',state:'ready',detail:''};
@@ -1278,19 +1487,42 @@ test('market ticket sends no limit price and shows a closed-session rejection wi
   await page.route('**/api/ibkr-workbench/quotes',r=>r.fulfill({json:[]}));
   await page.route('**/api/ibkr-workbench/paper/status',r=>r.fulfill({json:current}));
   await page.route('**/api/ibkr-workbench/paper/contract',r=>r.fulfill({json:[stock]}));
-  await page.route('**/api/ibkr-workbench/paper/market-quote',r=>r.fulfill({json:{...stock,bid:null,ask:null,last:null,close:null,high:null,low:null,state:'missing',regularHours:false,nextOpen:null,fetchedAt:new Date().toISOString()}}));
-  await page.route('**/api/ibkr-workbench/paper/preview',r=>{sent=r.request().postDataJSON();return r.fulfill({status:409,json:{error:'OUTSIDE_RTH'}});});
+  await page.route('**/api/ibkr-workbench/paper/market-quote',r=>r.fulfill({json:{...stock,bid:'99.99',ask:'100.01',last:'100',close:'99',high:'101',low:'98',state:'delayed',regularHours:false,nextOpen:null,fetchedAt:new Date().toISOString(),source:'IBKR Gateway',bids:[],asks:[]}}));
+  await page.route('**/api/ibkr-workbench/paper/preview',r=>{sent=r.request().postDataJSON();return r.fulfill({json:{...sent,...stock,previewId:'preview:outside-market',bodyHash:'d'.repeat(64),expiresAt:new Date(Date.now()+30000).toISOString(),mode:'paper',accountKey:'paper:ui-test',reservedNotional:'1050.10',reservedCash:'1055.10',warnings:['当前不在常规交易时段；此模拟单已启用盘前盘后交易。能否立即成交由 IBKR 决定。']}});});
   await page.route('**/api/ibkr-workbench/paper/confirm',r=>{confirmations++;return r.fulfill({json:{}});});
   await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
   await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
   await page.getByRole('button',{name:'市价单',exact:true}).click();
   await expect(page.getByLabel('限价（USD）')).toHaveCount(0);
   await expect(page.getByLabel('数量（整股）')).toHaveValue('10');
+  await expect(page.locator('.pt-order-meta')).toContainText('含盘前盘后');
+  await expect(page.locator('.pt-field-help')).toContainText('IBKR 可能挂起或拒绝');
   await page.getByRole('button',{name:'预览买入订单'}).click();
-  await expect(page.getByRole('alert')).toContainText('不在美股常规交易时段');
+  await expect(page.getByRole('dialog',{name:'确认模拟订单'})).toContainText('已启用盘前盘后交易');
   expect(sent).toEqual({conId:265598,side:'BUY',quantity:'10',orderType:'MKT'});
   expect(confirmations).toBe(0);
-  await expect(page.getByRole('dialog',{name:'确认模拟订单'})).toHaveCount(0);
+});
+
+test('closed-session limit order can be previewed with Outside RTH enabled', async ({ page }) => {
+  const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
+  const stock = {conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ',name:'Apple Inc.'};
+  const current = {supportedOrderTypes:['LMT','MKT'],enabled:true,available:true,account:'DU***EST',accountKey:'paper:ui-test',policy:{conIds:[265598],expiresAt:new Date(Date.now()+3600000).toISOString(),limits:{feeReserve:'5',maxOrderNotional:'10000'}},orders:[],connection:'connected',state:'ready',detail:''};
+  let sent: any;
+  await page.route('**/api/ibkr-workbench/state',r=>r.fulfill({json:data}));
+  await page.route('**/api/ibkr-workbench/quotes',r=>r.fulfill({json:[]}));
+  await page.route('**/api/ibkr-workbench/paper/status',r=>r.fulfill({json:current}));
+  await page.route('**/api/ibkr-workbench/paper/contract',r=>r.fulfill({json:[stock]}));
+  await page.route('**/api/ibkr-workbench/paper/history',r=>r.fulfill({json:{bars:[],period:'intraday',symbol:'AAPL'}}));
+  await page.route('**/api/ibkr-workbench/paper/market-quote',r=>r.fulfill({json:{...stock,bid:'99.99',ask:'100.01',last:'100',close:'99',high:'101',low:'98',state:'delayed',regularHours:false,nextOpen:'2026-09-14T13:30:00Z',fetchedAt:new Date().toISOString(),source:'IBKR Gateway',bids:[],asks:[]}}));
+  await page.route('**/api/ibkr-workbench/paper/preview',r=>{sent=r.request().postDataJSON();return r.fulfill({json:{...sent,...stock,previewId:'preview:queued',bodyHash:'c'.repeat(64),expiresAt:new Date(Date.now()+30000).toISOString(),mode:'paper',accountKey:'paper:ui-test',reservedNotional:'1000',reservedCash:'1005',warnings:['当前不在常规交易时段；此模拟单已启用盘前盘后交易。能否立即成交由 IBKR、交易所、品种及订单类型决定，也可能被挂起或拒绝。']}});});
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  await expect(page.locator('.pt-stock-heading')).toContainText('AAPL');
+  await expect(page.locator('.pt-order-meta')).toContainText('含盘前盘后');
+  await expect(page.locator('.pt-field-help')).toContainText('可在盘前盘后成交');
+  await page.getByLabel('限价（USD）').fill('100');
+  await page.getByRole('button',{name:'预览买入订单'}).click();
+  await expect(page.getByRole('dialog',{name:'确认模拟订单'})).toContainText('已启用盘前盘后交易');
+  expect(sent).toEqual({conId:265598,side:'BUY',quantity:'10',limitPrice:'100'});
 });
 
 for (const outcome of ['filled', 'permission-required', 'subscription-required']) test(`market ticket rechecks a renewed session and reports ${outcome}`, async ({ page }) => {

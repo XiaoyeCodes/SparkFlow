@@ -28,7 +28,7 @@ def test_native_sdk_serialization_keeps_account_decimal_and_identity_without_net
         contract, order = encode_order(command, binding, instrument)
         assert order.account == 'TEST-ACCOUNT' and order.orderRef == identity.orderRef
         assert order.totalQuantity == Decimal('6') and isinstance(order.lmtPrice, Decimal)
-        assert order.outsideRth is False and order.tif == 'DAY'
+        assert order.outsideRth is True and order.tif == 'DAY'
         ib = IB()
         ib.wrapper.clientId = 78
         ib.client._serverVersion = 180
@@ -72,16 +72,25 @@ def test_codec_never_silently_rewrites_unsupported_order_policy():
         encode_order(SubmissionCommand(intent=intent(), identity=identity), binding, instrument.model_copy(update={'minTick': '0'}))
 
 
-def test_market_codec_keeps_sdk_unset_price_and_rejects_live_and_amendments(api_event_loop):
+def test_market_codec_keeps_sdk_unset_price_and_allows_live_but_not_amendments(api_event_loop):
     binding, identity, instrument = inputs()
     command = SubmissionCommand(intent=intent(orderType='MKT',limitPrice=None),identity=identity)
     _, order = encode_order(command,binding,instrument)
     from ib_async.util import UNSET_DOUBLE
-    assert order.orderType=='MKT' and order.lmtPrice==UNSET_DOUBLE and order.outsideRth is False
+    assert order.orderType=='MKT' and order.lmtPrice==UNSET_DOUBLE and order.outsideRth is True
     with pytest.raises(RiskDenied,match='UNSUPPORTED_ORDER_POLICY'):
         encode_order(ModificationCommand(intent=command.intent,identity=identity,permId=901,amendmentId='amend-1',expectedVersion=1),binding,instrument)
     live_binding=binding.model_copy(update={'mode':'live','accountKey':'live:engineering'})
     live_intent=command.intent.model_copy(update={'mode':'live','accountKey':'live:engineering'})
     live_identity=identity.model_copy(update={'mode':'live','accountKey':'live:engineering'})
-    with pytest.raises(RiskDenied,match='UNSUPPORTED_ORDER_POLICY'):
-        encode_order(SubmissionCommand(intent=live_intent,identity=live_identity),live_binding,instrument)
+    _, live_order = encode_order(SubmissionCommand(intent=live_intent,identity=live_identity),live_binding,instrument)
+    assert live_order.orderType == 'MKT' and live_order.outsideRth is True
+
+
+def test_live_limit_order_enables_outside_rth_permission():
+    binding, identity, instrument = inputs()
+    live_binding=binding.model_copy(update={'mode':'live','accountKey':'live:engineering'})
+    live_intent=intent().model_copy(update={'mode':'live','accountKey':'live:engineering'})
+    live_identity=identity.model_copy(update={'mode':'live','accountKey':'live:engineering'})
+    _, order=encode_order(SubmissionCommand(intent=live_intent,identity=live_identity),live_binding,instrument)
+    assert order.outsideRth is True
