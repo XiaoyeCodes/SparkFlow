@@ -14,7 +14,8 @@ from .paper_risk import PaperRiskSource
 from .paper_flow import PaperOrderFlow
 from .native_dispatch import NativeDispatcher,binding_hash
 from .managed_events import ManagedOrderObserver
-from .reconcile import OrderReconciler
+from .reconcile import OrderReconciler, RECOVERABLE_SDK_DIAGNOSTICS
+from .paper_account import PaperAccountReconciliation,account_checkpoint_stale
 
 PREFIX='/api/ibkr-terminal/paper/'
 READ_PATHS={PREFIX+'status',PREFIX+'contract',PREFIX+'quote',PREFIX+'reconcile'}
@@ -56,6 +57,8 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
     next_auto_sync=0.0
     sync_detail=None
     sync_owner=None
+    recovery_owner=None
+    recovery=None
     def current_flow():
         current=app.state.paper_flow
         source=app.state.market_sources.get('paper')
@@ -86,25 +89,42 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
 
     @app.get(PREFIX+'status')
     async def status():
-        nonlocal next_auto_sync,sync_detail,sync_owner
+        nonlocal next_auto_sync,sync_detail,sync_owner,recovery_owner,recovery
         current=current_flow()
-        if current is not sync_owner:
-            sync_owner=current
-            sync_detail=None
-            next_auto_sync=0.0
         source=app.state.market_sources.get('paper')
         binding=source.binding if source else None
+        owner=current if current is not None else (id(source),source.session.revision,binding.accountKey) if binding else None
+        if owner != sync_owner:
+            sync_owner=owner
+            sync_detail=None
+            next_auto_sync=0.0
         # Polling reads reconcile outstanding broker evidence automatically.
         # The route lock avoids racing previews/confirmations; the cooldown
         # bounds requests from multiple browser tabs and retries late fees.
         with ledger._lock:
-            pending=bool(binding and any(row.reconciliationRequired or row.submission in ('SUBMITTING','UNKNOWN','RECONCILING')
+            halt=ledger._db.execute('SELECT reason FROM order_integrity_halts WHERE mode=? AND account_key=?',
+                ('paper',binding.accountKey)).fetchone() if binding else None
+            order_pending=bool(binding and any(row.reconciliationRequired or row.submission in ('SUBMITTING','UNKNOWN','RECONCILING')
                 for row in ledger._records(binding.accountKey,'paper')))
-        if current is not None and pending and not lock.locked() and asyncio.get_running_loop().time()>=next_auto_sync:
+        checkpoint_stale=bool(binding and source and account_checkpoint_stale(ledger,binding.accountKey,'paper',source.session.revision,
+            'fixture' if getattr(source,'_fixture',False) else 'ibkr'))
+        pending=bool(order_pending or (halt and halt[0] in RECOVERABLE_SDK_DIAGNOSTICS) or checkpoint_stale)
+        runner=current.account_reconciliation if current is not None else None
+        if runner is None and pending and source is not None and binding is not None:
+            recovery_key=(id(source),source.session.revision,binding.accountKey)
+            if recovery_owner != recovery_key:
+                rec=OrderReconciler(ledger,binding.accountKey,'paper',source.session.revision)
+                observer=ManagedOrderObserver(rec,binding,channel_key='paper-gateway:'+binding_hash(binding),
+                    source='fixture' if source._fixture else 'ibkr',current_revision=lambda:source.session.revision,clock=clock)
+                source._ib.wrapper.managed_observer=observer
+                recovery=PaperAccountReconciliation(source,rec,clock=clock)
+                recovery_owner=recovery_key
+            runner=recovery
+        if runner is not None and pending and not lock.locked() and asyncio.get_running_loop().time()>=next_auto_sync:
             async with lock:
                 if current_flow() is current:
                     try:
-                        await current.account_reconciliation.run()
+                        await runner.run()
                         sync_detail=None
                     except Exception as exc:
                         code=exc.code if isinstance(exc,(RiskDenied,ReviewBlocked)) else 'BROKER_READ_TIMEOUT' if isinstance(exc,TimeoutError) else 'PAPER_SYNC_FAILED'
@@ -114,7 +134,7 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
         state=source.session.snapshot() if source else None
         policy=current.source.scope if current else None
         with ledger._lock:
-            orders=ledger._records(binding.accountKey,'paper')[-100:] if binding else []
+            orders=ledger._records(binding.accountKey,'paper')[-100:][::-1] if binding else []
             from .paper_views import order_display
             fills=OrderReconciler(ledger,binding.accountKey,'paper',source.session.revision).executions() if binding else []
             orders=[order_display(record,fills,ledger) for record in orders]
@@ -124,7 +144,7 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
             'account':(binding.brokerAccount[:2]+'***'+binding.brokerAccount[-3:]) if binding else None,
             'accountKey':binding.accountKey if binding else None,'policy':policy,'orders':orders,
             'connection':state.connection if state else 'unconfigured','state':state.state if state else 'permission-required',
-            'snapshot':state,'syncError':sync_detail if pending else None,
+            'snapshot':state,'syncError':sync_detail if pending and runner is not None else 'ACCOUNT_INTEGRITY_HALT' if halt else None,
             'detail':state.detail if state else '等待指定模拟账户连接。'}
 
     @app.get(PREFIX+'contract')
@@ -175,7 +195,7 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
                 channel='paper-gateway:'+binding_hash(source.binding)
                 observer=ManagedOrderObserver(OrderReconciler(ledger,request.accountKey,'paper',source.session.revision),
                     source.binding,channel_key=channel,source='ibkr',current_revision=lambda:source.session.revision,clock=clock)
-                risk_source=PaperRiskSource(source,scope,clock=clock)
+                risk_source=PaperRiskSource(source,scope,ledger=ledger,clock=clock)
                 source._ib.wrapper.managed_observer=observer
                 dispatcher=NativeDispatcher(ledger,source._ib,source.binding,channel_key=channel,enabled=True,
                     current_revision=lambda:source.session.revision,clock=clock)
@@ -183,7 +203,6 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
                     append_event(ledger._db,request.accountKey,'USER_PAPER_POLICY_CONFIRMED',now.isoformat(),
                         {'scope':scope.model_dump(mode='json'),'scopeHash':hashlib.sha256(canonical(scope).encode()).hexdigest()})
                 app.state.paper_flow=PaperOrderFlow(dispatcher,risk_source,enabled=True,clock=clock)
-                from .paper_account import PaperAccountReconciliation
                 app.state.paper_flow.account_reconciliation=PaperAccountReconciliation(source,observer.rec,clock=clock)
                 return await status()
         except Exception as exc:

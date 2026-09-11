@@ -45,10 +45,12 @@ def test_restart_restores_cache_as_stale_never_connected(tmp_path):
     with SnapshotStore(path, allow_fixtures=True) as store:
         session = AccountSession('paper', store)
         session.bind(binding)
+        previous_revision = session.revision
         assert session.accept(sample().model_copy(update={'sessionRevision': session.revision}))
     with SnapshotStore(path, allow_fixtures=True) as store:
         restored = AccountSession('paper', store)
         restored.bind(binding)
+        assert restored.revision == previous_revision + 1
         assert restored.snapshot().positions
         assert restored.snapshot().state == 'stale'
         assert restored.snapshot().connection == 'reconciling'

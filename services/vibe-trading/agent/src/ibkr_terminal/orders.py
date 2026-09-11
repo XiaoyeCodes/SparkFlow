@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from uuid import uuid4
 
 from .audit import append_event, read_events
-from .risk import Authorization, OrderIntent, RiskContext, RiskDenied, canonical, check_risk, intent_hash, reservation_price
+from .risk import Authorization, OrderIntent, RiskContext, RiskDenied, canonical, check_risk, intent_hash, legacy_intent_hash, reservation_price
 from .schemas import Contract
 from .identity import BrokerIdentity, BrokerSession
 
@@ -28,6 +28,7 @@ class IntentConflict(ValueError):
 class OrderRecord(Contract):
     intent: OrderIntent
     bodyHash: str
+    createdAt: datetime | None = None
     source: Literal['fixture', 'user']
     submission: Literal['PERSISTED', 'SUBMITTING', 'ACKNOWLEDGED', 'UNKNOWN', 'RECONCILING', 'DENIED']
     execution: str
@@ -173,29 +174,35 @@ class OrderLedger:
         self._source(grant.source)
         return grant
 
-    def _decode(self, payload):
+    def _decode(self, payload, created_epoch=None):
         record = OrderRecord.model_validate_json(payload)
+        if record.createdAt is None and created_epoch is not None:
+            record = record.model_copy(update={'createdAt': datetime.fromtimestamp(created_epoch, timezone.utc)})
         self._source(record.source)
-        if record.bodyHash != intent_hash(record.intent):
+        valid_hashes = {intent_hash(record.intent)}
+        if record.intent.tradingSession == 'EXTENDED':
+            valid_hashes.add(legacy_intent_hash(record.intent))
+        if record.bodyHash not in valid_hashes:
             raise RiskDenied('PERSISTED_INTENT_INVALID')
         if record.identity and (record.identity.accountKey, record.identity.mode, record.identity.sessionRevision, record.identity.orderId, record.identity.clientId) != (
             record.intent.accountKey, record.intent.mode, record.intent.sessionRevision, record.orderId, record.clientId):
             raise RiskDenied('PERSISTED_IDENTITY_INVALID')
         if record.activeIntent and any(getattr(record.activeIntent, key) != getattr(record.intent, key)
-            for key in ('accountKey', 'mode', 'clientIntentId', 'conId', 'side', 'orderType', 'tif', 'strategyVersion')):
+            for key in ('accountKey', 'mode', 'clientIntentId', 'conId', 'side', 'orderType', 'tif', 'tradingSession', 'strategyVersion')):
             raise RiskDenied('PERSISTED_AMENDMENT_INVALID')
         return record
 
     def _get(self, account_key, mode, intent_id):
-        row = self._db.execute('SELECT payload FROM order_intents WHERE account_key=? AND mode=? AND intent_id=?', (account_key, mode, intent_id)).fetchone()
-        return self._decode(row[0]) if row else None
+        row = self._db.execute('SELECT payload,created_epoch FROM order_intents WHERE account_key=? AND mode=? AND intent_id=?', (account_key, mode, intent_id)).fetchone()
+        return self._decode(row[0], row[1]) if row else None
 
     def get(self, account_key, mode, intent_id):
         with self._lock:
             return self._get(account_key, mode, intent_id)
 
     def _records(self, account_key, mode):
-        return [self._decode(row[0]) for row in self._db.execute('SELECT payload FROM order_intents WHERE account_key=? AND mode=?', (account_key, mode))]
+        rows = self._db.execute('SELECT payload,created_epoch FROM order_intents WHERE account_key=? AND mode=? ORDER BY created_epoch ASC,rowid ASC', (account_key, mode))
+        return [self._decode(payload, created_epoch) for payload, created_epoch in rows]
 
     def _reservations(self, account_key, mode, exclude=None):
         cash, notional, quantities, symbols = Decimal(0), Decimal(0), {}, {}
@@ -220,12 +227,15 @@ class OrderLedger:
     def _validate(self, intent, context, now, exclude=None, *, purpose='new_order', confirmation_hash=None, filled_quantity='0', operation_key=None, grant_override=None):
         if self._db.execute('SELECT 1 FROM order_integrity_halts WHERE mode=? AND account_key=?', (intent.mode, intent.accountKey)).fetchone():
             raise RiskDenied('ACCOUNT_INTEGRITY_HALT')
-        if any(row.submission in ('UNKNOWN', 'RECONCILING') or row.reconciliationRequired or row.pendingAmendmentId for row in self._records(intent.accountKey, intent.mode) if row.intent.clientIntentId != exclude):
-            raise RiskDenied('UNRESOLVED_ORDER')
         grant = Authorization.model_validate(grant_override.model_dump()) if grant_override is not None else self._grant(intent)
+        unresolved = [row for row in self._records(intent.accountKey, intent.mode) if row.intent.clientIntentId != exclude
+            and (row.submission in ('UNKNOWN', 'RECONCILING') or row.reconciliationRequired or row.pendingAmendmentId)]
+        manual_paper = intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'
+        if unresolved and not manual_paper:
+            raise RiskDenied('UNRESOLVED_ORDER')
         self._source(grant.source)
         checkpoint = self._db.execute('SELECT payload FROM order_account_proofs WHERE mode=? AND account_key=? ORDER BY rowid DESC LIMIT 1', (intent.mode, intent.accountKey)).fetchone()
-        if checkpoint:
+        if checkpoint and not (manual_paper and unresolved):
             proof = json.loads(checkpoint[0])
             positions = {str(row.conId): Decimal(row.quantity) for row in context.holdings if Decimal(row.quantity)}
             expected = {key: Decimal(value) for key, value in proof['positions'].items() if Decimal(value)}
@@ -265,11 +275,13 @@ class OrderLedger:
         body_hash = intent_hash(intent)
         previous = self._get(intent.accountKey, intent.mode, intent.clientIntentId)
         if previous:
-            if previous.bodyHash != body_hash:
+            compatible = previous.bodyHash == body_hash or (intent.tradingSession == 'EXTENDED'
+                and previous.bodyHash == legacy_intent_hash(intent))
+            if not compatible:
                 raise IntentConflict('same intent id with a different body')
             return previous
         grant, reserved, day = self._validate(intent, context, now)
-        record = OrderRecord(intent=intent, bodyHash=body_hash, source=grant.source, submission='PERSISTED', execution='PENDING',
+        record = OrderRecord(intent=intent, bodyHash=body_hash, createdAt=now, source=grant.source, submission='PERSISTED', execution='PENDING',
             reservedCash=reserved['cash'], reservedNotional=reserved['notional'], reservedQuantity=reserved['quantity'],
             reservationPrice=format(reservation_price(intent, context), 'f') if intent.orderType == 'MKT' else None)
         self._db.execute('INSERT INTO order_intents VALUES(?,?,?,?,?,?,?)', (intent.mode, intent.accountKey, intent.clientIntentId, record.model_dump_json(), canonical(context), day, now.timestamp()))

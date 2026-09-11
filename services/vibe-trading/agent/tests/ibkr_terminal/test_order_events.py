@@ -174,6 +174,34 @@ def test_conflicting_execution_freezes_account_even_after_prior_reconciliation(t
             db.reserve(intent('next', quantity='1'), context(totalCash='1000'))
 
 
+@pytest.mark.parametrize('halt_reason', ['IBKR_300', 'IBKR_10089', 'IBKR_10197', 'IBKR_1100', 'SDK_ORDER_IDENTITY_UNCONFIRMED'])
+def test_misclassified_sdk_diagnostic_recovers_only_after_full_account_proof(tmp_path, halt_reason):
+    with ledger(tmp_path / 'orders.db') as db:
+        rec = setup(db)
+        rec.apply(fill('complete-fill', 'EX-COMPLETE', '6', '99'))
+        rec.apply(fee('complete-fee', 'EX-COMPLETE', '1'))
+        rec.apply(event('complete-status', status='FILLED', filled='6', remaining='0'))
+        with db.transaction():
+            row = db.get('paper:engineering', 'paper', 'intent-1')
+            db._replace(row.model_copy(update={'lastError': 'IBKR_300', 'reconciliationRequired': True}), 'LEGACY_FALSE_ORDER_ERROR')
+            db._db.execute('INSERT INTO order_integrity_halts VALUES(?,?,?)', ('paper', 'paper:engineering', halt_reason))
+        db.clock = lambda: NOW + timedelta(seconds=2)
+        with pytest.raises(RiskDenied, match='CASH_MISMATCH'):
+            rec.reconcile(proof(rec, cashBalance='404', positions={12: '6'}))
+        assert db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
+        rec.reconcile(proof(rec, cashBalance='405', positions={12: '6'}))
+        restored = db.get('paper:engineering', 'paper', 'intent-1')
+        assert restored.lastError is None and not restored.reconciliationRequired
+        assert restored.reservedCash == '0'
+        assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
+        assert db.audit('paper:engineering')[-2]['kind'] == 'TRANSIENT_SDK_DIAGNOSTIC_RECOVERED'
+        next_snapshot = NOW + timedelta(seconds=3)
+        db.clock = lambda: NOW + timedelta(seconds=4)
+        db.reserve(intent('next', quantity='1'), context(snapshotId='next-broker-read', asOf=next_snapshot,
+            totalCash='405', settledCash='405', holdings=[dict(conId=12, quantity='6', marketValue='594', currency='USD')]))
+        assert db.get('paper:engineering', 'paper', 'next').submission == 'PERSISTED'
+
+
 def test_unexplained_reopening_of_terminal_order_pauses_account(tmp_path):
     with ledger(tmp_path / 'orders.db') as db:
         rec = setup(db)

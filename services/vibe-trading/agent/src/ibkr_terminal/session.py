@@ -87,7 +87,10 @@ class AccountSession:
             known_binding = self.store.ensure_binding(self.mode, binding.accountKey, binding.brokerAccount)
             cached = self.store.load(self.mode, binding.accountKey) if known_binding else None
             previous = self._snapshot
-            self.revision += 1
+            # Revisions must remain monotonic across bridge processes. A new
+            # process starts at zero, but the persisted snapshot identifies the
+            # last completed session and forces a strictly newer generation.
+            self.revision = max(self.revision + 1, cached.sessionRevision + 1 if cached else 1)
             self.binding = binding
             self._snapshot = cached.model_copy(update={'sessionRevision': self.revision, 'sequence': 0, 'state': 'stale', 'connection': 'reconciling', 'detail': '已恢复历史快照；等待券商对账。'}) if cached else empty_snapshot(self.mode, self.revision, binding.accountKey)
             self._publish(previous)

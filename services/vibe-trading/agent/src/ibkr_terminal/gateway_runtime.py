@@ -1,4 +1,4 @@
-"""Monitor manually connected sessions and report disconnects without reconnecting."""
+"""Supervise explicitly enabled IBKR sessions and reconnect transient failures."""
 import asyncio
 import contextlib
 
@@ -31,6 +31,25 @@ class GatewayRuntime:
         # A manual connection attempt may finish after its browser request ends.
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self.attempts[mode].wait(), 35)
+        return self.status(mode)
+
+    async def disconnect(self, mode):
+        """Stop supervision for one mode after an explicit user disconnect."""
+        detail = '已按你的操作断开连接；后台不会自动重连。'
+        self.statuses[mode] = {'phase': 'waiting', 'detail': detail}
+        attempt = self.attempts.get(mode)
+        if attempt is not None:
+            attempt.set()
+        task = self.tasks.pop(mode, None)
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        source = self.app.state.market_sources.pop(mode, None)
+        if source is not None:
+            source.close(detail)
+        self.app.state.sessions[mode].disconnected(detail)
+        self.wakes.pop(mode, None)
+        self.attempts.pop(mode, None)
         return self.status(mode)
 
     async def enable_paper_orders(self):
@@ -99,11 +118,11 @@ class GatewayRuntime:
             except asyncio.CancelledError:
                 raise
             except Exception as error:
-                detail = str(error) if isinstance(error, DiscoveryError) else 'IBKR Gateway 已断开，请登录客户端后点击“智能连接”。'
-                self.statuses[mode] = {'phase': 'disconnected', 'detail': detail}
+                reason = str(error) if isinstance(error, DiscoveryError) else 'IBKR Gateway 连接短暂中断'
+                detail = f'{reason}；后台正在自动重连，保持 Gateway 登录即可。'
+                self.statuses[mode] = {'phase': 'retrying', 'detail': detail}
                 session.disconnected(detail)
                 self.attempts[mode].set()
-                return
             finally:
                 if connection:
                     current=getattr(self.app.state,'paper_flow',None)

@@ -34,6 +34,7 @@ class DraftOrder(Contract):
     orderType: Literal['LMT', 'MKT']
     limitPrice: Amount | None = None
     tif: Literal['DAY']
+    tradingSession: Literal['EXTENDED', 'OVERNIGHT'] = 'EXTENDED'
 
     @model_validator(mode='after')
     def valid_scope(self):
@@ -82,6 +83,7 @@ class OrderPreview(Contract):
     orderType: Literal['LMT', 'MKT']
     limitPrice: Amount | None
     tif: Literal['DAY']
+    tradingSession: Literal['EXTENDED', 'OVERNIGHT'] = 'EXTENDED'
     snapshotId: Identifier
     reservedCash: Amount
     reservedNotional: Amount
@@ -152,7 +154,7 @@ class OrderReviewService:
         authorization_id = f'manual-auth:{uuid4().hex}'
         intent = OrderIntent(accountKey=draft.accountKey, mode=draft.mode, clientIntentId=f'manual:{uuid4().hex}',
             conId=draft.conId, side=draft.side, quantity=draft.quantity, orderType=draft.orderType,
-            limitPrice=draft.limitPrice, tif=draft.tif, strategyVersion=loaded.scope.strategyVersion,
+            limitPrice=draft.limitPrice, tif=draft.tif, tradingSession=draft.tradingSession, strategyVersion=loaded.scope.strategyVersion,
             authorizationId=authorization_id, sessionRevision=loaded.scope.sessionRevision)
         body_hash = intent_hash(intent)
         consent_hash = hashlib.sha256(f'{loaded.scope.consentReference}:{preview_id}:{body_hash}'.encode()).hexdigest()
@@ -169,7 +171,7 @@ class OrderReviewService:
         preview = OrderPreview(previewId=preview_id, bodyHash=body_hash, expiresAt=expires_at,
             accountKey=draft.accountKey, mode=draft.mode, conId=draft.conId, symbol=loaded.symbol,
             currency=loaded.currency, side=draft.side, quantity=draft.quantity, orderType=draft.orderType,
-            limitPrice=draft.limitPrice, tif=draft.tif, snapshotId=loaded.context.snapshotId,
+            limitPrice=draft.limitPrice, tif=draft.tif, tradingSession=draft.tradingSession, snapshotId=loaded.context.snapshotId,
             reservedCash=reserved['cash'], reservedNotional=reserved['notional'],
             reservedQuantity=reserved['quantity'], testData=loaded.scope.source == 'fixture',
             warnings=(('工程测试数据；不得视为 IBKR 账户事实。',) if loaded.scope.source == 'fixture' else ())
@@ -178,6 +180,8 @@ class OrderReviewService:
                 + (('市价单按实际成交价结算；现金按参考价加 5% 预留，这不是成交价格上限。',) if draft.orderType == 'MKT' else ())
                 + (('当前不在常规交易时段；此模拟单已启用盘前盘后交易。能否立即成交由 IBKR、交易所、品种及订单类型决定，也可能被挂起或拒绝。',)
                     if not loaded.context.regularHours else ())
+                + (('此单将使用 IBKR OVERNIGHT 夜盘路由；仅支持符合条件的美股/ETF限价单，能否成交以券商回报为准。',)
+                    if draft.tradingSession == 'OVERNIGHT' else ())
                 + (('确认后会向当前 IBKR 模拟账户发送此笔订单；成交由券商回报确认。',) if self.broker_submission
                     else ('确认仅在本地持久化；券商提交仍保持禁用。',)))
         stored = StoredPreview(draft=draft, sourceInput=loaded, intent=intent, authorization=grant, preview=preview)

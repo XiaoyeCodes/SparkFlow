@@ -19,6 +19,16 @@ from .identity import ReadOrderEvidence
 
 
 TERMINAL = {'CANCELLED', 'FILLED', 'REJECTED'}
+# These callbacks describe market-data subscriptions or a transient TWS/server
+# connection, not contradictory order evidence. Older bridge versions could
+# misclassify them when a request ID happened to equal a managed order ID.
+# They may be cleared only after the normal full broker/account proof succeeds.
+RECOVERABLE_SDK_DIAGNOSTICS = frozenset({
+    'IBKR_300', 'IBKR_354', 'IBKR_10089', 'IBKR_10090', 'IBKR_10091',
+    'IBKR_10167', 'IBKR_10168', 'IBKR_10186', 'IBKR_10189', 'IBKR_10190', 'IBKR_10197',
+    'IBKR_1100', 'IBKR_1101', 'IBKR_1102', 'IBKR_1300', 'IBKR_2110',
+    'IBKR_202', 'SDK_ORDER_IDENTITY_UNCONFIRMED',
+})
 
 
 class BrokerEvent(Contract):
@@ -367,7 +377,14 @@ class OrderReconciler:
                 raise RiskDenied('EVENT_SOURCE')
             halt = self.db.execute('SELECT reason FROM order_integrity_halts WHERE mode=? AND account_key=?', (self.mode, self.account_key)).fetchone()
             recover_time = halt and halt[0] == 'CONFLICTING_EVENT_ID' and self._recoverable_time_halt()
-            if halt and not recover_time:
+            recover_diagnostic = halt and halt[0] in RECOVERABLE_SDK_DIAGNOSTICS
+            # IBKR 202 is a cancellation notification sent through error(). It
+            # has no final fill counters, so an older bridge's halt is
+            # recoverable only after the authoritative CANCELLED status arrives.
+            if recover_diagnostic and halt[0] == 'IBKR_202':
+                recover_diagnostic = not any(row.lastError == 'IBKR_202' and row.execution != 'CANCELLED'
+                    for row in records)
+            if halt and not (recover_time or recover_diagnostic):
                 raise RiskDenied('ACCOUNT_INTEGRITY_HALT')
             event_times = [BrokerEvent.model_validate_json(row[0]).observedAt for row in self.db.execute('SELECT payload FROM order_broker_events WHERE mode=? AND account_key=?', (self.mode, self.account_key))]
             latest = max(event_times) if event_times else None
@@ -419,6 +436,8 @@ class OrderReconciler:
                     pending_value = remaining * self._reservation_price(record) if record.intent.side == 'BUY' else Decimal(0)
                     changes = dict(reservedCash=format(pending_value + fee_hold, 'f'), reservedNotional=format(pending_value, 'f'),
                         reservedQuantity=format(remaining if record.intent.side == 'SELL' else Decimal(0), 'f'), reconciliationRequired=False)
+                if record.lastError in RECOVERABLE_SDK_DIAGNOSTICS:
+                    changes['lastError'] = None
                 updated.append(record.model_copy(update=changes))
             existing = self.db.execute('SELECT payload FROM order_account_proofs WHERE mode=? AND account_key=? AND snapshot_id=?', (self.mode, self.account_key, proof.snapshotId)).fetchone()
             if existing and existing[0] != canonical(proof):
@@ -429,6 +448,11 @@ class OrderReconciler:
                     (self.mode, self.account_key, 'CONFLICTING_EVENT_ID'))
                 append_event(self.db, self.account_key, 'EXECUTION_TIME_HALT_RECOVERED', self.ledger.clock().isoformat(),
                     {'snapshotId': proof.snapshotId, 'watermark': proof.watermark})
+            if recover_diagnostic:
+                self.db.execute('DELETE FROM order_integrity_halts WHERE mode=? AND account_key=? AND reason=?',
+                    (self.mode, self.account_key, halt[0]))
+                append_event(self.db, self.account_key, 'TRANSIENT_SDK_DIAGNOSTIC_RECOVERED', self.ledger.clock().isoformat(),
+                    {'reason': halt[0], 'snapshotId': proof.snapshotId, 'watermark': proof.watermark})
             for record in updated:
                 self.ledger._replace(record, 'ACCOUNT_RECONCILED', snapshotId=proof.snapshotId, watermark=proof.watermark)
             return updated

@@ -54,6 +54,17 @@ def test_quote_uses_broker_trade_timestamp_not_delivery_time():
     assert source.quote==('100',broker_time)
 
 
+def test_managed_pending_order_is_reserved_locally_and_not_treated_as_external():
+    from threading import RLock
+    source=PaperRiskSource.__new__(PaperRiskSource)
+    source.ledger=Item(_lock=RLock(),_records=lambda *_:[Item(identity=Item(clientId=78,orderId=71))])
+    snapshot=Item(accountKey='paper:engineering',orders=(Item(clientId=78,orderId=71),Item(clientId=99,orderId=72)))
+    external=source._external_open_orders(snapshot)
+    assert [(row.clientId,row.orderId) for row in external]==[(99,72)]
+    source.ledger=None
+    assert list(source._external_open_orders(snapshot))==list(snapshot.orders)
+
+
 def test_risk_load_uses_latest_daily_loss_and_rejects_changed_cash():
     from datetime import timedelta
     from test_reviews import Source,draft

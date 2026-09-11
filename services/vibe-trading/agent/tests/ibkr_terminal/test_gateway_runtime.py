@@ -103,7 +103,7 @@ def test_async_discovery_scans_process_custom_ports(api_event_loop):
     assert result.port == 45122
 
 
-def test_runtime_detects_disconnect_and_waits_for_manual_reconnect(tmp_path, api_event_loop):
+def test_runtime_supervises_disconnects_until_explicitly_stopped(tmp_path, api_event_loop):
     async def scenario():
         with SnapshotStore(tmp_path / 'db') as store:
             app = create_app(store=store, session_token='test')
@@ -131,23 +131,12 @@ def test_runtime_detects_disconnect_and_waits_for_manual_reconnect(tmp_path, api
             runtime = GatewayRuntime(app, tmp_path / 'bindings.json', [binding()], discover=discover, factory=Connection, retry_seconds=.01)
             try:
                 first = await runtime.connect('paper')
-                assert first['phase'] == 'disconnected'
-                await asyncio.sleep(.04)
-                assert discoveries == ['paper']
-                await runtime.connect('paper')
+                assert first['phase'] == 'retrying'
                 async def ready(count):
                     while len(connections) < count or runtime.status('paper')['phase'] != 'ready':
                         await asyncio.sleep(.005)
                 await asyncio.wait_for(ready(1), 1)
                 connections[0].connected = False
-                async def disconnected():
-                    while runtime.status('paper')['phase'] != 'disconnected':
-                        await asyncio.sleep(.005)
-                await asyncio.wait_for(disconnected(), 1)
-                assert app.state.sessions['paper'].snapshot().connection == 'disconnected'
-                await asyncio.sleep(.04)
-                assert len(connections) == 1
-                await runtime.connect('paper')
                 await asyncio.wait_for(ready(2), 1)
                 assert runtime.status('paper')['apiPort'] == 45123
                 assert len(runtime.tasks) == 1
@@ -156,6 +145,12 @@ def test_runtime_detects_disconnect_and_waits_for_manual_reconnect(tmp_path, api
                 app.state.paper_flow=SimpleNamespace(source=SimpleNamespace(connection=connections[-1]),close=lambda:closed.append(True))
                 await asyncio.gather(*(runtime.connect('paper') for _ in range(3)))
                 assert len(connections) == 2
+                stopped = await runtime.disconnect('paper')
+                assert stopped['phase'] == 'waiting'
+                assert '不会自动重连' in stopped['detail']
+                await asyncio.sleep(.04)
+                assert len(connections) == 2
+                assert 'paper' not in runtime.tasks
             finally:
                 await runtime.close()
             assert all(task.done() for task in runtime.tasks.values())
@@ -171,7 +166,10 @@ def test_gateway_route_requires_token_origin_and_explicit_mode(tmp_path, api_eve
         async def connect(mode):
             calls.append(mode)
             return {'phase': 'ready', 'apiPort': 45122, 'detail': '已核对'}
-        app.state.gateway_runtime = SimpleNamespace(connect=connect)
+        async def disconnect(mode):
+            calls.append(f'stop:{mode}')
+            return {'phase': 'waiting', 'detail': '已断开'}
+        app.state.gateway_runtime = SimpleNamespace(connect=connect, disconnect=disconnect)
         async def scenario():
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:8765') as client:
                 route = '/api/ibkr-terminal/gateway/connect'
@@ -181,7 +179,8 @@ def test_gateway_route_requires_token_origin_and_explicit_mode(tmp_path, api_eve
                 assert (await client.post(route, headers=headers, json={'mode': 'wrong'})).status_code == 422
                 assert (await client.post(route, headers=headers, json={'mode': 'paper', 'readonly': False})).status_code == 422
                 assert (await client.post(route, headers=headers, json={'mode': 'paper'})).json()['apiPort'] == 45122
-                assert calls == ['paper']
+                assert (await client.post('/api/ibkr-terminal/gateway/disconnect', headers=headers, json={'mode': 'paper'})).json()['phase'] == 'waiting'
+                assert calls == ['paper', 'stop:paper']
                 assert (await client.post('/api/ibkr-terminal/orders', headers=headers, json={})).status_code == 403
         api_event_loop.run_until_complete(scenario())
 

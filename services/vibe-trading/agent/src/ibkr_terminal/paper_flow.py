@@ -30,11 +30,30 @@ class PaperOrderFlow:
                 (draft.mode,draft.accountKey)).fetchone()
             pending = any(row.reconciliationRequired or row.submission in ('SUBMITTING','UNKNOWN','RECONCILING')
                 for row in self.ledger._records(draft.accountKey,draft.mode))
-        if (halted or pending) and hasattr(self,'account_reconciliation'):
-            await self.account_reconciliation.run()
-        await self.source.prepare(draft)
-        self._scope(draft.accountKey,draft.mode)
-        return self.reviews.preview(draft)
+        account=getattr(self,'account_reconciliation',None)
+        checkpoint_check=getattr(account,'checkpoint_stale',None)
+        checkpoint_stale=bool(checkpoint_check and checkpoint_check())
+        if (halted or pending or checkpoint_stale) and account is not None:
+            try:
+                await self.account_reconciliation.run()
+            except RiskDenied:
+                # A late fee or unresolved order remains fully reserved. The
+                # next manual paper preview may use only the remaining funds;
+                # the dry-run below still rejects a real integrity halt.
+                pass
+        async def review():
+            await self.source.prepare(draft)
+            self._scope(draft.accountKey,draft.mode)
+            return self.reviews.preview(draft)
+        try:
+            return await review()
+        except RiskDenied as error:
+            # The account can change between the proof read and preview risk
+            # read. Refresh once; never loop and never relax the checkpoint.
+            if error.code!='STALE_ACCOUNT_CHECKPOINT' or account is None:
+                raise
+            await account.run()
+            return await review()
 
     def _permit(self,command,source,*,purpose,grant=None):
         now=self.clock()

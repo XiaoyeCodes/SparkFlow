@@ -101,10 +101,17 @@ class ObservationWrapper(Wrapper):
             super().commissionReport(report)
 
     def error(self, reqId, errorCode, errorString, advancedOrderRejectJson=''):
+        # IB uses one integer field for both order IDs and read-request IDs.
+        # Streaming market-data requests do not live in _futures, and ib_async
+        # deliberately retains reqId2Ticker after cancellation so late error
+        # 300 callbacks can still be identified. Treat every known read ID as
+        # read evidence even when it numerically equals an older order ID.
+        read_request = (reqId in self._futures or reqId in self.reqId2Ticker
+            or reqId in self.reqId2Subscriber or reqId in self._reqId2Contract)
         if self.managed_observer is not None:
             from .risk import RiskDenied
             try:
-                managed = self.managed_observer.broker_error(reqId, errorCode, request_active=reqId in self._futures)
+                managed = self.managed_observer.broker_error(reqId, errorCode, request_active=read_request)
             except Exception as error:
                 self.managed_observer.failed(error.code if isinstance(error, RiskDenied) else 'SDK_CALLBACK_FAILURE')
                 return
@@ -114,7 +121,18 @@ class ObservationWrapper(Wrapper):
                 # also publish a misleading Trade status or raw account text.
                 return
             errorString, advancedOrderRejectJson = f'IBKR_{errorCode}', ''
-        super().error(reqId, errorCode, errorString, advancedOrderRejectJson)
+        if read_request and reqId not in self._futures:
+            # Wrapper.error otherwise assumes any non-future reqId is an order
+            # ID and can falsely cancel an in-memory Trade on an ID collision.
+            trade_key = (self.clientId, reqId)
+            trade = self.trades.pop(trade_key, None)
+            try:
+                super().error(reqId, errorCode, errorString, advancedOrderRejectJson)
+            finally:
+                if trade is not None:
+                    self.trades[trade_key] = trade
+        else:
+            super().error(reqId, errorCode, errorString, advancedOrderRejectJson)
 
 
 class ObservedIB(IB):

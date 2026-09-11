@@ -1,11 +1,12 @@
 """Engineering fixtures only. No broker connection, credentials or user limits."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import json
 
 import pytest
 
 from src.ibkr_terminal.orders import OrderLedger, IntentConflict
-from src.ibkr_terminal.risk import OrderIntent, Authorization, RiskContext, RiskDenied, intent_hash
+from src.ibkr_terminal.risk import OrderIntent, Authorization, RiskContext, RiskDenied, intent_hash, legacy_intent_hash
 
 
 NOW = datetime(2026, 9, 4, 14, 0, tzinfo=timezone.utc)
@@ -60,6 +61,45 @@ def test_duplicate_intent_survives_restart_and_body_conflict_does_not_mutate(tmp
         assert db.reservations('paper:engineering', 'paper')['cash'] == '601'
 
 
+def test_order_creation_time_is_persisted_and_legacy_rows_are_backfilled(tmp_path):
+    current = [NOW]
+    with OrderLedger(tmp_path / 'orders.db', allow_fixtures=True, clock=lambda: current[0]) as db:
+        db.record_authorization(authorization())
+        first = db.reserve(intent('older', quantity='1'), context())
+        current[0] = NOW + timedelta(seconds=1)
+        second = db.reserve(intent('newer', quantity='1'), context(asOf=current[0], quoteAt=current[0]))
+        assert first.createdAt == NOW
+        assert second.createdAt == current[0]
+        with db.transaction():
+            payload, = db._db.execute("SELECT payload FROM order_intents WHERE intent_id='older'").fetchone()
+            value = json.loads(payload)
+            value.pop('createdAt')
+            db._db.execute("UPDATE order_intents SET payload=? WHERE intent_id='older'", (json.dumps(value),))
+        rows = db._records('paper:engineering', 'paper')
+        assert [row.intent.clientIntentId for row in rows] == ['older', 'newer']
+        assert rows[0].createdAt == NOW and rows[1].createdAt == current[0]
+
+
+def test_pre_session_field_order_hash_loads_only_as_default_extended_route(tmp_path):
+    path = tmp_path / 'orders.db'
+    with ledger(path) as db:
+        db.record_authorization(authorization())
+        original = db.reserve(intent(), context())
+        with db.transaction():
+            payload, = db._db.execute("SELECT payload FROM order_intents WHERE intent_id='intent-1'").fetchone()
+            value = json.loads(payload)
+            value['intent'].pop('tradingSession')
+            value['bodyHash'] = legacy_intent_hash(original.intent)
+            db._db.execute("UPDATE order_intents SET payload=? WHERE intent_id='intent-1'", (json.dumps(value),))
+    with ledger(path) as db:
+        loaded = db.get('paper:engineering', 'paper', 'intent-1')
+        assert loaded.intent.tradingSession == 'EXTENDED'
+        assert loaded.bodyHash == legacy_intent_hash(loaded.intent)
+        assert db.reserve(intent(), context()) == loaded
+        with pytest.raises(IntentConflict):
+            db.reserve(intent(tradingSession='OVERNIGHT'), context())
+
+
 def test_independent_connections_atomically_share_cash_and_exposure(tmp_path):
     path = tmp_path / 'orders.db'
     with ledger(path) as db:
@@ -110,6 +150,46 @@ def test_manual_consent_binds_exact_preview_and_revocation_is_immediate(tmp_path
         db.revoke_authorization(manual.authorizationId)
         with pytest.raises(RiskDenied, match='AUTHORIZATION_REVOKED'):
             db.reserve(intent(), context())
+
+
+def test_manual_paper_orders_ignore_strategy_throttles_but_keep_financial_reservations(tmp_path):
+    with ledger(tmp_path / 'orders.db') as db:
+        first = intent('manual-1', quantity='1', limitPrice='50', authorizationId='manual-auth-1')
+        limits = authorization().limits.model_copy(update={'maxTotalExposure': '1', 'maxSymbolWeight': '0.01',
+            'maxDailyLoss': '1', 'maxDailyOrders': 1, 'maxOrdersPerMinute': 1, 'maxPriceDeviation': '0'})
+        db.record_authorization(authorization(authorizationId='manual-auth-1', kind='manual',
+            confirmedIntentHash=intent_hash(first), limits=limits))
+        db.reserve(first, context(dailyLoss='999'))
+        second = intent('manual-2', quantity='1', limitPrice='150', authorizationId='manual-auth-2')
+        db.record_authorization(authorization(authorizationId='manual-auth-2', kind='manual',
+            confirmedIntentHash=intent_hash(second), limits=limits))
+        db.reserve(second, context(dailyLoss='999'))
+        assert db.reservations('paper:engineering', 'paper')['cash'] == '202'
+        third = intent('manual-3', quantity='8', authorizationId='manual-auth-3')
+        db.record_authorization(authorization(authorizationId='manual-auth-3', kind='manual',
+            confirmedIntentHash=intent_hash(third), limits=limits))
+        with pytest.raises(RiskDenied, match='INSUFFICIENT_CASH'):
+            db.reserve(third, context(dailyLoss='999'))
+
+
+def test_manual_paper_order_can_follow_unresolved_order_using_remaining_cash(tmp_path):
+    with ledger(tmp_path / 'orders.db') as db:
+        db.record_authorization(authorization())
+        db.reserve(intent(quantity='6'), context())
+        with db.transaction():
+            row = db.get('paper:engineering', 'paper', 'intent-1')
+            db._replace(row.model_copy(update={'submission': 'UNKNOWN', 'reconciliationRequired': True}), 'TEST_UNKNOWN')
+        next_intent = intent('manual-next', quantity='3', authorizationId='manual-next-auth')
+        db.record_authorization(authorization(authorizationId='manual-next-auth', kind='manual',
+            confirmedIntentHash=intent_hash(next_intent)))
+        next_row = db.reserve(next_intent, context())
+        assert next_row.submission == 'PERSISTED'
+        assert db.reservations('paper:engineering', 'paper')['cash'] == '902'
+        blocked = intent('manual-too-large', quantity='1', authorizationId='manual-large-auth')
+        db.record_authorization(authorization(authorizationId='manual-large-auth', kind='manual',
+            confirmedIntentHash=intent_hash(blocked)))
+        with pytest.raises(RiskDenied, match='INSUFFICIENT_CASH'):
+            db.reserve(blocked, context())
 
 
 def test_paper_orders_allow_outside_rth_for_automatic_limits_and_manual_market_orders(tmp_path):

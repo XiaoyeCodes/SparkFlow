@@ -151,3 +151,14 @@ export async function discoverSparkFlowGateway(root: string, port: number, mode:
   if (!['ready', 'waiting', 'connecting', 'retrying', 'disconnected'].includes(value.phase ?? '') || typeof value.detail !== 'string') throw new Error('本地 IBKR API 发现服务返回了无效状态。');
   return value;
 }
+
+export async function disconnectSparkFlowGateway(root: string, port: number, mode: 'live' | 'paper') {
+  const token = await sessionToken(path.join(root, '.sparkflow', 'ibkr-terminal'));
+  if (!token) return;
+  const response = await fetch(`http://127.0.0.1:${port}/api/ibkr-terminal/gateway/disconnect`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }), signal: AbortSignal.timeout(5000),
+  });
+  // Older or unavailable bridges must not prevent the local UI from disconnecting.
+  if (!response.ok && response.status !== 404) throw new Error('本机 Gateway 连接未能完全关闭。');
+}

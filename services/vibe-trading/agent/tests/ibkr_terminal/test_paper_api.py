@@ -50,6 +50,58 @@ def test_status_automatically_reconciles_filled_order_and_retries_late_commissio
             assert len(final['orders'])==1
 
 
+def test_status_recovers_legacy_false_halt_without_active_trading_policy(tmp_path,api_event_loop):
+    from test_orders import NOW,ledger
+    from test_order_events import setup,event,fill,fee
+    from test_paper_account import connection
+    with SnapshotStore(tmp_path/'snapshot',allow_fixtures=True) as store,ledger(tmp_path/'orders') as orders:
+        rec=setup(orders)
+        rec.apply(fill('fill','EX-1','6','99'))
+        rec.apply(fee('fee','EX-1','1'))
+        rec.apply(event('filled',status='FILLED',filled='6',remaining='0'))
+        with orders.transaction():
+            row=orders.get('paper:engineering','paper','intent-1')
+            orders._replace(row.model_copy(update={'lastError':'IBKR_300','reconciliationRequired':True}),'LEGACY_FALSE_ORDER_ERROR')
+            orders._db.execute('INSERT INTO order_integrity_halts VALUES(?,?,?)',('paper','paper:engineering','IBKR_1100'))
+        orders.clock=lambda:NOW+timedelta(seconds=2)
+        app=create_app(store=store,session_token='test',paper_ledger=orders,clock=orders.clock)
+        source=connection(rec,cash='405',quantity='6')
+        source.binding=AccountBinding(mode='paper',accountKey='paper:engineering',brokerAccount='BROKER-ENGINEERING',confirmed=True,readonly=False)
+        source._ib.wrapper=SimpleNamespace(managed_observer=None)
+        snapshot=source.session.snapshot();snapshot.connection='connected';snapshot.detail='';snapshot.snapshotId='fresh-read'
+        app.state.market_sources['paper']=source
+        with TestClient(app,base_url='http://127.0.0.1:8765',backend_options={'loop_factory':lambda:api_event_loop}) as client:
+            state=client.get('/api/ibkr-terminal/paper/status',headers={'Authorization':'Bearer test'}).json()
+            assert state['enabled'] is False and state['syncError'] is None
+            assert state['orders'][0]['lastError'] is None and not state['orders'][0]['reconciliationRequired']
+            assert not orders._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
+
+
+def test_status_refreshes_account_checkpoint_after_bridge_revision_reset(tmp_path,api_event_loop):
+    from test_orders import NOW,ledger
+    from test_order_events import setup,event,fill,fee,proof
+    from test_paper_account import connection
+    from src.ibkr_terminal.reconcile import OrderReconciler,AccountProof
+    with SnapshotStore(tmp_path/'snapshot',allow_fixtures=True) as store,ledger(tmp_path/'orders') as orders:
+        previous=setup(orders)
+        previous.apply(fill('fill','EX-1','6','99'))
+        previous.apply(fee('fee','EX-1','1'))
+        previous.apply(event('filled',status='FILLED',filled='6',remaining='0'))
+        orders.clock=lambda:NOW+timedelta(seconds=2)
+        previous.reconcile(proof(previous,cashBalance='405',positions={12:'6'}))
+        current=OrderReconciler(orders,'paper:engineering','paper',2)
+        app=create_app(store=store,session_token='test',paper_ledger=orders,clock=orders.clock)
+        source=connection(current,cash='405',quantity='6')
+        source.binding=AccountBinding(mode='paper',accountKey='paper:engineering',brokerAccount='BROKER-ENGINEERING',confirmed=True,readonly=False)
+        source._ib.wrapper=SimpleNamespace(managed_observer=None)
+        snapshot=source.session.snapshot();snapshot.connection='connected';snapshot.detail='';snapshot.snapshotId='fresh-after-restart'
+        app.state.market_sources['paper']=source
+        with TestClient(app,base_url='http://127.0.0.1:8765',backend_options={'loop_factory':lambda:api_event_loop}) as client:
+            state=client.get('/api/ibkr-terminal/paper/status',headers={'Authorization':'Bearer test'}).json()
+            latest=orders._db.execute('SELECT payload FROM order_account_proofs ORDER BY rowid DESC LIMIT 1').fetchone()[0]
+            assert state['syncError'] is None and AccountProof.model_validate_json(latest).sessionRevision==2
+
+
 @pytest.mark.parametrize('change', ['replacement', 'revision', 'disconnected'])
 def test_stale_paper_flow_is_not_reported_enabled_or_used_by_preview(tmp_path,api_event_loop,change):
     with SnapshotStore(tmp_path/'snapshot') as store,OrderLedger(tmp_path/'orders') as orders:

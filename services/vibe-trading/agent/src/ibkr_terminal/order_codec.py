@@ -51,8 +51,9 @@ def encode_order(command, binding, instrument):
         arithmetic.prec = 80
         if tick <= 0 or price is not None and (price <= 0 or price % tick) or Decimal(intent.quantity) % Decimal(instrument.minQuantity):
             raise RiskDenied('INVALID_ORDER_INCREMENT')
+    exchange = 'OVERNIGHT' if intent.tradingSession == 'OVERNIGHT' else instrument.exchange
     native_contract = IbContract(conId=instrument.conId, symbol=instrument.symbol, secType=instrument.secType,
-        currency=instrument.currency, exchange=instrument.exchange, primaryExchange=instrument.primaryExchange or '', multiplier='1')
+        currency=instrument.currency, exchange=exchange, primaryExchange=instrument.primaryExchange or '', multiplier='1')
     # Both broker-routed modes opt into eligible pre-market/after-hours sessions.
     native_order = Order(orderId=identity.orderId, clientId=identity.clientId, permId=command.permId if isinstance(command, ModificationCommand) else 0,
         account=binding.brokerAccount, orderRef=identity.orderRef, action=intent.side, totalQuantity=Decimal(intent.quantity),

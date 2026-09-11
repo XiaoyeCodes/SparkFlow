@@ -38,8 +38,9 @@ def account_risk(account, values, portfolio, positions, *, daily_pnl, allow_avai
 
 class PaperRiskSource:
     """One selected contract and bounded subscriptions on the account owner loop."""
-    def __init__(self, connection, scope, *, clock=None):
+    def __init__(self, connection, scope, *, ledger=None, clock=None):
         self.connection, self.scope = connection, scope
+        self.ledger = ledger
         self.ib = connection._ib
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.instrument = self.details = self.ticker = self.prepared = None
@@ -114,6 +115,14 @@ class PaperRiskSource:
     def _fresh_trade(self):
         return self.quote is not None and 0 <= (self.clock()-self.quote[1]).total_seconds() <= self.scope.limits.maxQuoteAgeSeconds
 
+    def _external_open_orders(self, snapshot):
+        if self.ledger is None:
+            return list(snapshot.orders)
+        with self.ledger._lock:
+            managed = {(row.identity.clientId, row.identity.orderId) for row in
+                self.ledger._records(snapshot.accountKey, 'paper') if row.identity is not None}
+        return [row for row in snapshot.orders if (row.clientId, row.orderId) not in managed]
+
     async def _prepare_reference(self, draft, portfolio, observed_at):
         self.reference = None
         if self._fresh_trade():
@@ -183,8 +192,9 @@ class PaperRiskSource:
         snapshot = self.connection.session.snapshot()
         if snapshot.baseCurrency != 'USD' or snapshot.state not in ('ready','empty'):
             raise RiskDenied('RECONCILIATION_REQUIRED')
-        if snapshot.orders:
-            # Unknown external remaining risk is never silently excluded.
+        if self._external_open_orders(snapshot):
+            # Orders from another client are not represented by this ledger's
+            # worst-case holds, so their remaining risk cannot be excluded.
             raise RiskDenied('EXTERNAL_ORDER_RISK_UNKNOWN')
         account_at = self.clock()
         # Market-data entitlement is not trading permission. Use a labelled

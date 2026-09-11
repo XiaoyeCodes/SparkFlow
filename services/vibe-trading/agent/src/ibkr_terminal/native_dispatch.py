@@ -145,6 +145,8 @@ class NativeDispatcher:
             or observer.channel_key != self.channel_key or observer.current_revision() != self.current_revision()
             or observer.rec.revision != self.current_revision()):
             raise RiskDenied('SDK_OBSERVER_SCOPE')
+        if observer.broker_ready is not True:
+            raise RiskDenied('SDK_NOT_READY')
         if client._msgQ or client._isThrottling:
             raise RiskDenied('SDK_DEFERRED_SEND_FORBIDDEN')
         active = sum(self.loop.time() - timestamp <= client.RequestsInterval for timestamp in client._timeQ)

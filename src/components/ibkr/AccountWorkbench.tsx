@@ -231,13 +231,14 @@ function ConnectionSettings({ state, busy, act, connect, sourceChoice, selectSou
       const gatewayLabel = paper ? '模拟盘 Gateway' : '实盘 Gateway';
       const viewingActiveGateway = state.source === 'gateway' && state.gatewayMode === visibleGatewayMode;
       const gatewayConnected = viewingActiveGateway && state.connection.state === 'connected';
-      const gatewayConnecting = !gatewayConnected && busy === 'gateway-connect';
+      const reconnecting = viewingActiveGateway && /自动(重连|恢复)|正在自动重连/.test(state.connection.detail || '');
+      const gatewayConnecting = !gatewayConnected && (busy === 'gateway-connect' || reconnecting);
       const gatewayPhase = gatewayConnected ? 'connected' : gatewayConnecting ? 'connecting' : 'disconnected';
       const GatewayIcon = gatewayConnected ? CircleCheck : gatewayConnecting ? LoaderCircle : WifiOff;
       const gatewayCopy = gatewayConnected
         ? { kicker: 'LOCAL CHANNEL ONLINE', title: `${gatewayLabel} 已连接`, badge: '已连接', detail: state.connection.detail || '本机只读账户通道工作正常。' }
         : gatewayConnecting
-          ? { kicker: 'SCANNING LOCAL CHANNEL', title: '正在检测本机通道', badge: '检测中', detail: state.connection.detail || '正在识别本机 IBKR API 端口并核对账户，连接成功后会立即同步。' }
+          ? { kicker: reconnecting ? 'AUTO RECONNECTING' : 'SCANNING LOCAL CHANNEL', title: reconnecting ? `${gatewayLabel} 自动重连中` : '正在检测本机通道', badge: reconnecting ? '恢复中' : '检测中', detail: state.connection.detail || '正在识别本机 IBKR API 端口并核对账户，连接成功后会立即同步。' }
           : { kicker: 'LOCAL CHANNEL OFFLINE', title: `${gatewayLabel} 尚未连接`, badge: '未连接', detail: !viewingActiveGateway ? '当前连接保持不变；点击“智能连接”后再确认是否切换。' : state.connection.detail || '点击“智能连接”后检测本机桥接服务与 Gateway API Socket。' };
       return <div className={`awb-connection-console is-${gatewayPhase} ${paper ? 'is-paper' : 'is-live'}`} data-connection-state={gatewayPhase} aria-live="polite">
         <header className="awb-connection-console-head">
@@ -246,9 +247,9 @@ function ConnectionSettings({ state, busy, act, connect, sourceChoice, selectSou
           <span className="awb-connection-badge"><i />{gatewayCopy.badge}</span>
         </header>
         <div className="awb-connection-route" aria-hidden="true"><span className={gatewayPhase !== 'disconnected' ? 'is-active' : ''}>{paper ? 'PAPER GATEWAY' : 'LIVE GATEWAY'}</span><i className={gatewayPhase !== 'disconnected' ? 'is-active' : ''}/><span className={gatewayPhase === 'connected' ? 'is-active' : gatewayPhase === 'connecting' ? 'is-pending' : ''}>LOCAL BRIDGE</span><i className={gatewayPhase === 'connected' ? 'is-active' : ''}/><span className={gatewayPhase === 'connected' ? 'is-active' : ''}>SPARKFLOW</span></div>
-        <div className="awb-gateway-monitor"><span><Radio size={13}/>{gatewayConnected ? '连接成功，账户将按正常周期同步' : '等待手动启动智能连接'}</span><small>{viewingActiveGateway && state.connection.port ? `BRIDGE · 127.0.0.1:${state.connection.port}` : '点击后自动匹配端口'}</small></div>
+        <div className="awb-gateway-monitor"><span><Radio size={13}/>{gatewayConnected ? '长连接守护已开启，短暂断线会自动恢复' : reconnecting ? '后台持续尝试恢复，无需停留在当前页面' : '等待手动启动智能连接'}</span><small>{viewingActiveGateway && state.connection.port ? `BRIDGE · 127.0.0.1:${state.connection.port}` : '点击后自动匹配端口'}</small></div>
         <div className="awb-connection-actions awb-gateway-actions">
-          <button className="awb-connect-primary primary" disabled={!!busy || gatewayConnected} onClick={() => connect({source:'gateway',gatewayMode:visibleGatewayMode})}><PlugZap size={15} className={busy === 'gateway-connect' ? 'awb-pulse' : ''}/>{busy === 'gateway-connect' ? '正在智能连接…' : gatewayConnected ? '已智能连接' : '智能连接'}</button>
+          <button className="awb-connect-primary primary" disabled={!!busy || gatewayConnected} onClick={() => connect({source:'gateway',gatewayMode:visibleGatewayMode})}><PlugZap size={15} className={busy === 'gateway-connect' ? 'awb-pulse' : ''}/>{busy === 'gateway-connect' ? '正在智能连接…' : gatewayConnected ? '已智能连接' : reconnecting ? '立即重试' : '智能连接'}</button>
           <button className="awb-disconnect" disabled={!!busy || !gatewayConnected} onClick={() => void act('disconnect', 'disconnect')}><Unplug size={14}/>{busy === 'disconnect' ? '正在断开…' : '断开连接'}</button>
         </div>
       </div>;

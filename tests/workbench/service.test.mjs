@@ -109,9 +109,12 @@ test('paper order proxy injects the selected paper scope and never exposes the b
     assert.equal(result.previewId, 'preview:test');
     assert.equal(sent.url, 'http://127.0.0.1:18765/api/ibkr-terminal/paper/preview');
     assert.equal(sent.init.headers.Authorization, 'Bearer private-bridge-token');
-    assert.deepEqual(JSON.parse(sent.init.body), { conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50', accountKey: 'paper:selected', mode: 'paper', orderType: 'LMT', tif: 'DAY' });
+    assert.deepEqual(JSON.parse(sent.init.body), { conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50', accountKey: 'paper:selected', mode: 'paper', orderType: 'LMT', tif: 'DAY', tradingSession: 'EXTENDED' });
     await service.paperRequest('preview', { conId: 12, side: 'BUY', quantity: '10', orderType: 'MKT' });
-    assert.deepEqual(JSON.parse(sent.init.body), { conId: 12, side: 'BUY', quantity: '10', accountKey: 'paper:selected', mode: 'paper', orderType: 'MKT', limitPrice: null, tif: 'DAY' });
+    assert.deepEqual(JSON.parse(sent.init.body), { conId: 12, side: 'BUY', quantity: '10', accountKey: 'paper:selected', mode: 'paper', orderType: 'MKT', limitPrice: null, tif: 'DAY', tradingSession: 'EXTENDED' });
+    await service.paperRequest('preview', { conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50', tradingSession: 'OVERNIGHT' });
+    assert.equal(JSON.parse(sent.init.body).tradingSession, 'OVERNIGHT');
+    await assert.rejects(() => service.paperRequest('preview', { conId: 12, side: 'BUY', quantity: '10', orderType: 'MKT', tradingSession: 'OVERNIGHT' }));
     await assert.rejects(() => service.paperRequest('preview', { conId: 12, side: 'BUY', quantity: '10', orderType: 'MKT', limitPrice: '100' }));
     await assert.rejects(() => service.paperRequest('preview', { accountKey: 'live:other', conId: 12, side: 'BUY', quantity: '2', limitPrice: '100.50' }), /请先|无效|结构|unrecognized/i);
     await service.paperRequest('transport', { explicit: true });

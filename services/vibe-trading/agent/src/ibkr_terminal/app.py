@@ -112,7 +112,7 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
         runtime_stop = request.method == 'POST' and strategy_runtime is not None and re.fullmatch(
             r'/api/ibkr-terminal/strategy-runtime/activation:[0-9a-f]{32}/stop', request.url.path) is not None
         paper_write = paper_ledger is not None and request.method == 'POST' and request.url.path in WRITE_PATHS
-        gateway_connect = request.method == 'POST' and request.url.path in ('/api/ibkr-terminal/gateway/connect','/api/ibkr-terminal/gateway/paper-orders') and app.state.gateway_runtime is not None
+        gateway_connect = request.method == 'POST' and request.url.path in ('/api/ibkr-terminal/gateway/connect','/api/ibkr-terminal/gateway/disconnect','/api/ibkr-terminal/gateway/paper-orders') and app.state.gateway_runtime is not None
         if request.method not in ('GET', 'HEAD') and not bridge_shutdown and not gateway_connect and not review_write and not backtest_write and not cancel_write and not report_write and not runtime_stop and not paper_write:
             return JSONResponse({'detail': 'terminal writes are disabled'}, status_code=403)
         response = await call_next(request)
@@ -148,6 +148,10 @@ def create_app(*, store: SnapshotStore, session_token: str, port: int = 8765, he
     @app.post('/api/ibkr-terminal/gateway/connect')
     async def gateway_connect(value: GatewayConnectRequest):
         return await app.state.gateway_runtime.connect(value.mode)
+
+    @app.post('/api/ibkr-terminal/gateway/disconnect')
+    async def gateway_disconnect(value: GatewayConnectRequest):
+        return await app.state.gateway_runtime.disconnect(value.mode)
 
     @app.post('/api/ibkr-terminal/gateway/paper-orders')
     async def gateway_paper_orders(value: PaperTransportRequest):

@@ -178,6 +178,52 @@ def test_raw_open_order_matches_unknown_without_inventing_fill_counters(tmp_path
     api_event_loop.run_until_complete(run())
 
 
+def test_order_status_before_open_order_waits_for_full_identity_without_freezing_account(tmp_path, api_event_loop):
+    async def run():
+        from ib_async import OrderState
+        with ledger(tmp_path / 'orders.db') as db:
+            rec, observer, contract, order = unknown_bridge(db)
+            sdk = ObservedIB(managed_observer=observer)
+            sdk.wrapper.orderStatus(71, 'Submitted', 0, 6, 0, 901, 0, 0, 78, '')
+            before = db.get('paper:engineering', 'paper', 'intent-1')
+            assert before.permId is None and rec.watermark() == 0
+            assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
+            sdk.wrapper.openOrder(71, contract, order, OrderState(status='Submitted'))
+            sdk.wrapper.orderStatus(71, 'Submitted', 0, 6, 0, 901, 0, 0, 78, '')
+            after = db.get('paper:engineering', 'paper', 'intent-1')
+            assert after.permId == 901 and after.execution == 'OPEN' and rec.watermark() == 1
+    api_event_loop.run_until_complete(run())
+
+
+def test_identical_open_status_does_not_reopen_account_proof_barrier(tmp_path, api_event_loop):
+    async def run():
+        with ledger(tmp_path / 'orders.db') as db:
+            rec, observer = bridge(db)
+            status(observer)
+            db.clock = lambda: NOW + timedelta(seconds=2)
+            rec.reconcile(proof(rec, cashBalance='1000', positions={}))
+            before = db.get('paper:engineering', 'paper', 'intent-1')
+            watermark = rec.watermark()
+            status(observer)
+            duplicate = db.get('paper:engineering', 'paper', 'intent-1')
+            assert duplicate == before and rec.watermark() == watermark
+            status(observer, name='Cancelled', filled=0, remaining=0)
+            assert rec.watermark() == watermark + 1
+            assert db.get('paper:engineering', 'paper', 'intent-1').execution == 'CANCELLED'
+    api_event_loop.run_until_complete(run())
+
+
+def test_confirmed_permanent_id_mismatch_still_freezes_account(tmp_path, api_event_loop):
+    async def run():
+        with ledger(tmp_path / 'orders.db') as db:
+            rec, observer = bridge(db)
+            sdk = ObservedIB(managed_observer=observer)
+            sdk.wrapper.orderStatus(71, 'Submitted', 0, 6, 0, 902, 0, 0, 78, '')
+            assert rec.watermark() == 0
+            assert db._db.execute('SELECT reason FROM order_integrity_halts').fetchone()[0] == 'SDK_ORDER_IDENTITY_MISMATCH'
+    api_event_loop.run_until_complete(run())
+
+
 @pytest.mark.parametrize('field,value', [('account', 'OTHER'), ('orderRef', 'EXTERNAL'),
     ('totalQuantity', Decimal('7')), ('lmtPrice', 101.0)])
 def test_unknown_read_requires_full_identity_and_order_body(tmp_path, field, value):
@@ -260,8 +306,8 @@ def test_unsent_amendment_cannot_be_acknowledged_by_a_matching_read(tmp_path):
         assert db.get('paper:engineering', 'paper', 'intent-1').orderVersion == 1
 
 
-@pytest.mark.parametrize('error_code', [201, 202, 321, 10147])
-def test_raw_order_error_preserves_risk_and_cannot_fake_cancel(tmp_path, api_event_loop, error_code, caplog):
+@pytest.mark.parametrize('error_code', [201, 321, 10147])
+def test_raw_order_error_preserves_risk_without_freezing_manual_paper_account(tmp_path, api_event_loop, error_code, caplog):
     async def run():
         with ledger(tmp_path / 'orders.db') as db:
             rec, observer = bridge(db)
@@ -271,11 +317,59 @@ def test_raw_order_error_preserves_risk_and_cannot_fake_cancel(tmp_path, api_eve
             row = db.get('paper:engineering', 'paper', 'intent-1')
             assert row.lastError == f'IBKR_{error_code}'
             assert row.execution == 'OPEN' and row.reservedCash == '601' and row.reconciliationRequired
-            with pytest.raises(RiskDenied, match='ACCOUNT_INTEGRITY_HALT'):
-                db.reserve(intent('next', quantity='1'), context())
+            assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
+            next_intent = intent('next', quantity='1', authorizationId='manual-next')
+            from test_orders import authorization
+            from src.ibkr_terminal.risk import intent_hash
+            db.record_authorization(authorization(authorizationId='manual-next', kind='manual',
+                confirmedIntentHash=intent_hash(next_intent)))
+            next_row = db.reserve(next_intent, context())
+            assert next_row.submission == 'PERSISTED'
+            assert db.reservations('paper:engineering', 'paper')['cash'] == '702'
             assert 'SECRET-ACCOUNT' not in str(db.audit('paper:engineering'))
             assert 'SECRET-ACCOUNT' not in caplog.text and 'PRIVATE' not in caplog.text
     api_event_loop.run_until_complete(run())
+
+
+def test_cancelled_status_then_202_notice_releases_hold_and_allows_next_order(tmp_path):
+    with ledger(tmp_path / 'orders.db') as db:
+        rec, observer = bridge(db)
+        status(observer)
+        rec.request_cancel('intent-1', 'cancel-test')
+        status(observer, name='Cancelled', filled=0, remaining=0)
+        observer.broker_error(71, 202, request_active=False)
+        cancelled = db.get('paper:engineering', 'paper', 'intent-1')
+        assert cancelled.execution == 'CANCELLED' and cancelled.lastError is None
+        assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
+        assert db.audit('paper:engineering')[-1]['kind'] == 'SDK_CANCELLATION_NOTICE'
+        db.clock = lambda: NOW + timedelta(seconds=2)
+        rec.reconcile(proof(rec, cashBalance='1000', positions={}))
+        assert db.reservations('paper:engineering', 'paper')['cash'] == '0'
+        db.clock = lambda: NOW + timedelta(seconds=4)
+        db.reserve(intent('next', quantity='1'), context(snapshotId='next-read', asOf=NOW+timedelta(seconds=3),
+            totalCash='1000', settledCash='1000'))
+        assert db.get('paper:engineering', 'paper', 'next').submission == 'PERSISTED'
+
+
+def test_202_before_cancelled_status_keeps_hold_until_terminal_proof(tmp_path):
+    with ledger(tmp_path / 'orders.db') as db:
+        rec, observer = bridge(db)
+        status(observer)
+        rec.request_cancel('intent-1', 'cancel-test')
+        observer.broker_error(71, 202, request_active=False)
+        pending = db.get('paper:engineering', 'paper', 'intent-1')
+        assert pending.lastError == 'IBKR_202' and pending.reservedCash == '601'
+        db.clock = lambda: NOW + timedelta(seconds=2)
+        rec.reconcile(proof(rec, cashBalance='1000', positions={}))
+        pending = db.get('paper:engineering', 'paper', 'intent-1')
+        assert pending.execution == 'CANCEL_PENDING' and pending.reservedCash == '601'
+        assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
+        status(observer, name='Cancelled', filled=0, remaining=0)
+        rec.reconcile(proof(rec, cashBalance='1000', positions={}))
+        restored = db.get('paper:engineering', 'paper', 'intent-1')
+        assert restored.execution == 'CANCELLED' and restored.lastError is None
+        assert restored.reservedCash == '0' and not restored.reconciliationRequired
+        assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchone()
 
 
 def test_request_error_id_collision_does_not_modify_order(tmp_path):
@@ -289,11 +383,27 @@ def test_request_error_id_collision_does_not_modify_order(tmp_path):
         assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchall()
 
 
-def test_connectivity_recovery_message_does_not_clear_halt(tmp_path):
+def test_connectivity_messages_gate_writes_without_creating_permanent_halt(tmp_path):
     with ledger(tmp_path / 'orders.db') as db:
         rec, observer = bridge(db)
         observer.broker_error(-1, 1100, request_active=False)
+        assert not observer.broker_ready
+        assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchall()
         observer.broker_error(-1, 1102, request_active=False)
-        with pytest.raises(RiskDenied, match='ACCOUNT_INTEGRITY_HALT'):
-            db.reserve(intent('next', quantity='1'), context())
-        assert db.reservations('paper:engineering', 'paper')['cash'] == '601'
+        assert observer.broker_ready
+
+
+@pytest.mark.parametrize('error_code', [300, 354, 10089, 10090, 10091, 10167, 10168, 10186, 10189, 10190, 10197])
+def test_streaming_market_error_id_collision_never_changes_managed_order(tmp_path, api_event_loop, error_code):
+    async def run():
+        from ib_async import Contract
+        with ledger(tmp_path / 'orders.db') as db:
+            rec, observer = bridge(db)
+            sdk = ObservedIB(managed_observer=observer)
+            status(observer)
+            before = db.get('paper:engineering', 'paper', 'intent-1')
+            sdk.wrapper.startTicker(71, Contract(conId=12, symbol='TEST', secType='STK', exchange='SMART', currency='USD'), 'mktData')
+            sdk.wrapper.error(71, error_code, 'private broker diagnostic')
+            assert db.get('paper:engineering', 'paper', 'intent-1') == before
+            assert not db._db.execute('SELECT 1 FROM order_integrity_halts').fetchall()
+    api_event_loop.run_until_complete(run())

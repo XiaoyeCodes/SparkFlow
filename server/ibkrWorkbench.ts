@@ -25,13 +25,14 @@ import type { AdjustmentPlan, PortfolioPerformance, PerformancePoint } from '../
 import { emptySnapshot } from '../src/lib/ibkr/store.ts';
 import { validSnapshot } from '../src/lib/ibkr/events.ts';
 import { allowedLocalRequest } from './localRequest.ts';
-import { startSparkFlowBridge, discoverSparkFlowGateway } from './ibkrGatewayBridge.ts';
+import { startSparkFlowBridge, discoverSparkFlowGateway, disconnectSparkFlowGateway } from './ibkrGatewayBridge.ts';
 import type { AccountSnapshot, Alert, AnalysisJob, AnalysisReport, Evidence, MarketQuote, PaperQuote, Preferences, WorkbenchState, AiModel } from '../src/lib/ibkr/workbenchTypes.ts';
 
 type BriefAttempt = { id: string; sessionDate: string | null; state: 'running' | 'completed' | 'failed'; startedAt: string; detail?: string; error?: string };
 type AccountRecord = { scheduleRuns?: Record<string, { at: string; error?: string }>; scheduleEffectiveAt?: Partial<Record<'brief' | 'analysis', string>>; briefs?: DailyBrief[]; briefAttempt?: BriefAttempt; snapshot: AccountSnapshot; preferences: Preferences; grant?: { fingerprint: string; at: string }; alerts: Alert[]; reports: AnalysisReport[]; jobs: AnalysisJob[]; usage: { at: string; kind: string }[]; lastDaily?: string; dailyAttempt?: { date: string; at: number }; lastEventSignature?: string; peakNav?: number; research?: Record<string, ResearchCheckpoint>; plans?: AdjustmentPlan[]; history?: PerformancePoint[]; performance?: PortfolioPerformance };
 type GatewayMode = 'live' | 'paper';
 type GatewayBridgeStarter = typeof startSparkFlowBridge;
+type GatewayDisconnector = typeof disconnectSparkFlowGateway;
 type Saved = { version: 1; source: 'mcp' | 'gateway'; gatewayMode?: GatewayMode; selectedKey?: string; records: Record<string, AccountRecord> };
 const safeUrl = (url: unknown) => { try { const u = new URL(String(url)); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; } catch { return ''; } };
 const decimalAmount = z.string().regex(/^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$/);
@@ -49,8 +50,8 @@ const paperLimitsSchema = z.object({
 }).strict();
 const paperConfigureSchema = z.object({ conIds: z.array(z.number().int().positive()).min(1).max(20), expiresAt: z.string().datetime({ offset: true }), limits: paperLimitsSchema, explicit: z.literal(true) }).strict();
 const paperPreviewSchema = z.union([
-  z.object({ conId: z.number().int().positive(), side: z.enum(['BUY', 'SELL']), quantity: decimalAmount, limitPrice: decimalAmount, orderType: z.literal('LMT').optional() }).strict(),
-  z.object({ conId: z.number().int().positive(), side: z.enum(['BUY', 'SELL']), quantity: decimalAmount, orderType: z.literal('MKT') }).strict(),
+  z.object({ conId: z.number().int().positive(), side: z.enum(['BUY', 'SELL']), quantity: decimalAmount, limitPrice: decimalAmount, orderType: z.literal('LMT').optional(), tradingSession: z.enum(['EXTENDED', 'OVERNIGHT']).optional() }).strict(),
+  z.object({ conId: z.number().int().positive(), side: z.enum(['BUY', 'SELL']), quantity: decimalAmount, orderType: z.literal('MKT'), tradingSession: z.literal('EXTENDED').optional() }).strict(),
 ]);
 const paperConfirmSchema = z.object({ previewId: z.string().min(1).max(128), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), explicit: z.literal(true) }).strict();
 const paperCancelSchema = z.object({ intentId: z.string().min(1).max(128), bodyHash: z.string().regex(/^[a-f0-9]{64}$/), explicit: z.literal(true) }).strict();
@@ -152,10 +153,11 @@ export class IbkrWorkbenchService {
   private nextGatewayAttempt = 0;
   private gatewayHealthFlight?: Promise<void>;
   private nextGatewayHealth = 0;
+  private gatewayHealthFailures = 0;
   readonly mcp: IbkrMcp; readonly market: IbkrMarket; readonly profiles: IbkrProfiles;
   private ticketQuotes = new EastmoneyTicketQuotes(url => this.fetchJson(url));
   private ticketHistories = new TicketHistories(url=>this.fetchJson(url));
-  constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] }), private gatewayBridgeStarter: GatewayBridgeStarter = startSparkFlowBridge, private gatewayDiscoverer = discoverSparkFlowGateway) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
+  constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] }), private gatewayBridgeStarter: GatewayBridgeStarter = startSparkFlowBridge, private gatewayDiscoverer = discoverSparkFlowGateway, private gatewayDisconnector: GatewayDisconnector = disconnectSparkFlowGateway) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
   async start() {
     this.scheduleStartedAt = new Date().toISOString();
     await this.mcp.load();
@@ -186,7 +188,7 @@ export class IbkrWorkbenchService {
     if (!record || record.snapshot.connection !== 'connected' || Date.now() < this.nextGatewayHealth) return;
     const revision = this.generation, snapshot = record.snapshot, mode = this.saved.gatewayMode ?? 'live';
     this.gatewayHealthFlight = (async () => {
-      let detail = '';
+      let detail = '', transientFailure = false;
       try {
         const port = await this.gatewayBridgePort();
         const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
@@ -194,8 +196,11 @@ export class IbkrWorkbenchService {
         if (!response.ok) throw new Error('BRIDGE_UNAVAILABLE');
         const value = await response.json();
         if (!validSnapshot(value) || value.mode !== mode || value.accountKey !== snapshot.accountKey || value.testData) throw new Error('INVALID_HEALTH_SCOPE');
-        if (value.connection !== 'connected') detail = 'IBKR Gateway 已断开，请登录客户端后点击“智能连接”。';
-      } catch { detail = '无法确认本机 IBKR 连接，已停止显示为在线；请检查客户端和桥接服务后点击“智能连接”。'; }
+        if (value.connection !== 'connected') detail = `${String(value.detail || 'IBKR Gateway 连接短暂中断').replace(/[；。]\s*$/, '')}；后台正在自动重连。`;
+        else this.gatewayHealthFailures = 0;
+      } catch { transientFailure = true; this.gatewayHealthFailures++; detail = '本机桥接暂时无响应；后台正在自动恢复连接。'; }
+      // A single short bridge timeout is common while a browser tab or the host wakes up.
+      if (transientFailure && this.gatewayHealthFailures < 3) return;
       if (detail && revision === this.generation && record === this.record() && record.snapshot === snapshot && !this.syncFlight && !this.gatewayStartFlight && !this.disposed) {
         this.connectionDetail = detail;
         record.snapshot = { ...snapshot, state: 'stale', connection: 'disconnected', detail };
@@ -259,7 +264,8 @@ export class IbkrWorkbenchService {
   async tick() {
     if (this.storageError || this.disposed) return;
     await this.checkGatewayHealth();
-    if (Date.now() >= this.nextSync && (this.saved.source === 'gateway' ? this.gatewayConnected() : Boolean(this.saved.selectedKey || this.mcp.status().authorized))) await this.sync(false);
+    // selectedKey is the durable connection intent. Explicit disconnect clears it.
+    if (Date.now() >= this.nextSync && Boolean(this.saved.selectedKey || this.saved.source === 'mcp' && this.mcp.status().authorized)) await this.sync(this.saved.source === 'gateway');
     const record = this.record(); if (!record || record.snapshot.state === 'stale' || !record.grant) return;
     await this.runSchedules();
   }
@@ -351,7 +357,7 @@ export class IbkrWorkbenchService {
         snapshot.positions = snapshot.positions.map(p => {const old=previous?.positions.find(h=>h.conId===p.conId&&h.symbol===p.symbol),research=analyzed.find(h=>h.conId===p.conId&&h.symbol===p.symbol);return {...p,sector:old?.sector??research?.sector,industry:old?.industry??research?.industry,instrumentType:old?.instrumentType??research?.instrumentType,profileUrl:old?.profileUrl??research?.profileUrl,name:old?.name??research?.name??p.name};});
         snapshot.positions = await this.profiles.enrich(snapshot.positions);
         const day = snapshot.asOf!.slice(0,10); record.history = [...(record.history??[]).filter(h=>h.date!==day),{date:day,nav:Number(snapshot.metrics.netLiquidation)||null,cumulativeReturn:null}].slice(-400);
-        record.snapshot = snapshot; this.failures = 0; this.connectionDetail = '';
+        record.snapshot = snapshot; this.failures = 0; this.gatewayHealthFailures = 0; this.connectionDetail = '';
         this.quotes = await this.market.quotes(snapshot.positions);
         if (revision !== this.generation) return;
         if (Date.now() >= this.nextEvidence) {
@@ -466,7 +472,7 @@ export class IbkrWorkbenchService {
       bodyValue = { ...value, accountKey: record.snapshot.accountKey, mode: 'paper' };
     } else if (endpoint === 'preview') {
       const value = paperPreviewSchema.parse(payload);
-      bodyValue = { ...value, accountKey: record.snapshot.accountKey, mode: 'paper', orderType: value.orderType ?? 'LMT', tif: 'DAY', ...((value.orderType === 'MKT') ? { limitPrice: null } : {}) };
+      bodyValue = { ...value, accountKey: record.snapshot.accountKey, mode: 'paper', orderType: value.orderType ?? 'LMT', tif: 'DAY', tradingSession: value.tradingSession ?? 'EXTENDED', ...((value.orderType === 'MKT') ? { limitPrice: null } : {}) };
     } else if (endpoint === 'confirm') bodyValue = paperConfirmSchema.parse(payload);
     else if (endpoint === 'cancel') bodyValue = paperCancelSchema.parse(payload);
     const target = endpoint === 'transport' ? '/api/ibkr-terminal/gateway/paper-orders' : `/api/ibkr-terminal/paper/${suffix}`;
@@ -757,7 +763,11 @@ export class IbkrWorkbenchService {
     const source = this.saved.source, record = this.record();
     if (record) { record.grant = undefined; record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: '账户已断开。' }; }
     if (source === 'mcp') await this.mcp.disconnect();
-    else { this.activeGatewayBridgePort = undefined; this.nextGatewayAttempt = 0; this.connectionDetail = '本地账户连接已断开。'; }
+    else {
+      const mode = this.saved.gatewayMode ?? 'live';
+      try { await this.gatewayDisconnector(this.root, await this.gatewayBridgePort(), mode); } catch { /* Local state still disconnects if the bridge is already unavailable. */ }
+      this.activeGatewayBridgePort = undefined; this.nextGatewayAttempt = 0; this.gatewayHealthFailures = 0; this.connectionDetail = '本地账户连接已断开。';
+    }
     this.saved.selectedKey = undefined; this.quotes = []; this.evidence = []; this.nextSync = 0;
     await this.persist();
   }

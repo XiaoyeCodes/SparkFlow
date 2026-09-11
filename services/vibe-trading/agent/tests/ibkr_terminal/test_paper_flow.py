@@ -8,7 +8,7 @@ from decimal import Decimal
 from src.ibkr_terminal.reconcile import OrderReconciler
 
 
-def test_next_preview_reconciles_prior_order_before_preparing_or_sending(tmp_path,api_event_loop):
+def test_next_preview_keeps_reconciling_prior_order_reserved_and_continues(tmp_path,api_event_loop):
     from types import SimpleNamespace
     async def run():
         with ledger(tmp_path/'orders.db') as db,harness(db) as values:
@@ -26,9 +26,67 @@ def test_next_preview_reconciles_prior_order_before_preparing_or_sending(tmp_pat
                 raise RiskDenied('COMMISSION_PENDING')
             flow.account_reconciliation=SimpleNamespace(run=reconcile)
             calls.clear()
-            with pytest.raises(RiskDenied,match='COMMISSION_PENDING'):
+            next_preview = await flow.preview(draft(quantity='1'))
+            assert next_preview.quantity == '1'
+            assert calls == ['reconcile','prepare'] and len(packets)==1
+    api_event_loop.run_until_complete(run())
+
+
+def test_preview_refreshes_stale_account_checkpoint_before_risk_review(tmp_path,api_event_loop):
+    from types import SimpleNamespace
+    async def run():
+        with ledger(tmp_path/'orders.db') as db,harness(db) as values:
+            dispatcher,sdk,packets,_,_,instrument=values
+            with db.transaction():
+                row=db.get('paper:engineering','paper','intent-1')
+                db._replace(row.model_copy(update={'submission':'ACKNOWLEDGED','permId':901}),'TEST_ACK')
+            source=Source();calls=[]
+            async def prepare(d):
+                calls.append('prepare')
+                return source.load(d)
+            async def reconcile():
+                calls.append('reconcile')
+            source.prepare=prepare;source.instrument=instrument
+            flow=PaperOrderFlow(dispatcher,source,enabled=True,clock=lambda:NOW)
+            flow.account_reconciliation=SimpleNamespace(checkpoint_stale=lambda:True,run=reconcile)
+            await flow.preview(draft(quantity='1'))
+            assert calls==['reconcile','prepare'] and packets==[]
+    api_event_loop.run_until_complete(run())
+
+
+@pytest.mark.parametrize('persistent',[False,True])
+def test_preview_retries_checkpoint_race_once_without_looping_or_sending(tmp_path,api_event_loop,persistent):
+    from types import SimpleNamespace
+    async def run():
+        with ledger(tmp_path/'orders.db') as db,harness(db) as values:
+            dispatcher,sdk,packets,_,_,instrument=values
+            with db.transaction():
+                row=db.get('paper:engineering','paper','intent-1')
+                db._replace(row.model_copy(update={'submission':'ACKNOWLEDGED','permId':901}),'TEST_ACK')
+            source=Source();calls=[]
+            async def prepare(d):
+                calls.append('prepare')
+                return source.load(d)
+            async def reconcile():
+                calls.append('reconcile')
+            source.prepare=prepare;source.instrument=instrument
+            flow=PaperOrderFlow(dispatcher,source,enabled=True,clock=lambda:NOW)
+            flow.account_reconciliation=SimpleNamespace(checkpoint_stale=lambda:False,run=reconcile)
+            original=flow.reviews.preview
+            attempts=0
+            def preview(d):
+                nonlocal attempts
+                attempts+=1
+                if persistent or attempts==1:
+                    raise RiskDenied('STALE_ACCOUNT_CHECKPOINT')
+                return original(d)
+            flow.reviews.preview=preview
+            if persistent:
+                with pytest.raises(RiskDenied,match='STALE_ACCOUNT_CHECKPOINT'):
+                    await flow.preview(draft(quantity='1'))
+            else:
                 await flow.preview(draft(quantity='1'))
-            assert calls == ['reconcile'] and len(packets)==1
+            assert calls==['prepare','reconcile','prepare'] and attempts==2 and packets==[]
     api_event_loop.run_until_complete(run())
 
 

@@ -65,6 +65,18 @@ def test_closed_session_preview_enables_outside_rth_and_keeps_broker_acceptance_
         assert any('挂起或拒绝' in warning for warning in preview.warnings)
 
 
+def test_overnight_preview_is_explicit_and_rejects_market_order(tmp_path):
+    source = Source()
+    source.current = context(regularHours=False, referenceKind='broker-snapshot', quoteState='delayed')
+    with ledger(tmp_path / 'orders.db') as db:
+        service = OrderReviewService(db, source, clock=lambda: NOW, broker_submission=True)
+        preview = service.preview(draft(quantity='1', tradingSession='OVERNIGHT'))
+        assert preview.tradingSession == 'OVERNIGHT'
+        assert any('OVERNIGHT' in warning for warning in preview.warnings)
+        with pytest.raises(ReviewBlocked, match='UNSUPPORTED_OVERNIGHT_ORDER'):
+            service.preview(draft(quantity='1', orderType='MKT', limitPrice=None, tradingSession='OVERNIGHT'))
+
+
 @pytest.mark.parametrize('cash,available,accepted',[('900','700',True),('900','600',False),('600','900',False)])
 def test_paper_funding_uses_lower_of_cash_and_available_funds(tmp_path,cash,available,accepted):
     source=Source()

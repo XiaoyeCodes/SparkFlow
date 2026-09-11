@@ -38,6 +38,7 @@ class ManagedOrderObserver:
         self.binding = AccountBinding.model_validate(binding.model_dump())
         self.channel_key, self.source = channel_key, source
         self.current_revision, self.clock = current_revision, clock
+        self.broker_ready = True
         if (self.binding.accountKey, self.binding.mode) != (reconciler.account_key, reconciler.mode):
             raise RiskDenied('SDK_BINDING_SCOPE')
         if source not in ('ibkr', 'fixture') or source == 'fixture' and not reconciler.ledger.allow_fixtures:
@@ -66,9 +67,11 @@ class ManagedOrderObserver:
 
     def _owned(self, order_id, client_id, perm_id):
         row = self._candidate(order_id, client_id)
-        if row is not None and (row.permId is None or row.permId != perm_id):
+        if row is not None and row.permId is None:
             # Identity must first be confirmed by full openOrder/read evidence.
             raise RiskDenied('SDK_ORDER_IDENTITY_UNCONFIRMED')
+        if row is not None and row.permId != perm_id:
+            raise RiskDenied('SDK_ORDER_IDENTITY_MISMATCH')
         return row
 
     def open_order(self, order_id, contract, order, order_state):
@@ -118,6 +121,14 @@ class ManagedOrderObserver:
 
     def order_status(self, orderId, status, filled, remaining, permId, clientId):
         with self.rec.ledger._lock:
+            candidate = self._candidate(orderId, clientId)
+            if candidate is not None and candidate.permId is None:
+                # IBKR callbacks are asynchronous: orderStatus can arrive just
+                # before openOrder supplies the account-wide permanent ID and
+                # full order body. It is not trusted evidence yet, but neither
+                # is it an identity conflict. A later status or the fresh
+                # broker read will provide the counters after identity binds.
+                return None
             row = self._owned(orderId, clientId, permId)
             if row is None:
                 return None
@@ -127,8 +138,17 @@ class ManagedOrderObserver:
             filled, remaining = amount(filled), amount(remaining)
             if state == 'OPEN' and Decimal(filled) > 0 and Decimal(remaining) > 0:
                 state = 'PARTIALLY_FILLED'
-            # Status has no broker event ID. Keep each receipt so a later OPEN
-            # identical to an old OPEN cannot bypass a subsequent terminal state.
+            # IBKR commonly repeats the same orderStatus while an order is
+            # resting or when reqAllOpenOrders refreshes it. The current row is
+            # the ordering authority: an exact duplicate adds no evidence and
+            # must not advance the account-proof barrier. A delayed OPEN after
+            # a terminal state still differs here and is rejected downstream.
+            if (row.execution == state and row.brokerFilled is not None and row.brokerRemaining is not None
+                and Decimal(row.brokerFilled) == Decimal(filled)
+                and Decimal(row.brokerRemaining) == Decimal(remaining)):
+                return row
+            # Status has no broker event ID. Give each state transition a receipt
+            # so a later OPEN cannot bypass a subsequent terminal state.
             return self.rec.apply(self._event(row, 'sdk:status:' + uuid4().hex, 'status',
                 status=state, filled=filled, remaining=remaining))
 
@@ -191,8 +211,15 @@ class ManagedOrderObserver:
         self._session()
         if type(code) is not int or code <= 0:
             raise RiskDenied('SDK_INVALID_ERROR_CODE')
-        if code in (1100, 1101, 1300, 2110):
-            self.failed(f'IBKR_{code}')
+        if code in (1100, 1300, 2110):
+            # TWS uses error callbacks for connection state notifications.
+            # Block new wire handoffs until an explicit restored notification;
+            # ACK timeouts and the normal broker read reconcile any in-flight
+            # order without turning a transient outage into a permanent halt.
+            self.broker_ready = False
+            return None
+        if code in (1101, 1102):
+            self.broker_ready = True
             return None
         if request_active or request_id < 0:
             return None  # read request errors are not evidence about an order
@@ -200,6 +227,14 @@ class ManagedOrderObserver:
             row = self._candidate(request_id, self.binding.clientId)
             if row is None:
                 return None
+            if code == 202 and row.execution == 'CANCELLED':
+                # TWS reports a successful cancellation both as orderStatus
+                # CANCELLED and as error code 202. The status already supplied
+                # the authoritative final counters; this later informational
+                # notice must not convert success into an account-wide halt.
+                append_event(self.rec.db, self.rec.account_key, 'SDK_CANCELLATION_NOTICE',
+                    self.clock().isoformat(), {'clientIntentId': row.intent.clientIntentId, 'code': 'IBKR_202'})
+                return row
             reason = f'IBKR_{code}'
             # An order error may reject a new order, reject an amendment while
             # the old order remains live, or race with a fill/cancellation.
@@ -215,7 +250,8 @@ class ManagedOrderObserver:
                     (self.rec.mode, self.rec.account_key, row.pendingAmendmentId))
             row = self.rec._hold(row.model_copy(update=changes))
             self.rec.ledger._replace(row, 'SDK_ORDER_ERROR', code=reason)
-            self._halt(reason)
+            append_event(self.rec.db, self.rec.account_key, 'SDK_ORDER_DIAGNOSTIC',
+                self.clock().isoformat(), {'clientIntentId': row.intent.clientIntentId, 'code': reason})
             return row
 
     def _halt(self, reason):

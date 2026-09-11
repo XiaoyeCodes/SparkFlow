@@ -13,10 +13,11 @@ async function fixture(mode = 'paper') {
   await mkdir(runtime, { recursive: true }); await mkdir(directory);
   await writeFile(path.join(runtime, 'session.token'), 'private-local-token');
   const snapshot = { ...normalizeMcpSnapshot('TEST_ACCOUNT', [], { baseCurrency: 'USD', netLiquidation: 1000 }), mode, accountKey: `${mode}:gateway-test` };
-  let online = false, starts = 0, discoveries = 0;
+  let online = false, starts = 0, discoveries = 0, disconnects = 0;
   const service = new IbkrWorkbenchService(root, directory, async () => ({ data: { diff: [] } }), async () => ({}), undefined,
     async () => { starts++; return { port: 18765, reused: true }; },
-    async (_root, port, selectedMode) => { discoveries++; assert.equal(port, 18765); assert.equal(selectedMode, mode); online = true; return { phase: 'ready', apiPort: 45122, detail: 'verified API' }; });
+    async (_root, port, selectedMode) => { discoveries++; assert.equal(port, 18765); assert.equal(selectedMode, mode); online = true; return { phase: 'ready', apiPort: 45122, detail: 'verified API' }; },
+    async (_root, port, selectedMode) => { disconnects++; assert.equal(port, 18765); assert.equal(selectedMode, mode); });
   await service.start(); clearTimeout(service.timer);
   service.saved.source = 'gateway'; service.saved.gatewayMode = mode;
   const originalFetch = globalThis.fetch;
@@ -24,7 +25,7 @@ async function fixture(mode = 'paper') {
     if (!online) throw new Error('bridge offline');
     return new Response(JSON.stringify(snapshot));
   };
-  return { service, root, runtime, snapshot, starts: () => starts, discoveries: () => discoveries,
+  return { service, root, runtime, snapshot, starts: () => starts, discoveries: () => discoveries, disconnects: () => disconnects,
     close: async () => { globalThis.fetch = originalFetch; await service.close(); } };
 }
 
@@ -104,7 +105,7 @@ test('expired snapshots are not advertised as connected', async () => {
   } finally { await f.close(); }
 });
 
-for (const mode of ['paper', 'live']) test(`${mode} status observes a closed broker without discovery or clearing holdings`, async () => {
+for (const mode of ['paper', 'live']) test(`${mode} status observes a closed broker and the supervisor reconnects without clearing holdings`, async () => {
   const f = await fixture(mode);
   try {
     await f.service.connectGateway();
@@ -123,21 +124,76 @@ for (const mode of ['paper', 'live']) test(`${mode} status observes a closed bro
       assert.equal(current.connection.state, 'disconnected');
       assert.equal(current.snapshot.snapshotId, before.snapshotId);
       assert.deepEqual(current.snapshot.positions, before.positions);
-      assert.match(current.connection.detail, /智能连接/);
+      assert.match(current.connection.detail, /自动重连/);
     }
-    await f.service.tick(); await f.service.state();
-    assert.equal(probes, 1); assert.equal(f.discoveries(), 1);
+    globalThis.fetch = async () => new Response(JSON.stringify(f.snapshot));
+    f.service.nextGatewayAttempt = 0;
+    await f.service.tick();
+    assert.equal((await f.service.state()).connection.state, 'connected');
+    assert.equal(f.discoveries(), 1);
   } finally { await f.close(); }
 });
 
-test('a dead local bridge stops advertising an online account', async () => {
+test('a single local bridge timeout keeps the last live state during the grace window', async () => {
   const f = await fixture();
   try {
     await f.service.connectGateway();
     globalThis.fetch = async () => { throw new Error('connection refused'); };
     const current = await f.service.state();
+    assert.equal(current.connection.state, 'connected');
+    assert.equal(f.discoveries(), 1);
+  } finally { await f.close(); }
+});
+
+test('three consecutive bridge timeouts mark the snapshot stale and schedule automatic recovery', async () => {
+  const f = await fixture();
+  try {
+    await f.service.connectGateway();
+    globalThis.fetch = async () => { throw new Error('connection refused'); };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      f.service.nextGatewayHealth = 0;
+      await f.service.state();
+    }
+    const current = await f.service.state();
     assert.equal(current.connection.state, 'disconnected');
-    assert.match(current.connection.detail, /桥接服务/);
+    assert.match(current.connection.detail, /自动恢复/);
+    assert.equal(f.service.nextSync, 0);
+  } finally { await f.close(); }
+});
+
+test('a previously connected gateway recovers in the background without another user action', async () => {
+  const f = await fixture();
+  try {
+    await f.service.connectGateway();
+    let recovered = false, recoveryAttempts = 0;
+    globalThis.fetch = async () => {
+      if (!recovered) throw new Error('connection refused');
+      return new Response(JSON.stringify(f.snapshot));
+    };
+    f.service.gatewayDiscoverer = async () => {
+      recoveryAttempts++;
+      recovered = true;
+      return { phase: 'ready', apiPort: 45122, detail: 'reconnected' };
+    };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      f.service.nextGatewayHealth = 0;
+      await f.service.state();
+    }
+    f.service.nextGatewayAttempt = 0;
+    await f.service.tick();
+    assert.equal(recoveryAttempts, 1);
+    assert.equal((await f.service.state()).connection.state, 'connected');
+  } finally { await f.close(); }
+});
+
+test('explicit gateway disconnect clears durable reconnect intent and stops the bridge supervisor', async () => {
+  const f = await fixture();
+  try {
+    await f.service.connectGateway();
+    await f.service.disconnect();
+    assert.equal(f.disconnects(), 1);
+    assert.equal(f.service.saved.selectedKey, undefined);
+    await f.service.tick();
     assert.equal(f.discoveries(), 1);
   } finally { await f.close(); }
 });

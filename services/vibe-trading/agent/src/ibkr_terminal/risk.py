@@ -34,6 +34,7 @@ class OrderIntent(Contract):
     orderType: Literal['LMT', 'MKT']
     limitPrice: Amount | None
     tif: Literal['DAY', 'GTC']
+    tradingSession: Literal['EXTENDED', 'OVERNIGHT'] = 'EXTENDED'
     strategyVersion: Identifier
     authorizationId: Identifier
     sessionRevision: int = Field(ge=1, strict=True)
@@ -168,6 +169,13 @@ def intent_hash(intent: OrderIntent):
     return hashlib.sha256(canonical(intent).encode()).hexdigest()
 
 
+def legacy_intent_hash(intent: OrderIntent):
+    """Hash used before the explicit execution-session field was added."""
+    data = intent.model_dump(mode='json', exclude={'tradingSession'})
+    body = json.dumps(data, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
 def reservation_price(intent, context):
     # A market reservation is an estimate, never a price sent to the broker.
     return Decimal(intent.limitPrice) if intent.orderType == 'LMT' else Decimal(context.referencePrice) * Decimal('1.05')
@@ -208,8 +216,10 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
         funding = min(Decimal(context.totalCash), Decimal(context.availableFunds))
     require(funding is not None and all(getattr(context, name) is not None for name in ('netLiquidation', 'dailyLoss', 'referencePrice')), 'MISSING_ACCOUNT_DATA')
     require(context.market == 'US' and context.secType == 'STK' and context.currency == context.baseCurrency == 'USD' and Decimal(context.multiplier) == 1, 'UNSUPPORTED_CONTRACT')
+    manual_paper = intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'
     require(intent.tif == 'DAY' and (intent.orderType == 'LMT' or
         intent.orderType == 'MKT' and grant.kind == 'manual' and purpose == 'new_order'), 'UNSUPPORTED_ORDER_POLICY')
+    require(intent.tradingSession != 'OVERNIGHT' or manual_paper and intent.orderType == 'LMT', 'UNSUPPORTED_OVERNIGHT_ORDER')
     require(len({row.conId for row in context.holdings}) == len(context.holdings) and all(row.currency == 'USD' for row in context.holdings), 'INCOMPLETE_HOLDINGS')
     with localcontext() as arithmetic:
         arithmetic.prec = 80
@@ -238,10 +248,12 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
         require(tick > 0 and step >= 1 and step == step.to_integral_value(), 'INVALID_CONTRACT_RULES')
         require(quantity == quantity.to_integral_value() and quantity % step == 0 and (intent.orderType == 'MKT' or price % tick == 0), 'INVALID_ORDER_INCREMENT')
         reference = Decimal(context.referencePrice)
-        require(reference > 0 and (intent.orderType == 'MKT' or abs(price - reference) <= reference * Decimal(limits.maxPriceDeviation)), 'PRICE_DEVIATION')
-        require(Decimal(context.dailyLoss) < Decimal(limits.maxDailyLoss), 'DAILY_LOSS_LIMIT')
-        require(daily_count < limits.maxDailyOrders, 'DAILY_ORDER_LIMIT')
-        require(minute_count < limits.maxOrdersPerMinute, 'ORDER_FREQUENCY_LIMIT')
+        require(reference > 0, 'QUOTE_UNAVAILABLE')
+        if not manual_paper:
+            require(intent.orderType == 'MKT' or abs(price - reference) <= reference * Decimal(limits.maxPriceDeviation), 'PRICE_DEVIATION')
+            require(Decimal(context.dailyLoss) < Decimal(limits.maxDailyLoss), 'DAILY_LOSS_LIMIT')
+            require(daily_count < limits.maxDailyOrders, 'DAILY_ORDER_LIMIT')
+            require(minute_count < limits.maxOrdersPerMinute, 'ORDER_FREQUENCY_LIMIT')
         fee = Decimal(limits.feeReserve)
         pending_notional = remaining_quantity * price
         cash = (pending_notional if intent.side == 'BUY' else Decimal(0)) + fee
@@ -255,9 +267,9 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
             total = exposure + Decimal(reserved['notional']) + pending_notional
             net = Decimal(context.netLiquidation)
             require(net > 0 and total <= net, 'LEVERAGE_FORBIDDEN')
-            require(total <= Decimal(limits.maxTotalExposure), 'TOTAL_EXPOSURE_LIMIT')
+            require(manual_paper or total <= Decimal(limits.maxTotalExposure), 'TOTAL_EXPOSURE_LIMIT')
             symbol_value = Decimal(holding.marketValue) if holding else Decimal(0)
             symbol_value += Decimal(reserved['symbols'].get(str(intent.conId), '0')) + pending_notional
-            require(symbol_value <= net * Decimal(limits.maxSymbolWeight), 'SYMBOL_WEIGHT_LIMIT')
+            require(manual_paper or symbol_value <= net * Decimal(limits.maxSymbolWeight), 'SYMBOL_WEIGHT_LIMIT')
         return {'cash': format(cash, 'f'), 'notional': format(pending_notional if intent.side == 'BUY' else Decimal(0), 'f'),
             'quantity': format(remaining_quantity, 'f') if intent.side == 'SELL' else '0'}

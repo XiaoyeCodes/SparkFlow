@@ -275,7 +275,7 @@ test('gateway actions place smart connect on the left and disconnect on the righ
   await expect.poll(() => smartConnects).toBe(1);
 });
 
-for (const mode of ['live', 'paper'] as const) test(`${mode} Gateway updates a dropped connection even while quotes are stalled`, async ({ page }) => {
+for (const mode of ['live', 'paper'] as const) test(`${mode} Gateway shows supervised recovery even while quotes are stalled`, async ({ page }) => {
   const data = state(true); data.source = 'gateway'; data.gatewayMode = mode;
   data.snapshot.mode = mode;
   let connects = 0, syncs = 0;
@@ -286,11 +286,12 @@ for (const mode of ['live', 'paper'] as const) test(`${mode} Gateway updates a d
   await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
   const panel = page.locator('.awb-connection-console');
   await expect(panel).toHaveAttribute('data-connection-state', 'connected');
-  data.connection.state = 'disconnected'; data.connection.detail = 'IBKR Gateway 已断开，请登录客户端后点击“智能连接”。';
+  data.connection.state = 'disconnected'; data.connection.detail = 'IBKR Gateway 连接短暂中断；后台正在自动重连。';
   data.snapshot.connection = 'disconnected'; data.snapshot.state = 'stale';
-  await expect(panel).toHaveAttribute('data-connection-state', 'disconnected', { timeout: 8000 });
-  await expect(panel.getByRole('button', { name: '智能连接', exact: true })).toBeEnabled();
-  await expect(panel).toContainText('IBKR Gateway 已断开');
+  await expect(panel).toHaveAttribute('data-connection-state', 'connecting', { timeout: 8000 });
+  await expect(panel.getByText(`${mode === 'paper' ? '模拟盘' : '实盘'} Gateway 自动重连中`, { exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: '立即重试', exact: true })).toBeEnabled();
+  await expect(panel).toContainText('无需停留在当前页面');
   expect(connects).toBe(0); expect(syncs).toBe(0);
 });
 
@@ -1523,6 +1524,26 @@ test('closed-session limit order can be previewed with Outside RTH enabled', asy
   await page.getByRole('button',{name:'预览买入订单'}).click();
   await expect(page.getByRole('dialog',{name:'确认模拟订单'})).toContainText('已启用盘前盘后交易');
   expect(sent).toEqual({conId:265598,side:'BUY',quantity:'10',limitPrice:'100'});
+});
+
+test('paper ticket sends an explicit limit-only IBKR overnight route', async ({ page }) => {
+  const data = state(true); data.source = 'gateway'; data.gatewayMode = 'paper'; data.snapshot.mode = 'paper'; data.snapshot.accountKey = 'paper:ui-test';
+  const stock = {conId:265598,symbol:'AAPL',currency:'USD',exchange:'NASDAQ',name:'Apple Inc.'};
+  const current = {supportedOrderTypes:['LMT','MKT'],enabled:true,available:true,account:'DU***EST',accountKey:'paper:ui-test',policy:{conIds:[265598],expiresAt:new Date(Date.now()+3600000).toISOString(),limits:{feeReserve:'5'}},orders:[],connection:'connected',state:'ready',detail:''};
+  let sent: any;
+  await page.route('**/api/ibkr-workbench/state',r=>r.fulfill({json:data}));
+  await page.route('**/api/ibkr-workbench/quotes',r=>r.fulfill({json:[]}));
+  await page.route('**/api/ibkr-workbench/paper/status',r=>r.fulfill({json:current}));
+  await page.route('**/api/ibkr-workbench/paper/contract',r=>r.fulfill({json:[stock]}));
+  await page.route('**/api/ibkr-workbench/paper/market-quote',r=>r.fulfill({json:{...stock,bid:'99.99',ask:'100.01',last:'100',close:'99',high:'101',low:'98',state:'delayed',regularHours:false,nextOpen:null,fetchedAt:new Date().toISOString(),source:'IBKR Gateway',bids:[],asks:[]}}));
+  await page.route('**/api/ibkr-workbench/paper/preview',r=>{sent=r.request().postDataJSON();return r.fulfill({json:{...sent,...stock,orderType:'LMT',tif:'DAY',previewId:'preview:overnight',bodyHash:'e'.repeat(64),expiresAt:new Date(Date.now()+30000).toISOString(),mode:'paper',accountKey:'paper:ui-test',reservedNotional:'1000',reservedCash:'1005',warnings:['此单将使用 IBKR OVERNIGHT 夜盘路由。']}});});
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=orders');
+  await page.getByRole('button',{name:'夜盘',exact:true}).click();
+  await expect(page.locator('.pt-field-help')).toContainText('OVERNIGHT');
+  await page.getByLabel('限价（USD）').fill('100');
+  await page.getByRole('button',{name:'预览买入订单'}).click();
+  await expect(page.getByRole('dialog',{name:'确认模拟订单'})).toContainText('IBKR 夜盘（OVERNIGHT）');
+  expect(sent).toEqual({conId:265598,side:'BUY',quantity:'10',tradingSession:'OVERNIGHT',limitPrice:'100'});
 });
 
 for (const outcome of ['filled', 'permission-required', 'subscription-required']) test(`market ticket rechecks a renewed session and reports ${outcome}`, async ({ page }) => {

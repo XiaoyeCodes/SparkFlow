@@ -94,3 +94,12 @@ def test_live_limit_order_enables_outside_rth_permission():
     live_identity=identity.model_copy(update={'mode':'live','accountKey':'live:engineering'})
     _, order=encode_order(SubmissionCommand(intent=live_intent,identity=live_identity),live_binding,instrument)
     assert order.outsideRth is True
+
+
+def test_manual_paper_overnight_limit_uses_explicit_overnight_route():
+    binding, identity, instrument = inputs()
+    overnight = intent(tradingSession='OVERNIGHT')
+    contract, order = encode_order(SubmissionCommand(intent=overnight, identity=identity), binding, instrument)
+    assert contract.exchange == 'OVERNIGHT'
+    assert contract.primaryExchange == 'NASDAQ'
+    assert order.orderType == 'LMT' and order.outsideRth is True and order.tif == 'DAY'
