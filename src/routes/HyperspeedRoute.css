@@ -1,0 +1,231 @@
+.cyber-corridor {
+  position: relative;
+  min-height: calc(100vh - var(--nav-height));
+  overflow-x: clip;
+  color: #f5fbff;
+  background:
+    radial-gradient(circle at 52% 0%, rgba(25, 58, 86, 0.17), transparent 32%),
+    #03050b;
+  isolation: isolate;
+}
+
+.cyber-corridor::before {
+  position: fixed;
+  z-index: -1;
+  inset: var(--nav-height) 0 0;
+  content: '';
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(53, 242, 255, 0.026) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(53, 242, 255, 0.026) 1px, transparent 1px);
+  background-size: 38px 38px;
+  mask-image: linear-gradient(to bottom, transparent, black 18%, black 86%, transparent);
+}
+
+.cyber-corridor__tunnel {
+  position: fixed;
+  z-index: -3;
+  inset: var(--nav-height) 0 0;
+  pointer-events: none;
+}
+
+.cyber-corridor__tunnel-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(53, 242, 255, 0.1), transparent 25%),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.8), transparent 42% 58%, rgba(0, 0, 0, 0.8)),
+    linear-gradient(180deg, transparent 45%, rgba(3, 5, 11, 0.78));
+}
+
+.cyber-corridor__shell {
+  position: relative;
+  z-index: 2;
+  width: min(1500px, calc(100% - 48px));
+  min-height: calc(100vh - var(--nav-height));
+  margin: 0 auto;
+  padding: 44px 0 64px;
+}
+
+.cyber-corridor__header { max-width: 920px; }
+
+.cyber-corridor__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  color: rgba(53, 242, 255, 0.82);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+}
+
+.cyber-corridor__eyebrow::before {
+  width: 28px;
+  height: 1px;
+  content: '';
+  background: #35f2ff;
+  box-shadow: 0 0 12px rgba(53, 242, 255, 0.65);
+}
+
+.cyber-corridor__header h1 {
+  margin: 0;
+  font-size: clamp(54px, 8vw, 118px);
+  font-weight: 650;
+  letter-spacing: -0.08em;
+  line-height: 0.88;
+  text-wrap: balance;
+  text-shadow:
+    0 0 36px rgba(53, 242, 255, 0.12),
+    2px 0 rgba(255, 59, 189, 0.34);
+}
+
+.cyber-corridor__subtitle {
+  max-width: 700px;
+  margin: 15px 0 0;
+  color: rgba(215, 230, 239, 0.58);
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.cyber-corridor__transit-status {
+  position: fixed;
+  z-index: 3;
+  right: 5vw;
+  bottom: 7vh;
+  left: 5vw;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  color: rgba(226, 241, 248, 0.5);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+
+.cyber-corridor__transit-status strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #35f2ff;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.cyber-corridor__meter {
+  position: relative;
+  width: min(360px, 45vw);
+  height: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.cyber-corridor__meter::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: linear-gradient(90deg, #35f2ff, #775cff 56%, #ff3bbd);
+  box-shadow: 0 0 16px rgba(53, 242, 255, 0.65);
+  transform-origin: left;
+  animation: cyber-corridor-charge 2.8s cubic-bezier(0.36, 0, 0.1, 1) forwards;
+}
+
+.cyber-corridor__directory { margin-top: 30px; }
+
+.cyber-corridor__directory-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 19px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(130, 199, 224, 0.13);
+}
+
+.cyber-corridor__directory-heading p,
+.cyber-corridor__directory-heading span {
+  margin: 0;
+  color: rgba(208, 226, 235, 0.43);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+
+.cyber-corridor__directory-heading h2 {
+  margin: 5px 0 0;
+  font-size: clamp(27px, 2.6vw, 36px);
+  font-weight: 620;
+  letter-spacing: -0.045em;
+}
+
+.cyber-corridor__group + .cyber-corridor__group { margin-top: 50px; }
+
+.cyber-corridor__group-heading {
+  display: grid;
+  grid-template-columns: 48px minmax(145px, 0.34fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 16px;
+  margin-bottom: 10px;
+  color: var(--group-accent);
+}
+
+.cyber-corridor__group-index {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.cyber-corridor__group-title strong {
+  display: block;
+  color: #edf8fd;
+  font-size: 16px;
+  font-weight: 620;
+}
+
+.cyber-corridor__group-title span,
+.cyber-corridor__group-description {
+  color: color-mix(in srgb, var(--group-accent) 70%, transparent);
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+.cyber-corridor__group-description {
+  justify-self: end;
+  color: rgba(207, 225, 234, 0.39);
+  letter-spacing: 0.04em;
+}
+
+.cyber-corridor__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 15px;
+}
+
+@keyframes cyber-corridor-charge {
+  from { transform: scaleX(0.04); }
+  to { transform: scaleX(1); }
+}
+
+@media (max-width: 980px) {
+  .cyber-corridor__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cyber-corridor__group-heading { grid-template-columns: 38px 1fr; }
+  .cyber-corridor__group-description { display: none; }
+}
+
+@media (max-width: 640px) {
+  .cyber-corridor__shell { width: min(100% - 28px, 1500px); padding: 28px 0 48px; }
+  .cyber-corridor__header h1 { font-size: clamp(48px, 18vw, 76px); }
+  .cyber-corridor__subtitle { margin-top: 12px; font-size: 12px; }
+  .cyber-corridor__directory { margin-top: 27px; }
+  .cyber-corridor__directory-heading { align-items: flex-start; flex-direction: column; }
+  .cyber-corridor__directory-heading > span { display: none; }
+  .cyber-corridor__grid { grid-template-columns: 1fr; }
+  .cyber-corridor__group + .cyber-corridor__group { margin-top: 38px; }
+  .cyber-corridor__transit-status { right: 18px; bottom: 26px; left: 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cyber-corridor__meter::after { animation: none; transform: scaleX(1); }
+}

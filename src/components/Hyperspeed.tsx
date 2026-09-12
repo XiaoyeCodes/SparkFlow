@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import './Hyperspeed.css';
 
-type HyperspeedOptions = {
+export type HyperspeedOptions = {
   length?: number;
   roadWidth?: number;
   lanesPerRoad?: number;
@@ -17,6 +17,14 @@ type HyperspeedOptions = {
     rightCars?: number[];
     sticks?: number;
   };
+};
+
+type HyperspeedProps = {
+  effectOptions?: HyperspeedOptions;
+  autoAccelerate?: boolean;
+  sequenceDurationMs?: number;
+  peakSpeed?: number;
+  onSequenceComplete?: () => void;
 };
 
 type ResolvedHyperspeedOptions = Omit<Required<HyperspeedOptions>, 'colors'> & {
@@ -43,8 +51,19 @@ const DEFAULT_EFFECT_OPTIONS: Required<HyperspeedOptions> = {
 const random = (min: number, max: number) => min + Math.random() * (max - min);
 const pick = (items: number[]) => items[Math.floor(Math.random() * items.length)];
 
-export function Hyperspeed({ effectOptions = {} }: { effectOptions?: HyperspeedOptions }) {
+export function Hyperspeed({
+  effectOptions = {},
+  autoAccelerate = false,
+  sequenceDurationMs = 2800,
+  peakSpeed = 7.4,
+  onSequenceComplete
+}: HyperspeedProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const completeCallbackRef = useRef(onSequenceComplete);
+
+  useEffect(() => {
+    completeCallbackRef.current = onSequenceComplete;
+  }, [onSequenceComplete]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -171,7 +190,7 @@ export function Hyperspeed({ effectOptions = {} }: { effectOptions?: HyperspeedO
       sticks.push({ mesh, speed: random(46, 78) });
     }
 
-    const glow = new THREE.PointLight(0x8ad7ff, 2.4, 70);
+    const glow = new THREE.PointLight(options.colors.brokenLines, 2.4, 70);
     glow.position.set(0, 5, -16);
     scene.add(glow);
 
@@ -179,6 +198,8 @@ export function Hyperspeed({ effectOptions = {} }: { effectOptions?: HyperspeedO
     let speed = 1;
     let raf = 0;
     let disposed = false;
+    let sequenceFinished = false;
+    const sequenceStartedAt = performance.now();
 
     const resize = () => {
       const { width, height } = container.getBoundingClientRect();
@@ -189,9 +210,11 @@ export function Hyperspeed({ effectOptions = {} }: { effectOptions?: HyperspeedO
     };
 
     const onPointerDown = () => {
+      if (autoAccelerate) return;
       targetSpeed = options.speedUp;
     };
     const onPointerUp = () => {
+      if (autoAccelerate) return;
       targetSpeed = 1;
     };
 
@@ -205,7 +228,17 @@ export function Hyperspeed({ effectOptions = {} }: { effectOptions?: HyperspeedO
     const tick = () => {
       if (disposed) return;
       const delta = Math.min(clock.getDelta(), 0.035);
-      speed += (targetSpeed - speed) * 0.065;
+      if (autoAccelerate) {
+        const progress = THREE.MathUtils.clamp((performance.now() - sequenceStartedAt) / sequenceDurationMs, 0, 1);
+        const acceleration = progress ** 2.35;
+        targetSpeed = THREE.MathUtils.lerp(0.9, peakSpeed, acceleration);
+        glow.intensity = THREE.MathUtils.lerp(2.4, 8.5, progress ** 1.7);
+        if (progress >= 1 && !sequenceFinished) {
+          sequenceFinished = true;
+          completeCallbackRef.current?.();
+        }
+      }
+      speed += (targetSpeed - speed) * (autoAccelerate ? 0.085 : 0.065);
       const travel = delta * speed;
 
       laneLines.forEach((lineGroup, groupIndex) => {
@@ -231,7 +264,10 @@ export function Hyperspeed({ effectOptions = {} }: { effectOptions?: HyperspeedO
       });
 
       roadGroup.rotation.z = Math.sin(performance.now() * 0.00018) * 0.025;
-      camera.fov += ((targetSpeed > 1 ? 108 : options.fov) - camera.fov) * 0.05;
+      const speedRatio = autoAccelerate
+        ? THREE.MathUtils.clamp((speed - 1) / Math.max(peakSpeed - 1, 1), 0, 1)
+        : targetSpeed > 1 ? 1 : 0;
+      camera.fov += (THREE.MathUtils.lerp(options.fov, autoAccelerate ? 126 : 108, speedRatio) - camera.fov) * 0.05;
       camera.updateProjectionMatrix();
       renderer.render(scene, camera);
       raf = window.requestAnimationFrame(tick);
@@ -258,7 +294,7 @@ export function Hyperspeed({ effectOptions = {} }: { effectOptions?: HyperspeedO
         container.removeChild(renderer.domElement);
       }
     };
-  }, [effectOptions]);
+  }, [autoAccelerate, effectOptions, peakSpeed, sequenceDurationMs]);
 
   return <div ref={containerRef} className="hyperspeed" aria-hidden="true" />;
 }

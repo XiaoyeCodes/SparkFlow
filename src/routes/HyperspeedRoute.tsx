@@ -1,48 +1,179 @@
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Zap } from 'lucide-react';
-import { Hyperspeed } from '../components/Hyperspeed';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { CyberPortalCard } from '../components/CyberPortalCard';
+import { Hyperspeed, type HyperspeedOptions } from '../components/Hyperspeed';
 import { PageTransition } from '../components/PageTransition';
+import { cyberPortalGroups } from '../data/cyberPortals';
+import './HyperspeedRoute.css';
 
-const hyperspeedOptions = {
-  length: 460,
-  roadWidth: 9.6,
+const hyperspeedOptions: HyperspeedOptions = {
+  length: 520,
+  roadWidth: 10.4,
   lanesPerRoad: 4,
-  fov: 88,
-  speedUp: 2.6,
+  fov: 84,
+  speedUp: 3.2,
   colors: {
-    roadColor: 0x050507,
-    background: 0x000000,
-    shoulderLines: 0xf4f8ff,
-    brokenLines: 0x8ad7ff,
-    leftCars: [0xf0f7ff, 0x8ad7ff, 0x5e6cff],
-    rightCars: [0xb9ffdc, 0x03b3c3, 0x1b4f8f],
-    sticks: 0x8ad7ff
+    roadColor: 0x04050b,
+    background: 0x020309,
+    shoulderLines: 0xff3bbd,
+    brokenLines: 0x35f2ff,
+    leftCars: [0xff3bbd, 0xff476f, 0x8a5cff],
+    rightCars: [0x35f2ff, 0xeaff4f, 0x386dff],
+    sticks: 0x35f2ff
   }
 };
 
+const revealTransition = { duration: 0.72, ease: [0.19, 1, 0.22, 1] as const };
+
 export function HyperspeedRoute() {
+  const prefersReducedMotion = Boolean(useReducedMotion());
+  const [sequenceComplete, setSequenceComplete] = useState(prefersReducedMotion);
+  const [tunnelMounted, setTunnelMounted] = useState(!prefersReducedMotion);
+  const directoryVisible = prefersReducedMotion || sequenceComplete;
+
+  const finishSequence = useCallback(() => setSequenceComplete(true), []);
+
+  useEffect(() => {
+    if (!prefersReducedMotion) return;
+    setSequenceComplete(true);
+    setTunnelMounted(false);
+  }, [prefersReducedMotion]);
+
+  useEffect(() => {
+    if (!sequenceComplete || prefersReducedMotion) return;
+    const timer = window.setTimeout(() => setTunnelMounted(false), 1050);
+    return () => window.clearTimeout(timer);
+  }, [prefersReducedMotion, sequenceComplete]);
+
   return (
     <PageTransition>
-      <section className="relative min-h-[calc(100vh-var(--nav-height))] overflow-hidden bg-black text-white">
-        <Hyperspeed effectOptions={hyperspeedOptions} />
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(138,215,255,0.12),transparent_28%),linear-gradient(90deg,rgba(0,0,0,0.86),rgba(0,0,0,0.25)_48%,rgba(0,0,0,0.84)),linear-gradient(180deg,rgba(0,0,0,0.05),rgba(0,0,0,0.86)_88%)]" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black to-transparent" />
+      <section className="cyber-corridor" data-phase={directoryVisible ? 'directory' : 'transit'}>
+        <AnimatePresence>
+          {tunnelMounted ? (
+            <motion.div
+              className="cyber-corridor__tunnel"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: sequenceComplete ? 0 : 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: sequenceComplete ? 0.95 : 0.45, ease: 'easeOut' }}
+            >
+              <Hyperspeed
+                effectOptions={hyperspeedOptions}
+                autoAccelerate
+                sequenceDurationMs={2800}
+                peakSpeed={7.8}
+                onSequenceComplete={finishSequence}
+              />
+              <div className="cyber-corridor__tunnel-overlay" />
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
-        <div className="relative z-10 mx-auto flex min-h-[calc(100vh-var(--nav-height))] w-full max-w-7xl flex-col px-5 pb-8 pt-10 md:px-8 lg:pt-14">
-          <motion.div
-            className="max-w-3xl"
-            initial={{ opacity: 0, y: 26, filter: 'blur(12px)' }}
-            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            transition={{ duration: 0.72, ease: [0.19, 1, 0.22, 1] }}
+        <div className="cyber-corridor__shell">
+          <motion.header
+            className="cyber-corridor__header"
+            initial={{ opacity: 0, y: 28, filter: 'blur(12px)' }}
+            animate={{
+              opacity: 1,
+              y: directoryVisible ? 0 : '17vh',
+              filter: 'blur(0px)'
+            }}
+            transition={revealTransition}
           >
-            <p className="mb-5 inline-flex items-center gap-2 border-l border-[#8ad7ff]/50 pl-3 text-xs font-semibold uppercase tracking-[0.22em] text-[#8ad7ff]/76">
-              <Zap size={15} strokeWidth={1.8} />
-              Hyperspeed Corridor
+            <p className="cyber-corridor__eyebrow">
+              <Zap size={14} strokeWidth={1.7} />
+              HYPERSPEED / EXTERNAL SIGNAL NETWORK
             </p>
-            <h1 className="max-w-4xl text-balance text-6xl font-semibold leading-[0.88] text-white md:text-8xl">
-              极速通道
-            </h1>
-          </motion.div>
+            <h1>极速通道</h1>
+            <motion.p
+              className="cyber-corridor__subtitle"
+              animate={{ opacity: directoryVisible ? 1 : 0.64 }}
+              transition={{ duration: 0.5 }}
+            >
+              {directoryVisible
+                ? '九个外部信号节点已经接入。按任务分类选择入口，在新标签页打开对应情报终端。'
+                : '正在提升链路速度，穿越边界后将接入外部实时信号网络。'}
+            </motion.p>
+          </motion.header>
+
+          <AnimatePresence>
+            {!directoryVisible ? (
+              <motion.div
+                className="cyber-corridor__transit-status"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, y: 10 }}
+                transition={{ duration: 0.35 }}
+              >
+                <div>
+                  <strong>WARP SEQUENCE ACTIVE</strong>
+                  ACCELERATING EXTERNAL SIGNAL LINK
+                </div>
+                <div className="cyber-corridor__meter" aria-hidden="true" />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+
+          {directoryVisible ? (
+            <motion.div
+              className="cyber-corridor__directory"
+              initial={{ opacity: 0, y: 44, filter: 'blur(14px)' }}
+              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+              transition={{ ...revealTransition, delay: prefersReducedMotion ? 0 : 0.25 }}
+            >
+              <div className="cyber-corridor__directory-heading">
+                <div>
+                  <p>ACCESS DIRECTORY / 09 NODES</p>
+                  <h2>选择你的情报入口</h2>
+                </div>
+                <span>SECURE EXTERNAL HANDOFF · NEW TAB</span>
+              </div>
+
+              {cyberPortalGroups.map((group, groupIndex) => (
+                <motion.section
+                  className="cyber-corridor__group"
+                  key={group.id}
+                  style={{ '--group-accent': group.accent } as CSSProperties}
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...revealTransition, delay: prefersReducedMotion ? 0 : 0.38 + groupIndex * 0.13 }}
+                  aria-labelledby={`${group.id}-title`}
+                >
+                  <div className="cyber-corridor__group-heading">
+                    <span className="cyber-corridor__group-index">{group.index}</span>
+                    <span className="cyber-corridor__group-title">
+                      <strong id={`${group.id}-title`}>{group.title}</strong>
+                      <span>{group.englishTitle}</span>
+                    </span>
+                    <span className="cyber-corridor__group-description">{group.description}</span>
+                  </div>
+
+                  <div className="cyber-corridor__grid">
+                    {group.portals.map((portal, portalIndex) => (
+                      <motion.div
+                        key={portal.id}
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: 28, scale: 0.975 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{
+                          ...revealTransition,
+                          delay: prefersReducedMotion ? 0 : 0.48 + groupIndex * 0.13 + portalIndex * 0.07
+                        }}
+                      >
+                        <CyberPortalCard
+                          portal={portal}
+                          accent={group.accent}
+                          accentRgb={group.accentRgb}
+                          order={groupIndex * 3 + portalIndex}
+                          reducedMotion={prefersReducedMotion}
+                        />
+                      </motion.div>
+                    ))}
+                  </div>
+                </motion.section>
+              ))}
+            </motion.div>
+          ) : null}
         </div>
       </section>
     </PageTransition>
