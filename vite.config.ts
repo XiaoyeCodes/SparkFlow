@@ -9412,6 +9412,7 @@ const editorialAssetYahooConfigs = [
   { group: 'defensive', yahooSymbol: 'XLF', symbol: 'XLF', name: '金融 ETF' },
   { group: 'defensive', yahooSymbol: 'VYM', symbol: 'VYM', name: '高股息 ETF' },
   { group: 'defensive', yahooSymbol: 'SCHD', symbol: 'SCHD', name: '美国红利 ETF' },
+  { group: 'defensive', yahooSymbol: 'VIG', symbol: 'VIG', name: '股息增长 ETF' },
   { group: 'defensive', yahooSymbol: 'SPY', symbol: 'SPY', name: '标普 500 ETF' },
   { group: 'defensive', yahooSymbol: 'BRK-B', symbol: 'BRK.B', name: '伯克希尔 B' },
   { group: 'technology', yahooSymbol: 'QQQ', symbol: 'QQQ', name: '纳指 100 ETF' },

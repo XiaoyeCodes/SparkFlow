@@ -247,12 +247,9 @@ function Day1BtcMetricsPanel({ data }: { data?: DailyBriefEditorialSnapshot }) {
   </section>;
 }
 
-function SideNewsPanel({ news, fillHeight }: { news: DailyBriefNews[]; fillHeight?: number }) {
+function SideNewsPanel({ news }: { news: DailyBriefNews[] }) {
   const items = news.slice(0, 4);
-  return <section
-    className="editorial-side-news"
-    style={fillHeight ? { "--side-news-fill-height": `${fillHeight}px` } as CSSProperties : undefined}
-  >
+  return <section className="editorial-side-news">
     <header><div><Radio size={13} /><span>市场快讯</span></div><em><i />LIVE WIRE</em></header>
     <div className="editorial-side-news-list">
       {items.map((item, index) => <a href={item.url || "#"} target="_blank" rel="noreferrer" key={item.id}>
@@ -320,9 +317,7 @@ export function DailyBrief() {
   const [aiRefreshNonce, setAiRefreshNonce] = useState(0);
   const leftDockRef = useRef<HTMLElement>(null);
   const rightDockRef = useRef<HTMLElement>(null);
-  const sideNewsRef = useRef<HTMLDivElement>(null);
   const assetGroupsRef = useRef<HTMLDivElement>(null);
-  const [sideNewsFillHeight, setSideNewsFillHeight] = useState<number>();
   const [sideDockHeight, setSideDockHeight] = useState(0);
 
   const load = useCallback(async (refresh = false) => {
@@ -417,31 +412,37 @@ export function DailyBrief() {
   useLayoutEffect(() => {
     const leftDock = leftDockRef.current;
     const rightDock = rightDockRef.current;
-    const sideNews = sideNewsRef.current;
-    if (!leftDock || !rightDock || !sideNews) return;
+    if (!leftDock || !rightDock) return;
     const syncHeight = () => {
       if (!window.matchMedia("(min-width: 1800px)").matches) {
+        leftDock.style.removeProperty("height");
+        rightDock.style.removeProperty("height");
         setSideDockHeight((current) => current === 0 ? current : 0);
         return;
       }
+      // Measure the intrinsic card stacks, not the previously synchronized
+      // height. This avoids a ResizeObserver feedback loop when the right-side
+      // BTC panels flex to consume the difference.
+      leftDock.style.height = "auto";
+      rightDock.style.height = "auto";
       const leftHeight = leftDock.getBoundingClientRect().height;
       const rightHeight = rightDock.getBoundingClientRect().height;
-      const newsHeight = sideNews.getBoundingClientRect().height;
-      if (!leftHeight || !rightHeight || !newsHeight) return;
+      leftDock.style.removeProperty("height");
+      rightDock.style.removeProperty("height");
+      if (!leftHeight || !rightHeight) return;
       const longestDock = Math.ceil(Math.max(leftHeight, rightHeight));
       setSideDockHeight((current) => current === longestDock ? current : longestDock);
-      const target = Math.max(210, Math.round(leftHeight - (rightHeight - newsHeight)));
-      setSideNewsFillHeight((current) => current === target ? current : target);
     };
     const observer = new ResizeObserver(syncHeight);
     observer.observe(leftDock);
     observer.observe(rightDock);
-    observer.observe(sideNews);
     window.addEventListener("resize", syncHeight);
     syncHeight();
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", syncHeight);
+      leftDock.style.removeProperty("height");
+      rightDock.style.removeProperty("height");
     };
   }, [assetGroups, snapshot?.news]);
 
@@ -477,10 +478,10 @@ export function DailyBrief() {
     };
   }, [assetGroups]);
 
-  return <div className="daily-brief-editorial" style={{ "--editorial-side-dock-height": `${sideDockHeight}px` } as CSSProperties}>
+  return <div className="daily-brief-editorial" style={{ "--editorial-side-dock-height": sideDockHeight ? `${sideDockHeight}px` : "auto" } as CSSProperties}>
     {assetGroups.length ? <>
       <aside className="editorial-side-dock is-left" aria-label="市场数据左侧轨道" ref={leftDockRef}><Mag7DataPanel data={data} />{leftAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}</aside>
-      <aside className="editorial-side-dock is-right" aria-label="市场数据右侧轨道" ref={rightDockRef}>{rightAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}<CryptoDataPanel data={data} btc={btc} /><Day1BtcMetricsPanel data={data} /><div ref={sideNewsRef}><SideNewsPanel news={snapshot?.news || []} fillHeight={sideNewsFillHeight} /></div></aside>
+      <aside className="editorial-side-dock is-right" aria-label="市场数据右侧轨道" ref={rightDockRef}>{rightAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}<CryptoDataPanel data={data} btc={btc} /><Day1BtcMetricsPanel data={data} /><div><SideNewsPanel news={snapshot?.news || []} /></div></aside>
     </> : null}
     <div className="editorial-wrap">
       {error ? <div className="editorial-error">{error}</div> : null}

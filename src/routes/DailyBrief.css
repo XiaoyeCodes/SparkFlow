@@ -402,7 +402,7 @@
 .editorial-day1-row > strong.is-negative { color: var(--ed-rose); }
 .editorial-day1-row > strong.is-neutral { color: var(--ed-dim); }
 
-.editorial-side-news { --side-news-accent: 120, 233, 199; position: relative; display: flex; min-height: 210px; height: var(--side-news-fill-height, auto); flex-direction: column; overflow: hidden; padding: 13px 12px 11px; border: 1px solid rgba(var(--side-news-accent), .2); border-radius: 16px; background: linear-gradient(150deg, rgba(8, 25, 27, .97), rgba(3, 11, 13, .99)); box-shadow: inset 0 1px rgba(255,255,255,.025), 0 14px 34px rgba(0,0,0,.18); }
+.editorial-side-news { --side-news-accent: 120, 233, 199; position: relative; display: flex; min-height: 210px; flex-direction: column; overflow: hidden; padding: 13px 12px 11px; border: 1px solid rgba(var(--side-news-accent), .2); border-radius: 16px; background: linear-gradient(150deg, rgba(8, 25, 27, .97), rgba(3, 11, 13, .99)); box-shadow: inset 0 1px rgba(255,255,255,.025), 0 14px 34px rgba(0,0,0,.18); }
 .editorial-side-news::before { position: absolute; top: 9px; right: 5px; left: 5px; height: 28px; border: 1px solid rgba(var(--side-news-accent), .08); border-radius: 999px; background: radial-gradient(ellipse at 50% 50%, rgba(var(--side-news-accent), .15), rgba(var(--side-news-accent), .035) 58%, transparent 80%); content: ""; }
 .editorial-side-news::after { position: absolute; right: -26px; bottom: -42px; width: 150px; height: 150px; border: 1px solid rgba(var(--side-news-accent), .08); border-radius: 50%; box-shadow: 0 0 38px rgba(var(--side-news-accent), .05); content: ""; pointer-events: none; }
 .editorial-side-news > header { position: relative; z-index: 1; display: flex; min-height: 28px; align-items: center; justify-content: space-between; padding: 0 4px 7px; border-bottom: 1px solid rgba(var(--side-news-accent), .12); }
@@ -467,13 +467,13 @@
   .brief-viz-secondary-grid { grid-template-areas: "cnn futures" "radar radar"; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* The defensive column has nine rows while the other two groups have seven.
+/* The defensive column has ten rows while the other two groups have seven.
    Compress it only in the three-column layout so all group panels share a baseline. */
 @media (min-width: 1081px) and (max-width: 1799px) {
   .editorial-asset-group { height: var(--asset-group-height, auto); }
   .editorial-asset-group.is-defensive { display: flex; flex-direction: column; }
   .editorial-asset-group.is-defensive .editorial-asset-grid { gap: 5px; }
-  .editorial-asset-group.is-defensive .editorial-asset-grid { display: grid; flex: 1; min-height: 0; grid-template-rows: repeat(9, minmax(0, 1fr)); }
+  .editorial-asset-group.is-defensive .editorial-asset-grid { display: grid; flex: 1; min-height: 0; grid-template-rows: repeat(10, minmax(0, 1fr)); }
   .editorial-asset-group.is-defensive .editorial-asset-card {
     grid-template-columns: 70px minmax(70px, 1fr) 76px;
     min-height: 0;
@@ -499,12 +499,23 @@
     top: calc(var(--nav-height) + 10px);
     display: grid;
     width: calc((100vw - 1240px) / 2 - 20px);
+    height: var(--editorial-side-dock-height, auto);
     align-content: start;
     gap: 14px;
     padding: 0 2px;
   }
   .editorial-side-dock.is-left { left: 16px; }
-  .editorial-side-dock.is-right { right: 16px; }
+  .editorial-side-dock.is-right {
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+  }
+  .editorial-side-dock.is-right > .editorial-market-data-panel.is-crypto,
+  .editorial-side-dock.is-right > .editorial-day1-metrics { flex: 1 0 auto; }
+  .editorial-side-dock.is-right > .editorial-market-data-panel.is-crypto { display: flex; flex-direction: column; }
+  .editorial-side-dock.is-right > .editorial-market-data-panel.is-crypto .editorial-onchain-table { display: flex; flex: 1; flex-direction: column; justify-content: space-between; }
+  .editorial-side-dock.is-right > .editorial-day1-metrics { display: flex; flex-direction: column; }
+  .editorial-side-dock.is-right > .editorial-day1-metrics .editorial-day1-rows { display: grid; flex: 1; grid-template-rows: repeat(13, minmax(29px, 1fr)); }
   .editorial-side-dock .editorial-asset-group { padding: 12px; border-radius: 16px; box-shadow: inset 0 1px rgba(255,255,255,.025), 0 12px 30px rgba(0,0,0,.18); }
   .editorial-side-dock .editorial-asset-group::before { top: 11px; right: 5px; left: 5px; width: auto; height: 34px; }
   .editorial-side-dock .editorial-asset-group h3 { margin-bottom: 0; font-size: 12px; }
