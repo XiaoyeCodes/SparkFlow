@@ -24,6 +24,7 @@ type HyperspeedProps = {
   autoAccelerate?: boolean;
   sequenceDurationMs?: number;
   peakSpeed?: number;
+  stopAfterSequence?: boolean;
   onSequenceComplete?: () => void;
 };
 
@@ -56,6 +57,7 @@ export function Hyperspeed({
   autoAccelerate = false,
   sequenceDurationMs = 2800,
   peakSpeed = 7.4,
+  stopAfterSequence = false,
   onSequenceComplete
 }: HyperspeedProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -117,6 +119,7 @@ export function Hyperspeed({
       opacity: 0.42
     });
 
+    const lineGeometries: THREE.BufferGeometry[] = [];
     const makeLine = (x: number, dashed = false) => {
       const group = new THREE.Group();
       const segmentCount = dashed ? 34 : 1;
@@ -130,6 +133,7 @@ export function Hyperspeed({
           new THREE.Vector3(x, 0.035, z0),
           new THREE.Vector3(x, 0.035, z1)
         ]);
+        lineGeometries.push(geometry);
         group.add(new THREE.Line(geometry, dashed ? laneMaterial : shoulderMaterial));
       }
 
@@ -202,6 +206,9 @@ export function Hyperspeed({
     const sequenceStartedAt = performance.now();
 
     const resize = () => {
+      // The frozen frame is only a short-lived crossfade texture. Let CSS scale
+      // it; resizing its backing buffer here would clear it and submit new draws.
+      if (sequenceFinished && stopAfterSequence) return;
       const { width, height } = container.getBoundingClientRect();
       if (!width || !height) return;
       renderer.setSize(width, height, false);
@@ -227,6 +234,7 @@ export function Hyperspeed({
     const clock = new THREE.Clock();
     const tick = () => {
       if (disposed) return;
+      let completedThisFrame = false;
       const delta = Math.min(clock.getDelta(), 0.035);
       if (autoAccelerate) {
         const progress = THREE.MathUtils.clamp((performance.now() - sequenceStartedAt) / sequenceDurationMs, 0, 1);
@@ -235,7 +243,7 @@ export function Hyperspeed({
         glow.intensity = THREE.MathUtils.lerp(2.4, 8.5, progress ** 1.7);
         if (progress >= 1 && !sequenceFinished) {
           sequenceFinished = true;
-          completeCallbackRef.current?.();
+          completedThisFrame = true;
         }
       }
       speed += (targetSpeed - speed) * (autoAccelerate ? 0.085 : 0.065);
@@ -270,6 +278,13 @@ export function Hyperspeed({
       camera.fov += (THREE.MathUtils.lerp(options.fov, autoAccelerate ? 126 : 108, speedRatio) - camera.fov) * 0.05;
       camera.updateProjectionMatrix();
       renderer.render(scene, camera);
+      // Keep the final composited frame for the CSS crossfade. No more WebGL
+      // submissions may compete with the incoming directory's first paint.
+      if (completedThisFrame) {
+        if (stopAfterSequence) container.dataset.renderState = 'paused';
+        completeCallbackRef.current?.();
+      }
+      if (sequenceFinished && stopAfterSequence) return;
       raf = window.requestAnimationFrame(tick);
     };
 
@@ -290,11 +305,13 @@ export function Hyperspeed({
       tubeGeometry.dispose();
       stickGeometry.dispose();
       stickMaterial.dispose();
+      lineGeometries.forEach((geometry) => geometry.dispose());
+      carLights.forEach(({ mesh }) => (mesh.material as THREE.MeshBasicMaterial).dispose());
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
       }
     };
-  }, [autoAccelerate, effectOptions, peakSpeed, sequenceDurationMs]);
+  }, [autoAccelerate, effectOptions, peakSpeed, sequenceDurationMs, stopAfterSequence]);
 
   return <div ref={containerRef} className="hyperspeed" aria-hidden="true" />;
 }

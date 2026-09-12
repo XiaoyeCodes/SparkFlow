@@ -1,14 +1,18 @@
 import {
   ArrowUpRight,
   Bot,
+  BookOpen,
   ChartNoAxesCombined,
   CloudSun,
   Flame,
   Globe2,
+  Landmark,
   Newspaper,
   Orbit,
   Plane,
   Radar,
+  Scale,
+  Thermometer,
   type LucideIcon
 } from 'lucide-react';
 import { memo, useEffect, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
@@ -24,6 +28,10 @@ const portalIcons: Record<CyberPortalIcon, LucideIcon> = {
   trends: Orbit,
   flight: Plane,
   hot: Flame,
+  temperature: Thermometer,
+  valuation: Scale,
+  statistics: Landmark,
+  column: BookOpen,
   ai: Bot
 };
 

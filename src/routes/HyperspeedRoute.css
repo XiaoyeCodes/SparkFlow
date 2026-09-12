@@ -133,6 +133,51 @@
 
 .cyber-corridor__directory { margin-top: 30px; }
 
+/* Prepare the directory during the tunnel, without a page-sized blur layer. */
+.cyber-corridor:not([data-phase='directory']) {
+  max-height: calc(100vh - var(--nav-height));
+  overflow: hidden;
+}
+
+.cyber-corridor:not([data-phase='directory']) .cyber-corridor__directory {
+  pointer-events: none;
+}
+
+.cyber-corridor__directory-heading,
+.cyber-corridor__group-heading {
+  opacity: 0;
+  transition: opacity 450ms ease 120ms;
+}
+
+.cyber-corridor__card-entry {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 550ms ease, transform 650ms cubic-bezier(0.19, 1, 0.22, 1);
+  transition-delay: var(--entry-delay, 180ms);
+}
+
+/* opacity:0 may defer rasterization until the first visible frame. Prime the
+   flattened card layers while WebGL is paused, then animate the cached pixels. */
+.cyber-corridor[data-phase='preparing'] .cyber-corridor__card-entry,
+.cyber-corridor[data-phase='preparing'] .cyber-corridor__group-heading,
+.cyber-corridor[data-phase='preparing'] .cyber-corridor__directory-heading {
+  opacity: 0.001;
+  transition: none;
+}
+
+.cyber-corridor:not([data-phase='transit'])[data-settled='false'] .cyber-corridor__card-entry {
+  will-change: opacity, transform;
+}
+
+.cyber-corridor[data-settled='false'] .cyber-portal-card { pointer-events: none; }
+
+.cyber-corridor[data-phase='directory'] .cyber-corridor__directory-heading,
+.cyber-corridor[data-phase='directory'] .cyber-corridor__group-heading,
+.cyber-corridor[data-phase='directory'] .cyber-corridor__card-entry {
+  opacity: 1;
+  transform: none;
+}
+
 .cyber-corridor__directory-heading {
   display: flex;
   align-items: end;
@@ -228,4 +273,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .cyber-corridor__meter::after { animation: none; transform: scaleX(1); }
+  .cyber-corridor__card-entry,
+  .cyber-corridor__directory-heading,
+  .cyber-corridor__group-heading { transition: none; }
 }

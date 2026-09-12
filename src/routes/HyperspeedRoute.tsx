@@ -3,7 +3,6 @@ import { Zap } from 'lucide-react';
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { CyberPortalCard } from '../components/CyberPortalCard';
 import { Hyperspeed, type HyperspeedOptions } from '../components/Hyperspeed';
-import { PageTransition } from '../components/PageTransition';
 import { cyberPortalGroups } from '../data/cyberPortals';
 import './HyperspeedRoute.css';
 
@@ -25,12 +24,19 @@ const hyperspeedOptions: HyperspeedOptions = {
 };
 
 const revealTransition = { duration: 0.72, ease: [0.19, 1, 0.22, 1] as const };
+const portalCount = cyberPortalGroups.reduce((count, group) => count + group.portals.length, 0);
+const portalGroupOffsets = cyberPortalGroups.map((_, index) =>
+  cyberPortalGroups.slice(0, index).reduce((count, group) => count + group.portals.length, 0)
+);
 
 export function HyperspeedRoute() {
   const prefersReducedMotion = Boolean(useReducedMotion());
   const [sequenceComplete, setSequenceComplete] = useState(prefersReducedMotion);
   const [tunnelMounted, setTunnelMounted] = useState(!prefersReducedMotion);
-  const directoryVisible = prefersReducedMotion || sequenceComplete;
+  const [prepared, setPrepared] = useState(prefersReducedMotion);
+  const [settled, setSettled] = useState(prefersReducedMotion);
+  const directoryVisible = prefersReducedMotion || prepared;
+  const phase = directoryVisible ? 'directory' : sequenceComplete ? 'preparing' : 'transit';
 
   const finishSequence = useCallback(() => setSequenceComplete(true), []);
 
@@ -38,29 +44,67 @@ export function HyperspeedRoute() {
     if (!prefersReducedMotion) return;
     setSequenceComplete(true);
     setTunnelMounted(false);
+    setPrepared(true);
+    setSettled(true);
   }, [prefersReducedMotion]);
 
   useEffect(() => {
     if (!sequenceComplete || prefersReducedMotion) return;
-    const timer = window.setTimeout(() => setTunnelMounted(false), 1050);
-    return () => window.clearTimeout(timer);
-  }, [prefersReducedMotion, sequenceComplete]);
+    // Nonzero opacity + temporary layer hints allow rasterization before reveal.
+    // Yield across paint opportunities rather than starting both renderers at once.
+    let frame = 0;
+    let timer = 0;
+    frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        timer = window.setTimeout(() => setPrepared(true), 100);
+      });
+    });
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, [sequenceComplete, prefersReducedMotion]);
+
+  useEffect(() => {
+    if (!directoryVisible || prefersReducedMotion) return;
+    let idle = 0;
+    let cleanupTimer = 0;
+    // Last card finishes at 1220ms. Deallocate WebGL only after all entrances.
+    const timer = window.setTimeout(() => {
+      setSettled(true);
+      if (typeof window.requestIdleCallback === 'function') {
+        idle = window.requestIdleCallback(() => setTunnelMounted(false), { timeout: 500 });
+      } else {
+        cleanupTimer = window.setTimeout(() => setTunnelMounted(false), 100);
+      }
+    }, 1400);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(cleanupTimer);
+      if (idle) window.cancelIdleCallback(idle);
+    };
+  }, [directoryVisible, prefersReducedMotion]);
 
   return (
-    <PageTransition>
-      <section className="cyber-corridor" data-phase={directoryVisible ? 'directory' : 'transit'}>
-        <AnimatePresence>
+    <motion.div
+      className="page-enter min-h-screen pt-[var(--nav-height)]"
+      initial={prefersReducedMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.35 }}
+    >
+      <section className="cyber-corridor" data-phase={phase} data-settled={settled}>
           {tunnelMounted ? (
             <motion.div
               className="cyber-corridor__tunnel"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: sequenceComplete ? 0 : 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: sequenceComplete ? 0.95 : 0.45, ease: 'easeOut' }}
+              initial={{ opacity: 0, scale: 1 }}
+              animate={{ opacity: directoryVisible ? 0 : 1, scale: sequenceComplete ? 1.12 : 1 }}
+              transition={{
+                opacity: { duration: directoryVisible ? 0.7 : 0.45, ease: 'easeOut' },
+                scale: { duration: 1.05, ease: 'easeOut' }
+              }}
             >
               <Hyperspeed
                 effectOptions={hyperspeedOptions}
                 autoAccelerate
+                stopAfterSequence
                 sequenceDurationMs={2800}
                 peakSpeed={7.8}
                 onSequenceComplete={finishSequence}
@@ -68,16 +112,14 @@ export function HyperspeedRoute() {
               <div className="cyber-corridor__tunnel-overlay" />
             </motion.div>
           ) : null}
-        </AnimatePresence>
 
         <div className="cyber-corridor__shell">
           <motion.header
             className="cyber-corridor__header"
-            initial={{ opacity: 0, y: 28, filter: 'blur(12px)' }}
+            initial={prefersReducedMotion ? false : { opacity: 0, y: '17vh' }}
             animate={{
               opacity: 1,
-              y: directoryVisible ? 0 : '17vh',
-              filter: 'blur(0px)'
+              y: directoryVisible ? '0vh' : '17vh'
             }}
             transition={revealTransition}
           >
@@ -92,7 +134,7 @@ export function HyperspeedRoute() {
               transition={{ duration: 0.5 }}
             >
               {directoryVisible
-                ? '九个外部信号节点已经接入。按任务分类选择入口，在新标签页打开对应情报终端。'
+                ? `共 ${portalCount} 个网站入口，按用途分类，在新标签页打开。`
                 : '正在提升链路速度，穿越边界后将接入外部实时信号网络。'}
             </motion.p>
           </motion.header>
@@ -115,29 +157,24 @@ export function HyperspeedRoute() {
             ) : null}
           </AnimatePresence>
 
-          {directoryVisible ? (
-            <motion.div
+            <div
               className="cyber-corridor__directory"
-              initial={{ opacity: 0, y: 44, filter: 'blur(14px)' }}
-              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-              transition={{ ...revealTransition, delay: prefersReducedMotion ? 0 : 0.25 }}
+              aria-hidden={!directoryVisible}
+              ref={(node) => { if (node) node.inert = !directoryVisible; }}
             >
               <div className="cyber-corridor__directory-heading">
                 <div>
-                  <p>ACCESS DIRECTORY / 09 NODES</p>
+                  <p>ACCESS DIRECTORY / {String(portalCount).padStart(2, '0')} NODES</p>
                   <h2>选择你的情报入口</h2>
                 </div>
                 <span>SECURE EXTERNAL HANDOFF · NEW TAB</span>
               </div>
 
               {cyberPortalGroups.map((group, groupIndex) => (
-                <motion.section
+                <section
                   className="cyber-corridor__group"
                   key={group.id}
                   style={{ '--group-accent': group.accent } as CSSProperties}
-                  initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ ...revealTransition, delay: prefersReducedMotion ? 0 : 0.38 + groupIndex * 0.13 }}
                   aria-labelledby={`${group.id}-title`}
                 >
                   <div className="cyber-corridor__group-heading">
@@ -151,31 +188,26 @@ export function HyperspeedRoute() {
 
                   <div className="cyber-corridor__grid">
                     {group.portals.map((portal, portalIndex) => (
-                      <motion.div
+                      <div
                         key={portal.id}
-                        initial={prefersReducedMotion ? false : { opacity: 0, y: 28, scale: 0.975 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        transition={{
-                          ...revealTransition,
-                          delay: prefersReducedMotion ? 0 : 0.48 + groupIndex * 0.13 + portalIndex * 0.07
-                        }}
+                        className="cyber-corridor__card-entry"
+                        style={{ '--entry-delay': `${180 + groupIndex * 70 + portalIndex * 55}ms` } as CSSProperties}
                       >
                         <CyberPortalCard
                           portal={portal}
                           accent={group.accent}
                           accentRgb={group.accentRgb}
-                          order={groupIndex * 3 + portalIndex}
+                          order={portalGroupOffsets[groupIndex] + portalIndex}
                           reducedMotion={prefersReducedMotion}
                         />
-                      </motion.div>
+                      </div>
                     ))}
                   </div>
-                </motion.section>
+                </section>
               ))}
-            </motion.div>
-          ) : null}
+            </div>
         </div>
       </section>
-    </PageTransition>
+    </motion.div>
   );
 }

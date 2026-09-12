@@ -7,6 +7,10 @@ export type CyberPortalIcon =
   | 'trends'
   | 'flight'
   | 'hot'
+  | 'temperature'
+  | 'valuation'
+  | 'statistics'
+  | 'column'
   | 'ai';
 
 export type CyberPortalVariant = 'grid' | 'orbit' | 'pulse';
@@ -76,11 +80,52 @@ export const cyberPortalGroups: CyberPortalGroup[] = [
     ]
   },
   {
-    id: 'market-research',
+    id: 'valuation-observation',
     index: '02',
-    title: '市场研究',
-    englishTitle: 'MARKET RESEARCH',
-    description: '横截面热度、每日简报与长期资产趋势',
+    title: '估值观察',
+    englishTitle: 'VALUATION OBSERVATORY',
+    description: '全市场温度、指数估值与美股历史估值数据',
+    accent: '#ffb454',
+    accentRgb: '255, 180, 84',
+    portals: [
+      {
+        id: 'youzhiyouxing-market',
+        title: '有知有行 · 市场温度',
+        englishTitle: 'MARKET TEMPERATURE',
+        description: '观察全市场历史温度、不同温带的回测表现与股市回报来源。',
+        url: 'https://youzhiyouxing.cn/data/market',
+        domain: 'youzhiyouxing.cn',
+        icon: 'temperature',
+        variant: 'pulse'
+      },
+      {
+        id: 'qieman-index-valuation',
+        title: '且慢 · 指数估值',
+        englishTitle: 'INDEX VALUATION',
+        description: '查看指数估值数据，为指数基金研究与长期投资提供参考。',
+        url: 'https://qieman.com/idx-eval',
+        domain: 'qieman.com',
+        icon: 'valuation',
+        variant: 'grid'
+      },
+      {
+        id: 'multpl-market-data',
+        title: 'Multpl · 美股估值',
+        englishTitle: 'US VALUATION HISTORY',
+        description: '查阅标普 500 市盈率、席勒市盈率、股息率与美债利率历史。',
+        url: 'https://www.multpl.com/',
+        domain: 'multpl.com',
+        icon: 'trends',
+        variant: 'orbit'
+      }
+    ]
+  },
+  {
+    id: 'market-research',
+    index: '03',
+    title: '宏观与市场',
+    englishTitle: 'MACRO & MARKETS',
+    description: '官方经济统计、市场热度与跨资产长期趋势',
     accent: '#eaff4f',
     accentRgb: '234, 255, 79',
     portals: [
@@ -95,13 +140,13 @@ export const cyberPortalGroups: CyberPortalGroup[] = [
         variant: 'grid'
       },
       {
-        id: 'day1-global',
-        title: 'Day1 全球晨报',
-        englishTitle: 'DAILY MARKET BRIEF',
-        description: '快速浏览美股、加密市场与当天关键投资情报。',
-        url: 'https://brief.day1global.xyz/',
-        domain: 'brief.day1global.xyz',
-        icon: 'brief',
+        id: 'national-statistics',
+        title: '国家统计局 · 数据',
+        englishTitle: 'CHINA OFFICIAL STATISTICS',
+        description: '查询官方统计数据、经济运行发布、统计年鉴与指标解读。',
+        url: 'https://www.stats.gov.cn/sj/',
+        domain: 'stats.gov.cn',
+        icon: 'statistics',
         variant: 'pulse'
       },
       {
@@ -117,8 +162,49 @@ export const cyberPortalGroups: CyberPortalGroup[] = [
     ]
   },
   {
+    id: 'financial-reading',
+    index: '04',
+    title: '财经阅读',
+    englishTitle: 'FINANCIAL READING',
+    description: '每日投资简报、投资者专栏与全球财经报道',
+    accent: '#a99aff',
+    accentRgb: '169, 154, 255',
+    portals: [
+      {
+        id: 'day1-global',
+        title: 'Day1 全球晨报',
+        englishTitle: 'DAILY MARKET BRIEF',
+        description: '快速浏览美股、加密市场与当天关键投资情报。',
+        url: 'https://brief.day1global.xyz/',
+        domain: 'brief.day1global.xyz',
+        icon: 'brief',
+        variant: 'pulse'
+      },
+      {
+        id: 'xueqiu-bank-screw-column',
+        title: '银行螺丝钉 · 雪球专栏',
+        englishTitle: 'INVESTOR COLUMN',
+        description: '阅读银行螺丝钉在雪球发布的专栏文章与投资观点。',
+        url: 'https://xueqiu.com/3079173340/column',
+        domain: 'xueqiu.com',
+        icon: 'column',
+        variant: 'orbit'
+      },
+      {
+        id: 'wsj-chinese',
+        title: '华尔街日报 · 中文网',
+        englishTitle: 'THE WALL STREET JOURNAL',
+        description: '阅读全球商业、经济、金融与国际事件的中文报道。',
+        url: 'https://cn.wsj.com/',
+        domain: 'cn.wsj.com',
+        icon: 'brief',
+        variant: 'grid'
+      }
+    ]
+  },
+  {
     id: 'live-intelligence',
-    index: '03',
+    index: '05',
     title: '实时情报',
     englishTitle: 'LIVE INTELLIGENCE',
     description: '交通活动、公共议题与 AI 产业的实时脉冲',
