@@ -15,6 +15,9 @@ type StoredMessage = {
   role: string;
   content: string;
   linked_attempt_id?: string;
+  metadata?: {
+    status?: string;
+  };
 };
 
 type ResearchProvider = 'vibe' | 'coze' | 'trading-team';
@@ -153,12 +156,22 @@ function scopeLabel(scope: AiResearchScope, query = '') {
   return '全球宏观';
 }
 
+function isFailedAttemptMessage(message: Pick<StoredMessage, 'content' | 'metadata'>) {
+  return message.metadata?.status === 'failed'
+    || /^\s*Execution failed\s*:/i.test(message.content);
+}
+
 function normalizeStoredReport(value: unknown): StoredReport | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<StoredReport>;
   if (typeof candidate.generatedAt !== 'string') return null;
-  const status = candidate.status === 'running' ? 'running' : candidate.status === 'failed' ? 'failed' : 'completed';
   const markdown = typeof candidate.markdown === 'string' ? removeLegacyLlmPrefix(candidate.markdown) : '';
+  const storedFailure = isFailedAttemptMessage({ content: markdown });
+  const status = candidate.status === 'running'
+    ? 'running'
+    : candidate.status === 'failed' || storedFailure
+    ? 'failed'
+    : 'completed';
   if (status === 'completed' && !markdown.trim()) return null;
   const scope: AiResearchScope = candidate.scope === 'country' || candidate.scope === 'equity' ? candidate.scope : 'global';
   const query = typeof candidate.query === 'string' ? candidate.query.trim() : '';
@@ -178,7 +191,11 @@ function normalizeStoredReport(value: unknown): StoredReport | null {
     attemptId: typeof candidate.attemptId === 'string' ? candidate.attemptId : undefined,
     scope,
     query: query || undefined,
-    error: typeof candidate.error === 'string' ? candidate.error : undefined,
+    error: typeof candidate.error === 'string'
+      ? readableError(candidate.error)
+      : storedFailure
+      ? readableError(markdown)
+      : undefined,
     provider: candidate.provider === 'coze'
       ? 'coze'
       : candidate.provider === 'trading-team'
@@ -734,7 +751,11 @@ export function MacroAiAnalyst({
           );
           const answer = messages.find((message) => message.role === 'assistant' && message.linked_attempt_id === attemptId);
           if (answer?.content) {
-            complete(answer.content, analysisId, reveal, { provider });
+            if (isFailedAttemptMessage(answer)) {
+              failAnalysis(analysisId, answer.content, reveal);
+            } else {
+              complete(answer.content, analysisId, reveal, { provider });
+            }
             return;
           }
         }
@@ -821,6 +842,10 @@ export function MacroAiAnalyst({
     source.addEventListener('attempt.started', () => {
       advanceStage(2);
       transitionState('analyzing');
+    });
+    source.addEventListener('stream_reset', () => {
+      liveTextRef.current = '';
+      advanceStage(2);
     });
     source.addEventListener('reasoning_delta', () => advanceStage(3));
     source.addEventListener('tool_call', () => advanceStage(4));

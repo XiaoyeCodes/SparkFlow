@@ -972,7 +972,9 @@ for(const width of [1920,1440,808,390])test(`populated report and risk layouts $
     await page.keyboard.press('Escape');
     await expect(page.getByRole('listbox', { name: '历史报告' })).toHaveCount(0);
     await expect(page.getByRole('heading',{name:'基准比较',exact:true})).toBeVisible();
-    await expect(page.locator('.awb-analysis-report-grid')).not.toContainText('机会与风险');
+    await expect(page.locator('.awb-analysis-report-grid')).toContainText('机会与风险');
+    await expect(page.locator('.awb-analysis-report-grid')).toContainText('【机会】');
+    await expect(page.locator('.awb-analysis-report-grid')).toContainText('【风险】');
     await expect(page.locator('.awb-analysis-report-grid')).not.toContainText('目标配置框架');
     await expect(page.locator('.awb-analysis-report-grid')).not.toContainText('证据与数据缺口');
     await expect(page.locator('.awb-analysis-report-grid > main .awb-analysis-scenarios')).toHaveCount(1);
@@ -988,7 +990,7 @@ for(const width of [1920,1440,808,390])test(`populated report and risk layouts $
       const asideBox=(await page.locator('.awb-analysis-report-grid > aside').boundingBox())!;
       const composerBox=(await page.locator('.awb-analysis-report-grid + .awb-analysis-composer').boundingBox())!;
       expect(Math.abs(heroBox.y-priorityBox.y)).toBeLessThanOrEqual(2);
-      expect(actionsBox.y-(priorityBox.y+priorityBox.height)).toBeLessThanOrEqual(18);
+      expect(actionsBox.y-(priorityBox.y+priorityBox.height)).toBeLessThanOrEqual(22);
       expect(actionsBox.y).toBeLessThan(heroBox.y+heroBox.height);
       expect(scenarioBox.x).toBeLessThan(actionsBox.x);
       expect(Math.abs((mainBox.y+mainBox.height)-(asideBox.y+asideBox.height))).toBeLessThanOrEqual(2);
@@ -1099,9 +1101,10 @@ test('overview labels local NAV changes without presenting them as investment re
 
 test('full HD overview fits all summary modules while research is pending', async ({ page }) => {
   const data = state(true);
+  const pendingAt = new Date().toISOString();
   data.snapshot.positions = ['AAPL', 'QQQ', 'MSFT', 'NVDA', 'AMZN', 'KO', 'TSLA', 'MCD', 'VTI', 'AMD', 'GOOG', 'META'].map((symbol, i) => ({ ...data.snapshot.positions[0], conId: i + 1, symbol, unrealizedPnl: String(i % 2 ? -100 : 100) }));
   data.metrics = { investedWeight: .978, cashWeight: .022, topWeight: .33, riskLevel: '偏高', reasons: ['现金比例低于观察线', '单标的仓位超过观察线'], sectors: [{ name: 'Technology', weight: .426 }, { name: 'ETF', weight: .215 }, { name: 'Technology Services', weight: .091 }, { name: 'Consumer Defensive', weight: .087 }, { name: 'Retail', weight: .045 }, { name: 'Healthcare', weight: .039 }, { name: 'Consumer Services', weight: .038 }, { name: 'Consumer Durables', weight: .037 }], sectorCoverage: 1 };
-  data.jobs = [{ id: 'pending-fixture', kind: 'manual', state: 'partial', startedAt: '2026-09-07', error: '研究服务暂不可用；已保存阶段结果，可继续研究', progress: { strategy: 'portfolio', stage: '待研究', covered: [], total: 12, sources: 4, searches: 4, reads: 4, modelCalls: 2, maxCalls: 2, startedAt: '2026-09-07', updatedAt: '2026-09-07', complete: false, gaps: [], trace: [] } }];
+  data.jobs = [{ id: 'pending-fixture', kind: 'manual', state: 'partial', startedAt: pendingAt, error: '研究服务暂不可用；已保存阶段结果，可继续研究', progress: { strategy: 'portfolio', stage: '待研究', covered: [], total: 12, sources: 4, searches: 4, reads: 4, modelCalls: 2, maxCalls: 2, startedAt: pendingAt, updatedAt: pendingAt, complete: false, gaps: [], trace: [] } }];
   data.alerts = ['现金缓冲偏低', '单标的仓位集中'].map((title, i) => ({ id: String(i), key: String(i), kind: 'risk', title, detail: '工程测试观察规则', symbols: [], createdAt: '2026-09-07', read: false, resolved: false, evidenceIds: [] }));
   data.performance = { source: 'IBKR PortfolioAnalyst', fetchedAt: '2026-09-07', currency: 'USD', returnMethod: 'TWR', benchmark: 'none', note: '工程测试历史', points: [{ date: '2026-07-31', nav: 100000, cumulativeReturn: 0 }, { date: '2026-08-31', nav: 101000, cumulativeReturn: .01 }, { date: '2026-09-07', nav: 102000, cumulativeReturn: .02 }] };
   await page.route('**/api/ibkr-workbench/state', r => r.fulfill({ json: data }));
@@ -1305,7 +1308,7 @@ test('question examples complete with Tab without replacing drafts or submitting
 
 test('analysis dashboard keeps the latest portfolio conclusion above progress and routes chat replies to history', async ({ page }) => {
   const data = state(true); data.ai.enabled = true;
-  const makeReport = (id: string, generatedAt: string, headline: string, kind: AnalysisReport['kind'] = 'manual'): AnalysisReport => ({ id, accountKey: data.snapshot.accountKey, snapshotId: data.snapshot.snapshotId, snapshotHash: 'fixture', generatedAt, provider: 'fixture', model: 'test-model', kind, snapshot: { ...data.snapshot, positions: [] }, evidence: [], quotes: [], content: { headline, brief: '保存的真实研究内容', briefPoints: ['结论要点一', '结论要点二', '结论要点三'], accountSummary: '', portfolioRisk: '', marketContext: '', holdings: [], opportunities: [], risks: [], actions: [], gaps: [] } });
+  const makeReport = (id: string, generatedAt: string, headline: string, kind: AnalysisReport['kind'] = 'manual'): AnalysisReport => ({ id, accountKey: data.snapshot.accountKey, snapshotId: data.snapshot.snapshotId, snapshotHash: 'fixture', generatedAt, provider: 'fixture', model: 'test-model', kind, snapshot: { ...data.snapshot, positions: [] }, evidence: [], quotes: [], content: { headline, brief: '保存的真实研究内容', briefPoints: ['结论要点一', '结论要点二', '结论要点三'], accountSummary: '账户概览测试内容', portfolioRisk: '组合风险测试内容', marketContext: '过去一周宏观测试内容', holdings: [], valuationReview: [{ symbol: 'AAPL', verdict: 'insufficient', rationale: '估值资料不足，暂不判断。', evidenceIds: [] }], opportunities: ['等待有证据的价值机会。'], risks: ['集中风险需要持续观察。'], calendar: [{ date: '2026-09-15 20:30 北京时间', event: '美国经济数据', impact: '观察利率预期对成长持仓的传导。', symbols: [], evidenceIds: [] }], frameworks: { buffett: { analysis: '先看安全边际。', commentary: '公开价值投资原则下保持耐心。', evidenceIds: [] }, peterLynch: { analysis: '核验增长兑现。', commentary: '公开成长投资原则下让数字验证故事。', evidenceIds: [] }, rayDalio: { analysis: '识别共同宏观因子。', commentary: '公开宏观对冲原则下分散风险来源。', evidenceIds: [] } }, fullSummary: '核心结论是先控制集中度，再等待证据。', actions: [], gaps: [] } });
   data.reports = [makeReport('older', '2026-09-06T03:00:00Z', '较早的组合判断'), makeReport('latest', '2026-09-08T03:00:00Z', '最新组合判断'), makeReport('chat', '2026-09-08T04:00:00Z', '单次问答回复', 'chat')];
   data.jobs = [{ id: 'cancelled', kind: 'manual', state: 'cancelled', startedAt: '2026-09-08T05:00:00Z', progress: { strategy: 'portfolio', stage: '资料已保存', covered: [], total: 1, sources: 4, searches: 4, reads: 3, modelCalls: 0, maxCalls: 1, startedAt: '2026-09-08T05:00:00Z', updatedAt: '2026-09-08T05:00:00Z', complete: false, gaps: [], trace: [] } }];
   let requestBody: unknown;
@@ -1317,6 +1320,12 @@ test('analysis dashboard keeps the latest portfolio conclusion above progress an
   const hero = page.locator('.awb-analysis-dashboard .awb-analysis-hero');
   await expect(hero).toContainText('最新组合判断'); await expect(hero).not.toContainText('单次问答回复');
   await expect(hero).toContainText('结论要点三');
+  const rerun = hero.getByRole('button', { name: '重新分析', exact: true });
+  await expect(rerun).toBeVisible();
+  await hero.screenshot({ path: 'tmp/workbench-qa/analysis-rerun-desktop.png' });
+  await rerun.click();
+  await expect.poll(() => requestBody).toEqual({});
+  requestBody = undefined;
   // Coverage follows the report snapshot (zero positions), not the newer live account (one).
   await expect(page.locator('.awb-analysis-coverage')).toContainText('0 个持仓');
   await expect(page.locator('.awb-analysis-progress-slot')).toContainText('已取消');
@@ -1333,6 +1342,8 @@ test('analysis dashboard keeps the latest portfolio conclusion above progress an
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.locator('.awb-analysis-interaction').screenshot({ path: 'tmp/workbench-qa/analysis-combined-mobile.png' });
+  await hero.scrollIntoViewIfNeeded();
+  await hero.screenshot({ path: 'tmp/workbench-qa/analysis-rerun-mobile.png' });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.getByLabel('账户分析问题').fill('如果市场回调，哪些持仓最值得关注？');
   await page.getByRole('button', { name: '提交问题', exact: true }).click();
@@ -1342,36 +1353,52 @@ test('analysis dashboard keeps the latest portfolio conclusion above progress an
   await expect(page.getByRole('heading', { name: '单次问答回复', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '返回分析工作台', exact: true }).click();
   await expect(hero).toContainText('最新组合判断');
+  await hero.getByRole('button', { name: '查看完整报告与依据', exact: true }).click();
+  await expect(page.getByText('重点持仓估值判断', { exact: true })).toBeVisible();
+  await expect(page.getByText('未来 7–14 天关注日历', { exact: true })).toBeVisible();
+  await expect(page.getByText('三套持仓分析框架', { exact: true })).toBeVisible();
+  await expect(page.getByText('核心结论是先控制集中度，再等待证据。', { exact: true })).toBeVisible();
+  await page.locator('.awb-analysis-report-grid').screenshot({ path: 'tmp/workbench-qa/analysis-structured-report.png' });
 });
 
-test('settings save the only daily analysis schedule without later preference edits losing it', async ({ page }) => {
+test('settings save daily, weekly and monthly analysis schedules without later preference edits losing them', async ({ page }) => {
   const data = state(true); let submissions: any[] = [];
   await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
   await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: data.quotes }));
   await page.route('**/api/ibkr-workbench/preferences', route => { const value = route.request().postDataJSON(); submissions.push(value); data.preferences = value; return route.fulfill({ json: { ok: true } }); });
   await page.setViewportSize({ width: 1440, height: 1080 });
   await page.goto('http://127.0.0.1:5187/ibkr?tab=settings');
-  await expect(page.getByRole('switch', { name: '启用每日 AI 分析定时' })).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: '启用账户 AI 分析定时' })).not.toBeChecked();
   await expect(page.getByRole('switch', { name: '启用账户简报定时' })).toHaveCount(0);
-  await page.getByRole('switch', { name: '启用每日 AI 分析定时' }).check();
-  await page.getByLabel('每日 AI 分析每天次数').selectOption('2');
-  await page.getByLabel('每日 AI 分析第 1 次时间').fill('09:00');
-  await page.getByLabel('每日 AI 分析第 2 次时间').fill('09:00');
+  await page.getByRole('switch', { name: '启用账户 AI 分析定时' }).check();
+  await page.getByLabel('账户 AI 分析每个执行日次数').selectOption('2');
+  await page.getByLabel('账户 AI 分析第 1 次时间').fill('09:00');
+  await page.getByLabel('账户 AI 分析第 2 次时间').fill('09:00');
   await expect(page.getByRole('button', { name: '保存定时设置', exact: true })).toBeDisabled();
-  await page.getByLabel('每日 AI 分析第 2 次时间').fill('20:00');
+  await page.getByLabel('账户 AI 分析第 2 次时间').fill('20:00');
   await page.getByRole('button', { name: '保存定时设置', exact: true }).click();
   await expect.poll(() => submissions.length).toBe(1);
-  expect(submissions[0].schedules).toEqual({ brief: { enabled: false, mode: 'clock', timeZone: 'Asia/Shanghai', times: ['09:00'] }, analysis: { enabled: true, mode: 'clock', timeZone: 'Asia/Shanghai', times: ['09:00', '20:00'] } });
+  expect(submissions[0].schedules).toEqual({ brief: { enabled: false, mode: 'clock', timeZone: 'Asia/Shanghai', times: ['09:00'], frequency: 'daily', weekday: 1, monthDay: 1 }, analysis: { enabled: true, mode: 'clock', timeZone: 'Asia/Shanghai', times: ['09:00', '20:00'], frequency: 'daily', weekday: 1, monthDay: 1 } });
   expect(submissions[0].daily).toBe(false); expect(submissions[0].eventAnalysis).toBe(false); expect(submissions[0].maxAutomatic).toBe(0);
   await page.getByRole('button', { name: '保存偏好', exact: true }).click();
   await expect.poll(() => submissions.length).toBe(2); expect(submissions[1].schedules).toEqual(submissions[0].schedules);
   await page.reload();
-  await expect(page.getByLabel('每日 AI 分析第 2 次时间')).toHaveValue('20:00');
-  await page.locator('.awb-schedules').screenshot({ path: 'tmp/workbench-qa/schedules-desktop.png' });
-  await page.getByRole('switch', { name: '启用每日 AI 分析定时' }).uncheck();
+  await expect(page.getByLabel('账户 AI 分析第 2 次时间')).toHaveValue('20:00');
+  await page.getByLabel('账户 AI 分析每周执行').check();
+  await page.getByLabel('账户 AI 分析每周执行日').selectOption('5');
   await page.getByRole('button', { name: '保存定时设置', exact: true }).click();
   await expect.poll(() => submissions.length).toBe(3);
-  expect(submissions[2].daily).toBe(false); expect(submissions[2].schedules.analysis.enabled).toBe(false);
+  expect(submissions[2].schedules.analysis).toMatchObject({ enabled: true, frequency: 'weekly', weekday: 5, times: ['09:00', '20:00'] });
+  await page.getByLabel('账户 AI 分析每月执行').check();
+  await page.getByLabel('账户 AI 分析每月执行日').selectOption('31');
+  await page.getByRole('button', { name: '保存定时设置', exact: true }).click();
+  await expect.poll(() => submissions.length).toBe(4);
+  expect(submissions[3].schedules.analysis).toMatchObject({ enabled: true, frequency: 'monthly', monthDay: 31, times: ['09:00', '20:00'] });
+  await page.locator('.awb-schedules').screenshot({ path: 'tmp/workbench-qa/schedules-desktop.png' });
+  await page.getByRole('switch', { name: '启用账户 AI 分析定时' }).uncheck();
+  await page.getByRole('button', { name: '保存定时设置', exact: true }).click();
+  await expect.poll(() => submissions.length).toBe(5);
+  expect(submissions[4].daily).toBe(false); expect(submissions[4].schedules.analysis.enabled).toBe(false);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.locator('.awb-schedules').screenshot({ path: 'tmp/workbench-qa/schedules-mobile.png' });

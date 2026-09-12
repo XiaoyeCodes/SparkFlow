@@ -10,6 +10,23 @@ function localClock(date: Date, zone: string) {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
+function calendarDate(localDate: string, offset: number) {
+  const date = new Date(`${localDate}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date;
+}
+
+function daysInUtcMonth(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+}
+
+function matchesRecurrence(schedule: AccountSchedule, date: Date) {
+  const frequency = schedule.frequency ?? 'daily';
+  if (frequency === 'weekly') return (date.getUTCDay() || 7) === (schedule.weekday ?? 1);
+  if (frequency === 'monthly') return date.getUTCDate() === Math.min(schedule.monthDay ?? 1, daysInUtcMonth(date));
+  return true;
+}
+
 export function scheduleWindow(schedule: AccountSchedule, now: Date, effectiveAt?: string) {
   const calendar = briefSchedule(now);
   const slots: ScheduleSlot[] = [];
@@ -19,8 +36,12 @@ export function scheduleWindow(schedule: AccountSchedule, now: Date, effectiveAt
   } else {
     const localDate = localClock(now, schedule.timeZone).slice(0, 10);
     const offsets = schedule.timeZone === 'Asia/Shanghai' ? [8] : schedule.timeZone === 'UTC' ? [0] : [-4, -5];
-    for (let back = -1; back <= 2; back++) {
-      const day = new Date(`${localDate}T12:00:00Z`); day.setUTCDate(day.getUTCDate() + back);
+    const frequency = schedule.frequency ?? 'daily';
+    const searchDays = frequency === 'monthly' ? 35 : frequency === 'weekly' ? 8 : 2;
+    const lookBack = frequency === 'monthly' ? 31 : frequency === 'weekly' ? 7 : 1;
+    for (let back = -lookBack; back <= searchDays; back++) {
+      const day = calendarDate(localDate, back);
+      if (!matchesRecurrence(schedule, day)) continue;
       for (const time of schedule.times) {
         const wall = `${day.toISOString().slice(0, 10)}T${time}`;
         const matches = offsets.map(offset => new Date(Date.parse(`${wall}:00Z`) - offset * 3600000)).filter(candidate => localClock(candidate, schedule.timeZone) === wall).sort((a, b) => +a - +b);

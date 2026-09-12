@@ -41,6 +41,7 @@ from src.providers.chat import ChatLLM, ProviderStreamError
 from src.providers.content_filter import (
     CONTENT_FILTER_SKIP_MESSAGE,
     MAX_CONSECUTIVE_CONTENT_FILTER_SKIPS,
+    PROVIDER_CONTENT_FILTER_RETRY_MESSAGE,
     compute_content_filter_warnings,
 )
 from src.config.accessor import get_env_config
@@ -762,8 +763,14 @@ class AgentLoop:
                     reasoning_chars = 0
                     last_reasoning_emit = None
                     _time.sleep(_stream_retry_delay_s())
+                    retry_messages = messages
+                    if exc.content_filter_triggered:
+                        retry_messages = [
+                            {"role": "system", "content": PROVIDER_CONTENT_FILTER_RETRY_MESSAGE},
+                            *messages,
+                        ]
                     response = self.llm.stream_chat(
-                        messages,
+                        retry_messages,
                         tools=tool_defs,
                         on_text_chunk=_on_text_chunk,
                         on_reasoning_chunk=_on_reasoning_chunk,

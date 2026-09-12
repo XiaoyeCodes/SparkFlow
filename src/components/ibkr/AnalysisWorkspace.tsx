@@ -52,6 +52,19 @@ const actionLabel = {
   reduce: '减持',
 } as const;
 
+const valuationVerdict = {
+  overvalued: '估值偏高风险',
+  opportunity: '价值机会',
+  fair: '相对合理',
+  insufficient: '资料不足',
+} as const;
+
+const frameworkLabel = {
+  buffett: '巴菲特式价值投资',
+  peterLynch: '彼得·林奇式成长股',
+  rayDalio: '雷·达利欧式宏观对冲',
+} as const;
+
 const jobLabel = {
   running: '分析中',
   partial: '待继续',
@@ -461,13 +474,13 @@ function ActiveTaskStrip({
   );
 }
 
-function ConclusionCard({ report, onOpen }: { report: AnalysisReport; onOpen?: () => void }) {
+function ConclusionCard({ report, canAnalyze, analysisBlockedReason, onOpen, onAnalyze }: { report: AnalysisReport; canAnalyze: boolean; analysisBlockedReason: string; onOpen?: () => void; onAnalyze: () => void }) {
   const today = new Date(report.generatedAt).toDateString() === new Date().toDateString();
   return <section className="awb-analysis-card awb-analysis-hero" aria-label="账户研究结论">
     <div className="awb-analysis-hero-meta"><span className="awb-analysis-kicker"><Sparkles size={14}/>{today ? '今日分析结论' : '最近分析结论'}</span><small>{time(report.generatedAt)}</small></div>
     <h2>{report.content.headline || report.content.brief || '组合判断与研究结论'}</h2>
     <div className="awb-analysis-brief-points">{(report.content.briefPoints?.length ? report.content.briefPoints : [report.content.brief]).filter(Boolean).map((point, index) => <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{point}</p>)}</div>
-    {onOpen ? <button className="awb-analysis-open-report" onClick={onOpen}>查看完整报告与依据 <ArrowUpRight size={15}/></button> : <EvidenceLinks report={report} ids={report.content.evidenceIds}/>}
+    {onOpen ? <div className="awb-analysis-hero-actions"><button className="awb-analysis-open-report" onClick={onOpen}>查看完整报告与依据 <ArrowUpRight size={15}/></button><button className="awb-analysis-rerun" type="button" disabled={!canAnalyze} onClick={onAnalyze} title={analysisBlockedReason || '使用最新账户与市场资料重新生成完整分析'}><span aria-hidden="true"><RotateCcw size={15}/></span>重新分析</button></div> : <EvidenceLinks report={report} ids={report.content.evidenceIds}/>}
   </section>;
 }
 
@@ -556,6 +569,24 @@ function ReportDetails({
             ))}
           </div>
         </section>
+        {!!report.content.valuationReview?.length && <section className="awb-analysis-card awb-analysis-valuations">
+          <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><Database size={14}/>重点持仓估值判断</span><small>{report.content.valuationReview.length} 项</small></div>
+          <div className="awb-analysis-valuation-grid">{report.content.valuationReview.map(item => <article key={item.symbol} data-verdict={item.verdict}><div><b>{item.symbol}</b><span>{valuationVerdict[item.verdict]}</span></div><p>{item.rationale}</p><EvidenceLinks report={report} ids={item.evidenceIds}/></article>)}</div>
+        </section>}
+        <section className="awb-analysis-card awb-analysis-opportunity-risk">
+          <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><ShieldCheck size={14}/>机会与风险</span><small>双栏判断</small></div>
+          <div className="awb-analysis-signal-columns"><div><h3>【机会】</h3>{report.content.opportunities.length ? report.content.opportunities.map((item, index) => <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{item}</p>) : <p className="awb-muted">本次未发现证据充分的组合机会。</p>}</div><div><h3>【风险】</h3>{report.content.risks.length ? report.content.risks.map((item, index) => <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{item}</p>) : <p className="awb-muted">本次未发现新增的证据型风险。</p>}</div></div>
+        </section>
+        {report.content.calendar && <section className="awb-analysis-card awb-analysis-calendar">
+          <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><FileCheck2 size={14}/>未来 7–14 天关注日历</span><small>按时间排序</small></div>
+          <div>{report.content.calendar.length ? report.content.calendar.map((item, index) => <article key={`${item.date}-${item.event}-${index}`}><time>{item.date}</time><div><h3>{item.event}</h3><p>{item.impact}</p><small>{item.symbols.join(' · ') || '账户整体'}</small><EvidenceLinks report={report} ids={item.evidenceIds}/></div></article>) : <p className="awb-muted">当前资料中没有可核实具体日期的未来事件。</p>}</div>
+        </section>}
+        {!!report.content.frameworks && <section className="awb-analysis-card awb-analysis-frameworks">
+          <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><BookOpenText size={14}/>三套持仓分析框架</span><small>公开原则 · 非本人观点</small></div>
+          <p className="awb-analysis-framework-notice">以下是依据公开投资原则生成的框架化评论，不代表三位投资者本人的发言或实时判断。</p>
+          <div>{(Object.entries(report.content.frameworks) as [keyof typeof frameworkLabel, typeof report.content.frameworks.buffett][]).map(([key, value]) => <article key={key}><small>{frameworkLabel[key]}</small><p>{value.analysis}</p><blockquote>{value.commentary}</blockquote><EvidenceLinks report={report} ids={value.evidenceIds}/></article>)}</div>
+        </section>}
+        {!!report.content.fullSummary && <section className="awb-analysis-card awb-analysis-full-summary"><span className="awb-analysis-kicker"><Sparkles size={14}/>全文总结</span><p>{report.content.fullSummary}</p></section>}
         {report.content.holdings.map((holding) => (
           <section className="awb-analysis-card awb-holding-research" key={holding.symbol}>
             <div className="awb-section-heading"><h2>{holding.symbol}</h2><small>短期 + 长期</small></div>
@@ -661,6 +692,7 @@ export function AnalysisWorkspace({
   const restartableTask = task && task.state !== 'running' && (task.progress?.modelCalls ?? 0) > 0 ? task : undefined;
   const switchView = (next: 'start' | 'history') => { onCloseReport(); setView(next); setError(''); };
   const startAnalysis = () => { switchView('start'); onStart(); };
+  const analysisBlockedReason = disabledReason(state, running, busy);
 
   return (
     <div className="awb-analysis-workspace">
@@ -689,7 +721,7 @@ export function AnalysisWorkspace({
         </section>
       ) : (
         <div className="awb-analysis-dashboard">
-          <div className="awb-analysis-conclusion-slot">{latest ? <ConclusionCard report={latest} onOpen={() => onSelect(latest)}/> : <AnalysisEmpty state={state} busy={busy} canAnalyze={canAnalyze} onStart={startAnalysis}/>}</div>
+          <div className="awb-analysis-conclusion-slot">{latest ? <ConclusionCard report={latest} canAnalyze={canAnalyze} analysisBlockedReason={analysisBlockedReason} onOpen={() => onSelect(latest)} onAnalyze={startAnalysis}/> : <AnalysisEmpty state={state} busy={busy} canAnalyze={canAnalyze} onStart={startAnalysis}/>}</div>
           <CoverageCard state={state} report={latest}/>
           <section className="awb-analysis-card awb-analysis-interaction" aria-label="分析进展与提问">
             <div className="awb-analysis-progress-slot">

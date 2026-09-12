@@ -115,6 +115,62 @@ export function newsPriority(weight: number) {
   return weight >= 78 ? 'high' : weight >= 58 ? 'mid' : 'low';
 }
 
+export const NEWS_CARD_DECORATION_VARIANTS = ['orbit', 'circuit', 'radar', 'vector'] as const;
+export type NewsCardDecorationVariant = typeof NEWS_CARD_DECORATION_VARIANTS[number];
+
+export type NewsCardDecoration = {
+  variant: NewsCardDecorationVariant;
+  serial: string;
+  intensity: number;
+  borderAlpha: number;
+  glowAlpha: number;
+  urgencyAlpha: number;
+  angle: number;
+  lightX: number;
+  lightY: number;
+  size: number;
+  rotation: number;
+  offset: number;
+  dash: string;
+  delay: number;
+};
+
+function stableNewsHash(value: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * Produces deterministic, article-specific art direction. It looks varied in a
+ * feed but remains stable across refreshes so cards never visually jump around.
+ */
+export function newsCardDecoration(item: Pick<NewsItem, 'id' | 'title' | 'source' | 'sourceId' | 'weight'>): NewsCardDecoration {
+  const seed = stableNewsHash(`${item.id}|${item.sourceId || item.source}|${item.title}`);
+  const weight = Math.max(0, Math.min(100, Number.isFinite(item.weight) ? item.weight : 0));
+  const intensity = 0.18 + (weight / 100) * 0.82;
+  const hex = seed.toString(16).toUpperCase().padStart(8, '0');
+  return {
+    variant: NEWS_CARD_DECORATION_VARIANTS[seed % NEWS_CARD_DECORATION_VARIANTS.length],
+    serial: `SIG-${hex.slice(0, 4)}`,
+    intensity,
+    borderAlpha: 0.09 + intensity * 0.2,
+    glowAlpha: 0.018 + intensity * 0.095,
+    urgencyAlpha: Math.max(0, (weight - 54) / 46) * 0.055,
+    angle: 104 + ((seed >>> 4) % 48),
+    lightX: 68 + ((seed >>> 9) % 28),
+    lightY: 8 + ((seed >>> 14) % 70),
+    size: 118 + ((seed >>> 18) % 62),
+    rotation: ((seed >>> 23) % 25) - 12,
+    offset: 48 + ((seed >>> 7) % 54),
+    dash: `${4 + (seed % 7)} ${4 + ((seed >>> 11) % 8)}`,
+    delay: seed % 1800
+  };
+}
+
 export function newsCategoryCounts(items: NewsItem[]) {
   return newsCategories.map(([id, label]) => ({
     id,

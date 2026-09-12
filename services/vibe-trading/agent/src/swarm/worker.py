@@ -23,6 +23,7 @@ from src.providers.chat import ChatLLM, LLMResponse, ProviderStreamError
 from src.providers.content_filter import (
     CONTENT_FILTER_SKIP_MESSAGE,
     MAX_CONSECUTIVE_CONTENT_FILTER_SKIPS,
+    PROVIDER_CONTENT_FILTER_RETRY_MESSAGE,
     compute_content_filter_warnings,
 )
 from src.swarm.models import (
@@ -495,7 +496,7 @@ def run_worker(
                     {**payload, "iteration": iteration, "phase": "llm"},
                 )
 
-            def _stream_once() -> LLMResponse:
+            def _stream_once(stream_messages: list[dict[str, Any]]) -> LLMResponse:
                 """Run one heartbeat-wrapped streaming LLM call.
 
                 Recomputes the remaining time budget at call time so the
@@ -515,7 +516,7 @@ def run_worker(
                     emit=_on_llm_heartbeat,
                 ):
                     return llm.stream_chat(
-                        messages,
+                        stream_messages,
                         tools=tool_defs,
                         timeout=remaining_timeout,
                         on_text_chunk=_on_text_chunk,
@@ -527,7 +528,7 @@ def run_worker(
             # once before taking the existing failure path. Deterministic
             # 4xx errors skip the retry and fail immediately.
             try:
-                response = _stream_once()
+                response = _stream_once(messages)
             except ProviderStreamError as stream_exc:
                 if not stream_exc.retryable:
                     raise
@@ -542,7 +543,13 @@ def run_worker(
                     stream_exc,
                 )
                 time.sleep(_STREAM_RETRY_DELAY_S)
-                response = _stream_once()
+                retry_messages = messages
+                if stream_exc.content_filter_triggered:
+                    retry_messages = [
+                        {"role": "system", "content": PROVIDER_CONTENT_FILTER_RETRY_MESSAGE},
+                        *messages,
+                    ]
+                response = _stream_once(retry_messages)
         except Exception as exc:
             error_msg = f"LLM call failed at iteration {iteration}: {exc}"
             logger.warning(error_msg)

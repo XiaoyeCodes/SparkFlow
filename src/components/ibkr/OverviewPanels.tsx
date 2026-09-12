@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { CheckCircle2, ChevronRight, Clock3, ExternalLink, LayoutGrid, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, ChevronRight, Clock3, ExternalLink, LayoutGrid, LoaderCircle, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react';
 import type { Alert, AnalysisJob, AnalysisReport, BriefInsight, DailyBrief, Evidence, Holding, PortfolioPerformance, WorkbenchState } from '../../lib/ibkr/workbenchTypes';
 import { chartSeries, finite, monthlyReturns, overviewAllocation, periodReturn } from '../../lib/ibkr/overview';
 import { industryLabel } from '../../lib/ibkr/industryLabels';
+import { accountScheduleDescription } from '../../lib/ibkr/accountSchedules';
 import './OverviewPanels.css';
 
 const amount = (v: unknown) => finite(v) === null ? '—' : Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -163,7 +164,7 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
   </section>;
 }
 
-export function OverviewBrief({ state, report, pending, openReport }: { state: WorkbenchState; report?: AnalysisReport; pending?: AnalysisJob; openReport: () => void }) {
+export function OverviewBrief({ state, report, pending, canAnalyze, analyzing, openReport, startAnalysis }: { state: WorkbenchState; report?: AnalysisReport; pending?: AnalysisJob; canAnalyze: boolean; analyzing: boolean; openReport: () => void; startAnalysis: () => void }) {
   const localDay = (value: Date | string) => { const date = new Date(value); return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date) : undefined; };
   const today = localDay(new Date());
   const reportDay = report ? localDay(report.generatedAt) : undefined;
@@ -176,8 +177,8 @@ export function OverviewBrief({ state, report, pending, openReport }: { state: W
     <div className="awb-overview-analysis-head"><span className="awb-ai-badge"><Sparkles size={13}/>今日分析结论</span><small>{todayReport ? stamp(todayReport.generatedAt) : '今日尚未生成'}</small></div>
     <h2 className="awb-ai-headline">{todayReport?.content.headline ?? '今天还没有账户分析结论'}</h2>
     {showIncomplete && <p className="awb-brief-notice">{todayPending?.state === 'running' ? '今日账户分析正在生成，完成后会自动显示在这里。' : '今日账户分析尚未完成，可前往 AI 分析继续。'}</p>}
-    {points.length ? <ol className="awb-overview-analysis-points">{points.map((point, index) => <li className={`awb-conclusion-card awb-conclusion-card-${index + 1}`} data-signal={conclusionSignals[index] ?? 'SIGNAL'} key={`${index}-${point}`} tabIndex={0}><span className="awb-conclusion-index">{String(index + 1).padStart(2, '0')}</span><p>{conclusionParts(point)}</p><i className="awb-conclusion-scan" aria-hidden="true"/><div className="awb-conclusion-ornament" aria-hidden="true"><i/><i/><i/><i/></div></li>)}</ol> : <p className="awb-overview-analysis-empty">只有你手动发起或已开启的每日定时任务会生成分析；启动服务不会自动补跑。</p>}
-    <div className="awb-overview-analysis-footer"><small>{todayReport ? `${todayReport.kind === 'daily' ? '定时分析' : '手动分析'} · ${todayReport.model}` : schedule?.enabled ? `每日定时已开启 · ${schedule.mode === 'market-close' ? '美股收盘后 30 分钟' : schedule.times.join('、')}` : '每日定时未开启'}</small><button className="awb-ai-cta" onClick={openReport}>{todayReport ? '查看完整分析' : todayPending ? '查看分析进度' : '前往 AI 分析'}<ChevronRight size={16}/></button></div>
+    {points.length ? <ol className="awb-overview-analysis-points">{points.map((point, index) => <li className={`awb-conclusion-card awb-conclusion-card-${index + 1}`} data-signal={conclusionSignals[index] ?? 'SIGNAL'} key={`${index}-${point}`} tabIndex={0}><span className="awb-conclusion-index">{String(index + 1).padStart(2, '0')}</span><p>{conclusionParts(point)}</p><i className="awb-conclusion-scan" aria-hidden="true"/><div className="awb-conclusion-ornament" aria-hidden="true"><i/><i/><i/><i/></div></li>)}</ol> : todayPending ? <p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p> : <div className="awb-overview-analysis-empty-state"><p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p><button className={`awb-analysis-core-button ${analyzing ? 'is-analyzing' : ''}`} type="button" disabled={!canAnalyze || analyzing} onClick={startAnalysis} title={analyzing ? '正在启动账户分析' : canAnalyze ? '使用最新账户快照生成今天的完整分析' : '请先确认账户已同步、AI 已授权且今日仍有调用额度'}><span className="awb-analysis-core-orbit" aria-hidden="true"><i/><i/><i/></span><span className="awb-analysis-core-icon" aria-hidden="true">{analyzing ? <LoaderCircle size={21}/> : <Sparkles size={21}/>}</span><span><b>{analyzing ? '正在启动分析' : '生成今日分析'}</b><small>读取最新账户与全部持仓</small></span><ArrowUpRight size={18} aria-hidden="true"/></button></div>}
+    <div className="awb-overview-analysis-footer"><small>{todayReport ? `${todayReport.kind === 'daily' ? '定时分析' : '手动分析'} · ${todayReport.model}` : schedule?.enabled ? `定时已开启 · ${accountScheduleDescription(schedule)}` : '定时未开启'}</small><button className="awb-ai-cta" onClick={openReport}>{todayReport ? '查看完整分析' : todayPending ? '查看分析进度' : '前往 AI 分析'}<ChevronRight size={16}/></button></div>
   </section>;
 }
 

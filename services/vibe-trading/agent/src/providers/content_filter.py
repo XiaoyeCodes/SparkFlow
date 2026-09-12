@@ -31,6 +31,31 @@ CONTENT_FILTER_SKIP_MESSAGE = (
     "next one. Do not retry the same content."
 )
 
+# Some OpenAI-compatible relays report moderation as an HTTP 400 instead of a
+# normal ``finish_reason``. DeepSeek-compatible endpoints commonly use the
+# message ``Content Exists Risk`` for that case. Treat it as moderation (not a
+# malformed JSON body) so callers can apply the same bounded recovery policy.
+PROVIDER_CONTENT_FILTER_MARKERS = (
+    "content exists risk",
+    "content_filter",
+    "content filter",
+    "content moderation",
+    "prohibited_content",
+)
+
+# Used only for the single provider-error retry. It steers the model toward a
+# factual, educational answer while preserving the original research request.
+# The retry count remains owned by AgentLoop/Worker and is deliberately capped
+# at one, preventing a deterministic provider refusal from looping forever.
+PROVIDER_CONTENT_FILTER_RETRY_MESSAGE = (
+    "[SYSTEM] The provider rejected the previous draft under its content "
+    "policy. Answer the user's allowed request as a neutral, factual research "
+    "brief based on public information. Avoid personalized financial advice, "
+    "guaranteed outcomes, imperative buy/sell instructions, and unnecessary "
+    "sensitive wording. If one part cannot be answered safely, omit only that "
+    "part and continue with the remaining analysis."
+)
+
 # Gemini surfaces content moderation via uppercase FinishReason enum values
 # (SAFETY, RECITATION, BLOCKLIST, ...) instead of OpenAI's lowercase
 # "content_filter". Google's OpenAI-compatible endpoint passes these through
@@ -61,6 +86,12 @@ def is_content_filter_triggered(finish_reason: object) -> bool:
     if finish_reason == "content_filter":
         return True
     return finish_reason.upper() in GEMINI_SAFETY_FINISH_REASONS
+
+
+def is_provider_content_filter_error(error: object) -> bool:
+    """Return True for provider exceptions that encode moderation as HTTP 400."""
+    text = str(error).casefold()
+    return any(marker in text for marker in PROVIDER_CONTENT_FILTER_MARKERS)
 
 
 def get_content_filter_threshold() -> float:

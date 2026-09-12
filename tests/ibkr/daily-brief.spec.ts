@@ -45,8 +45,30 @@ test('overview shows truthful manual-or-scheduled empty state and analysis progr
   const panel = page.getByRole('region', { name: '今日分析结论' });
   await expect(panel).toContainText('今日账户分析正在生成');
   await expect(panel).toContainText('启动服务不会自动补跑');
-  await expect(panel).toContainText('每日定时未开启');
+  await expect(panel).toContainText('定时未开启');
   await expect(panel.getByRole('button', { name: '查看分析进度' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: '生成今日分析' })).toHaveCount(0);
+});
+
+test('overview empty state can start today analysis directly', async ({ page }) => {
+  const data = makeState();
+  data.reports = [];
+  data.jobs = [];
+  data.preferences.schedules!.analysis.enabled = false;
+  let started = 0;
+  await page.route('**/api/ibkr-workbench/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/analyze')) { started++; return route.fulfill({ status: 202, json: { ok: true } }); }
+    return route.fulfill({ json: path.endsWith('/state') ? data : [] });
+  });
+  await page.goto('http://127.0.0.1:5187/ibkr');
+  const panel = page.getByRole('region', { name: '今日分析结论' });
+  const button = panel.getByRole('button', { name: /生成今日分析/ });
+  await expect(button).toBeVisible();
+  await expect(button).toContainText('读取最新账户与全部持仓');
+  await button.click();
+  await expect.poll(() => started).toBe(1);
+  await panel.screenshot({ path: 'tmp/workbench-qa/today-analysis-empty-action.png' });
 });
 
 test('incomplete notice is hidden after a report is completed today and shown for an older report', async ({ page }) => {

@@ -9,7 +9,7 @@ const { outputText } = ts.transpileModule(source, {
 });
 const {
   formatNewsSync, formatNewsTime, getNewsCategory, newsCategoryCounts,
-  newsPriority, newsTimestamp, selectNewsItems, formatDailyNewsEdition, PINNED_NEWS_SOURCE_IDS
+  newsCardDecoration, newsPriority, newsTimestamp, selectNewsItems, formatDailyNewsEdition, PINNED_NEWS_SOURCE_IDS
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const items = [
@@ -57,6 +57,14 @@ assert.equal(newsPriority(78), 'high');
 assert.equal(newsPriority(77), 'mid');
 assert.equal(newsPriority(58), 'mid');
 assert.equal(newsPriority(57), 'low');
+const cardIdentity = { id: 'market-1', title: '美联储释放利率信号', source: '华尔街见闻', sourceId: 'wallstreetcn', weight: 83 };
+const decoration = newsCardDecoration(cardIdentity);
+assert.deepEqual(newsCardDecoration(cardIdentity), decoration, 'Card decoration must remain stable across refreshes.');
+assert.match(decoration.serial, /^SIG-[0-9A-F]{4}$/);
+assert.equal(['orbit', 'circuit', 'radar', 'vector'].includes(decoration.variant), true);
+assert.equal(decoration.intensity > newsCardDecoration({ ...cardIdentity, weight: 23 }).intensity, true, 'Higher-weight stories need stronger visual energy.');
+assert.notEqual(newsCardDecoration({ ...cardIdentity, id: 'market-2', title: '美国财政赤字继续扩大' }).serial, decoration.serial, 'Different stories need distinct visual fingerprints.');
+assert.equal(newsCardDecoration({ ...cardIdentity, weight: 999 }).intensity, 1, 'Visual intensity is capped for out-of-range scores.');
 assert.equal(newsTimestamp('bad'), 0);
 assert.equal(newsTimestamp(undefined), 0);
 assert.equal(formatNewsTime('bad'), '时间待核验');

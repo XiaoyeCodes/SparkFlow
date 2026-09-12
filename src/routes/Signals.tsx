@@ -38,6 +38,7 @@ import {
   formatNewsSync,
   formatNewsTime,
   getNewsCategory,
+  newsCardDecoration,
   newsCategoryCounts,
   newsPriority,
   newsForSource,
@@ -617,17 +618,80 @@ function newsVisual(item: NewsItem): NewsVisual {
   return fallback[item.category];
 }
 
+function NewsCardOrnament({ variant, serial }: { variant: ReturnType<typeof newsCardDecoration>['variant']; serial: string }) {
+  return (
+    <div className={`signals-item-ornament ornament-${variant}`} aria-hidden="true">
+      <svg viewBox="0 0 180 96" role="presentation">
+        {variant === 'orbit' ? <>
+          <ellipse cx="126" cy="23" rx="43" ry="16" />
+          <ellipse cx="126" cy="23" rx="25" ry="9" />
+          <path d="M72 23h108M126 0v48M91 55h59l18 18" />
+          <circle className="signals-ornament-node" cx="91" cy="55" r="2.4" />
+          <circle className="signals-ornament-node is-hot" cx="168" cy="73" r="3.2" />
+        </> : null}
+        {variant === 'circuit' ? <>
+          <path d="M180 13h-41l-12 12H94L78 41H39M180 37h-24l-12 12h-27M180 66h-47l-13 13H68" />
+          <path className="signals-ornament-faint" d="M156 0v24M106 25v38M133 66v30M54 29v36" />
+          <circle className="signals-ornament-node" cx="94" cy="25" r="2.4" />
+          <circle className="signals-ornament-node is-hot" cx="39" cy="41" r="3.2" />
+          <circle className="signals-ornament-node" cx="68" cy="79" r="2.4" />
+        </> : null}
+        {variant === 'radar' ? <>
+          <circle cx="144" cy="15" r="18" />
+          <circle cx="144" cy="15" r="34" />
+          <circle cx="144" cy="15" r="51" />
+          <path d="M144 15L95 62M77 69h68M144 15h36" />
+          <path className="signals-ornament-sweep" d="M144 15l-16-49a51 51 0 0 1 49 17z" />
+          <circle className="signals-ornament-node is-hot" cx="111" cy="47" r="3.2" />
+        </> : null}
+        {variant === 'vector' ? <>
+          <path d="M82 0l38 48-38 48M112 0l38 48-38 48M142 0l38 48-38 48" />
+          <path className="signals-ornament-faint" d="M43 16h51M31 48h75M54 80h40" />
+          <circle className="signals-ornament-node" cx="43" cy="16" r="2.4" />
+          <circle className="signals-ornament-node is-hot" cx="31" cy="48" r="3.2" />
+          <circle className="signals-ornament-node" cx="54" cy="80" r="2.4" />
+        </> : null}
+      </svg>
+      <small>{serial}</small>
+    </div>
+  );
+}
+
 function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsItem; index: number; onSelectSource: (source: string) => void; sortMode: NewsSortMode; now: number }) {
   const reducedMotion = useReducedMotion();
   const priority = newsPriority(item.weight);
   const visual = newsVisual(item);
+  const decoration = newsCardDecoration(item);
   const VisualIcon = visual.icon;
   const metricLabel = sortMode === 'importance' ? '重要' : sortMode === 'heat' ? '热度' : sortMode === 'source' ? (item.sourceRank ? '榜序' : '序号') : '权重';
   const metric = sortMode === 'importance' ? item.importance : sortMode === 'heat' ? (item.sourceRank || item.sourceHeat ? item.heat : '—') : sortMode === 'source' ? (item.sourceRank || item.sourceOrder || '—') : item.weight;
+  const itemStyle = {
+    '--signals-item-rgb': visual.rgb,
+    '--signals-urgency-rgb': priority === 'high' ? '231, 107, 96' : priority === 'mid' ? '232, 173, 89' : visual.rgb,
+    '--signals-card-border-alpha': decoration.borderAlpha.toFixed(3),
+    '--signals-card-hover-border-alpha': Math.min(0.46, decoration.borderAlpha + 0.11).toFixed(3),
+    '--signals-card-glow-alpha': decoration.glowAlpha.toFixed(3),
+    '--signals-card-shadow-alpha': (decoration.glowAlpha * 0.2).toFixed(3),
+    '--signals-card-hover-shadow-alpha': (decoration.glowAlpha * 0.6).toFixed(3),
+    '--signals-card-high-shadow-alpha': (decoration.glowAlpha * 0.42).toFixed(3),
+    '--signals-ornament-alpha': Math.min(0.44, 0.12 + decoration.glowAlpha * 2.9).toFixed(3),
+    '--signals-ornament-hover-alpha': Math.min(0.58, 0.2 + decoration.glowAlpha * 3.4).toFixed(3),
+    '--signals-card-urgency-alpha': decoration.urgencyAlpha.toFixed(3),
+    '--signals-card-energy': `${Math.round(decoration.intensity * 100)}%`,
+    '--signals-card-angle': `${decoration.angle}deg`,
+    '--signals-card-light-x': `${decoration.lightX}%`,
+    '--signals-card-light-y': `${decoration.lightY}%`,
+    '--signals-ornament-size': `${decoration.size}px`,
+    '--signals-ornament-rotation': `${decoration.rotation}deg`,
+    '--signals-ornament-offset': `${decoration.offset}px`,
+    '--signals-ornament-dash': decoration.dash,
+    '--signals-ornament-delay': `${decoration.delay}ms`
+  } as CSSProperties;
   return (
-    <motion.article className={`signals-item is-${priority} tone-${visual.tone}`} style={{ '--signals-item-rgb': visual.rgb } as CSSProperties}
+    <motion.article className={`signals-item is-${priority} tone-${visual.tone}`} style={itemStyle}
       initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: Math.min(index * 0.02, 0.16) }}>
+      <NewsCardOrnament variant={decoration.variant} serial={decoration.serial} />
       <div className="signals-item-visual" aria-hidden="true">
         <span><VisualIcon size={18} strokeWidth={1.65} /></span>
         <small>{visual.code}</small>

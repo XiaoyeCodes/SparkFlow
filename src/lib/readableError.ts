@@ -9,6 +9,10 @@ const PRIORITY_ERROR_KEYS = [
   'title',
 ] as const;
 
+const PROVIDER_CONTENT_POLICY_PATTERN = /(?:content exists risk|provider_content_filter|content[_ -]?filter|content moderation|prohibited_content)/i;
+
+const PROVIDER_CONTENT_POLICY_MESSAGE = '模型服务的内容风控拒绝了本次分析。系统已尝试安全恢复但仍未通过，请稍后重新分析；若持续出现，请切换模型服务。';
+
 function formatLocation(value: unknown) {
   if (!Array.isArray(value)) return '';
   return value.map(String).filter(Boolean).join('.');
@@ -54,5 +58,6 @@ function visit(value: unknown, seen: WeakSet<object>): string {
  */
 export function readableError(value: unknown, fallback = '请求失败') {
   const message = visit(value, new WeakSet<object>());
+  if (PROVIDER_CONTENT_POLICY_PATTERN.test(message)) return PROVIDER_CONTENT_POLICY_MESSAGE;
   return message || fallback;
 }

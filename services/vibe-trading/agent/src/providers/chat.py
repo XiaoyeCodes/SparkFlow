@@ -12,7 +12,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from src.config.accessor import get_env_config
-from src.providers.content_filter import is_content_filter_triggered
+from src.providers.content_filter import (
+    is_content_filter_triggered,
+    is_provider_content_filter_error,
+)
 from src.providers.llm import build_llm
 
 
@@ -95,7 +98,12 @@ class ProviderStreamError(RuntimeError):
         self.model = model
         self.original = original
         self.status_code: Optional[int] = getattr(original, "status_code", None)
-        safe_message = _redact_provider_error(str(original))
+        self.content_filter_triggered = is_provider_content_filter_error(original)
+        safe_message = (
+            "provider_content_filter"
+            if self.content_filter_triggered
+            else _redact_provider_error(str(original))
+        )
         super().__init__(
             f"provider_stream_error provider={provider} model={model}: "
             f"{type(original).__name__}: {safe_message}"
@@ -110,6 +118,8 @@ class ProviderStreamError(RuntimeError):
             True for everything else — timeouts, rate limits, 5xx, and
             transport errors that carry no HTTP status.
         """
+        if self.content_filter_triggered:
+            return True
         if self.status_code is None:
             return True
         if self.status_code in (408, 429):
