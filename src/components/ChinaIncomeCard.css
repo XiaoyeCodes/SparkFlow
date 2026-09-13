@@ -1,0 +1,41 @@
+.china-income-card { padding: 10px; margin-bottom: 9px; border: 1px solid rgba(103,219,194,.22); border-radius: 6px; background: linear-gradient(145deg,#0c1c17,#091410); color: #c3d7cf; }
+.china-income-card header { display: flex; align-items: center; gap: 6px; color: #67dabe; }
+.china-income-card h2 { margin: 0; color: #a6bfb6; font-size: 11px; font-weight: 600; }
+.china-income-card header > span { margin-left: auto; font-size: 9px; color: #91aa9e; }
+.china-income-card header a { display: grid; place-items: center; width: 20px; height: 20px; color: #82ad9a; }
+.china-income-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 7px 0 5px; }
+.china-income-summary > div { display: grid; gap: 3px; }
+.china-income-summary > div + div { border-left: 1px solid #263b31; padding-left: 12px; }
+.china-income-summary span { font-size: 9px; color: #91aa9e; }
+.china-income-summary strong { color: #dcefe7; font: 500 23px/1.1 'JetBrains Mono',monospace; letter-spacing: -.04em; }
+.china-income-summary strong small { margin-left: 4px; font: 9px sans-serif; color: #8aa99a; }
+.china-income-summary em { font-size: 9px; font-style: normal; color: #7dcdb0; }
+.china-income-median { display: flex; align-items: center; gap: 9px; font-size: 9px; color: #89a799; margin-bottom: 7px; }
+.china-income-median > div { flex: 1; height: 4px; background: #20372b; border-radius: 2px; }
+.china-income-median i { display: block; height: 100%; background: #82b7a0; border-radius: inherit; }
+.china-income-median b { color: #b5d0c2; font-weight: 500; }
+.china-income-chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 9px; }
+.china-income-chart-heading b { font-weight: 600; color: #b1c8bb; }
+.china-income-chart-heading span { display: flex; align-items: center; gap: 4px; color: #8ca697; }
+.china-income-chart-heading i { display: inline-block; width: 5px; height: 5px; }
+.china-income-chart-heading .nominal { border-radius: 50%; background: #68a7e5; }
+.china-income-chart-heading .real { background: #66d6b5; margin-left: 6px; }
+.china-income-chart { display: block; width: 100%; margin: 4px 0; }
+.china-income-chart text { font: 9px 'JetBrains Mono',monospace; }
+.china-income-chart .axis { fill: #7d9b8c; font-size: 8px; }
+.china-income-chart .label { fill: #abc6b7; }
+.china-income-chart .amount { fill: #c5dccf; }
+.china-income-chart .nominal-label { fill: #78b5ee; font-size: 8px; }
+.china-income-chart .real-label { fill: #73dfbd; font-size: 8px; }
+.china-income-chart g[tabindex]:focus-visible { outline: 1px solid #7bddba; }
+.china-income-stack { display: flex; height: 6px; gap: 2px; border-radius: 2px; overflow: hidden; margin: 7px 0; }
+.china-income-sources { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 12px; }
+.china-income-sources > div { min-width: 0; }
+.china-income-sources span { display: flex; align-items: center; gap: 4px; font-size: 9px; color: #a3bcae; }
+.china-income-sources i { width: 4px; height: 4px; background: var(--income-color); }
+.china-income-sources span small { margin-left: auto; color: #8da696; font-size: 9px; }
+.china-income-sources b { display: flex; align-items: baseline; gap: 3px; margin-top: 3px; font: 500 12px 'JetBrains Mono',monospace; color: #cbe1d3; }
+.china-income-sources b small { font: 9px sans-serif; color: #859f90; }
+.china-income-sources em { margin-left: auto; font-size: 9px; font-style: normal; color: #9fb9aa; }
+.china-income-foot { border-top: 1px solid #20382c; padding-top: 6px; margin: 8px 0 0; color: #819d8d; font-size: 9px; line-height: 1.5; }
+.china-income-empty { min-height: 100px; display: grid; place-items: center; color: #8ba89a; font-size: 10px; }

@@ -1,0 +1,26 @@
+.china-gdp-card { margin-bottom: 9px; padding: 10px; border: 1px solid rgba(103,219,194,.22); border-radius: 8px; background: linear-gradient(145deg,#0d201a,#091410); color: #c3d7cf; }
+.china-gdp-card header { display: flex; align-items: center; gap: 7px; color: #67dabe; }
+.china-gdp-card h2 { margin: 0; color: #a6bfb6; font-size: 11px; font-weight: 600; letter-spacing: .08em; }
+.china-gdp-card header > span { margin-left: auto; font-size: 9px; color: #8ba69a; }
+.china-gdp-card header a { display: grid; place-items: center; width: 23px; height: 23px; color: #82ad9a; }
+.china-gdp-headline { display: flex; justify-content: space-between; align-items: center; margin: 7px 0 3px; gap: 8px; }
+.china-gdp-headline > div:first-child { display: flex; align-items: baseline; gap: 6px; }
+.china-gdp-headline strong { font: 500 25px/1.2 'JetBrains Mono',monospace; letter-spacing: -.05em; color: #dcefe7; }
+.china-gdp-headline span { font-size: 10px; color: #91ac9f; }
+.china-gdp-headline > div:last-child { display: grid; gap: 4px; text-align: right; }
+.china-gdp-headline b { color: #71d8b9; font: 500 13px 'JetBrains Mono',monospace; }
+.china-gdp-headline small { color: #8aa297; font-size: 9px; }
+.china-gdp-plot { position: relative; }
+.china-gdp-plot svg { display: block; width: 100%; overflow: visible; }
+.china-gdp-axis { font: 8px 'JetBrains Mono',monospace; fill: #749387; }
+.china-gdp-year { font: 9px 'JetBrains Mono',monospace; fill: #9cb8aa; }
+.china-gdp-value { font: 9px 'JetBrains Mono',monospace; fill: #b6d4c5; }
+.china-gdp-plot g[role='button'] { cursor: pointer; outline: none; }
+.china-gdp-plot g[role='button']:focus-visible .china-gdp-bar, .china-gdp-plot .is-active .china-gdp-bar { stroke: #b1fbe0; stroke-width: 1.5; }
+.china-gdp-tooltip { position: absolute; z-index: 2; top: 0; left: 35px; display: grid; gap: 7px; min-width: 170px; padding: 10px; border: 1px solid #396450; border-radius: 6px; background: rgba(7,22,16,.94); backdrop-filter: blur(8px); pointer-events: none; box-shadow: 0 8px 24px #0006; font-size: 10px; }
+.china-gdp-tooltip strong { font-size: 10px; color: #a6d5bf; }
+.china-gdp-tooltip span { display: flex; gap: 12px; justify-content: space-between; color: #91ab9f; }
+.china-gdp-tooltip b { color: #d7ece1; font-variant-numeric: tabular-nums; }
+.china-gdp-card > p { margin: 7px 0 0; color: #7e9c8e; font-size: 9px; line-height: 1.6; }
+.china-gdp-empty { min-height: 165px; display: grid; place-items: center; color: #8ba89a; font-size: 11px; }
+.china-gdp-card a:focus-visible { outline: 2px solid #6adbbf; outline-offset: 2px; }

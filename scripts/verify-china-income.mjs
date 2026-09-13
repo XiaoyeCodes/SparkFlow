@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import { VERIFIED_INCOME_REPORT as report, createChinaIncomeService, incomePeriod, parseIncomeReport, parseIncomeCalendar, INCOME_CALENDAR } from '../server/chinaIncome.ts';
+const title='2026年上半年居民收入和消费支出情况';
+const body=title+'一、居民收入情况'+report.groups.map(row=>`${row.label}居民人均可支配收入${row.amount}元，名义增长${row.nominal}%，扣除价格因素，实际增长${row.real}%；`).join('')
+  +report.sources.map(row=>`人均${row.label}${row.amount}元，增长${row.growth}%，占可支配收入的比重为${row.share}%；`).join('')
+  +`全国居民人均可支配收入中位数${report.median}元，增长${report.medianGrowth}%，中位数是平均数的${report.medianRatio}%。`;
+const parsed=parseIncomeReport(body,title,report.sourceUrl,report.publishedAt);
+assert.deepEqual(parsed,report);
+assert.equal(parseIncomeReport(body.replace('名义增长4.4','增长（以下如无特别说明，均为同比名义增长）4.4'),title,report.sourceUrl,report.publishedAt).groups[1].nominal,4.4);
+assert.throws(()=>parseIncomeReport(body.replace('22981','92981'),title,report.sourceUrl,report.publishedAt));
+assert.throws(()=>parseIncomeReport(body.replace('增长6.4','增长6..4'),title,report.sourceUrl,report.publishedAt));
+assert.throws(()=>parseIncomeReport(body.replace(title,'2025年上半年居民收入和消费支出情况'),title,report.sourceUrl,report.publishedAt));
+assert.equal(incomePeriod('2026年居民收入和消费支出情况').period,'2026-12');
+assert.equal(incomePeriod('2026年一季度居民收入和消费支出情况').period,'2026-03');
+assert.equal(incomePeriod('2026年前三季度居民收入和消费支出情况').period,'2026-09');
+const calendar=`2026年国家统计局主要统计信息发布日程表<table><tr><td>12</td><td>全国居民收支情况季度报告</td>${[19,0,0,16,0,0,15,0,0,19,0,0].map(n=>`<td>${n?n+'/一':'……'}</td>`).join('')}</tr><tr>${'<td>10:00</td>'.repeat(4)}</tr></table>`;
+assert.equal(parseIncomeCalendar(calendar)[3].at,Date.parse('2026-10-19T10:00:00+08:00'));
+let now=Date.parse('2026-09-13T12:00:00+08:00');
+const offline=createChinaIncomeService(async()=>{throw new Error('verification page');},()=>now);
+const fallback=await offline();
+assert.equal(fallback.status,'snapshot');
+assert.equal(fallback.report.median,19036);
+now=Date.parse('2026-10-19T10:00:00+08:00');
+assert.equal((await offline()).report,null,'expired half-year snapshot must disappear at Q3 release');
+now=Date.parse('2027-01-01T00:00:00+08:00');
+assert.equal((await offline()).status,'unavailable','old calendar must not remain valid next year');
+now=Date.parse('2026-09-13T12:00:00+08:00');
+let calls=0;
+let fail=false;
+let nextQuarter=false;
+const service=createChinaIncomeService(async url=>{
+  calls++;if(fail)throw new Error('offline');
+  if(url===INCOME_CALENDAR)return calendar;
+  const t=nextQuarter?'2026年前三季度居民收入和消费支出情况':title;
+  if(url.endsWith('release.html'))return body.replace(title,t);
+  return `<li><a href="./release.html">${t}</a><span>${nextQuarter?'2026-10-19':'2026-07-15'}</span></li>`;
+},()=>now);
+const [a,b]=await Promise.all([service(),service()]);
+assert.equal(calls,3);assert.deepEqual(a,b);assert.equal(a.status,'current');
+now+=15*60_000;fail=true;assert.equal((await service()).status,'snapshot');
+now=Date.parse('2026-10-19T10:00:00+08:00');fail=false;nextQuarter=true;
+assert.equal((await service()).report.period,'2026-09','new quarterly release must be discovered automatically');
+console.log('Income: source fields, period isolation, shares, median, calendar, failure snapshot, expiry and next-release discovery passed.');

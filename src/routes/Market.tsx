@@ -1,6 +1,6 @@
 import { forwardRef, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
   ArrowUpRight,
@@ -469,6 +469,7 @@ function DashboardViewFallback({ label }: { label: string }) {
 }
 
 export function Market({ initialDashboardView = 'markets' }: { initialDashboardView?: Extract<MarketDashboardView, 'global' | 'markets'> }) {
+  const location = useLocation();
   const navigate = useNavigate();
   const [activeMarket, setActiveMarket] = useState<MarketChartMode>(() => initialMarketSelection() || 'china');
   const [optionalMarketsOpen, setOptionalMarketsOpen] = useState(false);
@@ -476,6 +477,24 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
     if (window.location.hash === '#china-macro') return 'china-macro';
     return initialDashboardView;
   });
+
+  const openChinaMacro = useCallback(() => {
+    setDashboardView('china-macro');
+    navigate({ pathname: location.pathname, search: location.search, hash: 'china-macro' }, { replace: true });
+  }, [location.pathname, location.search, navigate]);
+
+  const closeChinaMacro = useCallback(() => {
+    setDashboardView('markets');
+    navigate({ pathname: location.pathname, search: location.search, hash: '' }, { replace: true });
+  }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    if (location.pathname !== '/market') return;
+    setDashboardView((current) => {
+      if (location.hash === '#china-macro') return 'china-macro';
+      return current === 'china-macro' ? 'markets' : current;
+    });
+  }, [location.hash, location.pathname]);
   const [data, setData] = useState<MarketIntelligence | null>(null);
   const [valuationSnapshots, setValuationSnapshots] = useState<Partial<Record<Exclude<MarketChartMode, 'crypto'>, AShareValuationSnapshot>>>({});
   const [loadState, setLoadState] = useState<AsyncState>('loading');
@@ -1120,7 +1139,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
       <PageTransition>
         <section className="h-[calc(100vh-var(--nav-height))] min-h-[680px] overflow-hidden bg-[#030706] text-white">
           <Suspense fallback={<DashboardViewFallback label="中国宏观主控台" />}>
-            <ChinaMacroCommandCenter onBack={() => setDashboardView('markets')} />
+            <ChinaMacroCommandCenter onBack={closeChinaMacro} />
           </Suspense>
         </section>
       </PageTransition>
@@ -1143,7 +1162,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
             <div className="market-terminal-actions flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setDashboardView('china-macro')}
+                onClick={openChinaMacro}
                 className="market-terminal-control market-terminal-control-accent inline-flex h-9 items-center gap-2 px-3 text-xs font-semibold transition"
               >
                 <MapPinned size={14} /> 中国宏观

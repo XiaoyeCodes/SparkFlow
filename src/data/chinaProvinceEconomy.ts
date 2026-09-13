@@ -15,6 +15,75 @@ export type ChinaProvinceEconomy = {
   period: string;
 };
 
+export type ChinaProvinceFeedMode = 'policy' | 'news';
+
+export type ChinaProvinceOfficialItem = {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  publishedAt?: string;
+  fallback?: boolean;
+  importanceScore?: number;
+  highlights?: string[];
+};
+
+const CHINA_OFFICIAL_NEWS_IMPORTANCE_RULES = [
+  {
+    weight: 34,
+    keywords: ['国务院', '中央', '省委', '自治区党委', '市委常委会', '省政府常务会议', '政府工作报告'],
+  },
+  {
+    weight: 30,
+    keywords: ['应急响应', '重大事故', '安全生产', '防汛', '抗旱', '地震', '灾害', '公共卫生'],
+  },
+  {
+    weight: 24,
+    keywords: ['重大', '重点', '重磅', '首次', '突破', '获批', '签约', '开工', '投产'],
+  },
+  {
+    weight: 18,
+    keywords: ['政策', '规划', '条例', '意见', '方案', '措施', '部署', '出台', '印发', '实施'],
+  },
+  {
+    weight: 14,
+    keywords: ['经济运行', '高质量发展', '稳增长', '产业', '投资', '项目', '招商', '科技', '创新', '数字经济'],
+  },
+  {
+    weight: 12,
+    keywords: ['就业', '教育', '医疗', '养老', '住房', '民生', '生态', '交通', '农业', '消费'],
+  },
+] as const;
+
+export function rankChinaOfficialNews(
+  items: ChinaProvinceOfficialItem[],
+  limit = 6,
+): ChinaProvinceOfficialItem[] {
+  return items.map((item, sourceIndex) => {
+    const highlights: string[] = [];
+    const importanceTier = CHINA_OFFICIAL_NEWS_IMPORTANCE_RULES.reduce((score, rule) => {
+      const matches = rule.keywords.filter((keyword) => item.title.includes(keyword));
+      if (!matches.length) return score;
+      highlights.push(...matches);
+      return Math.max(score, rule.weight);
+    }, 0);
+    const uniqueHighlights = [...new Set(highlights)].sort((left, right) => right.length - left.length);
+    const importanceScore = item.fallback ? -1_000 : importanceTier * 100 + uniqueHighlights.length;
+
+    return {
+      item: {
+        ...item,
+        importanceScore,
+        highlights: uniqueHighlights,
+      },
+      sourceIndex,
+    };
+  }).sort((left, right) => (
+    (right.item.importanceScore || 0) - (left.item.importanceScore || 0)
+    || left.sourceIndex - right.sourceIndex
+  )).slice(0, Math.max(0, limit)).map(({ item }) => item);
+}
+
 type ProvinceRow = readonly [
   name: string,
   shortName: string,
@@ -96,6 +165,21 @@ export const CHINA_PROVINCE_ECONOMY = Object.fromEntries(provinceRows.map(([
     period: '2024',
   } satisfies ChinaProvinceEconomy,
 ])) as Record<string, ChinaProvinceEconomy>;
+
+export function createChinaProvinceOfficialFallback(
+  province: string,
+  mode: ChinaProvinceFeedMode,
+): ChinaProvinceOfficialItem {
+  const profile = CHINA_PROVINCE_ECONOMY[province];
+  if (!profile) throw new Error(`不支持的中国省级地区：${province}`);
+  return {
+    id: `${province}-official-${mode}-directory`,
+    title: `${profile.name}人民政府${mode === 'policy' ? '政策公开' : '政务动态'}入口`,
+    source: `${profile.name}人民政府门户`,
+    url: profile.governmentUrl,
+    fallback: true,
+  };
+}
 
 export const CHINA_PROVINCE_DATA_SOURCES = {
   economy: {

@@ -31,6 +31,9 @@ import chinaRegionalEconomy from '../data/chinaRegionalEconomy.json';
 import './ChinaMacroCommandCenter.css';
 import { ChinaMapContext } from './ChinaMapContext';
 import { useMapFrameState } from '../lib/useMapFrameState';
+import { ChinaFisherCard } from './ChinaFisherCard';
+import { ChinaGdpCard } from './ChinaGdpCard';
+import { ChinaIncomeCard } from './ChinaIncomeCard';
 
 type ChinaMetric = {
   id: string;
@@ -44,6 +47,9 @@ type ChinaMetric = {
   sourceUrl: string;
   status: 'live' | 'delayed' | 'unavailable';
   note?: string;
+  releasedAt?: string;
+  checkedAt?: string;
+  freshness?: 'checked' | 'cached' | 'unverified';
 };
 
 type ChinaIndex = {
@@ -68,6 +74,7 @@ type ChinaNews = {
   sourceCount?: number;
   sources?: string[];
   importanceReason?: string;
+  highlights?: string[];
 };
 
 type ChinaMacroDashboard = {
@@ -75,7 +82,7 @@ type ChinaMacroDashboard = {
   indices: ChinaIndex[];
   metrics: ChinaMetric[];
   quadrant: {
-    current: '复苏' | '过热' | '滞胀' | '衰退 / 通缩';
+    current: '复苏' | '过热' | '滞胀' | '衰退 / 通缩' | '数据不足';
     growthDirection: number;
     inflationDirection: number;
     explanation: string;
@@ -96,6 +103,7 @@ type ChinaMacroDashboard = {
     duplicatesRemoved: number;
   };
   methodology: string;
+  sourceStatus?: { ready: number; total: number; unverifiedMetrics: string[]; errors: string[] };
 };
 
 const EMPTY_CHINA_DASHBOARD: ChinaMacroDashboard = {
@@ -103,7 +111,7 @@ const EMPTY_CHINA_DASHBOARD: ChinaMacroDashboard = {
   indices: [],
   metrics: [],
   quadrant: {
-    current: '复苏',
+    current: '数据不足',
     growthDirection: 0,
     inflationDirection: 0,
     explanation: '正在连接增长与通胀数据。',
@@ -132,6 +140,8 @@ type ProvinceOfficialItem = {
   url: string;
   publishedAt?: string;
   fallback?: boolean;
+  importanceScore?: number;
+  highlights?: string[];
 };
 
 type ProvinceOfficialFeed = {
@@ -139,11 +149,23 @@ type ProvinceOfficialFeed = {
   generatedAt: string;
   policies: ProvinceOfficialItem[];
   news: ProvinceOfficialItem[];
-  sourceStatus: 'live' | 'unavailable';
+  sourceStatus: 'live' | 'fallback' | 'unavailable';
   errors: string[];
 };
 
 type AdministrativeLevel = 'province' | 'city' | 'county';
+
+function highlightedNewsTitle(item: { title: string; highlights?: string[] }): ReactNode {
+  const keywords = [...new Set(item.highlights || [])]
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  if (!keywords.length) return item.title;
+  const escapedKeywords = keywords.map((keyword) => keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const keywordSet = new Set(keywords);
+  return item.title.split(new RegExp(`(${escapedKeywords.join('|')})`, 'g')).map((part, index) => (
+    keywordSet.has(part) ? <mark key={`${part}-${index}`}>{part}</mark> : part
+  ));
+}
 
 type ChinaRegionalEconomy = {
   adcode: string;
@@ -204,7 +226,7 @@ type MapTrailItem = {
 };
 
 const PROVINCE_PANEL_TABS = [
-  { id: 'government', label: '政务与班子', icon: Landmark },
+  { id: 'government', label: '政务信息', icon: Landmark },
   { id: 'economy', label: '经济与产业', icon: BriefcaseBusiness },
   { id: 'fiscal', label: '财政与债务', icon: BadgeDollarSign },
   { id: 'population', label: '人口与社会', icon: Users },
@@ -221,13 +243,13 @@ const STRUCTURAL_IDS = ['household-loans', 'corporate-loans', 'fiscal', 'propert
 const TACTICAL_IDS = ['cn-us-spread', 'cnh-hibor', 'credit-spread', 'bill-financing', 'interbank-repo', 'term-spread'];
 
 const METRIC_VISUALS = {
-  tsf: { label: '社融增量', icon: Waves },
+  tsf: { label: '社融存量同比', icon: Waves },
   m1m2: { label: 'M1–M2 剪刀差', icon: Banknote },
   'official-pmi': { label: '官方制造业 PMI', icon: Factory },
   'caixin-pmi': { label: '财新制造业 PMI', icon: Factory },
   cpi: { label: 'CPI 同比', icon: TrendingUp },
   ppi: { label: 'PPI 同比', icon: Factory },
-  dr007: { label: 'DR007', icon: CircleGauge },
+  dr007: { label: 'FDR007 定盘', icon: CircleGauge },
   cn10y: { label: '中国 10Y 国债', icon: Landmark },
   lpr: { label: 'LPR', icon: BadgeDollarSign },
   'household-loans': { label: '居民中长期贷款', icon: Users },
@@ -241,7 +263,7 @@ const METRIC_VISUALS = {
   'credit-spread': { label: 'AAA 信用利差', icon: ShieldCheck },
   'bill-financing': { label: '票据融资增量', icon: Banknote },
   'interbank-repo': { label: '质押式回购利率', icon: Landmark },
-  'term-spread': { label: '国债 10Y–1Y 利差', icon: TrendingUp },
+  'term-spread': { label: '国债 10Y–1Y（月末）', icon: TrendingUp },
 } as const;
 
 function formatNumber(value: number, digits = 2) {
@@ -410,16 +432,18 @@ function RegionalEconomyPanel({ profile, panel }: { profile: ChinaRegionalEconom
 }
 
 function metricSignal(item: ChinaMetric) {
+  if (item.value === null || item.status === 'unavailable') return '数据待核验';
+  if (item.freshness === 'cached') return '上次核验值 · 更新失败';
   if (item.changeDisplay) return item.changeDisplay;
   if (item.note && item.note.length <= 8) return item.note;
   if (item.status === 'live') return '官方更新';
-  if (item.status === 'delayed') return '最新口径';
+  if (item.status === 'delayed') return '已核对发布';
   return '数据待核验';
 }
 
 function metricPeriodLabel(period: string) {
-  const cumulative = period.match(/^(\d{4})-01[—–-]07$/);
-  if (cumulative) return `${cumulative[1]}年1—7月累计`;
+  const cumulative = period.match(/^(\d{4})-01[—–-](\d{2})$/);
+  if (cumulative) return `${cumulative[1]}年1—${Number(cumulative[2])}月累计`;
   const halfYear = period.match(/^(\d{4})\s*H1$/i);
   if (halfYear) return `${halfYear[1]}年上半年`;
   const month = period.match(/^(\d{4})-(\d{2})$/);
@@ -430,6 +454,7 @@ function metricPeriodLabel(period: string) {
 }
 
 function metricJudgement(item: ChinaMetric): { label: string; detail: string; tone: 'support' | 'risk' | 'watch' | 'neutral' } {
+  if (item.value === null || item.status === 'unavailable' || item.freshness === 'cached') return { label: metricSignal(item), detail: item.note || '暂不据此作方向判断', tone: 'neutral' };
   const value = metricValue(item);
   const change = item.change ?? 0;
   const judgements: Record<string, { label: string; detail: string; tone: 'support' | 'risk' | 'watch' | 'neutral' }> = {
@@ -501,7 +526,7 @@ function MetricCell({ item }: { item?: ChinaMetric }) {
       href={item.sourceUrl}
       target="_blank"
       rel="noreferrer"
-      title={`${item.label}\n${judgement.detail}\n${item.note || ''}\n${metricPeriodLabel(item.period)} · ${item.source}`}
+      title={`${item.label}\n${judgement.detail}\n${item.note || ''}\n${metricPeriodLabel(item.period)} · ${item.source}\n${metricVerification(item)}`}
     >
       <span className="china-metric-head">
         <i><Icon size={12} /></i>
@@ -513,6 +538,7 @@ function MetricCell({ item }: { item?: ChinaMetric }) {
         <b className={`is-impact-${judgement.tone}`}>{judgement.label}</b>
         <small>{metricPeriodLabel(item.period)}</small>
       </span>
+      <small className="china-metric-verification">{metricVerification(item)}</small>
     </a>
   );
 }
@@ -528,6 +554,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function anchorVerdict(anchorId: MacroAnchor['id'], items: ChinaMetric[]) {
+  if (!items.length || items.some(item => item.value === null || item.freshness === 'cached')) return '数据待核验';
   const values = new Map(items.map((item) => [item.id, item]));
   if (anchorId === 'credit') {
     const credit = metricValue(values.get('tsf'));
@@ -549,12 +576,17 @@ function anchorVerdict(anchorId: MacroAnchor['id'], items: ChinaMetric[]) {
     if (changes.some((value) => value < 0) && changes.some((value) => value > 0)) return '通胀信号分化';
     return '再通胀压力抬升';
   }
-  const dr007 = metricValue(values.get('dr007'));
-  const cn10y = metricValue(values.get('cn10y'));
-  return cn10y > dr007 ? '资金面平稳 · 曲线正斜率' : '期限曲线承压';
+  return '不同工具报价 · 非收益率曲线';
+}
+
+function metricVerification(item: ChinaMetric) {
+  const state = item.value === null ? '待核验' : item.freshness === 'cached' ? '缓存值 · 更新失败' : '来源已核对';
+  const checked = item.checkedAt ? new Date(item.checkedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
+  return `${state}${checked ? ` ${checked}` : ''}${item.releasedAt ? ` · 发布 ${item.releasedAt}` : ''}`;
 }
 
 function metricPhenomenon(item: ChinaMetric) {
+  if (item.value === null || item.freshness === 'cached') return metricSignal(item);
   if (item.id === 'tsf') return metricValue(item) >= 7 ? '融资总量仍在扩张' : '信用扩张速度偏弱';
   if (item.id === 'm1m2') return metricValue(item) < 0 ? '资金活化程度偏弱' : '活期资金改善';
   if (item.id === 'official-pmi' || item.id === 'caixin-pmi') return metricValue(item) >= 50 ? '位于扩张区间' : '位于收缩区间';
@@ -562,7 +594,7 @@ function metricPhenomenon(item: ChinaMetric) {
   if (item.id === 'ppi') return (item.change ?? 0) < 0 ? '工业品价格环比回落' : '工业品价格环比走强';
   if (item.id === 'dr007') return metricValue(item) < 1.6 ? '银行间资金偏宽' : '资金价格偏紧';
   if (item.id === 'cn10y') return '长端利率定价增长预期';
-  if (item.id === 'lpr') return (item.change ?? 0) === 0 ? '贷款报价利率维持' : '贷款报价利率调整';
+  if (item.id === 'lpr') return '1年期 / 5年期以上报价';
   return metricSignal(item);
 }
 
@@ -574,7 +606,7 @@ function MacroMetricLink({ item, className, children, style }: { item: ChinaMetr
       target="_blank"
       rel="noreferrer"
       style={style}
-      title={`${item.label}\n${item.note || ''}\n${item.period} · ${item.source}`}
+      title={`${item.label}\n${item.note || ''}\n${item.period} · ${item.source}\n${metricVerification(item)}`}
     >
       {children}
     </a>
@@ -620,13 +652,13 @@ function MacroAnchorVisual({ anchor, items }: { anchor: MacroAnchor; items: Chin
               style={{ '--pmi-position': `${position}%`, '--pmi-band-start': `${bandStart}%`, '--pmi-band-width': `${bandWidth}%` } as CSSProperties}
             >
               <span className="china-pmi-row-head">
-                <b>{item.id === 'official-pmi' ? '官方 PMI' : '财新 PMI'}</b>
-                <em className={expanding ? 'is-expansion' : 'is-contraction'}>{expanding ? '扩张' : '收缩'}</em>
+                <b>{item.id === 'official-pmi' ? '官方 PMI' : '民营制造业 PMI'}</b>
+                <em className={expanding ? 'is-expansion' : 'is-contraction'}>{item.value === null ? '待核验' : expanding ? '扩张' : '收缩'}</em>
                 <strong>{item.display}</strong>
               </span>
-              <div className="china-pmi-track"><i /><em /></div>
+              {item.value !== null && <div className="china-pmi-track"><i /><em /></div>}
               <span className="china-pmi-row-foot">
-                <b>{expanding ? '高于' : '低于'}荣枯线 {distance} 点</b>
+                <b>{item.value === null ? '暂不判断景气' : `${expanding ? '高于' : '低于'}荣枯线 ${distance} 点`}</b>
                 <small>较前值 {metricSignal(item)} · {metricPeriodLabel(item.period)}</small>
               </span>
             </MacroMetricLink>
@@ -653,28 +685,23 @@ function MacroAnchorVisual({ anchor, items }: { anchor: MacroAnchor; items: Chin
   }
 
   const rateItems = items.filter((item) => ['dr007', 'cn10y', 'lpr'].includes(item.id));
-  const points = rateItems.map((item, index) => {
-    const x = 18 + index * 82;
-    const y = 57 - clamp(metricValue(item), 0, 4) / 4 * 38;
-    return `${x},${y}`;
-  }).join(' ');
   return (
     <div className="china-rate-curve">
       <div className="china-rate-chart" aria-label="当期资金价格横截面">
         <svg viewBox="0 0 200 66" preserveAspectRatio="none" aria-hidden="true">
           <line x1="0" y1="57" x2="200" y2="57" />
           <line x1="0" y1="28" x2="200" y2="28" />
-          <polyline points={points} />
-          {rateItems.map((item, index) => <circle key={item.id} cx={18 + index * 82} cy={57 - clamp(metricValue(item), 0, 4) / 4 * 38} r="3" />)}
+          {rateItems.map((item, index) => item.value !== null && <circle key={item.id} cx={18 + index * 82} cy={57 - clamp(metricValue(item), 0, 4) / 4 * 38} r="3" />)}
         </svg>
-        <span>当期资金价格曲线</span>
+        <span>资金报价横截面（不同工具）</span>
       </div>
       <div className="china-rate-points">
         {rateItems.map((item) => (
           <MacroMetricLink key={item.id} item={item} className={`china-rate-point is-${item.id}`}>
-            <span>{item.id === 'cn10y' ? '10Y 国债' : item.id.toUpperCase()}</span>
+            <span>{item.id === 'cn10y' ? '10Y 国债' : item.id === 'dr007' ? 'FDR007' : item.id.toUpperCase()}</span>
             <strong>{item.display}</strong>
             <small>{metricPhenomenon(item)}</small>
+            <small>{metricPeriodLabel(item.period)}</small>
           </MacroMetricLink>
         ))}
       </div>
@@ -756,7 +783,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
     }
     const sections = ['indices', 'metrics', 'policy', 'news'] as const;
     const requests = sections.map(async (section) => {
-      const response = await fetch(`/api/china-macro-dashboard?section=${section}`, {
+      const response = await fetch(`/api/china-macro-dashboard?section=${section}${!silent ? '&fresh=1' : ''}`, {
         cache: 'no-store',
         signal: controller.signal,
       });
@@ -827,7 +854,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
     }).then((feed) => {
       if (controller.signal.aborted) return;
       setProvinceFeed(feed);
-      setProvinceFeedState(feed.sourceStatus === 'live' ? 'ready' : 'unavailable');
+      setProvinceFeedState(feed.sourceStatus === 'unavailable' ? 'unavailable' : 'ready');
     }).catch(() => {
       if (controller.signal.aborted) return;
       setProvinceFeed(null);
@@ -872,6 +899,12 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
     return levels.size === 1 ? [...levels][0] : 'mixed';
   }, [mapDepth, mapModel]);
   const activeProvince = selectedRegionLevel === 'province' ? CHINA_PROVINCE_ECONOMY[selectedRegion] : undefined;
+  const policyFeedIsFallback = Boolean(
+    provinceFeed?.policies.length && provinceFeed.policies.every((item) => item.fallback),
+  );
+  const newsFeedIsFallback = Boolean(
+    provinceFeed?.news.length && provinceFeed.news.every((item) => item.fallback),
+  );
   const selectedRegionalProfile = selectedRegionLevel && selectedRegionLevel !== 'province'
     ? CHINA_REGIONAL_ECONOMY[selectedRegionAdcode]
     : undefined;
@@ -891,7 +924,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
   }, [selectedProvince]);
   const structural = STRUCTURAL_IDS.map((id) => metrics.get(id));
   const tactical = TACTICAL_IDS.map((id) => metrics.get(id));
-  const currentQuadrant = data?.quadrant.current || '复苏';
+  const currentQuadrant = data?.quadrant.current || '数据不足';
 
   const clampMapView = (view: { scale: number; x: number; y: number }) => {
     const scale = Math.max(1, Math.min(8, view.scale));
@@ -1038,6 +1071,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
       <div className="china-command-layout">
         <aside className="china-command-left">
           <div className="china-section-heading"><CircleGauge size={15} /><span>TIER 1 · 四大宏观锚点</span></div>
+          <p className="china-data-health" title={data?.sourceStatus?.errors.join('\n')}>每 2 分钟检查更新 · 期数不等于抓取时间。{data?.sourceStatus ? ` ${data.sourceStatus.ready}/${data.sourceStatus.total} 路径可用；${data.sourceStatus.unverifiedMetrics?.length || 0} 项待核验或使用缓存。` : '正在核对来源。'}点击指标查看原文，悬停查看核验时间。</p>
           <div className="china-anchor-list">
             {ANCHORS.map((anchor) => <MacroAnchorCard key={anchor.id} anchor={anchor} metrics={metrics} />)}
           </div>
@@ -1202,8 +1236,8 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
               <div className="china-province-panel">
                 {provincePanel === 'government' ? <>
                   <div><span>官方门户</span><strong>{activeProvince.governmentUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}</strong><small>链接直接指向该省级人民政府网站</small></div>
-                  <div><span>官方政策</span><strong>{provinceFeedState === 'loading' ? '获取中' : `${provinceFeed?.policies.length || 0} 条`}</strong><small>{provinceFeedState === 'ready' ? '已解析官方页面有效链接' : '未成功取得官方条目，不使用占位内容'}</small></div>
-                  <div><span>政务新闻</span><strong>{provinceFeedState === 'loading' ? '获取中' : `${provinceFeed?.news.length || 0} 条`}</strong><small>{provinceFeedState === 'ready' ? '已解析官方页面有效链接' : '未成功取得官方条目，不使用占位内容'}</small></div>
+                  <div><span>官方政策</span><strong>{provinceFeedState === 'loading' ? '获取中' : `${provinceFeed?.policies.length || 0} 条`}</strong><small>{policyFeedIsFallback ? '列表暂不可达，已保留官方政策入口' : provinceFeedState === 'ready' ? '已解析官方页面有效链接' : '官方入口暂不可用'}</small></div>
+                  <div><span>政务新闻</span><strong>{provinceFeedState === 'loading' ? '获取中' : `${provinceFeed?.news.length || 0} 条`}</strong><small>{newsFeedIsFallback ? '列表暂不可达，已保留官方政务入口' : provinceFeedState === 'ready' ? '已解析官方页面有效链接' : '官方入口暂不可用'}</small></div>
                   <a href={activeProvince.governmentUrl} target="_blank" rel="noreferrer">打开官方门户<ArrowUpRight size={12} /></a>
                 </> : null}
                 {provincePanel === 'economy' ? <>
@@ -1231,17 +1265,17 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
               <div><strong>{selectedRegion}暂无同口径结构化数据</strong><span>当前已严格切换到所选{selectedRegionLevel === 'city' ? '城市' : '区县'}，不会继续显示{selectedProvince || '父级'}数据，也不会用模板或其他年份补齐。</span></div>
             </div>}
             <div className="china-local-intel">
-              <section>
-                <header><Landmark size={13} /><strong>地方政策</strong><span>{provinceFeedState === 'loading' ? '获取中' : provinceFeedState === 'ready' ? `${provinceFeed?.policies.length || 0} 条官方链接` : '暂无官方条目'}</span></header>
+              <section className="china-local-intel-policy">
+                <header><Landmark size={13} /><strong>地方政策</strong><span>{provinceFeedState === 'loading' ? '获取中' : policyFeedIsFallback ? '官方入口' : provinceFeedState === 'ready' ? `${provinceFeed?.policies.length || 0} 条官方链接` : '暂无官方条目'}</span></header>
                 <div className="china-local-intel-list">
                   {(provinceFeed?.policies || []).map((item) => <a key={item.id} href={item.url} target="_blank" rel="noreferrer"><span>{item.title}</span><ArrowUpRight size={11} /></a>)}
                   {provinceFeedState !== 'loading' && !(provinceFeed?.policies.length) ? <p>暂无可核验的官方政策条目</p> : null}
                 </div>
               </section>
-              <section>
-                <header><Database size={13} /><strong>地方新闻</strong><span>{provinceFeedState === 'loading' ? '获取中' : provinceFeedState === 'ready' ? `${provinceFeed?.news.length || 0} 条官方链接` : '暂无官方条目'}</span></header>
+              <section className="china-local-intel-news">
+                <header><Database size={13} /><strong>地方新闻</strong><span>{provinceFeedState === 'loading' ? '获取中' : newsFeedIsFallback ? '官方入口' : provinceFeedState === 'ready' ? `${Math.min(provinceFeed?.news.length || 0, 6)}/6 · 重要度排序` : '暂无官方条目'}</span></header>
                 <div className="china-local-intel-list">
-                  {(provinceFeed?.news || []).map((item) => <a key={item.id} href={item.url} target="_blank" rel="noreferrer"><span>{item.title}</span><ArrowUpRight size={11} /></a>)}
+                  {(provinceFeed?.news || []).slice(0, 6).map((item, index) => <a key={item.id} href={item.url} target="_blank" rel="noreferrer" aria-label={`第 ${index + 1} 条重要新闻：${item.title}`}><b className="china-local-intel-rank">{String(index + 1).padStart(2, '0')}</b><span>{highlightedNewsTitle(item)}</span><ArrowUpRight size={11} /></a>)}
                   {provinceFeedState !== 'loading' && !(provinceFeed?.news.length) ? <p>暂无可核验的官方新闻条目</p> : null}
                 </div>
               </section>
@@ -1253,6 +1287,18 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
         </main>
 
         <aside className="china-command-right">
+          <ChinaFisherCard />
+          <ChinaGdpCard />
+          <ChinaIncomeCard />
+          <section className="china-quadrant-board">
+            <div className="china-section-heading"><CircleGauge size={15} /><span>增长 × 通胀四象限</span></div>
+            <div className="china-quadrant-grid">
+              {['过热', '滞胀', '复苏', '衰退 / 通缩'].map((label) => <div key={label} className={label === currentQuadrant ? 'is-active' : ''}><span>{label}</span></div>)}
+              <i className="axis-x" /><i className="axis-y" />
+            </div>
+            <div className="china-quadrant-result"><span>当前判断</span><strong>{currentQuadrant}</strong><p>{data?.quadrant.explanation}</p></div>
+          </section>
+
           <section className="china-policy-board">
             <div className="china-section-heading"><Landmark size={15} /><span>政策周期与信用状态</span></div>
             <div className="china-policy-state">
@@ -1263,42 +1309,36 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
             <div className="china-policy-links">{(data?.policy.policies || []).map((item) => <a key={item.url} href={item.url} target="_blank" rel="noreferrer"><span>{item.title}</span><small>{item.source}</small></a>)}</div>
           </section>
 
-          <section className="china-quadrant-board">
-            <div className="china-section-heading"><CircleGauge size={15} /><span>增长 × 通胀四象限</span></div>
-            <div className="china-quadrant-grid">
-              {['过热', '滞胀', '复苏', '衰退 / 通缩'].map((label) => <div key={label} className={label === currentQuadrant ? 'is-active' : ''}><span>{label}</span></div>)}
-              <i className="axis-x" /><i className="axis-y" />
-            </div>
-            <div className="china-quadrant-result"><span>当前判断</span><strong>{currentQuadrant}</strong><p>{data?.quadrant.explanation}</p></div>
-          </section>
-
           <section className="china-news-board">
             <div className="china-section-heading">
               <Database size={15} />
               <span>中国政策与经济要闻</span>
-              <b>TOP 5</b>
+              <b>{Math.min(data?.news.length || 0, 6)}/6 · 重要度排序</b>
             </div>
             <div className="china-news-list">
-              {(data?.news || []).length ? data!.news.slice(0, 5).map((item, index) => (
+              {(data?.news || []).length ? data!.news.slice(0, 6).map((item, index) => (
                 <a
                   key={item.id}
                   href={item.url}
                   target="_blank"
                   rel="noreferrer"
+                  className={`is-${item.importance || 'medium'}`}
+                  aria-label={`第 ${index + 1} 条重要新闻：${item.title}`}
                   title={`${item.importanceReason || '按重要性与时效排序'}${item.sources?.length ? `\n来源：${item.sources.join('、')}` : ''}`}
                 >
                   <em>{String(index + 1).padStart(2, '0')}</em>
                   <div>
-                    <strong>{item.title}</strong>
+                    <strong>{highlightedNewsTitle(item)}</strong>
                     <span>
                       <i className={`is-${item.importance || 'medium'}`} />
-                      {item.category} · {item.sourceCount && item.sourceCount > 1 ? `${item.sourceCount}源印证` : item.source} · {timeAgo(item.publishedAt)}
+                      {item.category} · {item.source} · {item.publishedAt ? new Date(item.publishedAt).toLocaleDateString('zh-CN') : '日期待核验'}{item.sourceCount && item.sourceCount > 1 ? ` · ${item.sourceCount}家报道` : ''}
                     </span>
                   </div>
                   <ArrowUpRight size={13} />
                 </a>
-              )) : <div className="china-news-empty">今日高重要性国内要闻暂未抓取到，避免用旧闻填充。</div>}
+              )) : <div className="china-news-empty">暂未取得要闻，请查看来源状态或稍后刷新。</div>}
             </div>
+            <p className="china-data-health">国家统计局与政府网保留近 30 天发布；新华社近 7 天。{data?.newsMeta ? `来源可用 ${data.newsMeta.onlineSources}/${data.newsMeta.totalSources}` : '正在连接官方来源'}</p>
           </section>
         </aside>
       </div>

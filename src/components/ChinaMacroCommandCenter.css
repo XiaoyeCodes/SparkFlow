@@ -84,7 +84,8 @@
 .china-command-left,
 .china-command-right { overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(103, 219, 194, 0.25) transparent; }
 .china-command-left { padding: 16px 14px 24px; }
-.china-command-right { padding: 16px 16px 24px; }
+.china-command-right { padding: 16px 16px 24px; scrollbar-width: none; }
+.china-command-right::-webkit-scrollbar { display: none; }
 
 .china-section-heading { display: flex; align-items: center; gap: 8px; min-height: 24px; margin-bottom: 10px; color: var(--china-green); }
 .china-section-heading::after { content: ""; height: 1px; flex: 1; background: linear-gradient(90deg, var(--china-border-strong), transparent); }
@@ -273,7 +274,8 @@
 .china-map-status { position: absolute; z-index: 4; left: 12px; bottom: 10px; color: #526963; font: 8px "JetBrains Mono", monospace; }
 .china-region-label { pointer-events: none; fill: #dceae5; paint-order: stroke; stroke: rgba(2, 9, 8, 0.9); stroke-width: 2px; text-anchor: middle; dominant-baseline: middle; font: 600 9px "Microsoft YaHei UI", sans-serif; }
 
-.china-province-inspector { min-height: 0; margin-top: 12px; padding: 10px 12px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(102, 223, 183, 0.42) transparent; }
+.china-province-inspector { min-height: 0; margin-top: 12px; padding: 10px 12px; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.china-province-inspector::-webkit-scrollbar { display: none; }
 .china-province-inspector > header { display: flex; align-items: center; gap: 10px; color: var(--china-green); }
 .china-province-inspector > header div { display: grid; gap: 1px; }
 .china-province-inspector > header small { color: var(--china-muted); font: 500 8px "JetBrains Mono", monospace; letter-spacing: 0.12em; }
@@ -299,22 +301,26 @@
 .china-region-data-empty > div { display: grid; gap: 4px; }
 .china-region-data-empty strong { color: #aebfba; font-size: 11px; }
 .china-region-data-empty span { color: #5f7770; font-size: 9px; line-height: 1.45; }
-.china-local-intel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
-.china-local-intel > section { min-width: 0; border: 1px solid var(--china-border); border-radius: 4px; background: rgba(4, 14, 12, 0.54); }
-.china-local-intel header { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px; border-bottom: 1px solid var(--china-border); color: var(--china-green); }
+.china-local-intel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+.china-local-intel > section { min-width: 0; overflow: hidden; border: 1px solid rgba(102, 223, 183, 0.17); border-radius: 12px; background: linear-gradient(145deg, rgba(7, 22, 18, 0.82), rgba(3, 13, 11, 0.92)); box-shadow: inset 0 1px 0 rgba(207, 255, 239, 0.035); }
+.china-local-intel header { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-bottom: 1px solid rgba(102, 223, 183, 0.12); color: var(--china-green); background: rgba(102, 223, 183, 0.025); }
 .china-local-intel header strong { color: var(--china-text); font-size: 9px; }
 .china-local-intel header span { margin-left: auto; color: var(--china-muted); font: 8px "JetBrains Mono", monospace; }
 .china-local-intel-list { max-height: 112px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(102, 223, 183, 0.32) transparent; }
 .china-local-intel-list > p { margin: 0; padding: 10px 8px; color: #526963; font-size: 8px; }
-.china-local-intel a { display: flex; align-items: flex-start; gap: 6px; min-height: 28px; padding: 5px 8px; border-bottom: 1px solid rgba(113, 174, 153, 0.08); color: #8da69f; font-size: 8px; line-height: 1.4; text-decoration: none; }
-.china-local-intel a:last-child { border-bottom: 0; }
+.china-local-intel a { display: flex; align-items: flex-start; gap: 7px; min-height: 30px; padding: 6px 8px; border: 1px solid transparent; border-radius: 7px; color: #9aafa9; font-size: 8px; line-height: 1.45; text-decoration: none; transition: color 160ms ease, border-color 160ms ease, background 160ms ease; }
+.china-local-intel a:hover,
+.china-local-intel a:focus-visible { border-color: rgba(102, 223, 183, 0.24); color: #dcebe6; background: rgba(102, 223, 183, 0.055); outline: none; }
 .china-local-intel a span { display: -webkit-box; overflow: hidden; white-space: normal; overflow-wrap: anywhere; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .china-local-intel a svg { flex: 0 0 auto; margin-top: 1px; margin-left: auto; color: var(--china-green); }
+.china-local-intel-news .china-local-intel-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; max-height: none; padding: 6px; overflow: visible; }
+.china-local-intel-rank { display: grid; flex: 0 0 auto; place-items: center; width: 21px; height: 18px; border: 1px solid rgba(214, 173, 99, 0.22); border-radius: 999px; color: var(--china-gold); background: rgba(214, 173, 99, 0.07); font: 700 7px "JetBrains Mono", monospace; }
+.china-local-intel-news mark { border-radius: 3px; padding: 0 2px; color: #a8ffe2; background: rgba(102, 223, 183, 0.16); font-weight: 700; }
 .china-panel-watermark { position: absolute; right: 10px; bottom: 4px; color: rgba(102, 223, 183, 0.06); pointer-events: none; }
 
 .china-policy-board,
 .china-quadrant-board,
-.china-news-board { padding: 12px; }
+.china-news-board { padding: 12px; border-radius: 12px; }
 .china-quadrant-board,
 .china-news-board { margin-top: 14px; }
 .china-policy-state { border-left: 3px solid var(--china-gold); padding: 6px 10px 8px; }
@@ -331,7 +337,7 @@
 .china-policy-links a { display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid rgba(116, 177, 158, 0.1); padding: 8px 2px; color: #9eb1ac; text-decoration: none; font-size: 10px; }
 .china-policy-links small { color: var(--china-muted); white-space: nowrap; }
 
-.china-quadrant-grid { position: relative; display: grid; grid-template-columns: 1fr 1fr; height: 160px; gap: 1px; margin-top: 6px; background: rgba(116, 177, 158, 0.14); }
+.china-quadrant-grid { position: relative; display: grid; grid-template-columns: 1fr 1fr; height: 112px; gap: 1px; margin-top: 6px; background: rgba(116, 177, 158, 0.14); }
 .china-quadrant-grid > div { display: grid; place-items: center; color: #617873; background: #07110f; font-size: 11px; }
 .china-quadrant-grid > div.is-active { color: #062019; background: var(--china-green); font-weight: 700; box-shadow: inset 0 0 0 2px #b5ffe5; }
 .china-quadrant-grid .axis-x,
@@ -343,12 +349,34 @@
 .china-quadrant-result strong { margin-left: 8px; color: var(--china-green); }
 .china-quadrant-result p { margin: 6px 0 0; color: #6e8580; font-size: 9px; line-height: 1.55; }
 
-.china-news-list { display: grid; }
-.china-news-list > a { display: grid; grid-template-columns: 24px minmax(0, 1fr) 14px; align-items: start; gap: 8px; padding: 10px 0; border-top: 1px solid rgba(116, 177, 158, 0.1); color: var(--china-text); text-decoration: none; }
-.china-news-list > a:hover strong { color: var(--china-green); }
-.china-news-list em { color: var(--china-gold); font: normal 9px "JetBrains Mono", monospace; }
+.china-news-board .china-section-heading b { white-space: nowrap; }
+.china-news-list { display: grid; gap: 6px; max-height: none; overflow: visible; }
+.china-data-health { margin: 8px 0 12px; color: var(--china-muted); font-size: 10px; line-height: 1.6; }
+.china-metric-verification { color: var(--china-muted); font-size: 8px; line-height: 1.5; }
+.china-metric-foot { flex-wrap: wrap; }
+.china-metric-foot > small { overflow: visible; white-space: normal; }
+.china-rate-point > strong { white-space: normal; overflow-wrap: anywhere; }
+.china-inflation-copy > small, .china-pmi-row-foot > small { white-space: normal; overflow: visible; }
+/* Keep provenance in the source-link tooltips without cluttering the cards. */
+.china-data-health,
+.china-metric-verification,
+.china-metric-foot > small,
+.china-credit-metric > small,
+.china-pmi-row-foot > small,
+.china-inflation-copy > small,
+.china-rate-point > small:last-child { display: none; }
+.china-news-list > a { position: relative; display: grid; grid-template-columns: 27px minmax(0, 1fr) 14px; align-items: start; gap: 8px; min-height: 59px; padding: 10px; overflow: hidden; border: 1px solid rgba(116, 177, 158, 0.13); border-radius: 10px; color: var(--china-text); text-decoration: none; background: linear-gradient(135deg, rgba(102, 223, 183, 0.035), rgba(2, 10, 9, 0.62)); transition: border-color 160ms ease, background 160ms ease, transform 160ms ease; }
+.china-news-list > a::before { position: absolute; inset: 8px auto 8px 0; width: 2px; border-radius: 0 999px 999px 0; background: var(--china-blue); content: ""; opacity: 0.7; }
+.china-news-list > a.is-critical::before { background: var(--china-red); box-shadow: 0 0 8px rgba(230, 132, 123, 0.65); }
+.china-news-list > a.is-high::before { background: var(--china-gold); }
+.china-news-list > a:hover,
+.china-news-list > a:focus-visible { border-color: rgba(102, 223, 183, 0.34); background: linear-gradient(135deg, rgba(102, 223, 183, 0.075), rgba(3, 14, 12, 0.82)); transform: translateY(-1px); outline: none; }
+.china-news-list > a:hover strong,
+.china-news-list > a:focus-visible strong { color: #dffff4; }
+.china-news-list em { display: grid; place-items: center; width: 25px; height: 20px; border: 1px solid rgba(214, 173, 99, 0.23); border-radius: 999px; color: var(--china-gold); background: rgba(214, 173, 99, 0.065); font: normal 8px "JetBrains Mono", monospace; }
 .china-news-list div { display: grid; gap: 5px; }
 .china-news-list strong { display: -webkit-box; overflow: hidden; font-size: 11px; line-height: 1.45; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.china-news-list strong mark { border-radius: 3px; padding: 0 2px; color: #a8ffe2; background: rgba(102, 223, 183, 0.16); font-weight: 800; }
 .china-news-list span { color: var(--china-muted); font-size: 8px; }
 .china-news-list span i { display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: var(--china-blue); }
 .china-news-list span i.is-critical { background: var(--china-red); box-shadow: 0 0 7px var(--china-red); }
@@ -403,5 +431,21 @@
   .china-province-stats { grid-template-columns: 1fr; }
   .china-province-stats > div { border-right: 0; border-bottom: 1px solid var(--china-border); }
   .china-province-stats > div:last-child { border-bottom: 0; }
+  .china-local-intel { grid-template-columns: 1fr; }
+  .china-local-intel-news .china-local-intel-list { grid-template-columns: 1fr; }
   .china-command-footer b { display: none; }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .china-local-intel a,
+  .china-news-list > a { transition: none; }
+}
+
+/* Compact right rail: consistent spacing after all data cards. */
+.china-command-right > section { margin: 0 0 9px; padding: 10px; border-radius: 6px; }
+.china-command-right .china-section-heading { margin-bottom: 6px; }
+.china-command-right .china-policy-state { padding: 4px 8px; }
+.china-command-right .china-policy-state > strong { font-size: 15px; }
+.china-command-right .china-policy-state p { margin: 4px 0 6px; }
+.china-command-right .china-next-data { padding: 6px; margin-top: 6px; }
+.china-command-right .china-policy-links a { padding: 6px 2px; }

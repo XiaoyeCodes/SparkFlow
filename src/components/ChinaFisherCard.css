@@ -1,0 +1,30 @@
+.china-fisher-card { position: relative; flex-shrink: 0; padding: 10px; margin-bottom: 9px; overflow: hidden; border: 1px solid rgba(103,219,194,.24); border-radius: 8px; background: radial-gradient(ellipse at 100% 0, rgba(48,174,146,.09), transparent 65%), #091411; color: #c3d7cf; }
+.china-fisher-card::before { content: ''; position: absolute; top: 0; left: 14px; width: 42px; height: 1px; background: #6adbbf; box-shadow: 0 0 12px #6adbbf66; }
+.china-fisher-heading { display: flex; align-items: center; gap: 7px; color: #6adbbf; }
+.china-fisher-heading h2 { margin: 0; color: #a6bfb6; font-size: 11px; font-weight: 600; letter-spacing: .08em; }
+.china-fisher-status { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 9px; white-space: nowrap; }
+.china-fisher-status i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.china-fisher-heading button { display: grid; place-items: center; width: 23px; height: 23px; padding: 0; color: #8ca99e; background: transparent; border: 1px solid #243b32; border-radius: 4px; cursor: pointer; }
+.china-fisher-heading button:disabled { cursor: wait; opacity: .5; }
+.china-fisher-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; margin-top: 7px; background: #06100d; border: 1px solid #20362d; border-radius: 5px; }
+.china-fisher-switch button { min-height: 26px; padding: 4px; border: 1px solid transparent; border-radius: 3px; color: #839e93; background: transparent; font-size: 11px; font-weight: 600; cursor: pointer; }
+.china-fisher-switch button[aria-pressed='true'] { background: #15362b; border-color: #2b5b49; color: #85e7c8; }
+.china-fisher-switch button:focus-visible { outline: 2px solid #6adbbf; outline-offset: 2px; }
+.china-fisher-heading button:focus-visible { outline: 2px solid #6adbbf; outline-offset: 3px; }
+.china-fisher-result { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 0 8px; }
+.china-fisher-result > div > span { display: block; color: #93ada3; font-size: 10px; }
+.china-fisher-result strong { display: block; margin-top: 3px; color: #79e7c9; font: 500 clamp(24px,1.6vw,28px)/1.15 'JetBrains Mono', monospace; letter-spacing: -.06em; font-variant-numeric: tabular-nums; }
+.china-fisher-symbol { color: #6e9d8c; font: italic 16px Georgia, serif; letter-spacing: .02em; }
+.china-fisher-equation { display: grid; grid-template-columns: minmax(0,1fr) 20px minmax(0,1fr); align-items: center; padding: 7px; border: 1px solid #20362d; border-radius: 5px; background: #07110e; }
+.china-fisher-equation > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.china-fisher-equation > div > span { color: #a9beb5; font-size: 10px; }
+.china-fisher-equation small { font-size: 9px; color: #7d9b8e; }
+.china-fisher-equation > div > span small { display: block; margin-top: 2px; }
+.china-fisher-equation b { font: 500 17px/1.2 'JetBrains Mono', monospace; color: #dbebe4; font-variant-numeric: tabular-nums; }
+.china-fisher-minus { align-self: center; color: #659987; }
+.china-fisher-note { margin: 7px 0 0; color: #8aa69b; font-size: 10px; line-height: 1.6; }
+.china-fisher-card[data-status='pending'] .china-fisher-status { color: #d2b36c; }
+.china-fisher-card[data-status='pending'] .china-fisher-result strong { color: #749084; }
+.china-fisher-card .is-spinning { animation: china-fisher-spin 1.5s linear infinite; }
+@keyframes china-fisher-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .china-fisher-card .is-spinning { animation: none; } }

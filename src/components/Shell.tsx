@@ -5,11 +5,11 @@ import { UserMenu } from './UserMenu';
 import { primaryNavigation } from '../data/navigation';
 
 export function Shell({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
-  const autoHideNavigation = pathname === '/terminal';
+  const { hash, pathname } = useLocation();
+  const autoHideNavigation = pathname === '/terminal' || (pathname === '/market' && hash === '#china-macro');
   const [touchNavigation, setTouchNavigation] = useState(() => {
     if (typeof window === 'undefined') return false;
-    return window.matchMedia('(hover: none), (pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+    return !window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   });
   const [touchNavigationVisible, setTouchNavigationVisible] = useState(false);
   const touchNavigationTimerRef = useRef<number | null>(null);
@@ -32,14 +32,14 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [autoHideNavigation, clearTouchNavigationTimer, touchNavigation]);
 
   useEffect(() => {
-    const touchMedia = window.matchMedia('(hover: none), (pointer: coarse)');
+    const finePointerMedia = window.matchMedia('(hover: hover) and (pointer: fine)');
     const updateTouchNavigation = () => {
-      setTouchNavigation(touchMedia.matches || navigator.maxTouchPoints > 0);
+      setTouchNavigation(!finePointerMedia.matches);
     };
 
     updateTouchNavigation();
-    touchMedia.addEventListener?.('change', updateTouchNavigation);
-    return () => touchMedia.removeEventListener?.('change', updateTouchNavigation);
+    finePointerMedia.addEventListener?.('change', updateTouchNavigation);
+    return () => finePointerMedia.removeEventListener?.('change', updateTouchNavigation);
   }, []);
 
   useEffect(() => {
