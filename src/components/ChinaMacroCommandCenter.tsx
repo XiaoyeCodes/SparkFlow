@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { geoMercator, geoPath } from 'd3-geo';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import {
@@ -29,6 +29,8 @@ import {
 import { CHINA_PROVINCE_DATA_SOURCES, CHINA_PROVINCE_ECONOMY, type ChinaProvinceEconomy } from '../data/chinaProvinceEconomy';
 import chinaRegionalEconomy from '../data/chinaRegionalEconomy.json';
 import './ChinaMacroCommandCenter.css';
+import { ChinaMapContext } from './ChinaMapContext';
+import { useMapFrameState } from '../lib/useMapFrameState';
 
 type ChinaMetric = {
   id: string;
@@ -720,10 +722,12 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
   const [provincePanel, setProvincePanel] = useState<ProvincePanel>('economy');
   const [provinceFeed, setProvinceFeed] = useState<ProvinceOfficialFeed | null>(null);
   const [provinceFeedState, setProvinceFeedState] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle');
-  const [mapView, setMapView] = useState({ scale: 1, x: 0, y: 0 });
-  const [tooltip, setTooltip] = useState({ x: 0, y: 0, visible: false });
+  const [mapView, setMapView] = useMapFrameState({ scale: 1, x: 0, y: 0 });
+  const [isMapDragging, setIsMapDragging] = useState(false);
+  const [tooltip, setTooltip] = useMapFrameState({ x: 0, y: 0, visible: false });
   const mapRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null);
+  const suppressMapClickRef = useRef(false);
   const dashboardRequestRef = useRef<AbortController | null>(null);
   const regionRequestRef = useRef<AbortController | null>(null);
   const provinceFeedRequestRef = useRef<AbortController | null>(null);
@@ -835,6 +839,12 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
   }, [selectedProvince, selectedRegion, selectedRegionAdcode, selectedRegionLevel]);
 
   const metrics = useMemo(() => new Map((data?.metrics || []).map((item) => [item.id, item])), [data]);
+  const rootMap = mapTrail[0]?.data;
+  const nationalContext = useMemo(() => rootMap ? {
+    ...rootMap,
+    features: rootMap.features.filter(item => item.properties?.name)
+      .map(item => normalizeProvinceWinding(item as ProvinceFeature)),
+  } : undefined, [rootMap]);
   const mapModel = useMemo(() => {
     if (!geoData) return null;
     const visibleFeatures = geoData.features
@@ -843,13 +853,17 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
     const collection = { ...geoData, features: visibleFeatures } as RegionCollection;
     const projection = geoMercator().fitExtent([[32, 28], [868, 578]], collection);
     const path = geoPath(projection);
-    const values = visibleFeatures.map((feature) => {
+    const shapes = visibleFeatures.map(feature => ({ feature, d: path(feature) || undefined, centroid: path.centroid(feature) }));
+    return { features: visibleFeatures as ProvinceFeature[], shapes, projection };
+  }, [geoData]);
+  const mapMaxValue = useMemo(() => {
+    const values = (mapModel?.features || []).map((feature) => {
       if (mapTrail.length <= 1) return provinceValue(CHINA_PROVINCE_ECONOMY[feature.properties?.name || ''], mapMetric);
       const adcode = String(feature.properties?.adcode || '');
       return regionalValue(CHINA_REGIONAL_ECONOMY[adcode], mapMetric);
     }).filter(Boolean);
-    return { features: visibleFeatures as ProvinceFeature[], path, maxValue: Math.max(...values, 1) };
-  }, [geoData, mapMetric, mapTrail.length]);
+    return Math.max(...values, 1);
+  }, [mapModel, mapMetric, mapTrail.length]);
 
   const mapDepth = Math.max(0, mapTrail.length - 1);
   const currentMapLevel = useMemo<AdministrativeLevel | 'mixed'>(() => {
@@ -880,18 +894,26 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
   const currentQuadrant = data?.quadrant.current || '复苏';
 
   const clampMapView = (view: { scale: number; x: number; y: number }) => {
-    const maxOffsetX = 450 * (view.scale - 1);
-    const maxOffsetY = 305 * (view.scale - 1);
+    const scale = Math.max(1, Math.min(8, view.scale));
+    const clampAxis = (offset: number, viewportSize: number, contentStart: number, contentEnd: number) => {
+      const scaledSize = (contentEnd - contentStart) * scale;
+      if (scaledSize <= viewportSize) {
+        const centeredOffset = (viewportSize - (contentStart + contentEnd) * scale) / 2;
+        const availablePan = (viewportSize - scaledSize) / 2;
+        return Math.max(centeredOffset - availablePan, Math.min(centeredOffset + availablePan, offset));
+      }
+      return Math.max(viewportSize - contentEnd * scale, Math.min(-contentStart * scale, offset));
+    };
     return {
-      scale: Math.max(1, Math.min(8, view.scale)),
-      x: Math.max(-maxOffsetX, Math.min(maxOffsetX, view.x)),
-      y: Math.max(-maxOffsetY, Math.min(maxOffsetY, view.y)),
+      scale,
+      x: clampAxis(view.x, 900, 32, 868),
+      y: clampAxis(view.y, 610, 28, 578),
     };
   };
 
-  const setZoom = (nextScale: number, anchorX = 450, anchorY = 305) => {
+  const setZoom = (factor: number, anchorX = 450, anchorY = 305) => {
     setMapView((current) => {
-      const scale = Math.max(1, Math.min(8, nextScale));
+      const scale = Math.max(1, Math.min(8, current.scale * factor));
       if (scale === 1) return { scale: 1, x: 0, y: 0 };
       const ratio = scale / current.scale;
       return clampMapView({
@@ -900,6 +922,18 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
         y: anchorY - (anchorY - current.y) * ratio,
       });
     });
+  };
+
+  const finishMapDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    setIsMapDragging(false);
+    if (drag.moved) {
+      suppressMapClickRef.current = true;
+      window.setTimeout(() => { suppressMapClickRef.current = false; }, 0);
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
   const drillRegion = async (feature: ProvinceFeature) => {
@@ -1027,36 +1061,46 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
             </div>
           </div>
           <div
-            className={`china-map-canvas${dragRef.current ? ' is-dragging' : ''}`}
+            className={`china-map-canvas${mapModel ? ' is-draggable' : ''}${isMapDragging ? ' is-dragging' : ''}`}
             ref={mapRef}
+            data-map-scale={mapView.scale.toFixed(3)}
+            data-map-x={mapView.x.toFixed(2)}
+            data-map-y={mapView.y.toFixed(2)}
+            data-dragging={isMapDragging ? 'true' : 'false'}
             onWheel={(event) => {
               event.preventDefault();
               const bounds = mapRef.current?.getBoundingClientRect();
               if (!bounds) return;
               const anchorX = ((event.clientX - bounds.left) / bounds.width) * 900;
               const anchorY = ((event.clientY - bounds.top) / bounds.height) * 610;
-              setZoom(mapView.scale * (event.deltaY < 0 ? 1.18 : 0.84), anchorX, anchorY);
+              setZoom(event.deltaY < 0 ? 1.18 : 0.84, anchorX, anchorY);
             }}
             onPointerDown={(event) => {
-              if (event.button !== 0 || mapView.scale <= 1) return;
-              if ((event.target as Element).closest?.('.china-province')) return;
-              dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
-              event.currentTarget.setPointerCapture(event.pointerId);
+              if (event.button !== 0 || !mapModel) return;
+              if ((event.target as Element).closest?.('.china-map-controls, .china-map-breadcrumb')) return;
+              dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false };
             }}
             onPointerMove={(event) => {
               const drag = dragRef.current;
               const bounds = mapRef.current?.getBoundingClientRect();
               if (!drag || !bounds || drag.pointerId !== event.pointerId) return;
+              if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
+              if (!drag.moved) {
+                drag.moved = true;
+                setIsMapDragging(true);
+                event.currentTarget.setPointerCapture(event.pointerId);
+                setHoveredProvince('');
+                setTooltip((current) => ({ ...current, visible: false }));
+              }
               const dx = ((event.clientX - drag.x) / bounds.width) * 900;
               const dy = ((event.clientY - drag.y) / bounds.height) * 610;
-              dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+              drag.x = event.clientX;
+              drag.y = event.clientY;
               setMapView((current) => clampMapView({ ...current, x: current.x + dx, y: current.y + dy }));
             }}
-            onPointerUp={(event) => {
-              if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-            }}
-            onPointerCancel={() => { dragRef.current = null; }}
+            onPointerUp={finishMapDrag}
+            onPointerCancel={finishMapDrag}
+            onLostPointerCapture={() => { dragRef.current = null; setIsMapDragging(false); }}
           >
             <div className="china-map-breadcrumb" aria-label="行政区划层级">
               {mapTrail.map((item, index) => (
@@ -1068,26 +1112,23 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
             </div>
             {mapModel ? (
               <svg viewBox="0 0 900 610" role="img" aria-label="中国省级经济地图">
-                <defs>
-                  <filter id="province-glow"><feGaussianBlur stdDeviation="4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-                </defs>
-                <g transform={`translate(${mapView.x} ${mapView.y}) scale(${mapView.scale})`}>
-                {mapModel.features.map((feature) => {
+                <g className="china-map-viewport" transform={`translate(${mapView.x} ${mapView.y}) scale(${mapView.scale})`}>
+                <ChinaMapContext projection={mapModel.projection} nationalMap={nationalContext} />
+                {mapModel.shapes.map(({ feature, d, centroid }) => {
                   const name = feature.properties?.name || '';
                   const adcode = String(feature.properties?.adcode || '');
                   const featureLevel = administrativeLevelForFeature(adcode, mapDepth);
                   const item = featureLevel === 'province' ? CHINA_PROVINCE_ECONOMY[name] : undefined;
                   const regionalItem = featureLevel !== 'province' ? CHINA_REGIONAL_ECONOMY[adcode] : undefined;
                   const rawValue = featureLevel === 'province' ? provinceValue(item, mapMetric) : regionalValue(regionalItem, mapMetric);
-                  const intensity = rawValue ? Math.sqrt(rawValue / mapModel.maxValue) : 0.18;
+                  const intensity = rawValue ? Math.sqrt(rawValue / mapMaxValue) : 0.18;
                   const hasMapData = rawValue > 0;
                   const active = name === hoveredProvince || (selectedRegionLevel === featureLevel && selectedRegionAdcode === adcode);
-                  const centroid = mapModel.path.centroid(feature);
                   const showLabel = mapDepth > 0 || mapView.scale >= 1.7;
                   return (
                     <g key={String(feature.properties?.adcode || name)}>
                     <path
-                      d={mapModel.path(feature) || undefined}
+                      d={d}
                       className={`china-province${active ? ' is-active' : ''}${hasMapData ? '' : ' has-no-data'}`}
                       aria-label={name}
                       style={{
@@ -1099,6 +1140,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
                       onMouseEnter={() => setHoveredProvince(name)}
                       onMouseLeave={() => { setHoveredProvince(''); setTooltip((current) => ({ ...current, visible: false })); }}
                       onMouseMove={(event) => {
+                        if (dragRef.current) return;
                         const bounds = mapRef.current?.getBoundingClientRect();
                         if (!bounds) return;
                         setTooltip({ x: event.clientX - bounds.left + 14, y: event.clientY - bounds.top + 14, visible: true });
@@ -1107,6 +1149,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
                       onBlur={() => setHoveredProvince('')}
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (suppressMapClickRef.current) return;
                         void drillRegion(feature);
                       }}
                     />
@@ -1131,14 +1174,15 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
               </div>
             ) : null}
             <div className="china-map-controls">
-              <button type="button" onClick={() => setZoom(mapView.scale * 1.25)} title="放大地图"><Plus size={15} /></button>
-              <button type="button" onClick={() => setZoom(mapView.scale * 0.8)} title="缩小地图"><Minus size={15} /></button>
+              <button type="button" onClick={() => setZoom(1.25)} title="放大地图"><Plus size={15} /></button>
+              <button type="button" onClick={() => setZoom(0.8)} title="缩小地图"><Minus size={15} /></button>
               <button type="button" onClick={() => setMapView({ scale: 1, x: 0, y: 0 })} title="复位地图"><RotateCcw size={14} /></button>
             </div>
             <div className="china-map-status">
-              {regionLoadState === 'loading' ? '正在加载下一级行政区划' : regionLoadState === 'error' ? '下一级边界暂不可用' : `缩放 ${mapView.scale.toFixed(1)}× · 滚轮缩放 · 拖动平移`}
+              {regionLoadState === 'loading' ? '正在加载下一级行政区划' : regionLoadState === 'error' ? '下一级边界暂不可用' : `缩放 ${mapView.scale.toFixed(1)}× · 滚轮缩放 · 按住拖动平移`}
             </div>
             <div className="china-map-legend"><span>低</span><i /><span>高</span></div>
+            <div className="china-map-attribution">周边底图 · Natural Earth</div>
           </div>
           {selectedRegion ? <section className="china-province-inspector">
             <header>
