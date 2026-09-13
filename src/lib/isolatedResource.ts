@@ -1,3 +1,5 @@
+import { publicDataFetch } from './publicDataClient.ts';
+
 export const ISOLATED_RESOURCE_TIMEOUT_MS = 60_000;
 export const ISOLATED_RESOURCE_MAX_ATTEMPTS = 3;
 
@@ -45,7 +47,7 @@ export async function requestIsolatedJson<T>(url: string, options: IsolatedResou
   const timeoutMs = options.timeoutMs ?? ISOLATED_RESOURCE_TIMEOUT_MS;
   const maxAttempts = Math.max(1, options.maxAttempts ?? ISOLATED_RESOURCE_MAX_ATTEMPTS);
   const retryDelayMs = options.retryDelayMs ?? 600;
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? publicDataFetch;
   let lastError: unknown = new Error('独立数据请求失败');
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {

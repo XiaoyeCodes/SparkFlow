@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Orbit, RefreshCw } from 'lucide-react';
 import type { FisherMode, FisherSnapshot } from '../lib/chinaFisherTypes';
 import './ChinaFisherCard.css';
+import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
 
 const percent = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 
@@ -9,7 +10,7 @@ export function ChinaFisherCard() {
   const [mode, setMode] = useState<FisherMode>(() => {
     try { return localStorage.getItem('china-fisher-mode') === 'loan' ? 'loan' : 'deposit'; } catch { return 'deposit'; }
   });
-  const [data, setData] = useState<FisherSnapshot | null>(null);
+  const [data, setData] = useState<FisherSnapshot | null>(() => peekPublicData<FisherSnapshot>(`/api/china-fisher?mode=${mode}`) ?? null);
   const [busy, setBusy] = useState(true);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -28,7 +29,7 @@ export function ChinaFisherCard() {
       setBusy(true);
       let next = Date.now() + 60_000;
       try {
-        const response = await fetch(`/api/china-fisher?mode=${mode}`, { signal: controller.signal, cache: 'no-store' });
+        const response = await publicDataFetch(`/api/china-fisher?mode=${mode}`, { signal: controller.signal, cache: revision ? 'reload' : 'no-store' });
         if (!response.ok) throw new Error('暂无法连接');
         const result: FisherSnapshot = await response.json();
         if (result.mode !== mode || !['current', 'pending', 'unavailable'].includes(result.status) || !Number.isFinite(Date.parse(result.validUntil))

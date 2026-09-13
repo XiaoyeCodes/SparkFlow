@@ -39,6 +39,9 @@ import {
 } from './ChinaMarketHeatmap';
 import { MacroAiAnalyst, type MacroAiRunState } from './MacroAiAnalyst';
 import { requestIsolatedJson } from '../lib/isolatedResource';
+import { publicDataFetch, peekPublicData } from '../lib/publicDataClient';
+import { PublicDataCacheNotice } from './PublicDataCacheNotice';
+import { publicDataExpiresAt } from '../lib/publicDataPolicy';
 import { FinancialConditionsCard } from './FinancialConditionsCard';
 import type { FinancialConditionsPayload, FinancialConditionsSnapshot } from '../lib/financialConditionsTypes';
 import './GlobalMacroCommandCenter.css';
@@ -413,6 +416,11 @@ const WORLD_HEATMAP_MARKET_IDS = new Set(['japan', 'korea', 'india', 'australia'
 const WORLD_HEATMAP_REFRESH_INTERVAL_MS = 3_000;
 const WORLD_HEATMAP_CLIENT_CACHE_MS = 1_500;
 const worldHeatmapClientCache = new Map<string, { storedAt: number; data: WorldHeatmapResponse }>();
+function readWorldHeatmap(market: string) {
+  const entry = worldHeatmapClientCache.get(market);
+  if (entry && Date.now() < publicDataExpiresAt(entry.data) && Date.now() - entry.storedAt < 15 * 60_000) return entry;
+  worldHeatmapClientCache.delete(market);
+}
 const worldHeatmapClientInFlight = new Map<string, Promise<WorldHeatmapResponse>>();
 const worldHeatmapPreloadedLogoUrls = new Set<string>();
 
@@ -428,7 +436,7 @@ function preloadWorldHeatmapLogos(payload: WorldHeatmapResponse) {
 }
 
 function loadWorldHeatmap(market: string) {
-  const cached = worldHeatmapClientCache.get(market);
+  const cached = readWorldHeatmap(market);
   if (cached && Date.now() - cached.storedAt < WORLD_HEATMAP_CLIENT_CACHE_MS) return Promise.resolve(cached.data);
   const running = worldHeatmapClientInFlight.get(market);
   if (running) return running;
@@ -468,7 +476,7 @@ function loadWorldCountries() {
 }
 
 function request<T>(url: string) {
-  return fetch(url, { headers: { Accept: 'application/json' } }).then(async (response) => {
+  return publicDataFetch(url, { headers: { Accept: 'application/json' } }).then(async (response) => {
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.error || `HTTP ${response.status}`);
@@ -1651,7 +1659,7 @@ type HeatmapTreeNode = {
 };
 
 function WorldMarketHeatmap({ market }: { market: string }) {
-  const [data, setData] = useState<WorldHeatmapResponse | null>(() => worldHeatmapClientCache.get(market)?.data || null);
+  const [data, setData] = useState<WorldHeatmapResponse | null>(() => readWorldHeatmap(market)?.data || null);
   const [error, setError] = useState('');
   const [selectedStockId, setSelectedStockId] = useState<string | null>(null);
   const [hoveredStockId, setHoveredStockId] = useState<string | null>(null);
@@ -1659,7 +1667,7 @@ function WorldMarketHeatmap({ market }: { market: string }) {
   useEffect(() => {
     let active = true;
     let refreshTimer = 0;
-    const cached = worldHeatmapClientCache.get(market)?.data || null;
+    const cached = readWorldHeatmap(market)?.data || null;
     setData(cached);
     setError('');
     setSelectedStockId(null);
@@ -1674,7 +1682,8 @@ function WorldMarketHeatmap({ market }: { market: string }) {
             setError('');
           }
         } catch (reason) {
-          if (active && !worldHeatmapClientCache.get(market)) {
+          if (active && !readWorldHeatmap(market)) {
+            setData(null);
             setError(reason instanceof Error ? reason.message : '热力图数据暂时不可用');
           }
         }
@@ -2120,11 +2129,18 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [phoneToggleVisible, setPhoneToggleVisible] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiRunState, setAiRunState] = useState<MacroAiRunState>('idle');
-  const [data, setData] = useState<Dashboard | null>(null);
+  const [data, setData] = useState<Dashboard | null>(() => {
+    let prepared: Dashboard | null = null;
+    for (const section of GLOBAL_MACRO_SECTIONS) {
+      const part = peekPublicData<DashboardSectionPayload>(`/api/global-macro-dashboard?region=global&section=${section}`);
+      if (part) prepared = mergeDashboardPayload(prepared, part, true);
+    }
+    return prepared;
+  });
   const [selected, setSelected] = useState<Quote | null>(null);
   const [modalMode, setModalMode] = useState<GlobalMarketMode | null>(null);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !peekPublicData('/api/global-macro-dashboard?region=global&section=markets'));
   const [isolatedUsMacroCards, setIsolatedUsMacroCards] = useState<Partial<Record<IsolatedUsMacroCardId, Metric>>>({});
   const [isolatedCoreIndices, setIsolatedCoreIndices] = useState<Partial<Record<CoreIndex['id'], CoreIndex>>>({});
   const [isolatedFxRates, setIsolatedFxRates] = useState<Partial<Record<IsolatedFxRateId, Metric>>>({});
@@ -2676,6 +2692,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
 
   return (
     <section className={`global-macro-shell${phoneDesktopMode ? ' macro-phone-desktop-mode' : ''}${phoneDesktopMode && phoneDesktopPortrait ? ' macro-phone-desktop-portrait' : ''}`}>
+      <PublicDataCacheNotice scope="global" />
       {phoneDevice ? (
         <>
           <button

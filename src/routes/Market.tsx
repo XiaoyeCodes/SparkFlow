@@ -33,6 +33,8 @@ import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
 import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper';
 import { PageTransition } from '../components/PageTransition';
 import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
+import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
+import { PublicDataCacheNotice } from '../components/PublicDataCacheNotice';
 import { loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 import './Market.css';
@@ -442,7 +444,7 @@ function readStoredResearch(mode: MarketChartMode): ResearchState {
 }
 
 function requestJson<T>(url: string, init?: RequestInit) {
-  return fetch(url, init).then(async (response) => {
+  return publicDataFetch(url, init).then(async (response) => {
     const payload = (await response.json().catch(() => ({}))) as T & { detail?: string; error?: string };
     if (!response.ok) throw new Error(payload.detail || payload.error || `请求失败：HTTP ${response.status}`);
     return payload;
@@ -495,9 +497,9 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
       return current === 'china-macro' ? 'markets' : current;
     });
   }, [location.hash, location.pathname]);
-  const [data, setData] = useState<MarketIntelligence | null>(null);
+  const [data, setData] = useState<MarketIntelligence | null>(() => peekPublicData<MarketIntelligence>('/api/public-market-intelligence') ?? null);
   const [valuationSnapshots, setValuationSnapshots] = useState<Partial<Record<Exclude<MarketChartMode, 'crypto'>, AShareValuationSnapshot>>>({});
-  const [loadState, setLoadState] = useState<AsyncState>('loading');
+  const [loadState, setLoadState] = useState<AsyncState>(() => peekPublicData('/api/public-market-intelligence') ? 'success' : 'loading');
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [regionalRotations, setRegionalRotations] = useState<Partial<Record<MarketChartMode, MarketRotation>>>({});
@@ -550,10 +552,10 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
     marketRequestRef.current?.abort();
     const controller = new AbortController();
     marketRequestRef.current = controller;
-    setLoadState('loading');
+    if (!peekPublicData('/api/public-market-intelligence')) setLoadState('loading');
     setError('');
     try {
-      const payload = await requestJson<MarketIntelligence>('/api/market-intelligence', { signal: controller.signal });
+      const payload = await requestJson<MarketIntelligence>('/api/public-market-intelligence', { signal: controller.signal });
       if (controller.signal.aborted) return;
       setData(payload);
       setLoadState('success');
@@ -1149,6 +1151,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
   return (
     <PageTransition>
       <section className="market-terminal min-h-screen px-3 pb-16 pt-[calc(var(--nav-height)+18px)] text-white sm:px-5 lg:px-7">
+        <PublicDataCacheNotice scope="market" />
         <div className="market-terminal-frame mx-auto w-full max-w-[1780px]">
           <header className="market-terminal-hero mb-4 flex flex-col gap-5 pb-5 xl:flex-row xl:items-end xl:justify-between">
             <div>

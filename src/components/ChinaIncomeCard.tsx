@@ -2,12 +2,13 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { ArrowUpRight, Users } from 'lucide-react';
 import type { IncomeSnapshot } from '../lib/chinaIncomeTypes';
 import './ChinaIncomeCard.css';
+import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
 
 const number = (v: number) => v.toLocaleString('zh-CN');
 const pct = (v: number) => `${v>0?'+':''}${v.toFixed(1)}%`;
 const colors = ['#66d6b5','#68a7e5','#c4ab7a','#b09cda'];
 export function ChinaIncomeCard() {
-  const [snapshot,setSnapshot] = useState<IncomeSnapshot | null>(null);
+  const [snapshot,setSnapshot] = useState<IncomeSnapshot | null>(() => peekPublicData<IncomeSnapshot>('/api/china-income') ?? null);
   const [now,setNow] = useState(Date.now());
   const [offline,setOffline] = useState(false);
   useEffect(()=>{
@@ -20,7 +21,7 @@ export function ChinaIncomeCard() {
       const timeout=setTimeout(()=>controller?.abort(),40_000);
       let next=Date.now()+60_000;
       try {
-        const r=await fetch('/api/china-income',{cache:'no-store',signal:controller.signal});
+        const r=await publicDataFetch('/api/china-income',{cache:'no-store',signal:controller.signal});
         if(!r.ok) throw new Error('Income unavailable');
         const data: IncomeSnapshot=await r.json();
         if(!['current','snapshot','unavailable'].includes(data.status) || !Number.isFinite(Date.parse(data.validUntil)) || !Number.isFinite(Date.parse(data.nextCheckAt))) throw new Error('Income format invalid');

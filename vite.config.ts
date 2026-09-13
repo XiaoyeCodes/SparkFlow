@@ -1,4 +1,8 @@
 import react from '@vitejs/plugin-react';
+import { createPublicDataCache, createPublicSnapshotStore } from './server/publicDataCache';
+import { createPublicDataHandler } from './server/publicDataHttp';
+import { isPublicSourceRefresh, withPublicSourceRefresh } from './server/publicSourceContext';
+import { PUBLIC_DATA_POLICIES, validatePublicResource } from './src/lib/publicDataPolicy';
 import { createChinaFisherService } from './server/chinaFisher';
 import { createChinaGdpService } from './server/chinaGdp';
 import { createChinaIncomeService } from './server/chinaIncome';
@@ -731,7 +735,8 @@ const asCustomNewsSource = (source: ReturnType<typeof validateSubscription>): Ne
   note: '自定义 RSS/Atom · 来源内容由订阅站点提供；保留原文、实际日期与订阅顺序。仅支持公开 HTTPS 直连。'
 });
 let newsSubscriptionKey = '';
-let newsFeedService = createNewsFeedService(newsSources, fetchNewsSource, foreignProxyUrl);
+const publicNewsFeedService = createNewsFeedService(newsSources, fetchNewsSource, foreignProxyUrl);
+let newsFeedService = publicNewsFeedService;
 async function getNewsFeed(force = false) {
   const custom = await newsSubscriptions.list();
   const key = JSON.stringify(custom);
@@ -3087,12 +3092,12 @@ function buildInvestorLenses(scores: ReturnType<typeof buildMarketScores>): Inve
   ];
 }
 
-async function getMarketIntelligence() {
+async function getMarketIntelligence(publicOnly = false) {
   const [indexResult, sectorResult, reportResult, newsResult] = await Promise.allSettled([
     getMarketIndexSnapshots(),
     getSectorPulse(),
     getResearchReportFeed(),
-    getNewsFeed(),
+    publicOnly ? publicNewsFeedService() : getNewsFeed(),
   ]);
   const indices = indexResult.status === 'fulfilled' ? indexResult.value.indices : [];
   const sectors = sectorResult.status === 'fulfilled' ? sectorResult.value : undefined;
@@ -3729,6 +3734,7 @@ async function getTradingViewRegionalQuotes(
     }]];
   });
   parsedQuotes.forEach(([ticker, quote]) => tradingViewRegionalLastGood.set(ticker, quote));
+  if (isPublicSourceRefresh()) return new Map(parsedQuotes);
   return new Map(uniqueTickers.flatMap((ticker) => {
     const quote = tradingViewRegionalLastGood.get(ticker);
     return quote ? [[ticker, quote] as const] : [];
@@ -4325,7 +4331,7 @@ async function getYahooMacroQuote(symbol: string, range = '1mo') {
     }
   }
   const cached = yahooMacroQuoteCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached && !isPublicSourceRefresh()) return cached;
   throw lastError instanceof Error ? lastError : new Error(`${symbol} 行情暂时不可用`);
 }
 
@@ -4420,6 +4426,8 @@ async function getYahooFastQuotes(symbols: readonly string[]) {
     if (result.status !== 'fulfilled') return;
     result.value.forEach((quote) => yahooFastQuoteLastGood.set(quote.symbol, quote));
   });
+  if (isPublicSourceRefresh()) return new Map(settled.flatMap(result => result.status === 'fulfilled'
+    ? result.value.map(quote => [quote.symbol, quote] as const) : []));
 
   return new Map(uniqueSymbols.flatMap((symbol) => {
     const quote = yahooFastQuoteLastGood.get(symbol);
@@ -5569,6 +5577,7 @@ function parseBlsReleaseReport(html: string, family: BlsReleaseReportSnapshot['f
 }
 
 async function getBlsReleaseReport(family: BlsReleaseReportSnapshot['family'], forceRefresh = false, allowStale = true): Promise<BlsReleaseReportSnapshot> {
+  allowStale &&= !isPublicSourceRefresh();
   const cached = blsReleaseReportCache.get(family);
   const cachedEmploymentIncomplete = family === 'employment'
     && cached
@@ -7379,7 +7388,7 @@ async function loadIsolatedGlobalMacroCoreIndex(id: IsolatedGlobalMacroCoreIndex
     return index;
   } catch (error) {
     const cached = isolatedCoreIndexLastGood.get(id);
-    if (cached) return cached;
+    if (cached && !isPublicSourceRefresh()) return cached;
     throw error;
   }
 }
@@ -7408,7 +7417,7 @@ async function loadIsolatedGlobalMacroFxRate(id: IsolatedGlobalMacroFxRateId) {
     return rate;
   } catch (error) {
     const cached = isolatedFxRateLastGood.get(id);
-    if (cached) return cached;
+    if (cached && !isPublicSourceRefresh()) return cached;
     throw error;
   }
 }
@@ -7441,7 +7450,7 @@ async function refreshIsolatedFedRateExpectation() {
 
 async function loadIsolatedFedRateExpectation() {
   const refreshDue = Date.now() - isolatedFedRateLastRefreshAt >= 15 * 60_000;
-  if (isolatedFedRateLastGood) {
+  if (isolatedFedRateLastGood && !isPublicSourceRefresh()) {
     if (refreshDue && !isolatedFedRateRefreshInFlight) {
       isolatedFedRateLastRefreshAt = Date.now();
       isolatedFedRateRefreshInFlight = refreshIsolatedFedRateExpectation()
@@ -7458,7 +7467,7 @@ async function loadIsolatedFedRateExpectation() {
   try {
     return await isolatedFedRateRefreshInFlight;
   } catch (error) {
-    if (isolatedFedRateLastGood) return isolatedFedRateLastGood;
+    if (isolatedFedRateLastGood && !isPublicSourceRefresh()) return isolatedFedRateLastGood;
     throw error;
   }
 }
@@ -7549,7 +7558,7 @@ async function loadIsolatedGlobalMacroAsset(id: IsolatedGlobalMacroAssetId) {
     throw lastError instanceof Error ? lastError : new Error(`${config.label}行情暂不可用`);
   } catch (error) {
     const cached = isolatedMarketAssetLastGood.get(id);
-    if (cached) return cached;
+    if (cached && !isPublicSourceRefresh()) return cached;
     throw error;
   }
 }
@@ -7672,7 +7681,7 @@ async function loadRiskSentimentMetric(
     globalRiskSentimentLastGood.set(id, metric);
     return metric;
   } catch {
-    return globalRiskSentimentLastGood.get(id) || fallback;
+    return (isPublicSourceRefresh() ? undefined : globalRiskSentimentLastGood.get(id)) || fallback;
   }
 }
 
@@ -7852,7 +7861,7 @@ async function loadGlobalMacroMetricsSection(forceOfficial = false) {
       return result.value;
     }
     const lastGood = globalMacroMetricLastGood.get(metricId);
-    if (lastGood) return lastGood;
+    if (lastGood && !isPublicSourceRefresh()) return lastGood;
     const fallbackSourceUrls: Record<string, string> = {
       ppi: fredSeriesPageUrl('PPIFIS'),
       vix: fredSeriesPageUrl('VIXCLS'),
@@ -7882,7 +7891,7 @@ async function loadGlobalMacroMetricsSection(forceOfficial = false) {
       globalCpiMetricLastGood.set(result.value.id, result.value);
       return result.value;
     }
-    return globalCpiMetricLastGood.get(fallback.id) || fallback;
+    return (isPublicSourceRefresh() ? undefined : globalCpiMetricLastGood.get(fallback.id)) || fallback;
   });
 
   const releasePlan = getMacroReleaseSyncPlan();
@@ -7974,7 +7983,7 @@ async function loadGlobalPmiSection() {
         globalPmiMetricLastGood.set(config.id, result.value);
         return result.value;
       }
-      return globalPmiMetricLastGood.get(config.id) || { id: config.id, label: config.label, value: null, display: '待更新', change: null, sourceUrl: `https://tradingeconomics.com/${config.slug}/manufacturing-pmi`, status: 'unavailable' as const, history: [] };
+      return (isPublicSourceRefresh() ? undefined : globalPmiMetricLastGood.get(config.id)) || { id: config.id, label: config.label, value: null, display: '待更新', change: null, sourceUrl: `https://tradingeconomics.com/${config.slug}/manufacturing-pmi`, status: 'unavailable' as const, history: [] };
     }),
   };
 }
@@ -8050,6 +8059,10 @@ function createBudgetedFastQuoteSource<T>(loader: () => Promise<T>, initialBudge
   return async () => {
     const startedAt = Date.now();
     const request = start();
+    if (isPublicSourceRefresh()) {
+      const value = await request;
+      return { data: lastError ? undefined : value, latencyMs: Date.now() - startedAt, error: lastError };
+    }
     if (data !== undefined) return { data, latencyMs: 0, error: lastError };
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<undefined>((resolve) => {
@@ -8082,6 +8095,15 @@ async function readFastCryptoSource() {
     if (result.data?.size) mergeFreshCryptoQuotes(result.data);
   });
   const errors = results.flatMap((result) => result.error ? [result.error] : []);
+  if (isPublicSourceRefresh()) {
+    const fresh = new Map<string, YahooFastQuote>();
+    results.forEach(result => result.data?.forEach((quote, id) => {
+      const previous = fresh.get(id);
+      if (!previous || quote.updatedAt >= previous.updatedAt) fresh.set(id, quote);
+    }));
+    return { data: fresh.size ? fresh : undefined, latencyMs: Date.now() - startedAt,
+      error: fresh.size ? undefined : errors.join('；') || '加密行情暂时不可用' };
+  }
   return {
     data: fastCryptoLastGood.size ? new Map(fastCryptoLastGood) : undefined,
     latencyMs: Date.now() - startedAt,
@@ -8107,15 +8129,15 @@ async function loadGlobalMacroFastQuotes() {
     '^TNX',
     'DX-Y.NYB',
   ];
-  refreshYahooFastQuotesInBackground(yahooSymbols);
+  if (!isPublicSourceRefresh()) refreshYahooFastQuotesInBackground(yahooSymbols);
   const [equityResult, globalIndexResult, assetResult, cryptoResult, yahooMarketQuotes] = await Promise.all([
     readFastEquitySource(),
     readFastGlobalIndexSource(),
     readFastAssetSource(),
     readFastCryptoSource(),
-    getYahooFastQuotes(yahooForegroundSymbols),
+    getYahooFastQuotes(isPublicSourceRefresh() ? yahooSymbols : yahooForegroundSymbols),
   ]);
-  const yahoo = new Map(yahooFastQuoteLastGood);
+  const yahoo = new Map(isPublicSourceRefresh() ? [] : yahooFastQuoteLastGood);
   yahooMarketQuotes.forEach((quote, symbol) => yahoo.set(symbol, quote));
   const equitySnapshots = equityResult.data?.indices || [];
   const globalIndexQuotes: Map<string, YahooFastQuote> = globalIndexResult.data || new Map();
@@ -12047,10 +12069,64 @@ async function loadChinaMacroDashboard(section?: ChinaMacroSectionName, fresh = 
   return data;
 }
 
+// Only loaders that are independent of the visitor/account/settings can appear
+// here. Legacy API handlers below remain the fallback when caching is disabled.
+async function loadPublicDashboardResource(key: string): Promise<unknown> {
+  const url = new URL(key, 'http://public.local');
+  const id = url.searchParams.get('id') || '';
+  const market = url.searchParams.get('market') || '';
+  const generatedAt = () => new Date().toISOString();
+  switch (url.pathname) {
+    case '/api/public-market-intelligence': return getMarketIntelligence(true);
+    case '/api/market-quotes': {
+      const quotes = await getCachedMarketQuotes();
+      return { generatedAt: generatedAt(), indices: quotes.indices, source: '东方财富 + 腾讯证券' };
+    }
+    case '/api/global-macro-quotes': return getCachedGlobalMacroFastQuotes();
+    case '/api/china-macro-dashboard': return loadChinaMacroSection(url.searchParams.get('section') as ChinaMacroSectionName, true);
+    case '/api/global-macro-dashboard': return loadGlobalMacroSection(url.searchParams.get('region') as GlobalMacroRegion, url.searchParams.get('section') as GlobalMacroSectionName);
+    case '/api/china-fisher': return getChinaFisherSnapshot(url.searchParams.get('mode') as 'loan' | 'deposit');
+    case '/api/china-gdp': return getChinaGdpSnapshot();
+    case '/api/china-income': return getChinaIncomeSnapshot();
+    case '/api/china-market-heatmap': return getCachedChinaMarketHeatmap();
+    case '/api/hong-kong-market-heatmap': return getCachedHongKongMarketHeatmap();
+    case '/api/us-market-heatmap': return getCachedUsMarketHeatmap();
+    case '/api/crypto-market-heatmap': return getCachedCryptoMarketHeatmap();
+    case '/api/global-market-heatmap': return getGlobalMarketHeatmap(market);
+    case '/api/international-market-overview': return getInternationalMarketOverview(market as InternationalMarketMode);
+    case '/api/global-macro-core-index': return { generatedAt: generatedAt(), index: await loadIsolatedGlobalMacroCoreIndex(id as IsolatedGlobalMacroCoreIndexId) };
+    case '/api/global-macro-fx-rate': return { generatedAt: generatedAt(), rate: await loadIsolatedGlobalMacroFxRate(id as IsolatedGlobalMacroFxRateId) };
+    case '/api/global-macro-asset': return { generatedAt: generatedAt(), asset: await loadIsolatedGlobalMacroAsset(id as IsolatedGlobalMacroAssetId) };
+    case '/api/global-risk-sentiment': return loadGlobalRiskSentiment();
+    case '/api/global-macro-fed-rate': return { generatedAt: generatedAt(), expectation: await loadIsolatedFedRateExpectation() };
+    case '/api/global-macro-ppi-expectation': return { generatedAt: generatedAt(), macro: [await getUsPpiMacroMetric(false, true)] };
+    case '/api/us-macro-card': return { generatedAt: generatedAt(), card: await getIsolatedUsMacroCard(id as IsolatedUsMacroCardId, true) };
+    case '/api/fed-net-liquidity': return { generatedAt: generatedAt(), liquidity: await getFedNetLiquidity() };
+    case '/api/financial-conditions': return { generatedAt: generatedAt(), conditions: await financialConditionsService.get(true) };
+    case '/api/valuation-temperature': return market === 'china' ? getCachedChinaValuationDashboard() : getCachedRegionalValuationDashboard(market as RegionalValuationMode);
+    case '/api/regional-market-content': return getCachedRegionalMarketContent(market as RegionalContentMode);
+    case '/api/bitcoin-cycle-history': return getCachedBitcoinCycleHistory();
+    case '/api/us-market-system-status': return getCachedUsMarketSystemStatus();
+    default: throw new Error('Unknown public resource');
+  }
+}
+
 function allWeatherApiPlugin() {
   return {
     name: 'sparkflow-allweather-api',
     configureServer(server: ViteDevServer) {
+      const preloadEnvironment = { ...loadEnv(server.config.mode, rootDir, 'SPARKFLOW_'), ...process.env };
+      const publicCache = preloadEnvironment.SPARKFLOW_PUBLIC_CACHE === '0' ? undefined : createPublicDataCache({
+        resources: PUBLIC_DATA_POLICIES.map(policy => ({ ...policy,
+          warm: preloadEnvironment.SPARKFLOW_PUBLIC_PRELOAD !== '0' && policy.warm,
+          load: () => withPublicSourceRefresh(() => loadPublicDashboardResource(policy.key)), validate: data => validatePublicResource(policy.key, data),
+        })),
+        store: createPublicSnapshotStore(path.join(sparkflowStateDir, 'public-data-cache')),
+        concurrency: Number(preloadEnvironment.SPARKFLOW_PUBLIC_CACHE_CONCURRENCY) === 1 ? 1 : 2,
+      });
+      const servePublicData = publicCache ? createPublicDataHandler(publicCache) : undefined;
+      publicCache?.start();
+      server.httpServer?.once('close', () => publicCache?.stop());
       const stopDailyBriefScheduler = dailyBriefService.schedule((error) => {
         console.error('[daily-brief] scheduled generation failed:', error);
       });
@@ -12064,6 +12140,17 @@ function allWeatherApiPlugin() {
       server.middlewares.use(async (req, res, next) => {
         try {
           const url = new URL(req.url || '/', 'http://127.0.0.1');
+          if (servePublicData && await servePublicData(req, res)) return;
+          if (url.pathname === '/api/public-market-intelligence' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await getMarketIntelligence(true));
+            return;
+          }
+          if (url.pathname === '/api/public-data-cache/status' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, { enabled: false, resources: [] });
+            return;
+          }
           if (url.pathname === '/api/market-close') {
             res.setHeader('Cache-Control', 'no-store');
             const market = url.searchParams.get('market');

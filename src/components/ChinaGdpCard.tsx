@@ -2,9 +2,10 @@ import { useEffect, useId, useState } from 'react';
 import { ArrowUpRight, ChartNoAxesColumnIncreasing } from 'lucide-react';
 import type { ChinaGdpSnapshot } from '../lib/chinaGdpTypes';
 import './ChinaGdpCard.css';
+import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
 
 export function ChinaGdpCard() {
-  const [data, setData] = useState<ChinaGdpSnapshot | null>(null);
+  const [data, setData] = useState<ChinaGdpSnapshot | null>(() => peekPublicData<ChinaGdpSnapshot>('/api/china-gdp') ?? null);
   const [now, setNow] = useState(Date.now());
   const [active, setActive] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
@@ -22,7 +23,7 @@ export function ChinaGdpCard() {
       const timeout = setTimeout(() => controller?.abort(), 25_000);
       let next = Date.now() + 60_000;
       try {
-        const response = await fetch('/api/china-gdp', {cache:'no-store', signal:controller.signal});
+        const response = await publicDataFetch('/api/china-gdp', {cache:'no-store', signal:controller.signal});
         if (!response.ok) throw new Error('GDP source unavailable');
         const result: ChinaGdpSnapshot = await response.json();
         if (!Array.isArray(result.years) || !Number.isFinite(Date.parse(result.validUntil)) || !Number.isFinite(Date.parse(result.nextCheckAt))) throw new Error('Invalid GDP response');

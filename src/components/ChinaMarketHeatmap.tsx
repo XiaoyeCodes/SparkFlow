@@ -14,6 +14,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { getMarketSessionStatus, type MarketSessionMarket } from '../lib/marketSessions';
+import { publicDataFetch } from '../lib/publicDataClient';
+import { publicDataExpiresAt } from '../lib/publicDataPolicy';
 
 type ChinaHeatmapStock = {
   code: string;
@@ -287,14 +289,15 @@ function regionalHeatmapStorageKey(endpoint: string) {
 
 function readRegionalHeatmapCache(config: RegionalHeatmapConfig) {
   const memoryCached = regionalHeatmapClientCache.get(config.endpoint);
-  if (memoryCached) return memoryCached;
+  if (memoryCached && Date.now() < publicDataExpiresAt(memoryCached.data) && Date.now() - memoryCached.storedAt <= REGIONAL_HEATMAP_SESSION_MAX_AGE_MS) return memoryCached;
+  regionalHeatmapClientCache.delete(config.endpoint);
   if (typeof window === 'undefined') return undefined;
 
   try {
     const raw = window.sessionStorage.getItem(regionalHeatmapStorageKey(config.endpoint));
     if (!raw) return undefined;
     const cached = JSON.parse(raw) as RegionalHeatmapCacheEntry;
-    if (!cached?.storedAt || !cached.data?.stocks?.length || Date.now() - cached.storedAt > REGIONAL_HEATMAP_SESSION_MAX_AGE_MS) {
+    if (!cached?.storedAt || !cached.data?.stocks?.length || Date.now() >= publicDataExpiresAt(cached.data) || Date.now() - cached.storedAt > REGIONAL_HEATMAP_SESSION_MAX_AGE_MS) {
       window.sessionStorage.removeItem(regionalHeatmapStorageKey(config.endpoint));
       return undefined;
     }
@@ -335,7 +338,7 @@ function loadRegionalHeatmap(config: RegionalHeatmapConfig, maxAgeMs = REGIONAL_
   const running = regionalHeatmapClientInFlight.get(config.endpoint);
   if (running) return running;
 
-  const request = fetch(config.endpoint, { cache: 'no-store' })
+  const request = publicDataFetch(config.endpoint, { cache: maxAgeMs === 0 ? 'reload' : 'no-store' })
     .then(async (response) => {
       if (!response.ok) throw new Error(`行情接口返回 ${response.status}`);
       const payload = (await response.json()) as ChinaHeatmapResponse;
@@ -344,7 +347,7 @@ function loadRegionalHeatmap(config: RegionalHeatmapConfig, maxAgeMs = REGIONAL_
       return payload;
     })
     .catch((error) => {
-      if (cached) return cached.data;
+      if (cached && Date.now() < publicDataExpiresAt(cached.data)) return cached.data;
       throw error;
     })
     .finally(() => regionalHeatmapClientInFlight.delete(config.endpoint));
@@ -845,6 +848,7 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
       setError('');
     } catch (caught) {
       if (!mountedRef.current || signal?.aborted) return;
+      setData(current => current && Date.now() >= publicDataExpiresAt(current) ? undefined : current);
       setError(caught instanceof Error ? caught.message : config.errorFallback);
     } finally {
       if (!mountedRef.current || signal?.aborted) return;

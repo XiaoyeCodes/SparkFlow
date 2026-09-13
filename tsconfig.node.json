@@ -26,6 +26,7 @@
     "src/lib/chinaGdpTypes.ts",
     "src/lib/chinaIncomeTypes.ts",
     "src/lib/chinaMacroNews.ts",
+    "src/lib/publicDataPolicy.ts",
     "src/lib/ibkr/types.ts",
     "src/lib/ibkr/valuationTypes.ts",
     "src/lib/ibkr/store.ts",

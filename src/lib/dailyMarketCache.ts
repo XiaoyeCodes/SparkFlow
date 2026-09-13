@@ -1,3 +1,5 @@
+import { publicDataExpiresAt } from './publicDataPolicy.ts';
+
 export type CoreMarketMode = 'china' | 'hongkong' | 'us' | 'crypto';
 
 export type DailyMarketResource =
@@ -146,13 +148,14 @@ export function createDailyMarketCache({ backend, now = () => new Date() }: Dail
     const date = getBeijingDate(now());
     const key = cacheKey(date, market, resource);
     const memoryEntry = memory.get(key);
-    if (memoryEntry && isEnvelope<T>(memoryEntry, date)) return memoryEntry.data as T;
+    if (memoryEntry && isEnvelope<T>(memoryEntry, date) && publicDataExpiresAt(memoryEntry.data) > now().getTime()) return memoryEntry.data as T;
+    memory.delete(key);
 
     try {
       const raw = await backend.read(key);
       if (!raw) return undefined;
       const parsed = JSON.parse(raw) as unknown;
-      if (!isEnvelope<T>(parsed, date)) return undefined;
+      if (!isEnvelope<T>(parsed, date) || publicDataExpiresAt(parsed.data) <= now().getTime()) return undefined;
       memory.set(key, parsed);
       return parsed.data;
     } catch {

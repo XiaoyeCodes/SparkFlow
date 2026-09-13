@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:public-cache": "node --no-warnings --experimental-strip-types scripts/verify-public-data-cache.mjs && node --no-warnings --experimental-strip-types scripts/verify-public-data-http.mjs && node --no-warnings --experimental-strip-types scripts/verify-public-data-client.mjs",
     "test:china-fisher": "node --no-warnings --experimental-strip-types scripts/verify-china-fisher.mjs",
     "test:ibkr:workbench": "node scripts/verify-ibkr-workbench.mjs",
     "test:ibkr:unit": "node scripts/verify-ibkr-unit.mjs",

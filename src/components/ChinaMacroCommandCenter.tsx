@@ -31,6 +31,8 @@ import chinaRegionalEconomy from '../data/chinaRegionalEconomy.json';
 import './ChinaMacroCommandCenter.css';
 import { ChinaMapContext } from './ChinaMapContext';
 import { useMapFrameState } from '../lib/useMapFrameState';
+import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
+import { PublicDataCacheNotice } from './PublicDataCacheNotice';
 import { ChinaFisherCard } from './ChinaFisherCard';
 import { ChinaGdpCard } from './ChinaGdpCard';
 import { ChinaIncomeCard } from './ChinaIncomeCard';
@@ -733,11 +735,16 @@ function timeAgo(value?: string) {
   return value.slice(0, 10);
 }
 
+function readPreparedChinaDashboard(): ChinaMacroDashboard | null {
+  const parts = ['indices', 'metrics', 'policy', 'news'].map(section => peekPublicData<Partial<ChinaMacroDashboard>>(`/api/china-macro-dashboard?section=${section}`)).filter(Boolean);
+  return parts.length ? Object.assign({}, EMPTY_CHINA_DASHBOARD, ...parts) : null;
+}
+
 export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
-  const [data, setData] = useState<ChinaMacroDashboard | null>(null);
+  const [data, setData] = useState<ChinaMacroDashboard | null>(readPreparedChinaDashboard);
   const [geoData, setGeoData] = useState<RegionCollection | null>(null);
   const [mapTrail, setMapTrail] = useState<MapTrailItem[]>([]);
-  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(() => readPreparedChinaDashboard() ? 'ready' : 'loading');
   const [regionLoadState, setRegionLoadState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [error, setError] = useState('');
   const [selectedProvince, setSelectedProvince] = useState('');
@@ -778,12 +785,12 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
     const controller = new AbortController();
     dashboardRequestRef.current = controller;
     if (!silent) {
-      setLoadState('loading');
+      if (!readPreparedChinaDashboard()) setLoadState('loading');
       setError('');
     }
     const sections = ['indices', 'metrics', 'policy', 'news'] as const;
     const requests = sections.map(async (section) => {
-      const response = await fetch(`/api/china-macro-dashboard?section=${section}${!silent ? '&fresh=1' : ''}`, {
+      const response = await publicDataFetch(`/api/china-macro-dashboard?section=${section}`, {
         cache: 'no-store',
         signal: controller.signal,
       });
@@ -1041,6 +1048,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
 
   return (
     <section className="china-command-shell">
+      <PublicDataCacheNotice scope="china" />
       <header className="china-command-ticker">
         <button type="button" className="china-back-button" onClick={onBack} title="返回股票市场">
           <ArrowLeft size={17} />
