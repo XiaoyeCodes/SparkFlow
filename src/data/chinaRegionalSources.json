@@ -1,0 +1,237 @@
+[
+  {
+    "scope": "11",
+    "name": "北京",
+    "catalogs": [
+      "https://nj.tjj.beijing.gov.cn/nj/qxnj/2025/zk/e/lefte.htm",
+      "https://tjj.beijing.gov.cn/tjsj_31433/tjnj_31441/"
+    ]
+  },
+  {
+    "scope": "12",
+    "name": "天津",
+    "catalogs": [
+      "https://stats.tj.gov.cn/nianjian/2025nj/zk/indexch.htm",
+      "https://stats.tj.gov.cn/tjsj_52032/tjnj/"
+    ]
+  },
+  {
+    "scope": "13",
+    "name": "河北",
+    "catalogs": [
+      "https://tjj.hebei.gov.cn/hetj/tjsj/jjnj/"
+    ]
+  },
+  {
+    "scope": "14",
+    "name": "山西",
+    "catalogs": [
+      "https://tjj.shanxi.gov.cn/tjsj/tjnj/nj2025/zk/indexch.htm",
+      "https://tjj.shanxi.gov.cn/tjsj/tjnj/"
+    ]
+  },
+  {
+    "scope": "15",
+    "name": "内蒙古",
+    "catalogs": [
+      "https://tj.nmg.gov.cn/datashow/pubmgr/publishmanage.htm?m=queryPubData&procode=0003"
+    ]
+  },
+  {
+    "scope": "21",
+    "name": "辽宁",
+    "catalogs": [
+      "https://tjj.ln.gov.cn/tjj/tjsj/tjnj/index.shtml"
+    ]
+  },
+  {
+    "scope": "22",
+    "name": "吉林",
+    "catalogs": [
+      "https://tjj.jl.gov.cn/",
+      "https://tjj.jl.gov.cn/tjsj/tjnj/"
+    ]
+  },
+  {
+    "scope": "23",
+    "name": "黑龙江",
+    "catalogs": [
+      "https://tjj.hlj.gov.cn/tjjnianjian/2025/zk/left.htm"
+    ]
+  },
+  {
+    "scope": "31",
+    "name": "上海",
+    "catalogs": [
+      "https://tjj.sh.gov.cn/tjnj/tjnj2025.htm",
+      "https://tjj.sh.gov.cn/tjnj/"
+    ]
+  },
+  {
+    "scope": "32",
+    "name": "江苏",
+    "catalogs": [
+      "https://tj.jiangsu.gov.cn/2025/nj03/nj0301.htm",
+      "https://tj.jiangsu.gov.cn/col/col83629/index.html"
+    ]
+  },
+  {
+    "scope": "33",
+    "name": "浙江",
+    "catalogs": [
+      "https://tjj.zj.gov.cn/",
+      "https://tjj.zj.gov.cn/col/col1525563/index.html"
+    ]
+  },
+  {
+    "scope": "34",
+    "name": "安徽",
+    "catalogs": [
+      "https://tjj.ah.gov.cn/ssah/qwfbjd/tjnj/index.html"
+    ]
+  },
+  {
+    "scope": "35",
+    "name": "福建",
+    "catalogs": [
+      "https://tjj.fujian.gov.cn/tongjinianjian/dz2025/indexch.htm",
+      "https://tjj.fujian.gov.cn/tongjinianjian/"
+    ]
+  },
+  {
+    "scope": "36",
+    "name": "江西",
+    "catalogs": [
+      "https://tjj.jiangxi.gov.cn/resource/nj/2025CD/zk/indexch.htm",
+      "https://tjj.jiangxi.gov.cn/col/col38595/index.html"
+    ]
+  },
+  {
+    "scope": "37",
+    "name": "山东",
+    "catalogs": [
+      "http://tjj.shandong.gov.cn/tjnj/nj2025/zk/lefte.htm",
+      "http://tjj.shandong.gov.cn/col/col6279/index.html"
+    ]
+  },
+  {
+    "scope": "41",
+    "name": "河南",
+    "catalogs": [
+      "https://tjj.henan.gov.cn/tjfw/tjcbw/tjnj/"
+    ]
+  },
+  {
+    "scope": "42",
+    "name": "湖北",
+    "catalogs": [
+      "https://tjj.hubei.gov.cn/tjsj/sjkscx/tjnj/qstjnj/"
+    ]
+  },
+  {
+    "scope": "43",
+    "name": "湖南",
+    "catalogs": [
+      "https://www.hunan.gov.cn/hnszf/zfsj/tjnj/tygl.html",
+      "https://tjj.hunan.gov.cn/tjsj/tjnj/"
+    ]
+  },
+  {
+    "scope": "44",
+    "name": "广东",
+    "catalogs": [
+      "https://stats.gd.gov.cn/gdtjnj/"
+    ]
+  },
+  {
+    "scope": "45",
+    "name": "广西",
+    "catalogs": [
+      "https://tjj.gxzf.gov.cn/tjsj/tjnj/"
+    ]
+  },
+  {
+    "scope": "46",
+    "name": "海南",
+    "catalogs": [
+      "https://stats.hainan.gov.cn/tjj/tjsu/ndsj/"
+    ]
+  },
+  {
+    "scope": "50",
+    "name": "重庆",
+    "catalogs": [
+      "https://tjj.cq.gov.cn/",
+      "https://tjj.cq.gov.cn/zwgk_233/tjnj/"
+    ]
+  },
+  {
+    "scope": "51",
+    "name": "四川",
+    "catalogs": [
+      "https://tjj.sc.gov.cn/",
+      "https://tjj.sc.gov.cn/scstjj/c105855/nj.shtml"
+    ]
+  },
+  {
+    "scope": "52",
+    "name": "贵州",
+    "catalogs": [
+      "https://stjj.guizhou.gov.cn/",
+      "https://stjj.guizhou.gov.cn/tjsj_35719/tjnj/"
+    ]
+  },
+  {
+    "scope": "53",
+    "name": "云南",
+    "catalogs": [
+      "https://stats.yn.gov.cn/",
+      "https://stats.yn.gov.cn/tjsj/tjnj/"
+    ]
+  },
+  {
+    "scope": "54",
+    "name": "西藏",
+    "catalogs": [
+      "https://tjj.xizang.gov.cn/",
+      "https://tjj.xizang.gov.cn/xxgk/tjxx/tjnj/"
+    ]
+  },
+  {
+    "scope": "61",
+    "name": "陕西",
+    "catalogs": [
+      "https://tjj.shaanxi.gov.cn/tjsj/ndsj/tjnj/sxtjnj/index.html"
+    ]
+  },
+  {
+    "scope": "62",
+    "name": "甘肃",
+    "catalogs": [
+      "https://tjj.gansu.gov.cn/tjj/c117468/info_disp.shtml"
+    ]
+  },
+  {
+    "scope": "63",
+    "name": "青海",
+    "catalogs": [
+      "https://tjj.qinghai.gov.cn/tjData/qhtjnj/"
+    ]
+  },
+  {
+    "scope": "64",
+    "name": "宁夏",
+    "catalogs": [
+      "https://tj.nx.gov.cn/",
+      "https://tj.nx.gov.cn/tjsj_htr/tjnj/"
+    ]
+  },
+  {
+    "scope": "65",
+    "name": "新疆",
+    "catalogs": [
+      "https://tjj.xinjiang.gov.cn/",
+      "https://tjj.xinjiang.gov.cn/tjj/zhhvgh/list.shtml"
+    ]
+  }
+]

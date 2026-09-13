@@ -1,3 +1,5 @@
+import { regionalPopulationMillion, regionalPerCapitaGdp, regionalMetricDetails, type ChinaRegionalEconomy } from '../lib/chinaRegionalEconomy';
+import { useChinaRegionalEconomy } from '../lib/useChinaRegionalEconomy';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { geoMercator, geoPath } from 'd3-geo';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
@@ -144,14 +146,18 @@ type ProvinceOfficialItem = {
   fallback?: boolean;
   importanceScore?: number;
   highlights?: string[];
+  category?: '民生' | '财经' | '文旅' | '社会' | '热点' | '政务';
+  sourceKind?: 'media' | 'government';
 };
 
 type ProvinceOfficialFeed = {
   province: string;
+  region?: string;
+  portalUrl?: string;
   generatedAt: string;
   policies: ProvinceOfficialItem[];
   news: ProvinceOfficialItem[];
-  sourceStatus: 'live' | 'fallback' | 'unavailable';
+  sourceStatus: 'live' | 'fallback' | 'partial' | 'cached' | 'unavailable';
   errors: string[];
 };
 
@@ -169,54 +175,35 @@ function highlightedNewsTitle(item: { title: string; highlights?: string[] }): R
   ));
 }
 
-type ChinaRegionalEconomy = {
-  adcode: string;
-  name: string;
-  level: 'city' | 'county';
-  period: string;
-  source: string;
-  sourceUrl: string;
-  parentProvinceCode?: string;
-  parentCityCode?: string;
-  dataCoverage?: 'administrative' | 'population' | 'economic';
-  economicPeriod?: string | null;
-  economicSource?: string | null;
-  economicSourceUrl?: string | null;
-  populationPeriod?: string | null;
-  populationSource?: string | null;
-  populationSourceUrl?: string | null;
-  censusPeriod?: string | null;
-  censusSource?: string | null;
-  censusSourceUrl?: string | null;
-  gdp100mCny?: number | null;
-  populationMillion?: number | null;
-  censusPopulationMillion?: number | null;
-  householdPopulation10k?: number | null;
-  householdSize?: number | null;
-  sexRatio?: number | null;
-  age0To14Percent?: number | null;
-  age60PlusPercent?: number | null;
-  age65PlusPercent?: number | null;
-  areaKm2?: number | null;
-  primary100mCny?: number | null;
-  secondary100mCny?: number | null;
-  tertiary100mCny?: number | null;
-  secondaryPercent?: number | null;
-  tertiaryPercent?: number | null;
-  fiscalRevenue100mCny?: number | null;
-  fiscalExpenditure100mCny?: number | null;
-  deposit100mCny?: number | null;
-  loan100mCny?: number | null;
-  averageWageCny?: number | null;
-  townCount?: number | null;
-  streetCount?: number | null;
-  industrialEnterpriseCount?: number | null;
-  primarySchoolCount?: number | null;
-  higherSchoolCount?: number | null;
-  primaryStudentCount?: number | null;
-  secondaryStudentCount?: number | null;
-  healthBedCount?: number | null;
-};
+function RegionalIntelSection({ kind, items, loading }: { kind: 'policy' | 'news'; items: ProvinceOfficialItem[]; loading: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const title = kind === 'policy' ? '地方政策' : '地方新闻';
+  const Icon = kind === 'policy' ? Landmark : Database;
+  const articles = items.filter(item => !item.fallback && /^https?:\/\//i.test(item.url));
+  const visible = expanded ? articles : articles.slice(0, 6);
+  const groups = Array.from({ length: Math.ceil(visible.length / 6) }, (_, index) => visible.slice(index * 6, index * 6 + 6));
+  return <section className={`china-local-intel-${kind}`} aria-label={title} aria-busy={loading}>
+    <header><Icon size={15} /><strong>{title}</strong><span>{loading ? '正在核验来源' : `${articles.length} 条 · ${kind === 'policy' ? '重要度排序' : '重要度 + 多元精选'}`}</span></header>
+    <p className="china-local-intel-summary">{kind === 'policy' ? '政府原文 · 惠民政策与发展措施' : '民生 / 财经 / 文旅 / 社会热点 · 非平台热搜榜'}</p>
+    <div className="china-local-intel-list">
+      {loading ? <div className="china-local-intel-group" aria-label={`${title}加载中`}>
+        {Array.from({ length: 6 }, (_, index) => <div className="china-local-intel-skeleton" key={index}><i /><i /><i /></div>)}
+      </div> : groups.map((group, groupIndex) => <div className="china-local-intel-group" key={groupIndex}>
+        {group.map((item, index) => <a key={item.id} href={item.url} target="_blank" rel="noopener noreferrer" aria-label={`第 ${groupIndex * 6 + index + 1} 条重要${kind === 'policy' ? '政策' : '新闻'}：${item.title}`}>
+          <b className="china-local-intel-rank">{String(groupIndex * 6 + index + 1).padStart(2, '0')}</b>
+          <div className="china-local-intel-copy"><strong>{highlightedNewsTitle(item)}</strong><small>{kind === 'news' && item.category ? <em className="china-local-intel-topic">{item.category}</em> : null}<span>{item.source}</span><time dateTime={item.publishedAt}>{item.publishedAt?.slice(0, 10) || '来源未标注日期'}</time></small></div>
+          <ArrowUpRight size={12} />
+        </a>)}
+      </div>)}
+      {!loading && articles.length < 6 ? <p className="china-local-intel-empty">{articles.length ? `已核验 ${articles.length} 条；来源暂不足 6 条，稍后继续更新。` : '暂未取得可核验的本地条目，请稍后重试。'}</p> : null}
+    </div>
+    {!loading && articles.length > 6 ? <button type="button" className="china-local-intel-more" onClick={() => setExpanded(value => !value)} aria-expanded={expanded}>
+      {expanded ? '收起更多内容' : `向下展开其余 ${articles.length - 6} 条`}<span aria-hidden="true">{expanded ? '−' : '+'}</span>
+    </button> : null}
+  </section>;
+}
+
+
 
 const CHINA_REGIONAL_ECONOMY = chinaRegionalEconomy.records as Record<string, ChinaRegionalEconomy>;
 
@@ -339,18 +326,6 @@ function metricTone(change?: number | null) {
   return change > 0 ? 'up' : 'down';
 }
 
-function regionalPopulationMillion(item: ChinaRegionalEconomy) {
-  if (item.populationMillion != null) return item.populationMillion;
-  if (item.householdPopulation10k != null) return item.householdPopulation10k / 100;
-  return null;
-}
-
-function regionalPerCapitaGdp(item: ChinaRegionalEconomy) {
-  const population = regionalPopulationMillion(item);
-  if (item.gdp100mCny == null || !population) return null;
-  return item.gdp100mCny * 100 / population;
-}
-
 function regionalValue(item: ChinaRegionalEconomy | undefined, metric: MapMetric) {
   if (!item) return 0;
   if (metric === 'population') return regionalPopulationMillion(item) || 0;
@@ -382,10 +357,10 @@ function RegionalEconomyPanel({ profile, panel }: { profile: ChinaRegionalEconom
   const fiscalGap = profile.fiscalRevenue100mCny != null && profile.fiscalExpenditure100mCny != null
     ? profile.fiscalExpenditure100mCny - profile.fiscalRevenue100mCny
     : null;
-  const fiscalRevenueToGdp = profile.fiscalRevenue100mCny != null && profile.gdp100mCny
+  const fiscalRevenueToGdp = profile.fiscalRevenue100mCny != null && profile.gdp100mCny && (!profile.gdpPeriod || profile.gdpPeriod === (profile.economicPeriod || profile.period))
     ? profile.fiscalRevenue100mCny / profile.gdp100mCny * 100
     : null;
-  const loanToGdp = profile.loan100mCny != null && profile.gdp100mCny
+  const loanToGdp = profile.loan100mCny != null && profile.gdp100mCny && (!profile.gdpPeriod || profile.gdpPeriod === (profile.economicPeriod || profile.period))
     ? profile.loan100mCny / profile.gdp100mCny * 100
     : null;
   const economicPeriod = profile.economicPeriod || (profile.gdp100mCny != null ? profile.period : null);
@@ -405,7 +380,7 @@ function RegionalEconomyPanel({ profile, panel }: { profile: ChinaRegionalEconom
         <div><span>行政档案版本</span><strong>2024 年</strong><small>全国县以上行政区划代码</small></div>
       </> : null}
       {panel === 'economy' ? <>
-        <div><span>地区生产总值</span><strong>{regionalDisplay(profile.gdp100mCny, ' 亿元', 2)}</strong><small>{economicPeriod ? `${economicPeriod} 年本级行政区口径` : '本级公开统计口径暂缺'}</small></div>
+        <div><span>地区生产总值</span><strong>{regionalDisplay(profile.gdp100mCny, ' 亿元', 2)}</strong><small>{profile.gdpPeriod || economicPeriod ? `${profile.gdpPeriod || economicPeriod} 年本级行政区口径` : '本级公开统计口径暂缺'}</small></div>
         <div><span>第一产业</span><strong>{profile.primary100mCny != null ? regionalDisplay(profile.primary100mCny, ' 亿元', 2) : regionalDisplay(primaryPercent, '%', 2)}</strong><small>{profile.primary100mCny != null ? '第一产业增加值' : '按产业占比反算'}</small></div>
         <div><span>第二产业</span><strong>{profile.secondary100mCny != null ? regionalDisplay(profile.secondary100mCny, ' 亿元', 2) : regionalDisplay(profile.secondaryPercent, '%', 2)}</strong><small>{profile.secondary100mCny != null ? '第二产业增加值' : '第二产业占 GDP 比重'}</small></div>
         <div><span>第三产业</span><strong>{profile.tertiary100mCny != null ? regionalDisplay(profile.tertiary100mCny, ' 亿元', 2) : regionalDisplay(profile.tertiaryPercent, '%', 2)}</strong><small>{economicSource || '本级经济来源暂缺'}</small></div>
@@ -423,7 +398,7 @@ function RegionalEconomyPanel({ profile, panel }: { profile: ChinaRegionalEconom
         <div><span>财政收支缺口</span><strong>{regionalDisplay(fiscalGap, ' 亿元', 2)}</strong><small>一般公共预算支出减收入</small></div>
       </> : null}
       {panel === 'population' ? <>
-        <div><span>人口规模</span><strong>{regionalDisplay(population, ' 百万人', 2)}</strong><small>{profile.populationSource || profile.censusSource || '本级人口来源暂缺'} · {populationPeriod || '时期暂缺'}</small></div>
+        <div><span>{regionalMetricDetails(profile, 'population').note}</span><strong>{regionalDisplay(population, ' 百万人', 2)}</strong><small>{regionalMetricDetails(profile, 'population').period || populationPeriod || '时期暂缺'} 年 · {regionalMetricDetails(profile, 'population').note}</small></div>
         <div><span>0—14 岁人口</span><strong>{regionalDisplay(profile.age0To14Percent, '%', 2)}</strong><small>{profile.censusPeriod || '2020'} 年人口普查年龄结构</small></div>
         <div><span>60 岁及以上人口</span><strong>{regionalDisplay(profile.age60PlusPercent, '%', 2)}</strong><small>{profile.censusPeriod || '2020'} 年人口普查年龄结构</small></div>
         <div><span>性别比 / 户规模</span><strong>{profile.sexRatio == null && profile.householdSize == null ? '—' : `${regionalDisplay(profile.sexRatio, '', 2)} / ${regionalDisplay(profile.householdSize, ' 人', 2)}`}</strong><small>{profile.censusSource || '第七次全国人口普查'}</small></div>
@@ -750,12 +725,16 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
   const [selectedProvince, setSelectedProvince] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('');
   const [selectedRegionAdcode, setSelectedRegionAdcode] = useState('');
+  const regionalScope = (mapTrail[1]?.adcode || selectedRegionAdcode).slice(0, 2);
+  const { records: regionalRecords, snapshot: regionalSnapshot, offline: regionalOffline } = useChinaRegionalEconomy(regionalScope);
+  const regionalUpdate = regionalSnapshot.scopes[regionalScope];
   const [selectedRegionLevel, setSelectedRegionLevel] = useState<AdministrativeLevel | null>(null);
   const [hoveredProvince, setHoveredProvince] = useState('');
   const [mapMetric, setMapMetric] = useState<MapMetric>('gdp');
   const [provincePanel, setProvincePanel] = useState<ProvincePanel>('economy');
   const [provinceFeed, setProvinceFeed] = useState<ProvinceOfficialFeed | null>(null);
   const [provinceFeedState, setProvinceFeedState] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle');
+  const [provinceFeedRevision, setProvinceFeedRevision] = useState(0);
   const [mapView, setMapView] = useMapFrameState({ scale: 1, x: 0, y: 0 });
   const [isMapDragging, setIsMapDragging] = useState(false);
   const [tooltip, setTooltip] = useMapFrameState({ x: 0, y: 0, visible: false });
@@ -845,6 +824,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
     }
     const controller = new AbortController();
     provinceFeedRequestRef.current = controller;
+    setProvinceFeed(null);
     setProvinceFeedState('loading');
     const params = new URLSearchParams({
       region: selectedRegion,
@@ -870,7 +850,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
       if (provinceFeedRequestRef.current === controller) provinceFeedRequestRef.current = null;
     });
     return () => controller.abort();
-  }, [selectedProvince, selectedRegion, selectedRegionAdcode, selectedRegionLevel]);
+  }, [selectedProvince, selectedRegion, selectedRegionAdcode, selectedRegionLevel, provinceFeedRevision]);
 
   const metrics = useMemo(() => new Map((data?.metrics || []).map((item) => [item.id, item])), [data]);
   const rootMap = mapTrail[0]?.data;
@@ -894,10 +874,10 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
     const values = (mapModel?.features || []).map((feature) => {
       if (mapTrail.length <= 1) return provinceValue(CHINA_PROVINCE_ECONOMY[feature.properties?.name || ''], mapMetric);
       const adcode = String(feature.properties?.adcode || '');
-      return regionalValue(CHINA_REGIONAL_ECONOMY[adcode], mapMetric);
+      return regionalValue(regionalRecords[adcode], mapMetric);
     }).filter(Boolean);
     return Math.max(...values, 1);
-  }, [mapModel, mapMetric, mapTrail.length]);
+  }, [mapModel, mapMetric, mapTrail.length, regionalRecords]);
 
   const mapDepth = Math.max(0, mapTrail.length - 1);
   const currentMapLevel = useMemo<AdministrativeLevel | 'mixed'>(() => {
@@ -913,13 +893,13 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
     provinceFeed?.news.length && provinceFeed.news.every((item) => item.fallback),
   );
   const selectedRegionalProfile = selectedRegionLevel && selectedRegionLevel !== 'province'
-    ? CHINA_REGIONAL_ECONOMY[selectedRegionAdcode]
+    ? regionalRecords[selectedRegionAdcode]
     : undefined;
   const hoveredFeature = mapModel?.features.find((feature) => feature.properties?.name === hoveredProvince);
   const hoveredAdcode = String(hoveredFeature?.properties?.adcode || '');
   const hoveredFeatureLevel = hoveredFeature ? administrativeLevelForFeature(hoveredAdcode, mapDepth) : currentMapLevel;
   const hoveredProvinceProfile = hoveredFeatureLevel === 'province' ? CHINA_PROVINCE_ECONOMY[hoveredProvince] : undefined;
-  const hoveredRegionalProfile = hoveredFeatureLevel !== 'province' && hoveredFeatureLevel !== 'mixed' ? CHINA_REGIONAL_ECONOMY[hoveredAdcode] : undefined;
+  const hoveredRegionalProfile = hoveredFeatureLevel !== 'province' && hoveredFeatureLevel !== 'mixed' ? regionalRecords[hoveredAdcode] : undefined;
   const provinceRanking = useMemo(() => {
     const rows = Object.values(CHINA_PROVINCE_ECONOMY);
     const gdp = [...rows].sort((left, right) => right.gdpMillionCny - left.gdpMillionCny);
@@ -1161,7 +1141,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
                   const adcode = String(feature.properties?.adcode || '');
                   const featureLevel = administrativeLevelForFeature(adcode, mapDepth);
                   const item = featureLevel === 'province' ? CHINA_PROVINCE_ECONOMY[name] : undefined;
-                  const regionalItem = featureLevel !== 'province' ? CHINA_REGIONAL_ECONOMY[adcode] : undefined;
+                  const regionalItem = featureLevel !== 'province' ? regionalRecords[adcode] : undefined;
                   const rawValue = featureLevel === 'province' ? provinceValue(item, mapMetric) : regionalValue(regionalItem, mapMetric);
                   const intensity = rawValue ? Math.sqrt(rawValue / mapMaxValue) : 0.18;
                   const hasMapData = rawValue > 0;
@@ -1183,6 +1163,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
                       onMouseLeave={() => { setHoveredProvince(''); setTooltip((current) => ({ ...current, visible: false })); }}
                       onMouseMove={(event) => {
                         if (dragRef.current) return;
+                        setHoveredProvince(name);
                         const bounds = mapRef.current?.getBoundingClientRect();
                         if (!bounds) return;
                         setTooltip({ x: event.clientX - bounds.left + 14, y: event.clientY - bounds.top + 14, visible: true });
@@ -1213,6 +1194,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
                   : hoveredRegionalProfile
                     ? regionalMetricText(hoveredRegionalProfile, mapMetric)
                     : `${regionLevelLabel(hoveredFeatureLevel)}行政区 · 暂无本级指标`}</span>
+                {hoveredRegionalProfile && <small>{regionalMetricDetails(hoveredRegionalProfile, mapMetric).period || '年份待补'} 年 · {regionalMetricDetails(hoveredRegionalProfile, mapMetric).note}</small>}
               </div>
             ) : null}
             <div className="china-map-controls">
@@ -1224,7 +1206,10 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
               {regionLoadState === 'loading' ? '正在加载下一级行政区划' : regionLoadState === 'error' ? '下一级边界暂不可用' : `缩放 ${mapView.scale.toFixed(1)}× · 滚轮缩放 · 按住拖动平移`}
             </div>
             <div className="china-map-legend"><span>低</span><i /><span>高</span></div>
-            <div className="china-map-attribution">周边底图 · Natural Earth</div>
+          </div>
+          <div className="china-regional-update" role="status" title="按省分批检查官方年鉴：正常每 30 天，部分成功每 7 天，失败 24 小时后重试。本机服务运行时执行，页面每分钟同步。">
+            <span>{regionalOffline ? '本机同步暂不可用 · 保留历史数据' : regionalSnapshot.running ? '正在核对官方年鉴' : '区域数据 · 自动低频更新'}</span>
+            <small>{regionalUpdate ? `${regionalUpdate.name} · ${regionalUpdate.status === 'unavailable' ? '在线核实失败，保留历史值' : regionalUpdate.status === 'partial' ? '部分数据已核实' : '已核实'} · 下次检查 ${regionalUpdate.nextCheckAt.slice(0, 10)}` : '各地区统计年份不同，悬停查看口径'}</small>
           </div>
           {selectedRegion ? <section className="china-province-inspector">
             <header>
@@ -1245,7 +1230,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
                 {provincePanel === 'government' ? <>
                   <div><span>官方门户</span><strong>{activeProvince.governmentUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}</strong><small>链接直接指向该省级人民政府网站</small></div>
                   <div><span>官方政策</span><strong>{provinceFeedState === 'loading' ? '获取中' : `${provinceFeed?.policies.length || 0} 条`}</strong><small>{policyFeedIsFallback ? '列表暂不可达，已保留官方政策入口' : provinceFeedState === 'ready' ? '已解析官方页面有效链接' : '官方入口暂不可用'}</small></div>
-                  <div><span>政务新闻</span><strong>{provinceFeedState === 'loading' ? '获取中' : `${provinceFeed?.news.length || 0} 条`}</strong><small>{newsFeedIsFallback ? '列表暂不可达，已保留官方政务入口' : provinceFeedState === 'ready' ? '已解析官方页面有效链接' : '官方入口暂不可用'}</small></div>
+                  <div><span>地方新闻</span><strong>{provinceFeedState === 'loading' ? '获取中' : `${provinceFeed?.news.filter(item => !item.fallback).length || 0} 条`}</strong><small>{newsFeedIsFallback ? '媒体暂不可达，可稍后重试' : provinceFeedState === 'ready' ? '地方媒体与公共信息 · 核验地区匹配' : '新闻来源暂不可用'}</small></div>
                   <a href={activeProvince.governmentUrl} target="_blank" rel="noreferrer">打开官方门户<ArrowUpRight size={12} /></a>
                 </> : null}
                 {provincePanel === 'economy' ? <>
@@ -1268,25 +1253,24 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
                   <GraduationCap className="china-panel-watermark" size={52} />
                 </> : null}
               </div>
-            ) : selectedRegionalProfile ? <RegionalEconomyPanel profile={selectedRegionalProfile} panel={provincePanel} /> : <div className="china-region-data-empty">
+            ) : selectedRegionalProfile ? <><RegionalEconomyPanel profile={selectedRegionalProfile} panel={provincePanel} />
+              <div className="china-regional-source">
+                {(['gdp', 'population', 'perCapita'] as const).map(metric => {
+                  const detail = regionalMetricDetails(selectedRegionalProfile, metric);
+                  return detail.period && detail.sourceUrl ? <a key={metric} href={detail.sourceUrl} target="_blank" rel="noreferrer">{metric === 'gdp' ? 'GDP' : metric === 'population' ? '人口' : '人均 GDP'} · {detail.period} 年 ↗</a> : null;
+                })}
+              </div></> : <div className="china-region-data-empty">
               <Database size={18} />
               <div><strong>{selectedRegion}暂无同口径结构化数据</strong><span>当前已严格切换到所选{selectedRegionLevel === 'city' ? '城市' : '区县'}，不会继续显示{selectedProvince || '父级'}数据，也不会用模板或其他年份补齐。</span></div>
             </div>}
             <div className="china-local-intel">
-              <section className="china-local-intel-policy">
-                <header><Landmark size={13} /><strong>地方政策</strong><span>{provinceFeedState === 'loading' ? '获取中' : policyFeedIsFallback ? '官方入口' : provinceFeedState === 'ready' ? `${provinceFeed?.policies.length || 0} 条官方链接` : '暂无官方条目'}</span></header>
-                <div className="china-local-intel-list">
-                  {(provinceFeed?.policies || []).map((item) => <a key={item.id} href={item.url} target="_blank" rel="noreferrer"><span>{item.title}</span><ArrowUpRight size={11} /></a>)}
-                  {provinceFeedState !== 'loading' && !(provinceFeed?.policies.length) ? <p>暂无可核验的官方政策条目</p> : null}
-                </div>
-              </section>
-              <section className="china-local-intel-news">
-                <header><Database size={13} /><strong>地方新闻</strong><span>{provinceFeedState === 'loading' ? '获取中' : newsFeedIsFallback ? '官方入口' : provinceFeedState === 'ready' ? `${Math.min(provinceFeed?.news.length || 0, 6)}/6 · 重要度排序` : '暂无官方条目'}</span></header>
-                <div className="china-local-intel-list">
-                  {(provinceFeed?.news || []).slice(0, 6).map((item, index) => <a key={item.id} href={item.url} target="_blank" rel="noreferrer" aria-label={`第 ${index + 1} 条重要新闻：${item.title}`}><b className="china-local-intel-rank">{String(index + 1).padStart(2, '0')}</b><span>{highlightedNewsTitle(item)}</span><ArrowUpRight size={11} /></a>)}
-                  {provinceFeedState !== 'loading' && !(provinceFeed?.news.length) ? <p>暂无可核验的官方新闻条目</p> : null}
-                </div>
-              </section>
+              <RegionalIntelSection key={`${selectedRegionAdcode}-policy`} kind="policy" items={provinceFeed?.policies || []} loading={provinceFeedState === 'loading'} />
+              <RegionalIntelSection key={`${selectedRegionAdcode}-news`} kind="news" items={provinceFeed?.news || []} loading={provinceFeedState === 'loading'} />
+            </div>
+            <div className="china-local-intel-status">
+              <span>{provinceFeedState === 'loading' ? '正在汇集地方媒体与政策原文、核验地区并排序…' : provinceFeed?.sourceStatus === 'cached' ? '来源暂不可达，显示最近一次核验结果' : '优先重要公共事件，兼顾时效和题材；不以其他地区内容补齐。'}{provinceFeedState === 'ready' && provinceFeed?.errors?.some(error => error.includes('地方媒体')) ? ' 地方媒体暂未取得匹配报道。' : ''}</span>
+              {provinceFeed?.portalUrl ? <a href={provinceFeed.portalUrl} target="_blank" rel="noopener noreferrer">地区官网<ArrowUpRight size={11} /></a> : null}
+              <button type="button" onClick={() => setProvinceFeedRevision(value => value + 1)} disabled={provinceFeedState === 'loading'}><RefreshCw size={12} />重新加载</button>
             </div>
             {activeProvince && selectedRegionLevel === 'province' ? <a href={(provincePanel === 'fiscal' ? CHINA_PROVINCE_DATA_SOURCES.fiscal : provincePanel === 'population' ? CHINA_PROVINCE_DATA_SOURCES.population : CHINA_PROVINCE_DATA_SOURCES.economy).url} target="_blank" rel="noreferrer">
               {(provincePanel === 'fiscal' ? CHINA_PROVINCE_DATA_SOURCES.fiscal : provincePanel === 'population' ? CHINA_PROVINCE_DATA_SOURCES.population : CHINA_PROVINCE_DATA_SOURCES.economy).label}<ArrowUpRight size={13} />

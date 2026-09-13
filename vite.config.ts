@@ -1,6 +1,11 @@
+import { createRegionalEconomyService } from './server/chinaRegionalEconomy';
+import regionalVerifiedSeed from './src/data/chinaRegionalVerified.json';
+import regionalSources from './src/data/chinaRegionalSources.json';
+import type { RegionalSnapshot } from './src/lib/chinaRegionalEconomy';
 import react from '@vitejs/plugin-react';
 import { createPublicDataCache, createPublicSnapshotStore } from './server/publicDataCache';
 import { createPublicDataHandler } from './server/publicDataHttp';
+import { createChinaRegionalFeedService } from './server/chinaRegionalFeed';
 import { isPublicSourceRefresh, withPublicSourceRefresh } from './server/publicSourceContext';
 import { PUBLIC_DATA_POLICIES, validatePublicResource } from './src/lib/publicDataPolicy';
 import { createChinaFisherService } from './server/chinaFisher';
@@ -24,10 +29,6 @@ import {
 } from './src/data/marketCalendars';
 import {
   CHINA_PROVINCE_ECONOMY,
-  createChinaProvinceOfficialFallback,
-  rankChinaOfficialNews,
-  type ChinaProvinceFeedMode,
-  type ChinaProvinceOfficialItem,
 } from './src/data/chinaProvinceEconomy';
 import { CozeReportTaskService } from './server/cozeReportTasks';
 import { fetchOfficialMetrics, fetchOfficialNews, fetchExportMetric, createVerifiedMetricMerger, officialPeriod, type OfficialMetric } from './server/chinaOfficialSources';
@@ -11356,269 +11357,14 @@ async function getChinaUsTenYearSpreadMetric(china10y: ChinaMacroMetric): Promis
 const mergeChinaMacroMetrics = createVerifiedMetricMerger(chinaMacroReferenceMetrics);
 
 const chinaRegionBoundaryCache = new Map<string, { storedAt: number; data: unknown }>();
-const chinaProvinceFeedCache = new Map<string, { storedAt: number; data: any }>();
-const chinaProvinceFeedInFlight = new Map<string, Promise<any>>();
-const chinaProvincePageInFlight = new Map<string, Promise<Array<{ url: string; html: string }>>>();
-const chinaProvinceOfficialPageOverrides: Partial<Record<string, string[]>> = {
-  山东省: ['http://www.shandong.gov.cn/'],
-  湖北省: ['https://www.hubei.gov.cn/zwgk/hbyw/hbywqb/', 'https://www.hubei.gov.cn/szyw/'],
-  广西壮族自治区: ['http://www.gxzf.gov.cn/'],
-  甘肃省: ['https://zwfw.gansu.gov.cn/tsfw/ZCZD/zcwj/gzbf/index.html', 'https://ydyl.gansu.gov.cn/gsydyl/fzzc/gszc/'],
-  青海省: ['http://www.qinghai.gov.cn/', 'http://www.qinghai.gov.cn/zwgk/system/more/202090000000000/0001/202090000000000_00000129.shtml'],
-};
-const chinaRegionOfficialPortalOverrides: Partial<Record<string, string>> = {
-  安阳市: 'https://www.anyang.gov.cn/',
-  滑县: 'https://www.hnhx.gov.cn/',
-};
-const chinaRegionOfficialPageOverrides: Partial<Record<string, string[]>> = {
-  滑县: [
-    'https://www.hnhx.gov.cn/portal/zwgk/A0002index_1.htm',
-    'https://www.hnhx.gov.cn/portal/index.htm',
-  ],
-};
-
-function parseProvinceOfficialItems(province: string, html: string, mode: ChinaProvinceFeedMode, baseUrl = CHINA_PROVINCE_ECONOMY[province].governmentUrl) {
-  const profile = CHINA_PROVINCE_ECONOMY[province];
-  const profileHostParts = new URL(profile.governmentUrl).hostname.split('.');
-  const provinceDomain = profileHostParts.slice(-3).join('.');
-  const policyPattern = /(政策|通知|通告|意见|办法|方案|规划|条例|规章|决定|实施|措施|细则|公告|批复)/;
-  const newsPattern = /(召开|会议|发布|调研|推进|部署|发展|建设|经济|民生|产业|项目|消费|就业|教育|医疗|交通|科技|农业|生态)/;
-  const navigationPattern = /^(?:[\p{Script=Han}]{0,12}省)?[\p{Script=Han}]{2,20}(?:委员会|办公厅|厅|局|院|中心|网站)$/u;
-  const pattern = mode === 'policy' ? policyPattern : newsPattern;
-  const seen = new Set<string>();
-  return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].flatMap((match, index) => {
-    const heading = match[2].match(/<h[1-4]\b[^>]*>([\s\S]*?)<\/h[1-4]>/i)?.[1];
-    const title = decodeXml(stripTags(heading || match[2])).replace(/\s+/g, ' ').trim();
-    if (title.length < 8 || title.length > 90 || !pattern.test(title) || navigationPattern.test(title)) return [];
-    if (mode === 'news' && policyPattern.test(title) && !/(召开|会议|发布|调研|推进|部署)/.test(title)) return [];
-    let url: URL;
-    try {
-      url = new URL(decodeXml(match[1]), baseUrl);
-    } catch {
-      return [];
-    }
-    if (!/^https?:$/.test(url.protocol) || !(url.hostname === provinceDomain || url.hostname.endsWith(`.${provinceDomain}`))) return [];
-    const key = title.replace(/[\s\p{P}\p{S}]+/gu, '');
-    if (!key || seen.has(key)) return [];
-    seen.add(key);
-    return [{
-      id: `${province}-${mode}-${index}-${createHash('sha1').update(key).digest('hex').slice(0, 8)}`,
-      title,
-      source: `${profile.shortName}省级政府门户`,
-      url: url.toString(),
-    } satisfies ChinaProvinceOfficialItem];
-  }).slice(0, 24);
-}
-
-async function fetchProvinceOfficialPage(url: string, timeoutMs = 9_000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml,*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-      },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return { url, html: await response.text() };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function fetchProvinceOfficialPages(province: string) {
-  const running = chinaProvincePageInFlight.get(province);
-  if (running) return running;
-  const profile = CHINA_PROVINCE_ECONOMY[province];
-  const urls = chinaProvinceOfficialPageOverrides[province] || [profile.governmentUrl];
-  const request = Promise.allSettled(urls.map(fetchProvinceOfficialPage)).then((results) => {
-    const pages = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
-    if (!pages.length) {
-      const errors = results.flatMap((result) => result.status === 'rejected'
-        ? [result.reason instanceof Error ? result.reason.message : String(result.reason)]
-        : []);
-      throw new Error(errors.join('；') || '省级官方页面暂不可达');
-    }
-    return pages;
-  }).finally(() => chinaProvincePageInFlight.delete(province));
-  chinaProvincePageInFlight.set(province, request);
-  return request;
-}
-
-async function fetchProvinceOfficialItems(province: string, mode: ChinaProvinceFeedMode) {
-  const profile = CHINA_PROVINCE_ECONOMY[province];
-  const pages = await fetchProvinceOfficialPages(province);
-  const seen = new Set<string>();
-  const items = pages.flatMap(({ url, html }) => parseProvinceOfficialItems(province, html, mode, url)).filter((item) => {
-    const key = item.title.replace(/[\s\p{P}\p{S}]+/gu, '');
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  if (!items.length) throw new Error(`${profile.shortName}${mode === 'policy' ? '政策' : '新闻'}列表未匹配到有效官方链接`);
-  return mode === 'news' ? rankChinaOfficialNews(items, 6) : items.slice(0, 8);
-}
-
+const chinaRegionalFeedService = createChinaRegionalFeedService({
+  search: query => fetchExternalText(`https://cn.bing.com/search?q=${encodeURIComponent(query)}`, 8_000, 'text/html'),
+});
 async function loadChinaProvinceOfficialFeed(province: string) {
-  const profile = CHINA_PROVINCE_ECONOMY[province];
-  if (!profile) throw new Error('不支持的中国省级地区');
-  const cached = chinaProvinceFeedCache.get(province);
-  if (cached && Date.now() - cached.storedAt < 10 * 60_000) return cached.data;
-  const running = chinaProvinceFeedInFlight.get(province);
-  if (running) return running;
-  const request = Promise.allSettled([
-    fetchProvinceOfficialItems(province, 'policy'),
-    fetchProvinceOfficialItems(province, 'news'),
-  ]).then(([policyResult, newsResult]) => {
-    const errors: string[] = [];
-    const policies = policyResult.status === 'fulfilled'
-      ? policyResult.value
-      : [createChinaProvinceOfficialFallback(province, 'policy')];
-    const news = newsResult.status === 'fulfilled'
-      ? newsResult.value
-      : [createChinaProvinceOfficialFallback(province, 'news')];
-    if (policyResult.status === 'rejected') errors.push(`政策：${policyResult.reason instanceof Error ? policyResult.reason.message : String(policyResult.reason)}`);
-    if (newsResult.status === 'rejected') errors.push(`新闻：${newsResult.reason instanceof Error ? newsResult.reason.message : String(newsResult.reason)}`);
-    const hasLiveItems = policyResult.status === 'fulfilled' || newsResult.status === 'fulfilled';
-    const data = {
-      province,
-      generatedAt: new Date().toISOString(),
-      policies,
-      news,
-      sourceStatus: hasLiveItems ? 'live' : 'fallback',
-      errors,
-    };
-    chinaProvinceFeedCache.set(province, { storedAt: Date.now(), data });
-    return data;
-  }).finally(() => chinaProvinceFeedInFlight.delete(province));
-  chinaProvinceFeedInFlight.set(province, request);
-  return request;
+  return chinaRegionalFeedService.get({ region: province, province, level: 'province' });
 }
-
-function parseRegionOfficialItems(region: string, html: string, mode: ChinaProvinceFeedMode, baseUrl: string) {
-  const hostParts = new URL(baseUrl).hostname.split('.');
-  const officialDomain = hostParts.slice(-3).join('.');
-  const policyPattern = /(政策|通知|通告|意见|办法|方案|规划|条例|规章|决定|实施|措施|细则|公告|批复)/;
-  const newsPattern = /(召开|会议|发布|调研|推进|部署|发展|建设|经济|民生|产业|项目|消费|就业|教育|医疗|交通|科技|农业|生态)/;
-  const pattern = mode === 'policy' ? policyPattern : newsPattern;
-  const seen = new Set<string>();
-  return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].flatMap((match, index) => {
-    const heading = match[2].match(/<h[1-4]\b[^>]*>([\s\S]*?)<\/h[1-4]>/i)?.[1];
-    const title = decodeXml(stripTags(heading || match[2])).replace(/\s+/g, ' ').trim();
-    if (title.length < 8 || title.length > 90 || !pattern.test(title)) return [];
-    if (mode === 'news' && policyPattern.test(title) && !/(召开|会议|发布|调研|推进|部署)/.test(title)) return [];
-    let url: URL;
-    try {
-      url = new URL(decodeXml(match[1]), baseUrl);
-    } catch {
-      return [];
-    }
-    if (!/^https?:$/.test(url.protocol) || !(url.hostname === officialDomain || url.hostname.endsWith(`.${officialDomain}`))) return [];
-    const key = title.replace(/[\s\p{P}\p{S}]+/gu, '');
-    if (!key || seen.has(key)) return [];
-    seen.add(key);
-    return [{
-      id: `${region}-${mode}-${index}-${createHash('sha1').update(key).digest('hex').slice(0, 8)}`,
-      title,
-      source: `${region}人民政府门户`,
-      url: url.toString(),
-    } satisfies ChinaProvinceOfficialItem];
-  }).slice(0, 24);
-}
-
-async function discoverChinaRegionGovernmentPortal(region: string, province: string, adcode: string) {
-  const override = chinaRegionOfficialPortalOverrides[adcode] || chinaRegionOfficialPortalOverrides[region];
-  if (override) return override;
-  const query = encodeURIComponent(`${province} ${region} 人民政府 官网 ${adcode}`);
-  const html = await fetchExternalText(`https://cn.bing.com/search?q=${query}`, 16_000, 'text/html,application/xhtml+xml,*/*');
-  const candidates = [...html.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi)].flatMap((match) => {
-    try {
-      const url = new URL(decodeXml(match[1]));
-      if (!url.hostname.endsWith('.gov.cn') && url.hostname !== 'gov.cn') return [];
-      if (url.hostname.includes('bing.') || url.hostname.includes('microsoft.')) return [];
-      return [url];
-    } catch {
-      return [];
-    }
-  });
-  const unique = [...new Map(candidates.map((url) => [`${url.protocol}//${url.hostname}`, url])).values()]
-    .sort((left, right) => Number(!left.hostname.startsWith('www.')) - Number(!right.hostname.startsWith('www.')) || left.pathname.length - right.pathname.length);
-  if (!unique.length) throw new Error(`${region}官方门户未发现`);
-  return `${unique[0].protocol}//${unique[0].hostname}/`;
-}
-
-async function fetchRegionOfficialPage(portalUrl: string) {
-  const first = await fetchProvinceOfficialPage(portalUrl, 60_000);
-  const redirect = first.html.match(/(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']/i)?.[1]
-    || first.html.match(/http-equiv=["']refresh["'][^>]*content=["'][^;]+;\s*url=([^"']+)/i)?.[1];
-  if (!redirect) return first;
-  const redirectUrl = new URL(decodeXml(redirect.trim()), first.url).toString();
-  return fetchProvinceOfficialPage(redirectUrl, 60_000);
-}
-
 async function loadChinaRegionOfficialFeed(region: string, level: string, province: string, adcode: string) {
-  if (!region || !['province', 'city', 'county'].includes(level)) throw new Error('无效的行政区域参数');
-  if (level === 'province') return loadChinaProvinceOfficialFeed(province || region);
-  const cacheKey = `${province}:${level}:${adcode || region}`;
-  const cached = chinaProvinceFeedCache.get(cacheKey);
-  if (cached && Date.now() - cached.storedAt < 10 * 60_000) return cached.data;
-  const running = chinaProvinceFeedInFlight.get(cacheKey);
-  if (running) return running;
-  const request = (async () => {
-    const portalUrl = await discoverChinaRegionGovernmentPortal(region, province, adcode);
-    const pageUrls = chinaRegionOfficialPageOverrides[region] || [portalUrl];
-    const pageResults = await Promise.allSettled(pageUrls.map(fetchRegionOfficialPage));
-    const pages = pageResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
-    if (!pages.length) throw new Error(`${region}官方页面暂不可达`);
-    const uniqueItems = (items: ChinaProvinceOfficialItem[], limit = 8) => {
-      const seen = new Set<string>();
-      return items.filter((item) => {
-        const key = item.title.replace(/[\s\p{P}\p{S}]+/gu, '');
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      }).slice(0, limit);
-    };
-    const policies = uniqueItems(pages.flatMap((page) => parseRegionOfficialItems(region, page.html, 'policy', page.url)));
-    const news = rankChinaOfficialNews(
-      uniqueItems(pages.flatMap((page) => parseRegionOfficialItems(region, page.html, 'news', page.url)), 24),
-      6,
-    );
-    const errors: string[] = [];
-    if (!policies.length) errors.push('政策：首页未解析到可核验条目');
-    if (!news.length) errors.push('新闻：首页未解析到可核验条目');
-    const data = {
-      province: region,
-      region,
-      level,
-      portalUrl,
-      generatedAt: new Date().toISOString(),
-      policies,
-      news,
-      sourceStatus: policies.length || news.length ? 'live' : 'unavailable',
-      errors,
-    };
-    chinaProvinceFeedCache.set(cacheKey, { storedAt: Date.now(), data });
-    return data;
-  })().catch((error) => {
-    const data = {
-      province: region,
-      region,
-      level,
-      generatedAt: new Date().toISOString(),
-      policies: [],
-      news: [],
-      sourceStatus: 'unavailable',
-      errors: [error instanceof Error ? error.message : String(error)],
-    };
-    chinaProvinceFeedCache.set(cacheKey, { storedAt: Date.now(), data });
-    return data;
-  }).finally(() => chinaProvinceFeedInFlight.delete(cacheKey));
-  chinaProvinceFeedInFlight.set(cacheKey, request);
-  return request;
+  return chinaRegionalFeedService.get({ region, level: level as 'province' | 'city' | 'county', province: province || region, adcode });
 }
 
 async function loadChinaRegionBoundary(adcode: string) {
@@ -12115,6 +11861,12 @@ function allWeatherApiPlugin() {
   return {
     name: 'sparkflow-allweather-api',
     configureServer(server: ViteDevServer) {
+      const regionalEconomy = createRegionalEconomyService({ root: rootDir,
+        cacheFile: path.join(sparkflowStateDir, 'china-regional-economy.json'),
+        seed: regionalVerifiedSeed as unknown as RegionalSnapshot, sources: regionalSources });
+      regionalEconomy.start();
+      server.httpServer?.once('close', () => regionalEconomy.stop());
+
       const preloadEnvironment = { ...loadEnv(server.config.mode, rootDir, 'SPARKFLOW_'), ...process.env };
       const publicCache = preloadEnvironment.SPARKFLOW_PUBLIC_CACHE === '0' ? undefined : createPublicDataCache({
         resources: PUBLIC_DATA_POLICIES.map(policy => ({ ...policy,
@@ -12504,6 +12256,17 @@ function allWeatherApiPlugin() {
             }
             res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 200, await loadChinaMacroDashboard(section || undefined, url.searchParams.get('fresh') === '1'));
+            return;
+          }
+
+          if (url.pathname === '/api/china-regional-economy') {
+            const scope = url.searchParams.get('scope') || '';
+            if (scope && !regionalSources.some(source => source.scope === scope)) {
+              sendJson(res, 400, { error: '不支持的行政区域' });
+              return;
+            }
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await regionalEconomy.snapshot(scope));
             return;
           }
 

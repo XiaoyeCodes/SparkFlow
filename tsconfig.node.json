@@ -25,6 +25,7 @@
     "src/lib/chinaFisherTypes.ts",
     "src/lib/chinaGdpTypes.ts",
     "src/lib/chinaIncomeTypes.ts",
+    "src/lib/chinaRegionalEconomy.ts",
     "src/lib/chinaMacroNews.ts",
     "src/lib/publicDataPolicy.ts",
     "src/lib/ibkr/types.ts",

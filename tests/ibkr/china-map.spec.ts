@@ -16,9 +16,10 @@ test('China regional map pans from a province without triggering drill-down', as
   await expect(provinces.first()).toBeVisible();
   await expect(map).toHaveAttribute('data-map-scale', '1.000');
   await expect(map).toHaveClass(/is-draggable/);
-  await expect(map.locator('.china-context-countries path[data-country="Mongolia"]')).toHaveAttribute('d', /^M/);
+  await expect(map.locator('.china-context-national')).toHaveAttribute('d', /^M/);
+  await expect(map.locator('.china-context-countries, .china-context-labels, .china-map-attribution')).toHaveCount(0);
   await expect(map.locator('.china-map-context')).toHaveCSS('pointer-events', 'none');
-  await map.screenshot({ path: 'output/china-map-context.png' });
+  await map.screenshot({ path: 'output/china-map-only.png' });
   await map.getByRole('img', { name: '中国省级经济地图' }).hover();
   await page.mouse.wheel(0, -80);
   await expect(map).toHaveAttribute('data-map-scale', '1.180');
