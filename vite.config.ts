@@ -15,6 +15,8 @@ import {
   type CryptoMarketUniverseRow,
 } from './server/cryptoMarketUniverse';
 import { createChinaRegionalFeedService } from './server/chinaRegionalFeed';
+import { SINA_CURRENCY_CODES, SINA_US10Y_CODE, currencyQuoteTime, parseSinaCurrencyQuotes, parseSinaUs10yQuote } from './server/macroCurrencyQuotes';
+import { SINA_CORE_INDEX_CONFIGS, parseSinaCoreIndexQuotes, coreIndexHistoryQuote } from './server/macroCoreIndexQuotes';
 import { isPublicSourceRefresh, withPublicSourceRefresh } from './server/publicSourceContext';
 import { PUBLIC_DATA_POLICIES, validatePublicResource } from './src/lib/publicDataPolicy';
 import { createChinaFisherService } from './server/chinaFisher';
@@ -4449,7 +4451,7 @@ async function getYahooFastQuotes(symbols: readonly string[]) {
         ? dailyCloses[dailyCloses.length - 2]
         : asFiniteNumber(meta?.previousClose ?? meta?.chartPreviousClose);
       const timestamp = asFiniteNumber(meta?.regularMarketTime);
-      if (!symbol || price === undefined) return [];
+      if (!symbol || price === undefined || !timestamp) return [];
       return [{
         symbol,
         price,
@@ -4523,7 +4525,7 @@ async function getSinaFastAssetQuotes() {
     { id: 'silver', code: 'hf_SI', symbol: 'SI=F' },
     { id: 'gas', code: 'hf_NG', symbol: 'NG=F' },
   ] as const;
-  const sourceUrl = `https://hq.sinajs.cn/list=${configs.map((item) => item.code).join(',')},DINIW`;
+  const sourceUrl = `https://hq.sinajs.cn/list=${[...configs.map((item) => item.code), ...SINA_CURRENCY_CODES, SINA_US10Y_CODE, ...SINA_CORE_INDEX_CONFIGS.map(item => item.code)].join(',')}`;
   const text = await fetchText(sourceUrl, 2_500);
   const quotes = new Map<string, YahooFastQuote>();
   configs.forEach((config) => {
@@ -4532,9 +4534,8 @@ async function getSinaFastAssetQuotes() {
     const price = asFiniteNumber(fields[0]);
     const previous = asFiniteNumber(fields[7]);
     if (price === undefined) return;
-    const updatedAt = fields[12] && fields[6]
-      ? new Date(`${fields[12]}T${fields[6]}+08:00`).toISOString()
-      : new Date().toISOString();
+    const updatedAt = currencyQuoteTime(fields[12], fields[6]);
+    if (!updatedAt) return;
     quotes.set(config.id, {
       symbol: config.symbol,
       price,
@@ -4544,22 +4545,10 @@ async function getSinaFastAssetQuotes() {
       sourceUrl: 'https://finance.sina.com.cn/futuremarket/',
     });
   });
-  const dxyMatch = text.match(/var\s+hq_str_DINIW="([^"]*)"/);
-  const dxyFields = dxyMatch?.[1]?.split(',') || [];
-  const dxyPrice = asFiniteNumber(dxyFields[1]);
-  const dxyPrevious = asFiniteNumber(dxyFields[3]);
-  if (dxyPrice !== undefined) {
-    quotes.set('dxy', {
-      symbol: 'DX-Y.NYB',
-      price: dxyPrice,
-      change: dxyPrevious === undefined ? 0 : dxyPrice - dxyPrevious,
-      changePercent: dxyPrevious ? (dxyPrice / dxyPrevious - 1) * 100 : 0,
-      updatedAt: dxyFields[10] && dxyFields[0]
-        ? new Date(`${dxyFields[10]}T${dxyFields[0]}+08:00`).toISOString()
-        : new Date().toISOString(),
-      sourceUrl: 'https://finance.sina.com.cn/money/forex/hq/DINIW.shtml',
-    });
-  }
+  parseSinaCurrencyQuotes(text).forEach((quote, id) => quotes.set(id, quote));
+  const us10y = parseSinaUs10yQuote(text);
+  if (us10y) quotes.set('us10y', us10y);
+  parseSinaCoreIndexQuotes(text).forEach((quote, id) => quotes.set(id, quote));
   if (!quotes.size) throw new Error('新浪全球资产快照暂时不可用');
   return quotes;
 }
@@ -7411,7 +7400,13 @@ let isolatedFedRateLastRefreshAt = 0;
 async function loadIsolatedGlobalMacroCoreIndex(id: IsolatedGlobalMacroCoreIndexId) {
   const config = globalMacroCoreIndexConfigs[id];
   try {
-    const quote = await getYahooMacroQuote(config.symbol, '1mo');
+    const primary = await readFastAssetSource().catch(() => undefined);
+    const history = (yahooMacroQuoteCache.get(`${config.symbol}:1mo`)
+      || yahooMacroQuoteCache.get(`${config.symbol}:3mo`))?.history || [];
+    const quote = (!primary?.error ? primary?.data?.get(id) : undefined)
+      || (await readFastCoreIndexYahooSource().catch(() => undefined))?.data?.get(config.symbol)
+      || coreIndexHistoryQuote(config.symbol, history);
+    if (!quote) throw new Error(`${config.name}最新行情暂不可用`);
     const index = {
       id: config.id,
       name: config.name,
@@ -7420,8 +7415,9 @@ async function loadIsolatedGlobalMacroCoreIndex(id: IsolatedGlobalMacroCoreIndex
       changePercent: quote.changePercent,
       updatedAt: quote.updatedAt,
       sourceUrl: quote.sourceUrl || config.sourceUrl,
-      history: quote.history.slice(-22),
-      status: 'delayed' as const,
+      // History is supplied by the slow dashboard lane, never fetched per tick.
+      history: history.slice(-22),
+      status: fastQuoteStatus(quote.updatedAt),
     };
     isolatedCoreIndexLastGood.set(id, index);
     return index;
@@ -7436,21 +7432,22 @@ async function loadIsolatedGlobalMacroFxRate(id: IsolatedGlobalMacroFxRateId) {
   const config = globalMacroFxRates.find((item) => item.id === id);
   if (!config) throw new Error('不支持的汇率');
   try {
-    const quote = await getYahooMacroQuote(config.symbol, '1mo');
-    const value = normalizeFxPrice(quote.price, config.inverse);
+    // Shared source batch, independent of the slow global frame and chart history.
+    const direct = (await readFastAssetSource()).data?.get(id);
+    const quote = direct || (await readFastFxYahooSource()).data?.get(config.symbol);
+    if (!quote) throw new Error(`${config.label}快速行情暂不可用`);
+    const inverse = !direct && config.inverse;
+    const value = normalizeFxPrice(quote.price, inverse);
     const rate = {
       id: config.id,
       label: config.label,
       value,
       display: formatFxRate(value, config.digits),
-      change: normalizeFxChangePercent(quote.changePercent, config.inverse),
+      change: normalizeFxChangePercent(quote.changePercent, inverse),
       updatedAt: quote.updatedAt,
       sourceUrl: quote.sourceUrl,
-      status: 'delayed' as const,
-      history: quote.history.slice(-24).map((point) => ({
-        ...point,
-        value: normalizeFxPrice(point.value, config.inverse),
-      })),
+      status: fastQuoteStatus(quote.updatedAt),
+      history: [],
     };
     isolatedFxRateLastGood.set(id, rate);
     return rate;
@@ -7532,7 +7529,7 @@ function isolatedAssetMetricFromQuote(
     change: config.changeMode === 'points' ? quote.change : quote.changePercent,
     updatedAt: quote.updatedAt,
     sourceUrl: quote.sourceUrl,
-    status: 'live' as const,
+    status: fastQuoteStatus(quote.updatedAt),
     history: quote.history?.slice(-48) || [],
   };
 }
@@ -7567,9 +7564,11 @@ async function loadIsolatedGlobalMacroAsset(id: IsolatedGlobalMacroAssetId) {
       yahooMetric,
     ];
   } else if (id === 'us10y') {
+    // Keep each provider's yield and previous close together when falling back.
+    // Daily FRED observations and Treasury futures prices are not intraday yields.
     loaders = [
+      () => requireBudgetedFastQuote(readFastAssetSource, id),
       yahooMetric,
-      () => getFredMacroMetric('us10y', ['DGS10'], '美国10年期国债收益率', (value) => `${value.toFixed(2)}%`),
     ];
   } else if (id === 'gold' || id === 'brent') {
     loaders = [
@@ -7782,11 +7781,12 @@ async function loadGlobalMarketsSection() {
     return results;
   })();
   const tickerSnapshotRequest = Promise.allSettled([getEquityIndexSnapshots()]);
-  const [quotes, tickerSnapshotResults, vtResult, soxResult] = await Promise.all([
+  const [quotes, tickerSnapshotResults, vtResult, soxResult, coreQuoteResults] = await Promise.all([
     quoteRequest,
     tickerSnapshotRequest,
     Promise.allSettled([getYahooMacroQuote('VT', '3mo')]),
     Promise.allSettled([getYahooMacroQuote('^SOX', '3mo')]),
+    Promise.allSettled(Object.keys(globalMacroCoreIndexConfigs).map(id => loadIsolatedGlobalMacroCoreIndex(id as IsolatedGlobalMacroCoreIndexId))),
   ]);
   const items = quotes.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
   const tickerSnapshots = tickerSnapshotResults[0]?.status === 'fulfilled'
@@ -7806,6 +7806,7 @@ async function loadGlobalMarketsSection() {
     { id: 'shanghai', name: '上证指数', symbol: '000001.SS', quote: items.find((item) => item.id === 'china'), sourceUrl: 'https://finance.yahoo.com/quote/000001.SS' },
     { id: 'sox', name: '费城半导体指数', symbol: '^SOX', quote: soxQuote || undefined, sourceUrl: 'https://finance.yahoo.com/quote/%5ESOX' },
   ] as const;
+  const latestCoreQuotes = new Map(coreQuoteResults.flatMap(result => result.status === 'fulfilled' ? [[result.value.id, result.value] as const] : []));
   const coreIndices = coreIndexConfigs.map((config) => ({
     id: config.id,
     name: config.name,
@@ -7814,8 +7815,10 @@ async function loadGlobalMarketsSection() {
     changePercent: config.quote?.changePercent ?? null,
     updatedAt: config.quote?.updatedAt,
     sourceUrl: config.quote?.sourceUrl || config.sourceUrl,
+    // Apply primary/fallback quote metadata together; keep historical points below.
+    ...latestCoreQuotes.get(config.id),
     history: config.quote?.history?.slice(-22) || [],
-    status: config.quote ? 'delayed' as const : 'unavailable' as const,
+    status: latestCoreQuotes.get(config.id)?.status || (config.quote ? 'delayed' as const : 'unavailable' as const),
   }));
 
   return {
@@ -8145,6 +8148,12 @@ const readFastCryptoCoinGeckoSource = createBudgetedFastQuoteSource(() => getCoi
 const readFastIsolatedAssetYahooSource = createBudgetedFastQuoteSource(() => getYahooFastQuotes(
   Object.values(isolatedGlobalMacroAssetConfigs).map((item) => item.symbol),
 ));
+const readFastFxYahooSource = createBudgetedFastQuoteSource(() => getYahooFastQuotes(
+  globalMacroFxRates.map(item => item.symbol),
+));
+const readFastCoreIndexYahooSource = createBudgetedFastQuoteSource(() => getYahooFastQuotes(
+  Object.values(globalMacroCoreIndexConfigs).map(item => item.symbol),
+));
 const readFastDashboardYahooSource = createBudgetedFastQuoteSource(() => getYahooFastQuotes([
   ...globalMacroQuotes.map(item => item.symbol),
   ...globalMacroCommodities.map(([, , symbol]) => symbol),
@@ -8271,10 +8280,10 @@ async function loadGlobalMacroFastQuotes() {
   });
 
   const coreSources = [
-    { id: 'nasdaq', name: '纳斯达克100', symbol: '^NDX', quote: equityById.get('nasdaq') || marketById.get('nasdaq'), sourceUrl: 'https://finance.yahoo.com/quote/%5ENDX' },
-    { id: 'sp500', name: '标普500', symbol: '^GSPC', quote: equityById.get('sp500') || marketById.get('us'), sourceUrl: 'https://finance.yahoo.com/quote/%5EGSPC' },
-    { id: 'shanghai', name: '上证指数', symbol: '000001.SS', quote: equityById.get('sse') || marketById.get('china'), sourceUrl: 'https://finance.yahoo.com/quote/000001.SS' },
-    { id: 'sox', name: '费城半导体指数', symbol: '^SOX', quote: equityById.get('sox') || yahoo.get('^SOX'), sourceUrl: 'https://finance.yahoo.com/quote/%5ESOX' },
+    { id: 'nasdaq', name: '纳斯达克100', symbol: '^NDX', quote: assetQuotes.get('nasdaq') || yahoo.get('^NDX'), sourceUrl: 'https://finance.yahoo.com/quote/%5ENDX' },
+    { id: 'sp500', name: '标普500', symbol: '^GSPC', quote: assetQuotes.get('sp500') || yahoo.get('^GSPC'), sourceUrl: 'https://finance.yahoo.com/quote/%5EGSPC' },
+    { id: 'shanghai', name: '上证指数', symbol: '000001.SS', quote: assetQuotes.get('shanghai') || yahoo.get('000001.SS'), sourceUrl: 'https://finance.yahoo.com/quote/000001.SS' },
+    { id: 'sox', name: '费城半导体指数', symbol: '^SOX', quote: assetQuotes.get('sox') || yahoo.get('^SOX'), sourceUrl: 'https://finance.yahoo.com/quote/%5ESOX' },
   ] as const;
   const coreIndices = coreSources.map((config) => ({
     id: config.id,
@@ -8290,7 +8299,7 @@ async function loadGlobalMacroFastQuotes() {
 
   const vixQuote = marketById.get('vix');
   const dxyQuote = assetQuotes.get('dxy') || yahoo.get('DX-Y.NYB');
-  const us10yQuote = yahoo.get('^TNX');
+  const us10yQuote = assetQuotes.get('us10y') || yahoo.get('^TNX');
   const macro = [
     vixQuote ? {
       id: 'vix', label: 'VIX 波动率', value: vixQuote.price, display: vixQuote.price.toFixed(2),
@@ -8325,15 +8334,17 @@ async function loadGlobalMacroFastQuotes() {
     }];
   });
   const fxRates = globalMacroFxRates.flatMap((config) => {
-    const quote = yahoo.get(config.symbol);
+    const direct = assetQuotes.get(config.id);
+    const quote = direct || yahoo.get(config.symbol);
     if (!quote) return [];
-    const value = normalizeFxPrice(quote.price, config.inverse);
+    const inverse = !direct && config.inverse;
+    const value = normalizeFxPrice(quote.price, inverse);
     return [{
       id: config.id,
       label: config.label,
       value,
       display: formatFxRate(value, config.digits),
-      change: normalizeFxChangePercent(quote.changePercent, config.inverse),
+      change: normalizeFxChangePercent(quote.changePercent, inverse),
       updatedAt: quote.updatedAt,
       sourceUrl: quote.sourceUrl,
       status: fastQuoteStatus(quote.updatedAt),
@@ -11982,16 +11993,18 @@ async function loadPublicDashboardResource(key: string): Promise<unknown> {
     case '/api/crypto-market-heatmap': return getCachedCryptoMarketHeatmap();
     case '/api/global-market-heatmap': return getGlobalMarketHeatmap(market);
     case '/api/international-market-overview': return getInternationalMarketOverview(market as InternationalMarketMode);
-    case '/api/global-macro-core-index':
-    case '/api/global-macro-fx-rate':
+    case '/api/global-macro-fx-rate': return { generatedAt: generatedAt(), rate: await loadIsolatedGlobalMacroFxRate(id as IsolatedGlobalMacroFxRateId) };
     case '/api/global-macro-asset': {
-      // All real-time cards share one batched frame, not one history fetch per
-      // card/visitor. Slow dashboard sections continue to supply chart history.
+      if (id === 'dxy' || id === 'us10y') return { generatedAt: generatedAt(), asset: await loadIsolatedGlobalMacroAsset(id) };
       const frame = await getCachedGlobalMacroFastQuotes();
-      const field = url.pathname.endsWith('core-index') ? 'index' : url.pathname.endsWith('fx-rate') ? 'rate' : 'asset';
-      const item = (field === 'index' ? frame.coreIndices : [...frame.macro, ...frame.commodities]).find(item => item.id === id);
-      if (!item || !validatePublicResource(key, { [field]: item })) throw new Error('该资产的最新行情暂不可用');
-      return { generatedAt: frame.generatedAt, [field]: item };
+      const asset = [...frame.macro, ...frame.commodities].find(item => item.id === id);
+      if (!asset || !validatePublicResource(key, { asset })) throw new Error('该资产的最新行情暂不可用');
+      return { generatedAt: frame.generatedAt, asset };
+    }
+    case '/api/global-macro-core-index': {
+      const index = await loadIsolatedGlobalMacroCoreIndex(id as IsolatedGlobalMacroCoreIndexId);
+      if (!index || !validatePublicResource(key, { index })) throw new Error('该指数的最新行情暂不可用');
+      return { generatedAt: generatedAt(), index };
     }
     case '/api/global-risk-sentiment': return loadGlobalRiskSentiment();
     case '/api/global-macro-fed-rate': return { generatedAt: generatedAt(), expectation: await loadIsolatedFedRateExpectation() };

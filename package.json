@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:macro-core-index-quotes": "node --no-warnings --experimental-strip-types scripts/verify-macro-core-index-quotes.mjs",
+    "test:macro-currency-quotes": "node --no-warnings --experimental-strip-types scripts/verify-macro-currency-quotes.mjs",
     "test:realtime-quotes": "node --no-warnings --experimental-strip-types scripts/verify-realtime-quotes.mjs",
     "test:daily-brief-ai-cache": "node --no-warnings --experimental-strip-types scripts/verify-daily-brief-ai-cache.mjs",
     "test:page-cache": "node --no-warnings --experimental-strip-types scripts/verify-page-data-client.mjs && node --no-warnings --experimental-strip-types scripts/verify-news-page-cache.mjs && npm run test:daily-brief",
