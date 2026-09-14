@@ -33,13 +33,18 @@ CALENDARS = {
 
 
 def symbol_arg(value):
-    if not isinstance(value, str) or not re.fullmatch(r'[A-Z0-9.\-^]{1,24}', value):
+    if not isinstance(value, str):
+        raise ValueError('TOOL_SYMBOL_INVALID')
+    value = value.strip().upper()
+    if re.fullmatch(r'[A-Z]{1,8}[ .-][A-Z]', value):
+        value = re.sub(r'[ .-]', '.', value)
+    if not re.fullmatch(r'[A-Z0-9.\-^]{1,24}', value):
         raise ValueError('TOOL_SYMBOL_INVALID')
     return value
 
 
 def tradingview_profile(symbol):
-    symbol_arg(symbol)
+    symbol = symbol_arg(symbol)
     result = tradingview_profiles([symbol])
     if symbol not in result['profiles']:
         raise ValueError('TOOL_PROFILE_IDENTITY_UNCONFIRMED')

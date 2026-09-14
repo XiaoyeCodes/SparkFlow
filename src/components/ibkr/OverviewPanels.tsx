@@ -1,3 +1,4 @@
+import { ResearchDigest } from './ResearchDigest';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -13,14 +14,6 @@ const percent = (v: number | null | undefined) => v == null || !Number.isFinite(
 const signed = (v: number | null | undefined) => v == null ? '—' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
 const colors = ['#35dba3', '#5b9df0', '#efac48', '#a08cdd', '#60bfc5', '#859c8f'];
 const stamp = (v?: string | null) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '尚未同步';
-const conclusionHighlight = /^([+-]?\d+(?:\.\d+)?%|[A-Z]{2,6}(?:\/[A-Z]{2,6})*|现金|集中度?|风险|减仓|加仓|持有|观望|不追高|优先|缺口|高弹性)$/;
-const conclusionParts = (text: string) => text.split(/([+-]?\d+(?:\.\d+)?%|[A-Z]{2,6}(?:\/[A-Z]{2,6})*|现金|集中度?|风险|减仓|加仓|持有|观望|不追高|优先|缺口|高弹性)/g).filter(Boolean).map((part, index) => {
-  if (!conclusionHighlight.test(part)) return part;
-  const kind = /^[-+\d]/.test(part) ? 'number' : /^[A-Z]/.test(part) ? 'ticker' : /减仓|加仓|持有|观望|不追高|优先/.test(part) ? 'action' : 'risk';
-  return <strong className={`awb-conclusion-${kind}`} key={`${part}-${index}`}>{part}</strong>;
-});
-const conclusionSignals = ['EXPOSURE', 'EVIDENCE', 'ACTION'];
-
 export function OverviewPnlSummary({ state }: { state: WorkbenchState }) {
   const { metrics, baseCurrency } = state.snapshot;
   const value = finite(metrics.unrealizedPnl);
@@ -171,13 +164,12 @@ export function OverviewBrief({ state, report, pending, canAnalyze, analyzing, o
   const todayReport = report && reportDay === today ? report : undefined;
   const todayPending = pending && localDay(pending.startedAt) === today ? pending : undefined;
   const showIncomplete = !todayReport && Boolean(todayPending || report && reportDay !== today);
-  const points = todayReport ? (todayReport.content.briefPoints?.length ? todayReport.content.briefPoints : [todayReport.content.brief]).slice(0, 3) : [];
   const schedule = state.preferences.schedules?.analysis;
   return <section className="awb-panel awb-brief-redesign awb-overview-analysis-card" aria-label="今日分析结论">
     <div className="awb-overview-analysis-head"><span className="awb-ai-badge"><Sparkles size={13}/>今日分析结论</span><small>{todayReport ? stamp(todayReport.generatedAt) : '今日尚未生成'}</small></div>
-    <h2 className="awb-ai-headline">{todayReport?.content.headline ?? '今天还没有账户分析结论'}</h2>
+    {!todayReport && <h2 className="awb-ai-headline">今天还没有账户分析结论</h2>}
     {showIncomplete && <p className="awb-brief-notice">{todayPending?.state === 'running' ? '今日账户分析正在生成，完成后会自动显示在这里。' : '今日账户分析尚未完成，可前往 AI 分析继续。'}</p>}
-    {points.length ? <ol className="awb-overview-analysis-points">{points.map((point, index) => <li className={`awb-conclusion-card awb-conclusion-card-${index + 1}`} data-signal={conclusionSignals[index] ?? 'SIGNAL'} key={`${index}-${point}`} tabIndex={0}><span className="awb-conclusion-index">{String(index + 1).padStart(2, '0')}</span><p>{conclusionParts(point)}</p><i className="awb-conclusion-scan" aria-hidden="true"/><div className="awb-conclusion-ornament" aria-hidden="true"><i/><i/><i/><i/></div></li>)}</ol> : todayPending ? <p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p> : <div className="awb-overview-analysis-empty-state"><p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p><button className={`awb-analysis-core-button ${analyzing ? 'is-analyzing' : ''}`} type="button" disabled={!canAnalyze || analyzing} onClick={startAnalysis} title={analyzing ? '正在启动账户分析' : canAnalyze ? '使用最新账户快照生成今天的完整分析' : '请先确认账户已同步、AI 已授权且今日仍有调用额度'}><span className="awb-analysis-core-orbit" aria-hidden="true"><i/><i/><i/></span><span className="awb-analysis-core-icon" aria-hidden="true">{analyzing ? <LoaderCircle size={21}/> : <Sparkles size={21}/>}</span><span><b>{analyzing ? '正在启动分析' : '生成今日分析'}</b><small>读取最新账户与全部持仓</small></span><ArrowUpRight size={18} aria-hidden="true"/></button></div>}
+    {todayReport ? <ResearchDigest content={todayReport.content}/> : todayPending ? <p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p> : <div className="awb-overview-analysis-empty-state"><p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p><button className={`awb-analysis-core-button ${analyzing ? 'is-analyzing' : ''}`} type="button" disabled={!canAnalyze || analyzing} onClick={startAnalysis} title={analyzing ? '正在启动账户分析' : canAnalyze ? '使用最新账户快照生成今天的完整分析' : '请先确认账户已同步、AI 已授权且今日仍有调用额度'}><span className="awb-analysis-core-orbit" aria-hidden="true"><i/><i/><i/></span><span className="awb-analysis-core-icon" aria-hidden="true">{analyzing ? <LoaderCircle size={21}/> : <Sparkles size={21}/>}</span><span><b>{analyzing ? '正在启动分析' : '生成今日分析'}</b><small>读取最新账户与全部持仓</small></span><ArrowUpRight size={18} aria-hidden="true"/></button></div>}
     <div className="awb-overview-analysis-footer"><small>{todayReport ? `${todayReport.kind === 'daily' ? '定时分析' : '手动分析'} · ${todayReport.model}` : schedule?.enabled ? `定时已开启 · ${accountScheduleDescription(schedule)}` : '定时未开启'}</small><button className="awb-ai-cta" onClick={openReport}>{todayReport ? '查看完整分析' : todayPending ? '查看分析进度' : '前往 AI 分析'}<ChevronRight size={16}/></button></div>
   </section>;
 }

@@ -3,6 +3,144 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { emptySnapshot } from '../../src/lib/ibkr/store';
 import type { AnalysisReport, WorkbenchState } from '../../src/lib/ibkr/workbenchTypes';
 import { paginateAccountPositions, sortAccountPositionsByWeight } from '../../src/lib/ibkr/exportAccountPdf';
+import { flexibleResearchOutput } from '../../server/ibkrResearchOutput';
+
+for (const width of [1440, 390]) test(`legacy empty holding cards and metadata stay out of the article ${width}`, async ({ page }) => {
+  const data=state(true);
+  const content=flexibleResearchOutput({text:JSON.stringify({fullSummary:'组合需要关注现金缓冲。',riskSummary:'今日整体风险关注度：中——保持分散。',holdings:[{symbol:'AAPL',background:'已有观点'}],gaps:['这是需要保留的真实限制。']})},['AAPL'],[]);
+  content.holdings=[{...content.holdings[0],background:''},{...content.holdings[0],symbol:'AMD',background:''}];
+  content.additionalSections=[{title:'AAPL · weight',content:'0.22'},{title:'AAPL · type',content:'EQUITY'},{title:'AAPL · note',content:'现金流增长12%，需要关注估值。'}];
+  data.reports=[{id:'legacy-clean',version:2,accountKey:data.snapshot.accountKey,snapshotId:data.snapshot.snapshotId,snapshotHash:'fixture',generatedAt:new Date().toISOString(),provider:'fixture',model:'offline',kind:'manual',snapshot:data.snapshot,evidence:[],quotes:[],content} as unknown as AnalysisReport];
+  await page.setViewportSize({width,height:950});
+  await page.route('**/api/ibkr-workbench/state',r=>r.fulfill({json:data}));
+  await page.route('**/api/ibkr-workbench/quotes',r=>r.fulfill({json:[]}));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=reports');
+  await page.getByRole('button',{name:'查看完整报告与依据'}).click();
+  const article=page.locator('.awb-research-article');
+  await expect(article.getByRole('heading',{name:'AMD',exact:true})).toHaveCount(0);
+  await expect(article).not.toContainText('AAPL · weight');
+  await expect(article).not.toContainText('AAPL · type');
+  await expect(article).toContainText('现金流增长12%');
+  const holding=article.locator('.awb-holding-research');
+  await expect(holding).toHaveCount(1);
+  expect((await holding.boundingBox())!.height).toBeLessThan(250);
+  const details=article.locator('details').filter({hasText:'资料边界与说明'});
+  await expect(details).not.toHaveAttribute('open');
+  await details.locator('summary').click();
+  await expect(details).toContainText('真实限制');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await article.screenshot({path:`tmp/workbench-qa/research-clean-${width}.png`});
+});
+
+for (const width of [1440, 390]) test(`flexible AI reports preserve paraphrases, extra sections and raw text ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 950 });
+  const data = state(true);
+  const evidence = [{ id: 'E37', symbols: ['AAPL'], read: true, content: 'The company announced a new product.', title: 'Source', source: 'fixture', url: 'https://example.com', kind: 'news' as const, publishedAt: null, fetchedAt: new Date().toISOString() }];
+  const content = flexibleResearchOutput({ text: JSON.stringify({ headline: '容错分析测试', briefPoints: ['只有一个重点'],
+    holdings: [{ symbol: 'AAPL', fact: '这是一项模型判断', support: [{ evidenceId: 'E37', quote: '公司发布了产品，这是模型概括。' }] }],
+    extra: '新增章节可以完整显示。' }) }, ['AAPL'], evidence);
+  const report = { id: '12345678-1234-4234-8234-123456789abc', version: 2, accountKey: data.snapshot.accountKey, snapshotId: data.snapshot.snapshotId,
+    snapshotHash: 'fixture', generatedAt: new Date().toISOString(), provider: 'fixture', model: 'offline', kind: 'manual', snapshot: data.snapshot, evidence, quotes: data.quotes, content } as unknown as AnalysisReport;
+  data.reports = [report];
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: data.quotes }));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=reports');
+  await page.getByRole('button', { name: '查看完整报告与依据' }).click();
+  await expect(page.locator('.awb-analysis-report-grid')).toContainText('内容核查提示');
+  await expect(page.locator('.awb-unverified-summary')).toContainText('公司发布了产品');
+  await expect(page.locator('.awb-original-quote')).toHaveCount(0);
+  await expect(page.locator('.awb-output-notices').first()).not.toHaveAttribute('open');
+  await page.getByText('补充分析 · 1 项', { exact: true }).click();
+  await expect(page.locator('.awb-flexible-output')).toContainText('新增章节可以完整显示');
+  await expect(page.locator('.awb-analysis-brief-points > div')).toHaveCount(1);
+  await page.screenshot({ path: `output/flexible-research-${width}.png`, fullPage: true });
+  report.content = flexibleResearchOutput({ text: '# 自由格式报告\n\n现金安排需要复核。\n\n|项目|判断|\n|---|---|\n|风险|观察|\n\n<script>window.__unsafe=1</script>', finishReason: 'length' }, ['AAPL'], []) as unknown as AnalysisReport['content'];
+  await page.reload();
+  await page.getByRole('button', { name: '查看完整报告与依据' }).click();
+  await expect(page.getByLabel('模型原始分析')).toContainText('现金安排需要复核');
+  await expect(page.getByLabel('模型原始分析').locator('table')).toHaveCount(1);
+  await expect(page.locator('.awb-output-notices')).toContainText('截断');
+  expect(await page.evaluate(() => (window as any).__unsafe)).toBeUndefined();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: `output/flexible-research-raw-${width}.png`, fullPage: true });
+});
+
+for (const width of [1440, 390]) test(`research history hidden scrollbar preserves navigation ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 950 });
+  const data = state(true);
+  const content = flexibleResearchOutput({ text: JSON.stringify({ headline: '历史研究滚动测试', briefPoints: ['现金、持仓和风险仍按原有内容展示。'] }) }, ['AAPL'], []);
+  data.reports = Array.from({ length: 12 }, (_, i) => ({ id: `history-${i}`, version: 2, accountKey: data.snapshot.accountKey,
+    snapshotId: data.snapshot.snapshotId, snapshotHash: 'fixture', generatedAt: new Date(Date.now() - i * 86400000).toISOString(),
+    provider: 'fixture', model: 'offline', kind: 'manual', snapshot: data.snapshot, evidence: [], quotes: [], content,
+  } as unknown as AnalysisReport));
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: data.quotes }));
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=reports');
+  const list = page.locator('.awb-analysis-rail-list');
+  await list.scrollIntoViewIfNeeded();
+  expect(await list.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+  await expect(list).toHaveCSS('scrollbar-width', 'none');
+  expect(await list.evaluate(el => getComputedStyle(el, '::-webkit-scrollbar').display)).toBe('none');
+  await list.hover();
+  await expect(list).toHaveCSS('scrollbar-width', 'none');
+  await page.mouse.wheel(0, 220);
+  await expect.poll(() => list.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  await list.locator('button').first().focus();
+  for (let i = 1; i < 12; i++) await page.keyboard.press('Tab');
+  await expect(list.locator('button').last()).toBeFocused();
+  expect(await list.evaluate(el => el.scrollTop > 0 && el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.locator('.awb-analysis-history-rail').screenshot({ path: `tmp/workbench-qa/history-scrollbar-${width}.png` });
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.awb-analysis-report-grid')).toBeVisible();
+});
+
+for (const width of [1440, 390]) test(`editorial research article and overview show highlighted summary ${width}`, async ({ page }) => {
+  const data = state(true);
+  const content = flexibleResearchOutput({ text: JSON.stringify({ fullSummary: '**现金缓冲**仅0.58%，NVDA 的估值风险需关注；不要把仓位风险等同于公司基本面。',
+    riskSummary: '今日整体风险关注度：高——现金0.58%，行业集中度较高。', accountSummary: '净值1,001,300.32美元，现金5,850.98美元。',
+    portfolioRisk: 'ETF穿透数据不足，单股与行业集中度需分别观察。', preMarketNews: '下一交易时段关注财报。', marketContext: '过去一周利率与美元变化。',
+    industryRotation: '行业轮动观察金融与科技。', aiDevelopments: 'AI芯片现金流与增长质量值得关注。', keyIssues: '优先解决现金缓冲不足问题。',
+    opportunities: ['价值投资机会需要安全边际。'], risks: ['流动性风险与证据缺口。'], briefPoints: ['正文重点甲', '正文重点乙', '正文重点丙', '允许第四个重点'],
+    calendar: [{ date: '2026-09-24', event: '较晚事件' }, { date: '2026-09-18', event: '较早事件' }],
+  }) }, ['AAPL'], []);
+  data.reports = [{ id: 'editorial', version: 2, accountKey: data.snapshot.accountKey, snapshotId: data.snapshot.snapshotId, snapshotHash: 'fixture',
+    generatedAt: new Date().toISOString(), provider: 'fixture', model: 'offline', kind: 'manual', snapshot: data.snapshot, evidence: [], quotes: [], content } as unknown as AnalysisReport];
+  await page.setViewportSize({ width, height: 950 });
+  await page.route('**/api/ibkr-workbench/state', r => r.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/quotes', r => r.fulfill({ json: [] }));
+  await page.goto('http://127.0.0.1:5187/ibkr');
+  const overview = page.getByRole('region', { name: '今日分析结论' });
+  await expect(overview).toContainText('现金缓冲仅0.58%');
+  await expect(overview).toContainText('今日整体风险关注度：高');
+  await expect(overview).not.toContainText('正文重点甲');
+  await expect(overview.locator('.awb-research-number').first()).toHaveText('0.58%');
+  await expect(overview.locator('.awb-research-ticker').first()).toHaveText('NVDA');
+  await expect(overview.locator('.awb-research-risk-line')).toHaveAttribute('data-level', 'high');
+  await overview.screenshot({ path: `tmp/workbench-qa/editorial-overview-${width}.png` });
+  await overview.getByRole('button', { name: '查看完整分析' }).click();
+  await page.getByRole('button', { name: '查看完整报告与依据' }).click();
+  const article = page.locator('.awb-research-article');
+  const titles = await article.locator('.awb-research-chapter-title').allTextContents();
+  expect(titles.slice(0, 5)).toEqual(['全文总结','01账户信息','02持仓解析','03盘前新闻','04总结']);
+  await expect(article).toContainText('允许第四个重点');
+  await expect(article.locator('.awb-analysis-calendar article').first()).toContainText('较早事件');
+  await expect(article.locator('.awb-research-risk').first()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await article.screenshot({ path: `tmp/workbench-qa/editorial-article-${width}.png` });
+});
+
+test('flexible AI report recovery uses saved output even when the daily call budget is exhausted', async ({ page }) => {
+  const data = state(true); data.ai.enabled = true; data.ai.usedToday = data.preferences.maxAiCalls;
+  data.jobs = [{ id: '12345678-1234-4234-8234-123456789abc', kind: 'manual', state: 'failed', startedAt: new Date().toISOString(), failureCategory: 'OUTPUT_EVIDENCE', error: '旧的原文校验失败' }];
+  let recovered = 0;
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
+  await page.route('**/api/ibkr-workbench/revalidate', route => { recovered++; return route.fulfill({ json: data.jobs[0] }); });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=reports');
+  const button = page.getByRole('button', { name: '显示已生成内容' });
+  await expect(button).toBeEnabled(); await button.click();
+  await expect.poll(() => recovered).toBe(1);
+});
 
 const state = (connected = false): WorkbenchState => ({ source: 'mcp', gatewayMode: 'live', connection: { state: connected ? 'connected' : 'unconfigured', detail: connected ? '离线界面测试数据' : '连接 IBKR 后读取真实持仓。', tools: [], accounts: [] },
   snapshot: { ...emptySnapshot('live'), ...(connected ? { snapshotId: 'test-snapshot', accountKey: 'live:ui-test', connection: 'connected' as const, state: 'ready' as const, baseCurrency: 'USD', asOf: new Date().toISOString(), testData: true, source: 'fixture' as const, metrics: { netLiquidation: '125000', unrealizedPnl: '8500', buyingPower: '40000', maintenanceMargin: '12000' }, cash: [{ currency: 'USD', amount: '18000' }], positions: [{ accountKey: 'live:ui-test', conId: 1, symbol: 'AAPL', currency: 'USD', quantity: '100', averageCost: '180', marketValue: '21000', unrealizedPnl: '3000', assetType: 'STK', exchange: 'NASDAQ', name: 'Apple · 工程测试', sector: 'Technology', industry: 'Consumer Electronics', instrumentType: 'STK' }] } : {}) },
@@ -1197,8 +1335,8 @@ test('overview uses today analysis conclusion and ignores the retired brief', as
   await page.route('**/api/ibkr-workbench/quotes', r => r.fulfill({ json: data.quotes }));
   await page.goto('http://127.0.0.1:5187/ibkr');
   const panel = page.getByRole('region', { name: '今日分析结论' });
-  await expect(panel).toContainText('集中度仍高，今天先控制仓位风险');
-  await expect(panel).toContainText('AAPL 与 QQQ 合计权重偏高');
+  await expect(panel).toContainText('先降集中度，再讨论进攻。');
+  await expect(panel).not.toContainText('AAPL 与 QQQ 合计权重偏高');
   await expect(panel).toContainText('定时分析 · analysis-model');
   await expect(panel).not.toContainText('旧账户简报');
   await expect(panel).not.toContainText('重新生成简报');
@@ -1319,7 +1457,7 @@ test('analysis dashboard keeps the latest portfolio conclusion above progress an
   await page.goto('http://127.0.0.1:5187/ibkr?tab=reports');
   const hero = page.locator('.awb-analysis-dashboard .awb-analysis-hero');
   await expect(hero).toContainText('最新组合判断'); await expect(hero).not.toContainText('单次问答回复');
-  await expect(hero).toContainText('结论要点三');
+  await expect(hero).toContainText('核心结论是先控制集中度，再等待证据。');
   const rerun = hero.getByRole('button', { name: '重新分析', exact: true });
   await expect(rerun).toBeVisible();
   await hero.screenshot({ path: 'tmp/workbench-qa/analysis-rerun-desktop.png' });

@@ -38,6 +38,7 @@
     "src/lib/ibkr/accountSchedules.ts",
     "src/lib/ibkr/industryLabels.ts",
     "src/lib/ibkr/workbenchReport.ts",
+    "src/lib/ibkr/researchPresentation.ts",
     "server/**/*.ts",
     "server/**/*.d.ts"
   ]

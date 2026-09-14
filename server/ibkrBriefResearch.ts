@@ -33,6 +33,8 @@ function isPrimary(url: string, symbol = ''): boolean {
  return domainsMatch(host, ['sec.gov', 'federalreserve.gov', 'stlouisfed.org', 'bls.gov', 'bea.gov', 'treasury.gov', 'census.gov', 'ecb.europa.eu', 'bankofengland.co.uk', 'boj.or.jp']) || domainsMatch(host, officialDomains[symbol] ?? []);
 }
 function profileUrlMatches(url: string, symbol: string): boolean {
+ const providerSymbol = symbol.replace(/^([A-Z]{1,8}) ([A-Z])$/, '$1.$2');
+ if(url===`https://quote.eastmoney.com/us/${providerSymbol}.html` || url===`https://gu.qq.com/us${providerSymbol}` || url===`https://finance.yahoo.com/quote/${providerSymbol.replace('.','-')}/`)return true;
  if (url === `https://finance.yahoo.com/quote/${symbol}/profile/`) return true;
  const parsed = new URL(url);
  return parsed.hostname === 'www.tradingview.com' && ['NASDAQ', 'NYSE', 'AMEX', 'BATS'].some(exchange => parsed.pathname === `/symbols/${exchange}-${symbol}/`);
@@ -109,7 +111,7 @@ function numericFields(value: any, keys: string[]): Record<string, number> {
  return output;
 }
 function profileContent(value: any): string {
- const data = fields(value, ['source', 'url', 'symbol', 'name', 'sector', 'industry', 'instrumentType', 'currency', 'observedAt']);
+ const data = fields(value, ['source', 'url', 'symbol', 'name', 'sector', 'industry', 'instrumentType', 'currency', 'observedAt','fundamentals','valuationSupplement']);
  Object.assign(data, numericFields(value, ['regularMarketTime']));
  data.market = { ...numericFields(value.market, ['price', 'changePercent', 'changeAmount', 'open', 'high', 'low', 'volume']), ...fields(value.market, ['updateMode']) };
  data.statistics = numericFields(value.statistics, ['trailingPE', 'forwardPE', 'trailingEps', 'forwardEps', 'priceToBook', 'enterpriseToRevenue', 'enterpriseToEbitda', 'lastFiscalYearEnd', 'mostRecentQuarter', 'earningsQuarterlyGrowth', 'beta', 'yield', 'annualReportExpenseRatio']);
@@ -360,7 +362,8 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
      if (!url) throw new Error('BRIEF_RESEARCH_URL_INVALID');
      let content: string;
      if (action === 'financials') {
-      const entry = value.data?.[`${target.symbol}.US`];
+      const alias=target.symbol.replace(/^([A-Z]{1,8}) ([A-Z])$/, '$1.$2');
+      const entry = value.data?.[`${target.symbol}.US`] ?? value.data?.[target.symbol] ?? value.data?.[alias];
       const periods = Array.isArray(entry?.periods) ? entry.periods.filter((p: any) => typeof p.REPORT_DATE === 'string' && p.REPORT_DATE.slice(0, 10) <= today && (!p.FILED || String(p.FILED).slice(0, 10) <= today)) : [];
       if (!periods.length) throw new Error('BRIEF_RESEARCH_NO_STATEMENTS');
       const selected: unknown[] = [];
@@ -372,12 +375,14 @@ export async function prepareBriefResearch(snapshot: AccountSnapshot, io: IO, si
       if (!selected.length) throw new Error('BRIEF_RESEARCH_RECORD_TOO_LARGE');
       content = JSON.stringify({ ...fields(value, ['url', 'source', 'statement', 'period']), data: { [`${target.symbol}.US`]: { ...fields(entry, ['currency', 'source', 'statement', 'period']), periods: selected } } });
      } else {
-      if (!new URL(url).pathname.split('/').some(s => decodeURIComponent(s).toUpperCase() === target.symbol)) throw new Error('BRIEF_RESEARCH_WRONG_SECURITY');
-      const rows = Array.isArray(value.rows) ? value.rows.filter((r: any) => typeof r.trade_date === 'number' ? r.trade_date * 1000 <= asOf : typeof r.date === 'string' && r.date.slice(0, 10) <= today).slice(-5) : [];
+      const alias=(symbol:string)=>symbol.replace(/[ .-]/g,'');
+      if (!new URL(url).pathname.split('/').some(s => alias(decodeURIComponent(s).toUpperCase().replace(/\.HTML$/, '')) === alias(target.symbol))) throw new Error('BRIEF_RESEARCH_WRONG_SECURITY');
+      const date=(row:any)=>typeof row.trade_date==='number'?row.trade_date*1000:Date.parse(row.date);
+      const rows = Array.isArray(value.rows) ? value.rows.filter((r: any) => Number.isFinite(date(r)) && date(r)<=asOf).sort((a:any,b:any)=>date(b)-date(a)).slice(0,5) : [];
       if (!rows.length) throw new Error('BRIEF_RESEARCH_NO_PRICES');
       content = JSON.stringify({ ...fields(value, ['source', 'url', 'currency']), rows });
      }
-     if (add(target, action === 'financials' ? 'filing' : 'market', url, `${target.symbol} ${action === 'financials' ? '已披露财报完整期间记录' : '历史价格与日期'}`, content, null)) target.areas.add(action === 'financials' ? 'financials' : 'market');
+     if (add(target, action === 'financials' ? 'filing' : 'market', url, `${target.symbol} ${action === 'financials' ? '财务数据与报告期' : '历史价格与日期'}`, content, null)) target.areas.add(action === 'financials' ? 'financials' : 'market');
     } catch (error) { check(); target.gaps.add(`${action} 重点资料暂不可用（${safeResearchCode(error)}）`); }
    }
   });

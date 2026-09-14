@@ -299,7 +299,7 @@ test('a failed single analysis cannot resume into a second model invocation', as
   const f=await fixture();
   try {
     f.record.preferences.maxAiCalls=3;
-    f.service.ai.analyze=async()=>({text:'broken json',finishReason:'stop'});
+    f.service.ai.analyze=async()=>({text:'',finishReason:'stop'});
     const job=await f.service.analyze('manual');await f.service.activeAnalysis;
     assert.equal(f.record.usage.length,1);assert.equal(job.state,'failed');
     let calls=0;f.service.ai.analyze=async()=>{calls++;return {text:raw};};
@@ -312,7 +312,7 @@ test('an explicit retry creates a new one-call report instead of repairing the f
   const f=await fixture();
   try {
     f.record.preferences.maxAiCalls=2;
-    f.service.ai.analyze=async()=>({text:'broken json',finishReason:'stop'});
+    f.service.ai.analyze=async()=>({text:'',finishReason:'stop'});
     const failed=await f.service.analyze('manual');await f.service.activeAnalysis;
     let calls=0;f.service.ai.analyze=async()=>{calls++;return {text:raw};};
     const prior=f.record.research[failed.id];prior.evidence=[{id:'saved',read:false,title:'Saved source',fetchedAt:new Date().toISOString(),symbols:[],url:'https://example.com'}];
@@ -348,7 +348,7 @@ test('manual retry after empty JSON mode response changes transport while retain
 test('stored output can be revalidated without a model call even at the daily limit',async()=>{
  const f=await fixture();try{
   f.record.preferences.maxAiCalls=1;
-  f.service.ai.analyze=async()=>({text:'invalid',finishReason:'stop'});
+  f.service.ai.analyze=async()=>({text:'',finishReason:'stop'});
   const job=await f.service.analyze('manual');await f.service.activeAnalysis;
   f.record.research[job.id].failures.portfolio={text:raw,code:'OUTPUT_EVIDENCE',finishReason:'stop'};
   f.service.ai.analyze=async()=>{throw new Error('revalidation must not invoke the model');};

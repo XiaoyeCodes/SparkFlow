@@ -1,0 +1,12 @@
+.awb-flexible-output, .awb-output-notices { min-width: 0; overflow-wrap: anywhere; }
+.awb-flexible-output p, .awb-flexible-output li { white-space: pre-wrap; line-height: 1.8; }
+.awb-flexible-output pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.awb-flexible-output table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.awb-flexible-output td, .awb-flexible-output th { padding: 8px; border: 1px solid var(--awb-border, #244239); vertical-align: top; }
+.awb-output-notices summary { cursor: pointer; color: var(--awb-muted, #92aea3); }
+.awb-output-notices li { margin-top: 8px; line-height: 1.6; }
+.awb-unverified-summary { white-space: pre-wrap; overflow-wrap: anywhere; }
+.awb-analysis-signal-columns p.awb-muted { display: block; }
+.awb-analysis-report-grid p { overflow-wrap: anywhere; white-space: pre-wrap; }
+.account-workbench .awb-research-article .awb-holding-research { padding: 12px 0 0; margin: 0; min-height: 0; }
+.account-workbench .awb-output-notices:not([open]) { padding-block: 18px; }

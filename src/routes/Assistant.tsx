@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
 import {
   Bot,
@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Circle,
   CircleStop,
   Copy,
   FileDown,
@@ -120,6 +119,12 @@ const toolLabels: Record<string, string> = {
   run_backtest: '运行历史回测',
   render_shadow_report: '生成策略报告',
   calculate_metrics: '计算投资指标',
+  get_market_data: '获取市场数据',
+  get_northbound_flow: '获取北向资金',
+  get_sector_info: '分析行业板块',
+  get_stock_news: '检索个股新闻',
+  get_research_data: '读取金融研究数据',
+  read_url: '阅读来源原文',
 };
 
 function toolLabel(tool: string) {
@@ -209,41 +214,45 @@ function updateResearchSnapshot(
   return next;
 }
 
-function ResearchProgress({ tools, running, liveText, stopped = false }: { tools: ToolCall[]; running: boolean; liveText: string; stopped?: boolean }) {
-  const [expanded, setExpanded] = useState(true);
+function ResearchProgress({ tools, running, liveText, stopped = false, failed = false }: { tools: ToolCall[]; running: boolean; liveText: string; stopped?: boolean; failed?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
   if (!tools.length && !running && !liveText) return null;
 
   const completed = tools.filter((tool) => tool.status !== 'running').length;
-  const hasError = tools.some((tool) => tool.status === 'error');
+  const errors = tools.filter((tool) => tool.status === 'error').length;
   const latest = [...tools].reverse().find((tool) => tool.status === 'running') || tools[tools.length - 1];
   const summary = running
     ? latest
       ? `正在${toolLabel(latest.tool)}`
       : '正在规划研究路径'
-    : stopped ? '研究已停止' : `研究过程完成 · ${completed} 个步骤`;
+    : stopped ? '研究已停止' : failed ? '研究未完成' : '研究过程完成';
 
   return (
-    <div className="overflow-hidden rounded-md border border-white/10 bg-white/[0.025]">
+    <div className="research-trace" data-running={running}>
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs text-white/62 transition hover:bg-white/[0.03] hover:text-white"
+        className="research-trace-toggle"
+        aria-expanded={expanded}
+        aria-controls={detailsId}
       >
-        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         {running ? (
-          <Loader2 size={14} className="animate-spin text-[#ff8a1f]" />
+          <Loader2 size={14} className="animate-spin text-[#6cdbb9]" />
         ) : stopped ? (
           <CircleStop size={14} className="text-white/50" />
-        ) : hasError ? (
+        ) : failed ? (
           <XCircle size={14} className="text-red-300" />
         ) : (
           <CheckCircle2 size={14} className="text-emerald-300" />
         )}
-        <span>{summary}</span>
+        <span className="research-trace-heading"><strong>研究过程</strong><span>{summary}</span></span>
+        <span className="research-trace-count">{running ? `${completed} / ${tools.length}` : tools.length} 步</span>
+        {errors > 0 ? <span className="research-trace-warning">{errors} 项异常</span> : null}
+        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
 
-      {expanded ? (
-        <div className="space-y-1 border-t border-white/8 px-4 py-3">
+        <div id={detailsId} hidden={!expanded} className="research-trace-details" role="region" aria-label="研究步骤详情" tabIndex={expanded ? 0 : -1}>
           {tools.map((tool, index) => {
             const determinate =
               typeof tool.progress?.current === 'number' &&
@@ -253,30 +262,23 @@ function ResearchProgress({ tools, running, liveText, stopped = false }: { tools
               ? Math.min(100, Math.round(((tool.progress?.current || 0) / (tool.progress?.total || 1)) * 100))
               : 0;
             return (
-              <div key={tool.id} className="py-1.5">
-                <div className="flex min-w-0 items-center gap-2 text-xs">
-                  <span className="w-4 shrink-0 text-center text-white/20">{index === tools.length - 1 ? '└' : '├'}</span>
+              <div key={tool.id} className="research-trace-step" data-status={tool.status}>
+                <div className="research-trace-row">
+                  <span className="research-trace-index">{String(index + 1).padStart(2, '0')}</span>
                   {tool.status === 'running' ? (
-                    <Loader2 size={13} className="shrink-0 animate-spin text-[#ff8a1f]" />
+                    <Loader2 size={13} className="shrink-0 animate-spin text-[#6cdbb9]" />
                   ) : tool.status === 'cancelled' ? (
                     <CircleStop size={13} className="shrink-0 text-white/40" />
                   ) : tool.status === 'error' ? (
                     <XCircle size={13} className="shrink-0 text-red-300" />
                   ) : (
-                    <Circle size={12} className="shrink-0 fill-emerald-300/70 text-emerald-300/70" />
+                    <Check size={13} className="shrink-0 text-emerald-300/70" />
                   )}
-                  <span className={tool.status === 'running' ? 'truncate text-white/86' : 'truncate text-white/52'}>
+                  <span className="research-trace-label">
                     {toolLabel(tool.tool)}
                   </span>
-                  {tool.elapsedMs ? (
-                    <span className="ml-auto shrink-0 font-mono text-[10px] text-white/30">
-                      {(tool.elapsedMs / 1000).toFixed(1)}s
-                    </span>
-                  ) : tool.elapsedSeconds ? (
-                    <span className="ml-auto shrink-0 font-mono text-[10px] text-white/30">
-                      {Math.round(tool.elapsedSeconds)}s
-                    </span>
-                  ) : null}
+                  <span className="research-trace-status">{{ running: '进行中', ok: '完成', error: '异常', cancelled: '已停止' }[tool.status]}</span>
+                  <span className="research-trace-time">{typeof tool.elapsedMs === 'number' ? `${(tool.elapsedMs / 1000).toFixed(1)}s` : typeof tool.elapsedSeconds === 'number' ? `${Math.round(tool.elapsedSeconds)}s` : '—'}</span>
                 </div>
                 {tool.progress?.stage || tool.progress?.message ? (
                   <div className="ml-10 mt-1.5 min-w-0 text-[11px] text-white/36">
@@ -286,7 +288,7 @@ function ResearchProgress({ tools, running, liveText, stopped = false }: { tools
                     </div>
                     {determinate ? (
                       <div className="mt-1 h-1 overflow-hidden rounded-full bg-white/8">
-                        <div className="h-full bg-[#ff8a1f] transition-[width] duration-200" style={{ width: `${percent}%` }} />
+                        <div className="h-full bg-[#6cdbb9] transition-[width] duration-200" style={{ width: `${percent}%` }} />
                       </div>
                     ) : null}
                   </div>
@@ -295,12 +297,11 @@ function ResearchProgress({ tools, running, liveText, stopped = false }: { tools
             );
           })}
           {liveText ? (
-            <p className="line-clamp-3 border-l border-[#8ad7ff]/30 pl-3 text-xs leading-6 text-white/42">
+            <p className="line-clamp-3 border-l border-[#83dec0]/30 pl-3 text-xs leading-6 text-white/42">
               {liveText.slice(-360)}
             </p>
           ) : null}
         </div>
-      ) : null}
     </div>
   );
 }
@@ -312,7 +313,7 @@ function ResearchReport({ content }: { content: string }) {
         remarkPlugins={[remarkGfm]}
         components={{
           a: ({ children, ...props }) => (
-            <a {...props} target="_blank" rel="noreferrer" className="text-[#8ad7ff] underline decoration-[#8ad7ff]/30 underline-offset-4 hover:text-white">
+            <a {...props} target="_blank" rel="noreferrer" className="text-[#83dec0] underline decoration-[#83dec0]/30 underline-offset-4 hover:text-white">
               {children}
             </a>
           ),
@@ -356,9 +357,9 @@ export function Assistant() {
   const completedAttemptsRef = useRef(new Set<string>());
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
-  const latestQuestionEndRef = useRef<HTMLDivElement | null>(null);
+  const latestQuestionRef = useRef<HTMLDivElement | null>(null);
   const pendingQuestionScrollRef = useRef<ScrollBehavior | null>(null);
-  const pendingHistoryScrollRef = useRef(false);
+  const [progressViewVersion, setProgressViewVersion] = useState(0);
   const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
   const stoppingSessionsRef = useRef(new Set<string>());
   const [stoppingSessionId, setStoppingSessionId] = useState<string | null>(null);
@@ -441,7 +442,6 @@ export function Assistant() {
     setError('');
     setNotice('');
     pendingQuestionScrollRef.current = null;
-    pendingHistoryScrollRef.current = false;
     window.localStorage.removeItem(sessionStorageKey);
     setHistoryOpen(false);
     window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -451,7 +451,8 @@ export function Assistant() {
     async (nextSessionId: string) => {
       if (nextSessionId === sessionId) {
         setHistoryOpen(false);
-        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+        setProgressViewVersion(value => value + 1);
+        latestQuestionRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
         return;
       }
       setError('');
@@ -482,8 +483,8 @@ export function Assistant() {
         setLiveText(snapshot?.liveText || '');
         setNotice(snapshot?.notice || '');
         setRunState(snapshot?.runState || 'idle');
-        pendingQuestionScrollRef.current = null;
-        pendingHistoryScrollRef.current = true;
+        pendingQuestionScrollRef.current = 'instant';
+        setProgressViewVersion(value => value + 1);
         setMessages(
           history
             .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -590,21 +591,11 @@ export function Assistant() {
   }, [resizePromptInput]);
 
   useLayoutEffect(() => {
-    if (!pendingHistoryScrollRef.current) return;
-    pendingHistoryScrollRef.current = false;
-    // Jump before paint; 'auto' would inherit the global smooth scrolling style.
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
-  }, [messages]);
-
-  useEffect(() => {
     const behavior = pendingQuestionScrollRef.current;
-    if (!behavior || !latestQuestionEndRef.current) return;
-
+    if (!behavior || !latestQuestionRef.current) return;
     pendingQuestionScrollRef.current = null;
-    const frame = window.requestAnimationFrame(() => {
-      latestQuestionEndRef.current?.scrollIntoView({ behavior, block: 'start' });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    // Anchor the question itself, before paint. Tool updates never move the reader.
+    latestQuestionRef.current.scrollIntoView({ behavior, block: 'start' });
   }, [messages]);
 
   const finishAttempt = (sid: string, attemptId: string, summary: string) => {
@@ -623,6 +614,8 @@ export function Assistant() {
     }
     completedAttemptsRef.current.add(attemptId);
     activeAttemptRef.current = '';
+    pendingQuestionScrollRef.current = 'instant';
+    setProgressViewVersion(value => value + 1);
     setMessages((current) =>
       current.some((message) => message.role === 'assistant' && message.attemptId === attemptId)
         ? current
@@ -1055,13 +1048,13 @@ export function Assistant() {
   };
 
   return (
-      <section className="relative min-h-screen overflow-x-hidden bg-[#08090b] pt-[var(--nav-height)] text-white">
+      <section className="assistant-workspace relative min-h-screen overflow-x-hidden pt-[var(--nav-height)] text-white">
         <button
           type="button"
           title="打开研究历史"
           aria-label="打开研究历史"
           onClick={() => setHistoryOpen(true)}
-          className="fixed left-3 top-[calc(var(--nav-height)+12px)] z-30 inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/12 bg-[#111216]/95 text-white/72 shadow-lg shadow-black/30 backdrop-blur-xl transition hover:border-white/24 hover:text-white lg:hidden"
+          className="fixed left-3 top-[calc(var(--nav-height)+12px)] z-30 inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/12 bg-[#141b17]/95 text-white/72 shadow-lg shadow-black/30 backdrop-blur-xl transition hover:border-white/24 hover:text-white lg:hidden"
         >
           <History size={17} />
         </button>
@@ -1077,7 +1070,7 @@ export function Assistant() {
 
         <aside
           aria-label="研究历史"
-          className={`fixed bottom-0 left-0 top-[var(--nav-height)] z-40 flex w-[min(84vw,19rem)] flex-col overflow-hidden border-r border-white/10 bg-[#0b0c0f]/97 backdrop-blur-xl transition-[transform,width] duration-200 lg:translate-x-0 ${
+          className={`fixed bottom-0 left-0 top-[var(--nav-height)] z-40 flex w-[min(84vw,19rem)] flex-col overflow-hidden border-r border-white/10 bg-[#0b100d]/97 backdrop-blur-xl transition-[transform,width] duration-200 lg:translate-x-0 ${
             historyOpen ? 'translate-x-0' : '-translate-x-full'
           } ${historyCollapsed ? 'lg:w-14' : 'lg:w-64'}`}
         >
@@ -1097,7 +1090,7 @@ export function Assistant() {
           <div className={`flex min-h-0 flex-1 flex-col ${historyCollapsed ? 'lg:hidden' : ''}`}>
               <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-white/8 px-3">
                 <div className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold text-white/84">
-                  <History size={16} className="shrink-0 text-[#ff8a1f]" />
+                  <History size={16} className="shrink-0 text-[#6cdbb9]" />
                   <span className="truncate">历史研究</span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -1175,7 +1168,7 @@ export function Assistant() {
           <div className="mx-auto flex min-h-[calc(100vh-var(--nav-height))] w-full max-w-5xl flex-col px-4 pb-5 pt-7 md:px-8">
           <div
             aria-hidden="true"
-            className="pointer-events-none mx-auto -mb-1 mt-2 h-32 w-full max-w-[680px] overflow-hidden md:h-36"
+            className="assistant-signal pointer-events-none mx-auto -mb-1 mt-2 h-32 w-full max-w-[680px] md:h-36"
           >
             <Strands
               colors={['#F97316', '#7C3AED', '#06B6D4']}
@@ -1201,7 +1194,7 @@ export function Assistant() {
           <div className="flex-1 py-7 md:py-9">
             {!messages.length ? (
               <div className="mx-auto flex min-h-[44vh] max-w-2xl flex-col items-center justify-center text-center">
-                <Bot size={28} className="text-[#ff8a1f]" strokeWidth={1.5} />
+                <Bot size={28} className="text-[#6cdbb9]" strokeWidth={1.5} />
                 <h2 className="mt-5 text-3xl font-semibold text-white md:text-4xl">今天想研究什么？</h2>
                 <div className="mt-7 grid w-full gap-2">
                   {starterPrompts.map((item) => (
@@ -1212,7 +1205,7 @@ export function Assistant() {
                         setPrompt(item);
                         inputRef.current?.focus();
                       }}
-                      className="rounded-md border border-white/10 bg-white/[0.025] px-4 py-3 text-left text-sm leading-6 text-white/54 transition hover:border-[#ff8a1f]/40 hover:bg-white/[0.045] hover:text-white/82"
+                      className="rounded-md border border-white/10 bg-white/[0.025] px-4 py-3 text-left text-sm leading-6 text-white/54 transition hover:border-[#6cdbb9]/40 hover:bg-white/[0.045] hover:text-white/82"
                     >
                       {item}
                     </button>
@@ -1223,24 +1216,22 @@ export function Assistant() {
               <div className="space-y-9">
                 {messages.map((message) =>
                   message.role === 'user' ? (
-                    <div key={message.id}>
+                    <div key={message.id} ref={message.id === latestUserMessageId ? latestQuestionRef : undefined} className="assistant-question" data-latest-question={message.id === latestUserMessageId || undefined}>
                       <div className="flex justify-end">
-                        <div className="max-w-[86%] rounded-lg bg-[#ff7a12] px-4 py-3 text-sm font-medium leading-6 text-white md:max-w-[72%]">
+                        <div className="assistant-question-bubble max-w-[90%] rounded-lg px-4 py-3 text-sm font-medium leading-6 md:max-w-[80%]">
+                          <span className="assistant-question-caption">研究问题</span>
                           <p className="whitespace-pre-wrap">{message.content}</p>
                         </div>
                       </div>
-                      {message.id === latestUserMessageId ? (
-                        <div ref={latestQuestionEndRef} className="h-px scroll-mt-24" aria-hidden="true" />
-                      ) : null}
                     </div>
                   ) : (
                     <motion.article
                       key={message.id}
-                      className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)] gap-3 md:grid-cols-[40px_minmax(0,1fr)] md:gap-4"
+                      className="assistant-answer grid min-w-0 grid-cols-[32px_minmax(0,1fr)] gap-3 md:grid-cols-[40px_minmax(0,1fr)] md:gap-4"
                       initial={message.restored ? false : { opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                     >
-                      <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#0e7698] text-white md:h-10 md:w-10">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#233a2e] text-white md:h-10 md:w-10">
                         <Bot size={17} />
                       </span>
                       <div className="min-w-0">
@@ -1274,21 +1265,21 @@ export function Assistant() {
                 )}
 
                 {isRunning ? (
-                  <div className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)] gap-3 md:grid-cols-[40px_minmax(0,1fr)] md:gap-4">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#0e7698] text-white md:h-10 md:w-10">
+                  <div className="assistant-answer grid min-w-0 grid-cols-[32px_minmax(0,1fr)] gap-3 md:grid-cols-[40px_minmax(0,1fr)] md:gap-4">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#233a2e] text-white md:h-10 md:w-10">
                       <Bot size={17} />
                     </span>
                     <div className="min-w-0 space-y-3 pt-1">
                       <div className="flex items-center gap-2 text-sm text-white/68">
-                        <Loader2 size={15} className="animate-spin text-[#ff8a1f]" />
+                        <Loader2 size={15} className="animate-spin text-[#6cdbb9]" />
                         <span>{isStopping ? '正在停止研究…' : notice || '正在研究'}</span>
                       </div>
-                      <ResearchProgress tools={tools} running liveText={liveText} />
+                      <ResearchProgress key={`${sessionId}-${progressViewVersion}`} tools={tools} running liveText={liveText} />
                     </div>
                   </div>
                 ) : tools.length ? (
                   <div className="ml-0 md:ml-14">
-                    <ResearchProgress tools={tools} running={false} liveText={liveText} stopped={runState === 'stopped'} />
+                    <ResearchProgress key={`${sessionId}-${progressViewVersion}`} tools={tools} running={false} liveText={liveText} stopped={runState === 'stopped'} failed={runState === 'error'} />
                   </div>
                 ) : null}
               </div>
@@ -1305,11 +1296,11 @@ export function Assistant() {
             ) : null}
           </div>
 
-          <div className="sticky bottom-0 z-20 border-t border-white/10 bg-[#08090b]/95 pb-2 pt-4 backdrop-blur-xl">
+          <div className="assistant-composer-dock sticky bottom-0 z-20 border-t border-white/10 bg-[#090e0b]/95 pb-2 pt-4 backdrop-blur-xl">
             <form
               ref={composerRef}
               onSubmit={submit}
-              className="flex min-h-16 items-end gap-2 rounded-[32px] border border-white/18 bg-[#111216] py-2 pl-5 pr-2 transition focus-within:border-white/38"
+              className="flex min-h-16 items-end gap-2 rounded-[32px] border border-white/18 bg-[#141b17] py-2 pl-5 pr-2 transition focus-within:border-white/38"
             >
               <textarea
                 ref={inputRef}
@@ -1339,7 +1330,7 @@ export function Assistant() {
                   disabled={!prompt.trim()}
                   title="开始研究"
                   aria-label="开始研究"
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#ff7a12] text-white transition hover:bg-[#ff8a1f] disabled:cursor-not-allowed disabled:opacity-35"
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#266b55] text-white transition hover:bg-[#6cdbb9] disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   <SendHorizontal size={18} />
                 </button>

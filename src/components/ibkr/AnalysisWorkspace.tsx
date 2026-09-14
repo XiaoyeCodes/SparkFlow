@@ -26,6 +26,9 @@ import { holdingChanges, reportMarkdown } from '../../lib/ibkr/workbenchReport';
 import { industryLabel } from '../../lib/ibkr/industryLabels';
 import { api, EvidenceLinks, money, pct, ResearchDetails, time } from './WorkbenchPanels';
 import './AnalysisWorkspace.css';
+import { ResearchArticle } from './ResearchArticle';
+import { ResearchDigest } from './ResearchDigest';
+import { ResearchRichText } from './ResearchRichText';
 
 type AnalysisWorkspaceProps = {
   state: WorkbenchState;
@@ -39,6 +42,7 @@ type AnalysisWorkspaceProps = {
   onAsk: () => void;
   onStart: () => void;
   onTaskAction: (task: AnalysisJob) => void;
+  onRevalidate?: (task: AnalysisJob) => void;
   onSelectTask: (id: string) => void;
   onSelect: (report: AnalysisReport) => void;
   onCloseReport: () => void;
@@ -50,19 +54,6 @@ const actionLabel = {
   watch: '观察',
   increase: '增持',
   reduce: '减持',
-} as const;
-
-const valuationVerdict = {
-  overvalued: '估值偏高风险',
-  opportunity: '价值机会',
-  fair: '相对合理',
-  insufficient: '资料不足',
-} as const;
-
-const frameworkLabel = {
-  buffett: '巴菲特式价值投资',
-  peterLynch: '彼得·林奇式成长股',
-  rayDalio: '雷·达利欧式宏观对冲',
 } as const;
 
 const jobLabel = {
@@ -476,10 +467,10 @@ function ActiveTaskStrip({
 
 function ConclusionCard({ report, canAnalyze, analysisBlockedReason, onOpen, onAnalyze }: { report: AnalysisReport; canAnalyze: boolean; analysisBlockedReason: string; onOpen?: () => void; onAnalyze: () => void }) {
   const today = new Date(report.generatedAt).toDateString() === new Date().toDateString();
-  return <section className="awb-analysis-card awb-analysis-hero" aria-label="账户研究结论">
+  return <section className="awb-analysis-card awb-analysis-hero awb-research-digest-hero" aria-label="账户研究结论">
     <div className="awb-analysis-hero-meta"><span className="awb-analysis-kicker"><Sparkles size={14}/>{today ? '今日分析结论' : '最近分析结论'}</span><small>{time(report.generatedAt)}</small></div>
-    <h2>{report.content.headline || report.content.brief || '组合判断与研究结论'}</h2>
-    <div className="awb-analysis-brief-points">{(report.content.briefPoints?.length ? report.content.briefPoints : [report.content.brief]).filter(Boolean).map((point, index) => <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{point}</p>)}</div>
+    <h2>{report.content.headline && !/风险关注度/.test(report.content.headline) ? report.content.headline : '账户研究结论'}</h2>
+    <ResearchDigest content={report.content}/>
     {onOpen ? <div className="awb-analysis-hero-actions"><button className="awb-analysis-open-report" onClick={onOpen}>查看完整报告与依据 <ArrowUpRight size={15}/></button><button className="awb-analysis-rerun" type="button" disabled={!canAnalyze} onClick={onAnalyze} title={analysisBlockedReason || '使用最新账户与市场资料重新生成完整分析'}><span aria-hidden="true"><RotateCcw size={15}/></span>重新分析</button></div> : <EvidenceLinks report={report} ids={report.content.evidenceIds}/>}
   </section>;
 }
@@ -508,7 +499,7 @@ function PriorityActions({ report, onPlan }: { report: AnalysisReport; onPlan: (
           <div>
             <h3>{action.symbol} · {actionLabel[action.action]}</h3>
             <small>{action.priority ? `${{ high: '高', medium: '中', low: '低' }[action.priority]}优先级 · ` : ''}{action.horizon === 'short' ? '短期' : '长期'}</small>
-            <p>{action.rationale}</p>
+            <ResearchRichText text={action.rationale}/>
           </div>
         </article>
       )) : <p className="awb-muted">本次报告没有给出需要立即执行的动作。</p>}
@@ -530,90 +521,10 @@ function ReportDetails({
 }) {
   return (
     <div className="awb-analysis-report-grid">
-      <main className="awb-stack">
-        <section className="awb-analysis-card awb-analysis-hero">
-          <div className="awb-analysis-hero-meta">
-            <span className="awb-analysis-kicker"><Sparkles size={14} />账户研究结论</span>
-            <small>{time(report.generatedAt)}</small>
-          </div>
-          <h2>{report.content.headline ?? '组合判断与研究结论'}</h2>
-          <div className="awb-analysis-brief-points">
-            {(report.content.briefPoints ?? [report.content.brief]).map((point, index) => (
-              <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{point}</p>
-            ))}
-          </div>
-          <EvidenceLinks report={report} ids={report.content.evidenceIds} />
-        </section>
-        <section className="awb-analysis-card awb-analysis-narrative">
-          <span className="awb-analysis-kicker"><BookOpenText size={14} />研究脉络</span>
-          <div className="awb-analysis-narrative-section">
-            <small>01 · 宏观与周期定位</small><h3>市场背景</h3><p>{report.content.marketContext}</p>
-          </div>
-          <div className="awb-analysis-narrative-section">
-            <small>02 · 账户现状</small><h3>组合诊断</h3><p>{report.content.accountSummary}</p>
-          </div>
-          <div className="awb-analysis-narrative-section">
-            <small>03 · 风险判断</small><h3>持仓风险</h3><p>{report.content.portfolioRisk}</p>
-          </div>
-          {report.content.benchmarkComparison && (
-            <div className="awb-analysis-narrative-section">
-              <small>04 · 相对表现</small><h3>基准比较</h3><p>{report.content.benchmarkComparison}</p>
-            </div>
-          )}
-          <div className="awb-sector-bars">
-            {report.metrics?.sectors.map((sector) => (
-              <div key={sector.name}>
-                <span>{industryLabel(sector.name)}</span><b>{pct(sector.weight)}</b>
-                <i style={{ width: `${Math.min(100, sector.weight * 100)}%` }} />
-              </div>
-            ))}
-          </div>
-        </section>
-        {!!report.content.valuationReview?.length && <section className="awb-analysis-card awb-analysis-valuations">
-          <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><Database size={14}/>重点持仓估值判断</span><small>{report.content.valuationReview.length} 项</small></div>
-          <div className="awb-analysis-valuation-grid">{report.content.valuationReview.map(item => <article key={item.symbol} data-verdict={item.verdict}><div><b>{item.symbol}</b><span>{valuationVerdict[item.verdict]}</span></div><p>{item.rationale}</p><EvidenceLinks report={report} ids={item.evidenceIds}/></article>)}</div>
-        </section>}
-        <section className="awb-analysis-card awb-analysis-opportunity-risk">
-          <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><ShieldCheck size={14}/>机会与风险</span><small>双栏判断</small></div>
-          <div className="awb-analysis-signal-columns"><div><h3>【机会】</h3>{report.content.opportunities.length ? report.content.opportunities.map((item, index) => <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{item}</p>) : <p className="awb-muted">本次未发现证据充分的组合机会。</p>}</div><div><h3>【风险】</h3>{report.content.risks.length ? report.content.risks.map((item, index) => <p key={index}><span>{String(index + 1).padStart(2, '0')}</span>{item}</p>) : <p className="awb-muted">本次未发现新增的证据型风险。</p>}</div></div>
-        </section>
-        {report.content.calendar && <section className="awb-analysis-card awb-analysis-calendar">
-          <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><FileCheck2 size={14}/>未来 7–14 天关注日历</span><small>按时间排序</small></div>
-          <div>{report.content.calendar.length ? report.content.calendar.map((item, index) => <article key={`${item.date}-${item.event}-${index}`}><time>{item.date}</time><div><h3>{item.event}</h3><p>{item.impact}</p><small>{item.symbols.join(' · ') || '账户整体'}</small><EvidenceLinks report={report} ids={item.evidenceIds}/></div></article>) : <p className="awb-muted">当前资料中没有可核实具体日期的未来事件。</p>}</div>
-        </section>}
-        {!!report.content.frameworks && <section className="awb-analysis-card awb-analysis-frameworks">
-          <div className="awb-analysis-section-head"><span className="awb-analysis-kicker"><BookOpenText size={14}/>三套持仓分析框架</span><small>公开原则 · 非本人观点</small></div>
-          <p className="awb-analysis-framework-notice">以下是依据公开投资原则生成的框架化评论，不代表三位投资者本人的发言或实时判断。</p>
-          <div>{(Object.entries(report.content.frameworks) as [keyof typeof frameworkLabel, typeof report.content.frameworks.buffett][]).map(([key, value]) => <article key={key}><small>{frameworkLabel[key]}</small><p>{value.analysis}</p><blockquote>{value.commentary}</blockquote><EvidenceLinks report={report} ids={value.evidenceIds}/></article>)}</div>
-        </section>}
-        {!!report.content.fullSummary && <section className="awb-analysis-card awb-analysis-full-summary"><span className="awb-analysis-kicker"><Sparkles size={14}/>全文总结</span><p>{report.content.fullSummary}</p></section>}
-        {report.content.holdings.map((holding) => (
-          <section className="awb-analysis-card awb-holding-research" key={holding.symbol}>
-            <div className="awb-section-heading"><h2>{holding.symbol}</h2><small>短期 + 长期</small></div>
-            <p>{holding.background}</p>
-            {holding.fact && <p><b>已核实事实</b> {holding.fact}</p>}
-            {holding.impact && <p><b>影响机制</b> {holding.impact}</p>}
-            <div className="awb-view"><b>短期应对</b><p>{holding.shortTerm}</p></div>
-            <div className="awb-view"><b>长期逻辑</b><p>{holding.longTerm}</p></div>
-            {holding.counterEvidence && <p className="awb-muted">反对证据 · {holding.counterEvidence}</p>}
-            {holding.invalidation && <p className="awb-muted">失效条件 · {holding.invalidation}</p>}
-            {holding.support?.map((support, index) => <blockquote className="awb-original-quote" key={index}>{support.quote}</blockquote>)}
-            <EvidenceLinks report={report} ids={holding.evidenceIds} />
-          </section>
-        ))}
-        <section className="awb-analysis-card awb-analysis-scenarios">
-          <h2>情景分析</h2>
-          {report.content.scenarios?.map((scenario) => (
-            <article className="awb-view" key={scenario.name}>
-              <b>{{ base: '基准情景', upside: '乐观情景', downside: '悲观情景' }[scenario.name]}</b>
-              <p>{scenario.assumptions}</p><p>账户影响 · {scenario.accountImpact}</p><p>应对 · {scenario.response}</p>
-            </article>
-          )) ?? <><p>在调整计划中统一模拟目标仓位、现金与价格涨跌情景。</p><p className="awb-muted">不赋予假设情景概率或预测收益；所有建议合并计算后检查资金约束。</p></>}
-        </section>
-      </main>
+      <main className="awb-stack"><ResearchArticle report={report}/></main>
       <aside className="awb-stack">
-        <PriorityActions report={report} onPlan={onPlan} />
-        <section className="awb-analysis-card awb-analysis-actions">
+        {report.content.actions.length > 0 ? <PriorityActions report={report} onPlan={onPlan} /> : null}
+        {(report.content.actions.length > 0) && <section className="awb-analysis-card awb-analysis-actions">
           <span className="awb-analysis-kicker">ACTION DETAILS</span>
           <h2>完整行动清单</h2>
           {report.content.actions.map((action, index) => (
@@ -622,21 +533,21 @@ function ReportDetails({
               <div>
                 <h3>{action.symbol} · {actionLabel[action.action]}</h3>
                 <span className="awb-tag">{action.priority ? `${{ high: '高', medium: '中', low: '低' }[action.priority]}优先级 · ` : ''}{action.horizon === 'short' ? '短期' : '长期'} · 目标 {pct(action.targetWeight)}</span>
-                <p>{action.rationale}</p>
+                <ResearchRichText text={action.rationale}/>
                 <dl>
-                  {action.executionWindow && <><dt>执行窗口</dt><dd>{action.executionWindow}</dd></>}
-                  <dt>触发条件</dt><dd>{action.trigger}</dd>
-                  {action.riskControl && <><dt>风险控制</dt><dd>{action.riskControl}</dd></>}
-                  {action.expectedImpact && <><dt>组合影响</dt><dd>{action.expectedImpact}</dd></>}
-                  <dt>反对证据</dt><dd>{action.counterEvidence}</dd>
-                  <dt>失效条件</dt><dd>{action.invalidation}</dd>
+                  {action.executionWindow && <><dt>执行窗口</dt><dd><ResearchRichText text={action.executionWindow}/></dd></>}
+                  <dt>触发条件</dt><dd><ResearchRichText text={action.trigger}/></dd>
+                  {action.riskControl && <><dt>风险控制</dt><dd><ResearchRichText text={action.riskControl}/></dd></>}
+                  {action.expectedImpact && <><dt>组合影响</dt><dd><ResearchRichText text={action.expectedImpact}/></dd></>}
+                  <dt>反对证据</dt><dd><ResearchRichText text={action.counterEvidence}/></dd>
+                  <dt>失效条件</dt><dd><ResearchRichText text={action.invalidation}/></dd>
                 </dl>
                 <EvidenceLinks report={report} ids={action.evidenceIds} />
               </div>
             </article>
           ))}
           <button className="primary awb-full" onClick={onPlan}>制定整份调整计划 <ArrowUpRight size={15} /></button>
-        </section>
+        </section>}
         {previous && (
           <details className="awb-analysis-card awb-analysis-compare">
             <summary>与上一份报告对比</summary>
@@ -663,6 +574,7 @@ export function AnalysisWorkspace({
   onAsk,
   onStart,
   onTaskAction,
+  onRevalidate,
   onSelectTask,
   onSelect,
   onCloseReport,
@@ -696,6 +608,10 @@ export function AnalysisWorkspace({
 
   return (
     <div className="awb-analysis-workspace">
+      {task && onRevalidate && task.state !== 'running' && /^OUTPUT_(EVIDENCE|FIELDS|JSON|SYMBOL|COVERAGE|TRUNCATED)$/.test(task.failureCategory ?? '') ? <section className="awb-analysis-card">
+        <p>模型内容已生成，可按新的容错规则读取；此操作不再次调用 AI。</p>
+        <button disabled={busy || Boolean(running)} onClick={() => onRevalidate(task)}>显示已生成内容</button>
+      </section> : null}
       {!report && view === 'history' && <button className="awb-analysis-back" onClick={() => switchView('start')}><ArrowLeft size={16}/>返回分析工作台</button>}
       {error && <p className="awb-message error" role="alert">{error}</p>}
       {report ? (

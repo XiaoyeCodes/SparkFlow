@@ -5,6 +5,18 @@ description: 东方财富（Eastmoney）免费免鉴权数据接口，覆盖资�
 ---
 # Eastmoney（东方财富）
 
+## 美国账户研究优先入口
+
+分析美国股票/ETF账户时，优先使用 `get_research_data`（自动注册的只读工具），不需要安装额外插件或技能：
+
+- `capability=profile, symbol="BRK B"`：东方财富报价优先，腾讯补充身份/基金类型，Yahoo备用；兼容 BRK B / BRK.B / BRK-B。
+- `capability=prices`：东方财富日线，Yahoo备用，最近日期排在前面。不要把盘中日线当成最终收盘或把价格曲线当总回报。
+- `capability=financials`：东方财富美股财务指标/同比，SEC US-GAAP/IFRS备用。保留报告起止日、币种、单季/累计口径；OPERATE_INCOME 是营收，不是营业利润。完整三表仍使用 get_financial_statements。
+- 先看profile的instrumentType；ETF改用 `capability=fund` 获取Yahoo前十大成分、行业权重、费率，不调用公司财报。无成分日期或只有前十大时明确是部分穿透，不能虚构完整权重。
+- 宏观判断先用 `capability=macro` 获取FRED观察值，再用新闻/原文阅读工具查发布时间、近期事件和官方日历。广义美元指数不等于DXY，观察期不等于公布日。
+
+只把代码和能力名称传入公开数据工具；不要传账户余额、持仓数量或凭据。先调用数据工具再做判断，不在工具尚未调用时断言“没有数据”。优先缓存成功结果；实际失败仍应披露，不能补造数据。
+
 ## 概述
 
 东方财富对外开放了一批免费、免鉴权的行情与披露接口（push2 / push2his / datacenter-web / reportapi / search-api）。这些接口由 Vibe-Trading 内置工具封装，统一返回 `{"ok": true/false, ...}` JSON 信封，覆盖 A 股 / 港股 / 美股的资金面、披露面、舆情面与基本面数据。本技能是上述接口的**索引页**：每个接口的端点 URL、入参、返回字段写在 `references/` 下；调用范例写在 `scripts/` 下。

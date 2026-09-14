@@ -2,6 +2,7 @@ import type { Holding, MarketQuote } from '../src/lib/ibkr/workbenchTypes.ts';
 import { numeric } from './ibkrWorkbenchCore.ts';
 
 export type JsonFetcher = (url: string) => Promise<any>;
+const quoteSymbol = (symbol:string) => symbol.replace(/^([A-Z]{1,8}) ([A-Z])$/, '$1.$2');
 export function eastmoneyBatchUrl(secids: string[]) {
   return `https://push2.eastmoney.com/api/qt/ulist.np/get?${new URLSearchParams({ fltt: '2', secids: secids.join(','), fields: 'f12,f13,f14,f2,f3,f124' })}`;
 }
@@ -10,11 +11,11 @@ export function parseEastmoneyRow(row: Record<string, unknown>) {
   return { symbol: String(row.f12 ?? '').toUpperCase(), secid: `${row.f13}.${row.f12}`, name: String(row.f14 ?? ''), price: numeric(row.f2), changePercent: numeric(row.f3), asOf: stamp && stamp > 0 && stamp * 1000 <= Date.now() + 60000 ? new Date(stamp * 1000).toISOString() : null };
 }
 export function secidCandidates(p: Holding): string[] {
-  if (p.currency !== 'USD' || p.assetType !== 'STK' || !/^[A-Z0-9.\-]{1,20}$/.test(p.symbol)) return [];
+  if (p.currency !== 'USD' || p.assetType !== 'STK' || !/^[A-Z0-9.\-]{1,20}$/.test(quoteSymbol(p.symbol))) return [];
   const exchange = p.exchange?.toUpperCase();
   const market = exchange === 'NASDAQ' || exchange === 'ISLAND' ? '105' : exchange === 'NYSE' ? '106' : ['ARCA', 'AMEX', 'NYSEARCA'].includes(exchange ?? '') ? '107' : null;
   // Unknown listing venue is resolved by exact symbol across exchanges; multiple matches stay unmapped.
-  return (market ? [market] : ['105', '106', '107']).map(code => `${code}.${p.symbol}`);
+  return (market ? [market] : ['105', '106', '107']).map(code => `${code}.${quoteSymbol(p.symbol)}`);
 }
 export class IbkrMarket {
   private cache = new Map<string, { at: number; value: MarketQuote[] }>();
@@ -36,9 +37,9 @@ export class IbkrMarket {
       rows.push(...payload.data.diff.map(parseEastmoneyRow));
     }
     return positions.map(p => {
-      const candidates = rows.filter(r => secidCandidates(p).includes(r.secid) && r.symbol === p.symbol && r.price !== null && r.price > 0);
+      const candidates = rows.filter(r => secidCandidates(p).includes(r.secid) && r.symbol === quoteSymbol(p.symbol) && r.price !== null && r.price > 0);
       if (candidates.length !== 1) return { ...this.empty(p), status: secidCandidates(p).length ? 'unmapped' as const : 'unsupported' as const };
-      const r = candidates[0]; return { ...this.empty(p), ...r, status: r.asOf ? 'delayed' as const : 'missing' as const };
+      const r = candidates[0]; return { ...this.empty(p), ...r, symbol:p.symbol, status: r.asOf ? 'delayed' as const : 'missing' as const };
     });
   }
   async history(quote: MarketQuote, period: string) {

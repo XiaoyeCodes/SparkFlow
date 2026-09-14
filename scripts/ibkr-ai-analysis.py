@@ -30,12 +30,33 @@ def compact(value):
     if isinstance(value,dict):
         if 'raw' in value: return value['raw']
         return {k:compact(v) for k,v in value.items()}
-    if isinstance(value,list): return [compact(v) for v in value[:6]]
+    if isinstance(value,list): return [compact(v) for v in value[:16]]
     if isinstance(value,str): return value[:8000]
     return value
 
 def tool(request):
     action=request.get('tool'); args=request.get('args',{})
+    if action in ('profile', 'financials', 'prices', 'macro', 'fund'):
+        from src.tools.research_data_tool import research_data, symbol_alias, TTLS
+        import ibkr_public_cache as cache
+        symbol = symbol_alias(args.get('symbol', '')) if action != 'macro' else ''
+        key = 'research-data:v2:' + action + ':' + symbol
+        cached = cache.read(key, TTLS[action])
+        if cached is not None:
+            return cached
+        value = research_data(action, symbol)
+        if action == 'profile':
+            try:
+                from ibkr_brief_sources import tradingview_profile
+                supplement = tradingview_profile(symbol)
+                # Never replace a domestic quote with a differently timed profile price.
+                for field in ('name', 'sector', 'industry', 'instrumentType'):
+                    if supplement.get(field): value[field] = supplement[field]
+                value['valuationSupplement'] = {'source': 'TradingView', 'url': supplement['url'], 'observedAt': supplement.get('observedAt'), 'statistics': supplement.get('statistics', {})}
+                value['profileSource'] = supplement['url']
+            except Exception:
+                pass
+        return cache.write(key, value)
     if action=='search':
         from src.tools.web_search_tool import WebSearchTool
         query=args.get('query','')
@@ -54,48 +75,17 @@ def tool(request):
     if action=='market_snapshot':
         from ibkr_brief_sources import tradingview_market_snapshot
         return tradingview_market_snapshot()
-    symbol=args.get('symbol','')
-    if not re.fullmatch(r'[A-Z0-9.\-^]{1,24}',symbol):raise ValueError('TOOL_SYMBOL_INVALID')
+    from src.tools.research_data_tool import symbol_alias
+    symbol=symbol_alias(args.get('symbol',''))
     if action=='discover':
         from ibkr_brief_sources import discover
         return discover(symbol,args.get('area'),args.get('asOf',''))
-    if action=='profile':
-        from ibkr_brief_sources import tradingview_profile
-        try:
-            return tradingview_profile(symbol)
-        except Exception:
-            pass  # Yahoo remains a secondary provider, not a prerequisite for the brief.
-        from backtest.loaders.yahoo_client import get_quote_summary
-        data=get_quote_summary(symbol,['assetProfile','price','defaultKeyStatistics','financialData'])
-        profile=data.get('assetProfile',{}); price=data.get('price',{})
-        return {'source':'Yahoo Finance','url':f'https://finance.yahoo.com/quote/{symbol}/profile/','name':price.get('longName') or price.get('shortName'), 'currency':compact(price.get('currency')), 'regularMarketTime':compact(price.get('regularMarketTime')), 'sector':profile.get('sector'), 'industry':profile.get('industry'), 'instrumentType':price.get('quoteType'), 'description':profile.get('longBusinessSummary','')[:4000],'statistics':compact(data.get('defaultKeyStatistics',{})),'financials':compact(data.get('financialData',{}))}
-    if action=='financials':
-        from src.tools.financial_statements_tool import FinancialStatementsTool
-        from src.tools.financial_statements_tool import cik_for
-        data=compact(json.loads(FinancialStatementsTool().execute(code=symbol+'.US',statement='income',period='quarter')))
-        cik=cik_for(symbol)
-        data['url']=f'https://data.sec.gov/api/xbrl/companyfacts/CIK{int(cik):010d}.json' if cik else ''
-        return data
     if action=='fundamentals':
         from src.tools.get_fundamentals_tool import GetFundamentalsTool
         from datetime import timedelta
         end=datetime.now(timezone.utc); start=end-timedelta(days=400)
         return compact(json.loads(GetFundamentalsTool().execute(symbols=[symbol+'.US'],fields=['net_income','roe'],start=start.date().isoformat(),end=end.date().isoformat(),freq='ttm',source='sec')))
-    if action in ('prices','benchmark'):
-        from backtest.loaders.yahoo_client import get_chart
-        if action=='prices':
-            import requests
-            from backtest.loaders.yahoo_client import _parse_chart
-            last=None
-            for host in ('query1.finance.yahoo.com','query2.finance.yahoo.com'):
-                try:
-                    response=requests.get(f'https://{host}/v8/finance/chart/{symbol}',params={'interval':'1d','range':'3mo'},headers={'User-Agent':'Mozilla/5.0'},timeout=(3,4))
-                    response.raise_for_status()
-                    rows=_parse_chart(response.json(),symbol)[-65:]
-                    if not rows:raise ValueError('TOOL_PRICE_EMPTY')
-                    return {'source':'Yahoo Finance','url':f'https://finance.yahoo.com/quote/{symbol}/history/','rows':rows}
-                except (requests.RequestException,ValueError) as exc:last=exc
-            raise last
+    if action=='benchmark':
         if symbol not in ('SPY','QQQ'):raise ValueError('BENCHMARK_NOT_ALLOWED')
         from backtest.loaders._http import throttled_get_json
         data=throttled_get_json(f'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}',host_key='yahoo',min_interval=.6,params={'interval':'1d','range':'1y','includeAdjustedClose':'true'})

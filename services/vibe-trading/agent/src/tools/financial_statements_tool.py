@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from typing import Any
 
 from backtest.loaders.eastmoney_client import get_json, resolve_secid
@@ -97,6 +98,14 @@ _SEC_CONCEPTS: dict[str, tuple[str, ...]] = {
         "EarningsPerShareDiluted",
         "WeightedAverageNumberOfDilutedSharesOutstanding",
     ),
+}
+
+# Foreign private issuers (e.g. TSM) report IFRS, not US GAAP.
+_IFRS_CONCEPTS = {
+    'balance': ('Assets', 'CurrentAssets', 'CashAndCashEquivalents', 'Liabilities', 'CurrentLiabilities', 'Equity'),
+    'income': ('Revenue', 'GrossProfit', 'ProfitLossFromOperatingActivities', 'ProfitLoss', 'BasicEarningsLossPerShare', 'DilutedEarningsLossPerShare'),
+    'cashflow': ('CashFlowsFromUsedInOperatingActivities', 'CashFlowsFromUsedInInvestingActivities', 'CashFlowsFromUsedInFinancingActivities', 'PurchaseOfPropertyPlantAndEquipment'),
+    'indicators': ('Revenue', 'GrossProfit', 'ProfitLoss', 'Assets', 'Liabilities', 'Equity', 'DilutedEarningsLossPerShare'),
 }
 
 # --- Shared limits / validation ------------------------------------------
@@ -306,8 +315,14 @@ def _pick_sec_unit(units: dict[str, Any]) -> tuple[str, list[Any]]:
 
 def _sec_period_matches(row: dict[str, Any], period: str) -> bool:
     """Return whether a SEC fact row belongs in the requested cadence."""
+    if row.get('start'):
+        try:
+            days = (date.fromisoformat(row['end']) - date.fromisoformat(row['start'])).days
+            return 300 <= days <= 400 if period == 'annual' else 60 <= days <= 110
+        except (ValueError, TypeError, KeyError):
+            return False
     if period != "annual":
-        return True
+        return True  # Instant balance-sheet facts have no duration.
     fp = str(row.get("fp") or "").upper()
     form = str(row.get("form") or "").upper()
     return fp == "FY" or form == "10-K"
@@ -324,7 +339,8 @@ def _fetch_sec_statement(code: str, *, statement: str, period: str) -> dict[str,
     Returns:
         ``{"periods": [...]}`` on success or ``{"error": ...}`` on failure.
     """
-    ticker = code.rsplit(".", 1)[0].strip().upper()
+    from src.tools.research_data_tool import symbol_alias
+    ticker = symbol_alias(code).replace('.', '-')
     try:
         cik = cik_for(ticker)
     except Exception as exc:  # noqa: BLE001 - surface provider failures as envelope
@@ -339,12 +355,14 @@ def _fetch_sec_statement(code: str, *, statement: str, period: str) -> dict[str,
         logger.warning("SEC companyfacts fetch failed for %s: %s", code, exc)
         return {"error": f"SEC companyfacts request failed: {exc}"}
 
-    gaap = (facts.get("facts") or {}).get("us-gaap") if isinstance(facts, dict) else None
+    namespaces = facts.get('facts', {}) if isinstance(facts, dict) else {}
+    namespace = 'us-gaap' if namespaces.get('us-gaap') else 'ifrs-full'
+    gaap = namespaces.get(namespace)
     if not isinstance(gaap, dict):
         return {"periods": []}
 
     periods_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for concept_name in _SEC_CONCEPTS[statement]:
+    for concept_name in (_SEC_CONCEPTS if namespace == 'us-gaap' else _IFRS_CONCEPTS)[statement]:
         concept = gaap.get(concept_name)
         units = concept.get("units") if isinstance(concept, dict) else None
         if not isinstance(units, dict):
@@ -357,11 +375,14 @@ def _fetch_sec_statement(code: str, *, statement: str, period: str) -> dict[str,
             value = _to_number(row.get("val"))
             if not end or value is None:
                 continue
-            key = (end, row.get("fy"), row.get("fp"), row.get("form"), row.get("accn"))
+            key = (end, row.get('start'), row.get("fy"), row.get("fp"), row.get("form"), row.get("accn"))
             period_row = periods_by_key.setdefault(
                 key,
                 {
                     "REPORT_DATE": end,
+                    "START_DATE": row.get('start'),
+                    "FILED": row.get('filed'),
+                    "TAXONOMY": namespace,
                     "FISCAL_YEAR": row.get("fy"),
                     "FISCAL_PERIOD": row.get("fp"),
                     "FORM": row.get("form"),
@@ -374,9 +395,17 @@ def _fetch_sec_statement(code: str, *, statement: str, period: str) -> dict[str,
 
     periods = sorted(
         periods_by_key.values(),
-        key=lambda row: str(row.get("REPORT_DATE") or ""),
+        key=lambda row: (str(row.get("REPORT_DATE") or ""), str(row.get('FILED') or ''), len(row)),
         reverse=True,
     )
+    # Repeated comparative facts in later filings must not consume the entire
+    # evidence budget. Preserve the latest filed record for each true duration.
+    unique = {}
+    for row in periods:
+        key = (row['REPORT_DATE'], row['START_DATE'], json.dumps(row['_units'], sort_keys=True))
+        if key not in unique:
+            unique[key] = row
+    periods = list(unique.values())
     return {"periods": _cap_periods(periods)}
 
 
