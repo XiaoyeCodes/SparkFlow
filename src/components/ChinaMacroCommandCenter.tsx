@@ -286,6 +286,37 @@ function provinceFill(intensity: number, active: boolean, hasData: boolean) {
   return `rgb(${channel(0)} ${channel(1)} ${channel(2)})`;
 }
 
+type ChinaMapView = { scale: number; x: number; y: number };
+
+function clampChinaMapView(view: ChinaMapView): ChinaMapView {
+  const scale = Math.max(1, Math.min(8, view.scale));
+  const clampAxis = (offset: number, viewportSize: number, contentStart: number, contentEnd: number) => {
+    const scaledSize = (contentEnd - contentStart) * scale;
+    if (scaledSize <= viewportSize) {
+      const centeredOffset = (viewportSize - (contentStart + contentEnd) * scale) / 2;
+      const availablePan = (viewportSize - scaledSize) / 2;
+      return Math.max(centeredOffset - availablePan, Math.min(centeredOffset + availablePan, offset));
+    }
+    return Math.max(viewportSize - contentEnd * scale, Math.min(-contentStart * scale, offset));
+  };
+  return {
+    scale,
+    x: clampAxis(view.x, 900, 32, 868),
+    y: clampAxis(view.y, 610, 28, 578),
+  };
+}
+
+function zoomChinaMapView(current: ChinaMapView, factor: number, anchorX = 450, anchorY = 305): ChinaMapView {
+  const scale = Math.max(1, Math.min(8, current.scale * factor));
+  if (scale === 1) return { scale: 1, x: 0, y: 0 };
+  const ratio = scale / current.scale;
+  return clampChinaMapView({
+    scale,
+    x: anchorX - (anchorX - current.x) * ratio,
+    y: anchorY - (anchorY - current.y) * ratio,
+  });
+}
+
 function normalizeProvinceWinding(feature: ProvinceFeature): ProvinceFeature {
   const geometry = feature.geometry;
   if (geometry.type === 'Polygon') {
@@ -913,36 +944,30 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
   const tactical = TACTICAL_IDS.map((id) => metrics.get(id));
   const currentQuadrant = data?.quadrant.current || '数据不足';
 
-  const clampMapView = (view: { scale: number; x: number; y: number }) => {
-    const scale = Math.max(1, Math.min(8, view.scale));
-    const clampAxis = (offset: number, viewportSize: number, contentStart: number, contentEnd: number) => {
-      const scaledSize = (contentEnd - contentStart) * scale;
-      if (scaledSize <= viewportSize) {
-        const centeredOffset = (viewportSize - (contentStart + contentEnd) * scale) / 2;
-        const availablePan = (viewportSize - scaledSize) / 2;
-        return Math.max(centeredOffset - availablePan, Math.min(centeredOffset + availablePan, offset));
-      }
-      return Math.max(viewportSize - contentEnd * scale, Math.min(-contentStart * scale, offset));
-    };
-    return {
-      scale,
-      x: clampAxis(view.x, 900, 32, 868),
-      y: clampAxis(view.y, 610, 28, 578),
-    };
+  const setZoom = (factor: number, anchorX = 450, anchorY = 305) => {
+    setMapView((current) => zoomChinaMapView(current, factor, anchorX, anchorY));
   };
 
-  const setZoom = (factor: number, anchorX = 450, anchorY = 305) => {
-    setMapView((current) => {
-      const scale = Math.max(1, Math.min(8, current.scale * factor));
-      if (scale === 1) return { scale: 1, x: 0, y: 0 };
-      const ratio = scale / current.scale;
-      return clampMapView({
-        scale,
-        x: anchorX - (anchorX - current.x) * ratio,
-        y: anchorY - (anchorY - current.y) * ratio,
-      });
-    });
-  };
+  useEffect(() => {
+    const element = mapRef.current;
+    if (!element) return;
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const bounds = element.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      const anchorX = ((event.clientX - bounds.left) / bounds.width) * 900;
+      const anchorY = ((event.clientY - bounds.top) / bounds.height) * 610;
+      setMapView((current) => zoomChinaMapView(
+        current,
+        event.deltaY < 0 ? 1.18 : 0.84,
+        anchorX,
+        anchorY,
+      ));
+    };
+    element.addEventListener('wheel', handleWheel, { passive: false });
+    return () => element.removeEventListener('wheel', handleWheel);
+  }, [setMapView]);
 
   const finishMapDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
@@ -1089,14 +1114,6 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
             data-map-x={mapView.x.toFixed(2)}
             data-map-y={mapView.y.toFixed(2)}
             data-dragging={isMapDragging ? 'true' : 'false'}
-            onWheel={(event) => {
-              event.preventDefault();
-              const bounds = mapRef.current?.getBoundingClientRect();
-              if (!bounds) return;
-              const anchorX = ((event.clientX - bounds.left) / bounds.width) * 900;
-              const anchorY = ((event.clientY - bounds.top) / bounds.height) * 610;
-              setZoom(event.deltaY < 0 ? 1.18 : 0.84, anchorX, anchorY);
-            }}
             onPointerDown={(event) => {
               if (event.button !== 0 || !mapModel) return;
               if ((event.target as Element).closest?.('.china-map-controls, .china-map-breadcrumb')) return;
@@ -1118,7 +1135,7 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
               const dy = ((event.clientY - drag.y) / bounds.height) * 610;
               drag.x = event.clientX;
               drag.y = event.clientY;
-              setMapView((current) => clampMapView({ ...current, x: current.x + dx, y: current.y + dy }));
+              setMapView((current) => clampChinaMapView({ ...current, x: current.x + dx, y: current.y + dy }));
             }}
             onPointerUp={finishMapDrag}
             onPointerCancel={finishMapDrag}
@@ -1133,9 +1150,9 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
               <span>{regionLevelLabel(currentMapLevel)}视图</span>
             </div>
             {mapModel ? (
-              <svg viewBox="0 0 900 610" role="img" aria-label="中国省级经济地图">
+              <svg viewBox="0 0 900 610" role="img" aria-label={mapDepth === 0 ? '中国省级经济地图' : `${selectedRegion}${regionLevelLabel(currentMapLevel)}经济地图`}>
                 <g className="china-map-viewport" transform={`translate(${mapView.x} ${mapView.y}) scale(${mapView.scale})`}>
-                <ChinaMapContext projection={mapModel.projection} nationalMap={nationalContext} />
+                {mapDepth === 0 ? <ChinaMapContext projection={mapModel.projection} nationalMap={nationalContext} /> : null}
                 {mapModel.shapes.map(({ feature, d, centroid }) => {
                   const name = feature.properties?.name || '';
                   const adcode = String(feature.properties?.adcode || '');

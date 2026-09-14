@@ -84,3 +84,45 @@ test('China regional map pans from a province without triggering drill-down', as
   ])));
   await performanceSession.detach();
 });
+
+test('province drill-down fills the map and keeps wheel zoom isolated from regional details', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.route('**/api/china-macro-dashboard?*', route => route.fulfill({ json: {} }));
+  await page.route('**/api/china-region-boundary?*', route => route.fulfill({
+    json: {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: { name: '洛阳市', adcode: 410300 },
+          geometry: { type: 'Polygon', coordinates: [[[110, 32], [113, 32], [113, 35], [110, 35], [110, 32]]] },
+        },
+        {
+          type: 'Feature',
+          properties: { name: '郑州市', adcode: 410100 },
+          geometry: { type: 'Polygon', coordinates: [[[113, 33], [116, 33], [116, 36], [113, 36], [113, 33]]] },
+        },
+      ],
+    },
+  }));
+  await page.goto('http://127.0.0.1:5187/market#china-macro');
+
+  const map = page.locator('.china-map-canvas');
+  await page.locator('.china-province[aria-label="河南省"]').click();
+  await expect(map.getByRole('img', { name: '河南省地市级经济地图' })).toBeVisible();
+  await expect(map.locator('.china-context-national')).toHaveCount(0);
+  await expect(map.locator('.china-province[aria-label="郑州市"]')).toBeVisible();
+  await expect.poll(async () => (await map.boundingBox())?.height || 0).toBeGreaterThanOrEqual(460);
+  await map.screenshot({ path: 'output/china-map-province-only.png' });
+
+  const stage = page.locator('.china-map-stage');
+  const initialScrollTop = await stage.evaluate((element) => {
+    element.scrollTop = 80;
+    return element.scrollTop;
+  });
+  expect(initialScrollTop).toBeGreaterThan(0);
+  await map.hover({ position: { x: 520, y: 180 } });
+  await page.mouse.wheel(0, -80);
+  await expect(map).toHaveAttribute('data-map-scale', '1.180');
+  await expect.poll(() => stage.evaluate(element => element.scrollTop)).toBe(initialScrollTop);
+});

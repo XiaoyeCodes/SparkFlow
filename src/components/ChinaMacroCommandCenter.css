@@ -221,7 +221,7 @@
 .china-compact-grid .china-metric-exports .china-metric-head > i { color: #69d8b9; }
 
 .china-map-stage { display: grid; grid-template-rows: 70px minmax(300px, 1fr) max-content; padding: 16px 18px 18px; overflow: hidden; scrollbar-width: none; }
-.china-map-stage.has-selection { grid-template-rows: 70px minmax(300px, 55vh) max-content max-content; align-content: start; overflow-y: auto; }
+.china-map-stage.has-selection { grid-template-rows: 70px clamp(460px, 60vh, 620px) max-content max-content; align-content: start; overflow-y: auto; }
 .china-map-stage::-webkit-scrollbar { display: none; }
 .china-map-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .china-map-title-row span { color: var(--china-green); font: 600 9px "JetBrains Mono", monospace; letter-spacing: 0.18em; }
@@ -231,7 +231,7 @@
 .china-map-modes button:last-child { border-right: 0; }
 .china-map-modes button.is-active { color: #062018; background: var(--china-green); font-weight: 700; }
 
-.china-map-canvas { position: relative; min-height: 0; overflow: hidden; touch-action: none; border: 1px solid var(--china-border); border-radius: 7px; background: radial-gradient(ellipse at center, rgba(34, 94, 76, 0.19), rgba(3, 10, 9, 0.7) 64%), linear-gradient(rgba(86, 138, 123, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(86, 138, 123, 0.05) 1px, transparent 1px); background-size: auto, 38px 38px, 38px 38px; cursor: default; }
+.china-map-canvas { position: relative; min-height: 0; overflow: hidden; overscroll-behavior: contain; touch-action: none; border: 1px solid var(--china-border); border-radius: 7px; background: radial-gradient(ellipse at center, rgba(34, 94, 76, 0.19), rgba(3, 10, 9, 0.7) 64%), linear-gradient(rgba(86, 138, 123, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(86, 138, 123, 0.05) 1px, transparent 1px); background-size: auto, 38px 38px, 38px 38px; cursor: default; }
 .china-map-canvas.is-draggable,
 .china-map-canvas.is-draggable .china-province { cursor: grab; }
 .china-map-canvas.is-dragging,
@@ -441,6 +441,7 @@
   .china-command-updated > span { display: none; }
   .china-index-item { min-width: 160px; padding-inline: 12px; }
   .china-map-stage { min-height: 630px; padding-inline: 10px; }
+  .china-map-stage.has-selection { grid-template-rows: 70px 420px max-content max-content; }
   .china-map-title-row h2 { font-size: 20px; }
   .china-map-modes button { padding-inline: 9px; }
   .china-province-stats { grid-template-columns: 1fr; }
