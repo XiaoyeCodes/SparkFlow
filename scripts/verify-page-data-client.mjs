@@ -7,7 +7,7 @@ let now = Date.parse('2026-09-14T04:00:00Z');
 Date.now = () => now;
 let calls = 0;
 const feed = (value = 'news') => ({ generatedAt: new Date(now).toISOString(), items: [{ title: value }], sources: [{ ok: true }] });
-const brief = date => ({ snapshot: { date, summary: { headline: 'brief' }, markets: [] }, cache: { stale: false } });
+const brief = date => ({ snapshot: { date, generatedAt: `${date}T01:00:00Z`, summary: { headline: 'brief' }, markets: [] }, cache: { stale: false } });
 const clear = () => ['/api/news-feed', '/api/daily-brief', '/api/daily-brief/details?view=flows', '/api/daily-brief/details?view=performance'].forEach(invalidatePageData);
 try {
   let finish;
@@ -46,7 +46,9 @@ try {
   now = Date.parse('2026-09-15T00:59:59Z');
   assert.ok(peekPageData('/api/daily-brief'));
   now += 1000;
-  assert.equal(peekPageData('/api/daily-brief'), undefined, '09:00 Beijing changes edition');
+  assert.equal(peekPageData('/api/daily-brief'), undefined, 'Beijing 09:00 removes the previous edition from the daily page');
+  rememberPageData('/api/daily-brief', brief('2026-09-14'));
+  assert.equal(peekPageData('/api/daily-brief'), undefined, 'old server response cannot repopulate yesterday after 09:00');
   rememberPageData('/api/daily-brief', { ...brief('2026-09-15'), cache: { stale: true } });
   assert.equal(peekPageData('/api/daily-brief'), undefined, 'fallback edition is not silently reused');
   now = Date.parse('2026-09-15T15:59:59Z');

@@ -6,12 +6,12 @@ test.beforeEach(async ({ context }) => {
 
 test('daily brief and news reuse data on navigation and support explicit refresh', async ({ page }) => {
   const now = Date.now();
-  const edition = new Date(now + 8 * 3600_000 - 9 * 3600_000).toISOString().slice(0, 10);
+  const edition = new Date(now - 3600_000).toISOString().slice(0, 10);
   let briefReads = 0, newsReads = 0, briefRefreshes = 0, newsRefreshes = 0;
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   const brief = (refreshed = false) => ({ snapshot: {
-    version: 18, date: edition, slot: 'morning', generatedAt: new Date(now + (refreshed ? 1 : 0)).toISOString(), updatedAt: new Date(now).toISOString(), summaryMode: 'ai',
+    version: 18, date: edition, slot: 'morning', generatedAt: new Date(Date.parse(`${edition}T01:00:00Z`) + (refreshed ? 1 : 0)).toISOString(), updatedAt: new Date(now).toISOString(), summaryMode: 'ai',
     summary: { headline: refreshed ? '简报手动刷新成功' : '简报缓存测试标题', regime: '测试', tone: 'balanced', highlights: [], risks: [], watchlist: [], portfolioNotes: [] },
     markets: [], macro: [], news: [], sources: [], errors: [], portfolio: { connected: false, positions: [] },
   }, cache: { hit: true, generated: false } });

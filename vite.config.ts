@@ -7,6 +7,13 @@ import { createPublicDataCache, createPublicSnapshotStore } from './server/publi
 import { createNewsPageCache } from './server/newsPageCache';
 import { createDailyBriefAiSummaryCache, isDailyBriefAiSummary } from './server/dailyBriefAiSummaryCache';
 import { createPublicDataHandler } from './server/publicDataHttp';
+import {
+  parseBinanceMarketTickers,
+  parseCoinGeckoMarketUniverse,
+  parseCoinPaprikaMarketUniverse,
+  parseOkxMarketTickers,
+  type CryptoMarketUniverseRow,
+} from './server/cryptoMarketUniverse';
 import { createChinaRegionalFeedService } from './server/chinaRegionalFeed';
 import { isPublicSourceRefresh, withPublicSourceRefresh } from './server/publicSourceContext';
 import { PUBLIC_DATA_POLICIES, validatePublicResource } from './src/lib/publicDataPolicy';
@@ -42,6 +49,7 @@ import { ibkrValuationPlugin } from './server/ibkrValuation';
 import { rankChinaMacroNews } from './src/lib/chinaMacroNews';
 import { parseEastmoneyRow } from './server/ibkrMarket';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
+import { createDailyBriefRepairTasks } from './server/dailyBriefRepairTasks';
 import { createMarketCloseService } from './server/marketCloseService';
 import { collectCloseResearch } from './server/marketCloseData';
 import { createFinancialConditionsService } from './server/financialConditions';
@@ -984,18 +992,6 @@ const cryptoAssetConfigs = [
   { id: 'dogecoin', symbol: 'DOGE', binance: 'DOGEUSDT', name: 'Dogecoin' },
 ];
 
-type CryptoMarketUniverseRow = {
-  id: string;
-  symbol: string;
-  name: string;
-  image?: string;
-  current_price: number;
-  market_cap: number;
-  market_cap_rank?: number;
-  price_change_percentage_24h?: number;
-  last_updated?: string;
-};
-
 const CRYPTO_STABLECOINS = new Set(['USDT', 'USDC', 'USDS', 'DAI', 'FDUSD', 'USDE', 'PYUSD', 'USD1', 'TUSD', 'USDD', 'FRAX', 'GHO', 'LUSD']);
 const CRYPTO_MEME_ASSETS = new Set(['DOGE', 'SHIB', 'PEPE', 'BONK', 'WIF', 'FLOKI', 'BRETT', 'MOG', 'POPCAT', 'SPX', 'PENGU', 'TRUMP']);
 const CRYPTO_EXCHANGE_ASSETS = new Set(['BNB', 'CRO', 'LEO', 'OKB', 'BGB', 'KCS', 'GT', 'HT', 'MX', 'WBT']);
@@ -1018,6 +1014,7 @@ const CRYPTO_EXCLUDED_IDS = new Set([
   'wrapped-steth',
   'renbtc',
 ]);
+const CRYPTO_EXCLUDED_SYMBOLS = new Set(['WBTC', 'WETH', 'STETH', 'CBTC', 'RENBTC']);
 
 function classifyCryptoAsset(symbol: string) {
   if (CRYPTO_STABLECOINS.has(symbol)) return '稳定币';
@@ -2077,17 +2074,26 @@ async function getRegionalValuationDashboard(mode: RegionalValuationMode) {
   };
 }
 
+function tencentIndexUpdatedAt(raw: string | undefined, symbol: string) {
+  const match = raw?.match(/^(\d{4})-?(\d{2})-?(\d{2})[ T]?(\d{2}):?(\d{2}):?(\d{2})$/);
+  if (!match) return undefined;
+  const [, year, month, day, hour, minute, second] = match;
+  const time = zonedDateTimeToIso(`${year}-${month}-${day}`, `${hour}:${minute}`,
+    symbol.startsWith('us') ? 'America/New_York' : 'Asia/Shanghai');
+  return new Date(Date.parse(time) + Number(second) * 1000).toISOString();
+}
+
 async function getEquityIndexSnapshots() {
   const eastmoneyUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${marketIndexConfigs
     .map((item) => item.secid)
     .join(',')}&fields=f12,f14,f2,f3,f4,f6,f104,f105,f106,f124`;
   const tencentUrl = `https://qt.gtimg.cn/q=${marketIndexConfigs.map((item) => item.tencent).join(',')}`;
   const [eastmoneyResult, tencentResult] = await Promise.allSettled([
-    fetchExternalJson(eastmoneyUrl),
-    fetchExternalText(tencentUrl, 18000, 'text/plain,*/*'),
+    isPublicSourceRefresh() ? fetchFastMarketText(eastmoneyUrl, 1_200).then(JSON.parse) : fetchExternalJson(eastmoneyUrl),
+    isPublicSourceRefresh() ? fetchFastMarketText(tencentUrl, 1_200) : fetchExternalText(tencentUrl, 18000, 'text/plain,*/*'),
   ]);
 
-  const tencentQuotes = new Map<string, { price: number; change?: number; changePercent?: number }>();
+  const tencentQuotes = new Map<string, { price: number; change?: number; changePercent?: number; updatedAt?: string }>();
   if (tencentResult.status === 'fulfilled') {
     for (const match of tencentResult.value.matchAll(/v_([^=]+)="([^"]*)"/g)) {
       const fields = match[2].split('~');
@@ -2098,6 +2104,7 @@ async function getEquityIndexSnapshots() {
         price,
         change: asFiniteNumber(longQuote ? fields[31] : fields[4]),
         changePercent: asFiniteNumber(longQuote ? fields[32] : fields[5]),
+        updatedAt: longQuote ? tencentIndexUpdatedAt(fields[30], match[1]) : undefined,
       });
     }
   }
@@ -2135,7 +2142,7 @@ async function getEquityIndexSnapshots() {
       advancers: asFiniteNumber(row?.f104),
       decliners: asFiniteNumber(row?.f105),
       flat: asFiniteNumber(row?.f106),
-      updatedAt: preferTencent ? new Date().toISOString() : timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
+      updatedAt: preferTencent ? tencent.updatedAt : timestamp ? new Date(timestamp * 1000).toISOString() : undefined,
       sourceUrl: preferTencent ? tencentUrl : eastmoneyUrl,
       validation: {
         status: deviationPercent === undefined ? 'single-source' : deviationPercent <= 0.25 ? 'verified' : 'review',
@@ -2158,8 +2165,8 @@ async function getCryptoMarketSnapshots() {
   const binanceUrl = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(cryptoAssetConfigs.map((item) => item.binance)))}`;
   const okxUrl = 'https://www.okx.com/api/v5/market/tickers?instType=SPOT';
   const [binanceResult, okxResult] = await Promise.allSettled([
-    fetchRoutedText(binanceUrl, 'proxy', 12000, 'application/json'),
-    fetchRoutedText(okxUrl, 'proxy', 12000, 'application/json'),
+    fetchRoutedText(binanceUrl, 'proxy', isPublicSourceRefresh() ? 2_400 : 12000, 'application/json'),
+    fetchRoutedText(okxUrl, 'proxy', isPublicSourceRefresh() ? 2_400 : 12000, 'application/json'),
   ]);
 
   const binanceRows = binanceResult.status === 'fulfilled'
@@ -2245,8 +2252,14 @@ async function getCryptoMarketSnapshots() {
 
 async function getMarketIndexSnapshots() {
   const [equityResult, cryptoResult] = await Promise.allSettled([
-    getEquityIndexSnapshots(),
-    getCachedCryptoMarketSnapshots(),
+    isPublicSourceRefresh() ? readFastEquitySource().then(result => {
+      if (!result.data) throw new Error(result.error || '指数来源超时');
+      return result.data;
+    }) : getEquityIndexSnapshots(),
+    isPublicSourceRefresh() ? readFastCryptoSnapshotsSource().then(result => {
+      if (!result.data) throw new Error(result.error || '加密来源超时');
+      return result.data;
+    }) : getCachedCryptoMarketSnapshots(),
   ]);
   if (equityResult.status === 'rejected' && cryptoResult.status === 'rejected') {
     throw new Error(`股票与加密行情均不可用：${String(equityResult.reason)}；${String(cryptoResult.reason)}`);
@@ -2445,63 +2458,86 @@ async function getUsMarketHeatmap() {
 }
 
 async function getCryptoMarketUniverse() {
-  const sourceUrl = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=180&page=1&sparkline=false&price_change_percentage=24h&locale=zh';
-  let text: string;
-  try {
-    text = await fetchRoutedText(sourceUrl, 'direct', 15000, 'application/json');
-  } catch {
-    text = await fetchRoutedText(sourceUrl, 'proxy', 15000, 'application/json');
-  }
-  const payload = JSON.parse(text) as CryptoMarketUniverseRow[];
-  if (!Array.isArray(payload) || !payload.length) throw new Error('CoinGecko 加密资产市值数据为空');
+  const sources = [
+    {
+      name: 'CoinGecko',
+      requestUrl: 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=180&page=1&sparkline=false&price_change_percentage=24h&locale=zh',
+      sourceUrl: 'https://www.coingecko.com/zh',
+      parse: parseCoinGeckoMarketUniverse,
+    },
+    {
+      name: 'CoinPaprika',
+      requestUrl: 'https://api.coinpaprika.com/v1/tickers?quotes=USD',
+      sourceUrl: 'https://coinpaprika.com/',
+      parse: parseCoinPaprikaMarketUniverse,
+    },
+  ] as const;
+  const failures: string[] = [];
 
-  const symbols = new Set<string>();
-  const rows = payload.filter((row) => {
-    const symbol = String(row.symbol || '').trim().toUpperCase();
-    const marketCap = asFiniteNumber(row.market_cap);
-    if (
-      !row.id
-      || !symbol
-      || symbols.has(symbol)
-      || CRYPTO_EXCLUDED_IDS.has(row.id)
-      || classifyCryptoAsset(symbol) === '稳定币'
-      || !marketCap
-      || marketCap <= 0
-    ) return false;
-    symbols.add(symbol);
-    return true;
-  }).slice(0, 120);
-  if (!rows.length) throw new Error('CoinGecko 加密资产市值数据缺少有效项目');
-  return { sourceUrl, rows };
+  for (const source of sources) {
+    try {
+      const payload = JSON.parse(await fetchFastMarketText(source.requestUrl, 5_000));
+      const symbols = new Set<string>();
+      const rows = source.parse(payload)
+        .sort((left, right) => (left.market_cap_rank || Number.MAX_SAFE_INTEGER) - (right.market_cap_rank || Number.MAX_SAFE_INTEGER)
+          || right.market_cap - left.market_cap)
+        .filter((row: CryptoMarketUniverseRow) => {
+          const symbol = row.symbol.trim().toUpperCase();
+          if (
+            symbols.has(symbol)
+            || CRYPTO_EXCLUDED_IDS.has(row.id)
+            || CRYPTO_EXCLUDED_SYMBOLS.has(symbol)
+            || classifyCryptoAsset(symbol) === '稳定币'
+          ) return false;
+          symbols.add(symbol);
+          return true;
+        })
+        .slice(0, 120);
+      if (!rows.length) throw new Error('返回内容缺少有效项目');
+      return { source: source.name, sourceUrl: source.sourceUrl, rows };
+    } catch (error) {
+      failures.push(`${source.name}: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  }
+  throw new Error(`加密资产市值主备数据源均不可用（${failures.join(' · ')}）`);
+}
+
+async function getFastCryptoHeatmapTickers() {
+  const providers = [
+    fetchRoutedText('https://www.okx.com/api/v5/market/tickers?instType=SPOT', 'direct', 4_000, 'application/json')
+      .then((text) => parseOkxMarketTickers(JSON.parse(text)))
+      .then((rows) => {
+        if (!rows.length) throw new Error('OKX 行情为空');
+        return { source: 'OKX', rows };
+      }),
+    fetchRoutedText('https://api.binance.com/api/v3/ticker/24hr?type=MINI', 'proxy', 4_000, 'application/json')
+      .then((text) => parseBinanceMarketTickers(JSON.parse(text)))
+      .then((rows) => {
+        if (!rows.length) throw new Error('Binance 行情为空');
+        return { source: 'Binance', rows };
+      }),
+  ];
+  return Promise.any(providers).catch(() => ({ source: '', rows: [] }));
 }
 
 async function getCryptoMarketHeatmap() {
-  const universe = await getCachedCryptoHeatmapUniverse();
-  const binanceUrl = 'https://api.binance.com/api/v3/ticker/24hr?type=MINI';
-  const binanceResult = await Promise.allSettled([
-    fetchRoutedText(binanceUrl, 'proxy', 12000, 'application/json'),
+  const [universe, tickerResult] = await Promise.all([
+    getCachedCryptoHeatmapUniverse(),
+    getFastCryptoHeatmapTickers(),
   ]);
-  const binanceRows = binanceResult[0].status === 'fulfilled'
-    ? JSON.parse(binanceResult[0].value) as Array<Record<string, unknown>>
-    : [];
-  const tickerByPair = new Map(
-    Array.isArray(binanceRows)
-      ? binanceRows.map((row) => [String(row.symbol || '').trim().toUpperCase(), row])
-      : [],
-  );
+  const tickerBySymbol = new Map(tickerResult.rows.map((row) => [row.symbol, row]));
 
   const stocks: ChinaHeatmapStock[] = universe.rows.flatMap((row) => {
     const code = String(row.symbol || '').trim().toUpperCase();
-    const ticker = tickerByPair.get(`${code}USDT`);
+    const ticker = tickerBySymbol.get(code);
     const marketCap = asFiniteNumber(row.market_cap);
-    const price = asFiniteNumber(ticker?.lastPrice) ?? asFiniteNumber(row.current_price);
+    const price = asFiniteNumber(ticker?.price) ?? asFiniteNumber(row.current_price);
     const openPrice = asFiniteNumber(ticker?.openPrice);
-    const tickerPrice = asFiniteNumber(ticker?.lastPrice);
+    const tickerPrice = asFiniteNumber(ticker?.price);
     const changePercent = tickerPrice !== undefined && openPrice !== undefined && openPrice > 0
       ? (tickerPrice - openPrice) / openPrice * 100
       : asFiniteNumber(row.price_change_percentage_24h) ?? 0;
     if (!code || !row.name || price === undefined || !marketCap || marketCap <= 0) return [];
-    const closeTime = asFiniteNumber(ticker?.closeTime);
     return [{
       code,
       name: String(row.name).trim(),
@@ -2510,8 +2546,8 @@ async function getCryptoMarketHeatmap() {
       changePercent,
       marketCap,
       industry: classifyCryptoAsset(code),
-      updatedAt: closeTime ? new Date(closeTime).toISOString() : row.last_updated,
-      sourceUrl: `https://www.coingecko.com/zh/数字货币/${encodeURIComponent(row.id)}`,
+      updatedAt: ticker?.updatedAt || row.last_updated,
+      sourceUrl: row.sourceUrl,
     }];
   });
   if (!stocks.length) throw new Error('加密资产热力图缺少有效行情');
@@ -2520,12 +2556,12 @@ async function getCryptoMarketHeatmap() {
     result[stock.industry] = (result[stock.industry] || 0) + stock.marketCap;
     return result;
   }, {});
-  const binanceAvailable = tickerByPair.size > 0;
+  const liveQuotesAvailable = tickerBySymbol.size > 0;
   return {
     generatedAt: new Date().toISOString(),
     count: stocks.length,
     coverage: `全球市值前 ${stocks.length} 项非稳定币加密资产 · 赛道面积按美元市值聚合`,
-    source: binanceAvailable ? 'CoinGecko 市值 + Binance 行情' : 'CoinGecko',
+    source: liveQuotesAvailable ? `${universe.source} 市值 + ${tickerResult.source} 行情` : universe.source,
     sourceUrl: universe.sourceUrl,
     industryMarketCaps,
     stocks,
@@ -5543,7 +5579,7 @@ function parseBlsReleaseReport(html: string, family: BlsReleaseReportSnapshot['f
   const base = { family, period, sourceUrl, storedAt: Date.now() };
   if (family === 'ppi') {
     const unchanged = /Producer Price Index for final demand was unchanged in [A-Za-z]+/i.test(text);
-    const match = text.match(/Producer Price Index for final demand (increased|rose|advanced|decreased|declined|fell)(?:\s+(?:by\s+)?)?([\d.]+)\s*percent?\s+in\s+[A-Za-z]+/i);
+    const match = text.match(/Producer Price Index for final demand (increased|rose|advanced|moved up|decreased|declined|fell)(?:\s+(?:by\s+)?)?([\d.]+)\s*percent?\s+in\s+[A-Za-z]+/i);
     if (!unchanged && !match) throw new Error('BLS PPI 新闻稿数值无法识别');
     const previousMatch = text.match(/Final demand prices (edged down|decreased|declined|fell|rose|advanced|increased)\s+([\d.]+)\s*percent\s+in\s+[A-Za-z]+/i);
     const yoyMatch = text.match(/index for final demand (increased|rose|advanced|decreased|declined|fell)\s+([\d.]+)\s*percent\s+for the 12 months ended/i);
@@ -8022,7 +8058,7 @@ async function loadGlobalCommoditiesSection() {
   };
 }
 
-const GLOBAL_MACRO_FAST_QUOTE_CADENCE_MS = 4_000;
+const GLOBAL_MACRO_FAST_QUOTE_CADENCE_MS = 3_000;
 const GLOBAL_MACRO_FAST_QUOTE_CACHE_TTL_MS = 3_000;
 
 function fastQuoteStatus(updatedAt?: string) {
@@ -8040,16 +8076,28 @@ function createBudgetedFastQuoteSource<T>(loader: () => Promise<T>, initialBudge
   let data: T | undefined;
   let inFlight: Promise<T | undefined> | undefined;
   let lastError: string | undefined;
+  let lastAttemptAt = -Infinity;
+  let lastSuccessAt = -Infinity;
+  let failures = 0;
+  let retryAt = -Infinity;
   const start = () => {
+    if (!inFlight && Date.now() < retryAt) return Promise.resolve(data);
+    if (!inFlight && Date.now() - lastAttemptAt < 3_000) return Promise.resolve(data);
     if (!inFlight) {
+      lastAttemptAt = Date.now();
       inFlight = loader()
         .then((value) => {
           data = value;
+          lastSuccessAt = Date.now();
           lastError = undefined;
+          failures = 0;
+          retryAt = -Infinity;
           return value;
         })
         .catch((error) => {
           lastError = error instanceof Error ? error.message : String(error);
+          failures++;
+          retryAt = Date.now() + Math.min(60_000, 3_000 * 2 ** Math.min(failures - 1, 5));
           return data;
         })
         .finally(() => {
@@ -8063,8 +8111,13 @@ function createBudgetedFastQuoteSource<T>(loader: () => Promise<T>, initialBudge
     const startedAt = Date.now();
     const request = start();
     if (isPublicSourceRefresh()) {
-      const value = await request;
-      return { data: lastError ? undefined : value, latencyMs: Date.now() - startedAt, error: lastError };
+      // Do not let one slow source stall the entire fast frame. A previously
+      // successful fetch bridges at most two frames, never an unlimited renewal.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([request, new Promise<void>(resolve => { timer = setTimeout(resolve, initialBudgetMs); })]);
+      if (timer) clearTimeout(timer);
+      return { data: !lastError && Date.now() - lastSuccessAt <= 6_000 ? data : undefined,
+        latencyMs: Date.now() - startedAt, error: lastError };
     }
     if (data !== undefined) return { data, latencyMs: 0, error: lastError };
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -8078,6 +8131,12 @@ function createBudgetedFastQuoteSource<T>(loader: () => Promise<T>, initialBudge
 }
 
 const readFastEquitySource = createBudgetedFastQuoteSource(() => getEquityIndexSnapshots());
+const readFastCryptoSnapshotsSource = createBudgetedFastQuoteSource(() => getCryptoMarketSnapshots());
+const readFastGoldenDragonSource = createBudgetedFastQuoteSource(async () => {
+  const quote = (await getYahooFastQuotes(['^HXC'])).get('^HXC');
+  if (!quote) throw new Error('中国金龙指数来源暂不可用');
+  return quote;
+});
 const readFastGlobalIndexSource = createBudgetedFastQuoteSource(() => getEastMoneyGlobalFastQuotes());
 const readFastAssetSource = createBudgetedFastQuoteSource(() => getSinaFastAssetQuotes());
 const readFastCryptoYahooSource = createBudgetedFastQuoteSource(() => getYahooFastCryptoQuotes());
@@ -8086,6 +8145,11 @@ const readFastCryptoCoinGeckoSource = createBudgetedFastQuoteSource(() => getCoi
 const readFastIsolatedAssetYahooSource = createBudgetedFastQuoteSource(() => getYahooFastQuotes(
   Object.values(isolatedGlobalMacroAssetConfigs).map((item) => item.symbol),
 ));
+const readFastDashboardYahooSource = createBudgetedFastQuoteSource(() => getYahooFastQuotes([
+  ...globalMacroQuotes.map(item => item.symbol),
+  ...globalMacroCommodities.map(([, , symbol]) => symbol),
+  ...globalMacroFxRates.map(item => item.symbol), 'VT', '^SOX', '^TNX', 'DX-Y.NYB',
+]));
 
 async function readFastCryptoSource() {
   const startedAt = Date.now();
@@ -8093,6 +8157,18 @@ async function readFastCryptoSource() {
     readFastCryptoYahooSource(),
     readFastCryptoBinanceSource(),
     readFastCryptoCoinGeckoSource(),
+    // Reuse the market tape's Binance/OKX batch as an independent fallback.
+    // In particular, a slow Yahoo/Binance route must not hide a working OKX quote.
+    readFastCryptoSnapshotsSource().then(result => ({ ...result,
+      data: result.data ? new Map<string, YahooFastQuote>(result.data.indices.flatMap(item => {
+        const config = cryptoAssetConfigs.find(config => config.symbol === item.code);
+        if (!config || !['bitcoin', 'ethereum'].includes(config.id) || !item.updatedAt) return [];
+        return [[config.id, { symbol: `${item.code}-USD`, price: item.price, change: item.change,
+          changePercent: item.changePercent, updatedAt: item.updatedAt,
+          sourceUrl: item.validation.source.includes('Binance')
+            ? `https://www.binance.com/en/trade/${item.code}_USDT?type=spot` : item.sourceUrl }]];
+      })) : undefined,
+    })),
   ]);
   results.forEach((result) => {
     if (result.data?.size) mergeFreshCryptoQuotes(result.data);
@@ -8138,7 +8214,7 @@ async function loadGlobalMacroFastQuotes() {
     readFastGlobalIndexSource(),
     readFastAssetSource(),
     readFastCryptoSource(),
-    getYahooFastQuotes(isPublicSourceRefresh() ? yahooSymbols : yahooForegroundSymbols),
+    readFastDashboardYahooSource().then(result => result.data || new Map<string, YahooFastQuote>()),
   ]);
   const yahoo = new Map(isPublicSourceRefresh() ? [] : yahooFastQuoteLastGood);
   yahooMarketQuotes.forEach((quote, symbol) => yahoo.set(symbol, quote));
@@ -8316,13 +8392,16 @@ let globalMacroFastQuoteInFlight: Promise<GlobalMacroFastQuotePayload> | undefin
 
 async function refreshGlobalMacroFastQuotes() {
   if (!globalMacroFastQuoteInFlight) {
-    globalMacroFastQuoteInFlight = loadGlobalMacroFastQuotes()
+    const startedAt = Date.now();
+    globalMacroFastQuoteInFlight = withPublicSourceRefresh(() => loadGlobalMacroFastQuotes())
       .then((data) => {
-        globalMacroFastQuoteCache = { storedAt: Date.now(), data };
+        if (!validatePublicResource('/api/global-macro-quotes', data)) throw new Error('快速行情暂无可用来源');
+        globalMacroFastQuoteCache = { storedAt: startedAt, data };
         return data;
       })
       .catch((error) => {
-        if (globalMacroFastQuoteCache) return globalMacroFastQuoteCache.data;
+        if (!isPublicSourceRefresh() && globalMacroFastQuoteCache
+          && Date.now() - globalMacroFastQuoteCache.storedAt < 90_000) return globalMacroFastQuoteCache.data;
         throw error;
       })
       .finally(() => {
@@ -9620,9 +9699,11 @@ async function fetchEditorialYahooData() {
   return { indices, stocks, mag7Points, assetQuotes, macroVisualQuotes, errors };
 }
 
-async function fetchEditorialCryptoData() {
+async function fetchEditorialCryptoData(only?: readonly number[], previous?: DailyBriefEditorialSnapshot) {
   const spotUrl = 'https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22SOLUSDT%22%5D';
+  let part = 0;
   const resilientFetch = async (url: string) => {
+    if (only && !only.includes(part++)) throw new Error('本次无需重试此来源');
     try {
       return await fetchRoutedText(url, 'direct', 12_000, 'application/json');
     } catch {
@@ -9734,6 +9815,19 @@ async function fetchEditorialCryptoData() {
     sourceUrl: 'https://www.coingecko.com/en/coins/hyperliquid',
     history: histories.HYPE || [],
   });
+  for (const [symbol, history] of Object.entries(histories)) {
+    if (history?.length && !crypto.some(q => q.symbol === symbol)) crypto.push({ symbol, name: names[`${symbol}USDT`] || symbol,
+      price: null, changePercent: null, marketState: 'UNAVAILABLE', history });
+  }
+  if (previous) {
+    for (const old of previous.crypto) {
+      const index = crypto.findIndex(item => item.symbol === old.symbol);
+      const incoming = index >= 0 ? crypto[index] : undefined;
+      const merged = { ...old, ...(incoming?.price != null && old.price == null ? incoming : {}),
+        history: old.history?.length ? old.history : histories[old.symbol] || [] };
+      if (index >= 0) crypto[index] = merged; else crypto.push(merged);
+    }
+  }
   const funding = fundingResult.status === 'fulfilled' ? JSON.parse(fundingResult.value) as Record<string, unknown> : {};
   const openInterest = openInterestResult.status === 'fulfilled' ? JSON.parse(openInterestResult.value) as Record<string, unknown> : {};
   const longShortRows = longShortResult.status === 'fulfilled' ? JSON.parse(longShortResult.value) as Array<Record<string, unknown>> : [];
@@ -9752,27 +9846,29 @@ async function fetchEditorialCryptoData() {
   const liquidationTotal = finiteNumber(binanceLiquidations?.total);
   const liquidationLong = finiteNumber(binanceLiquidations?.long);
   const liquidationShort = finiteNumber(binanceLiquidations?.short);
-  const fundingValue = finiteNumber(funding.lastFundingRate);
-  const contracts = finiteNumber(openInterest.openInterest);
-  const markPrice = finiteNumber(funding.markPrice);
+  const fundingValue = finiteNumber(funding.lastFundingRate) ?? (previous?.onchain.fundingRate.value != null ? previous.onchain.fundingRate.value / 100 : null);
+  const contracts = finiteNumber(openInterest.openInterest) ?? previous?.derivativeInputs?.contracts ?? null;
+  const markPrice = finiteNumber(funding.markPrice) ?? previous?.derivativeInputs?.markPrice ?? null;
   const openInterestUsd = contracts !== null && markPrice !== null ? contracts * markPrice : null;
-  const longAccount = finiteNumber(longShort.longAccount);
-  const shortAccount = finiteNumber(longShort.shortAccount);
-  const longShortRatio = finiteNumber(longShort.longShortRatio);
+  const longAccount = finiteNumber(longShort.longAccount) ?? (previous?.futuresLongShort?.longAccount != null ? previous.futuresLongShort.longAccount / 100 : null);
+  const shortAccount = finiteNumber(longShort.shortAccount) ?? (previous?.futuresLongShort?.shortAccount != null ? previous.futuresLongShort.shortAccount / 100 : null);
+  const longShortRatio = finiteNumber(longShort.longShortRatio) ?? previous?.futuresLongShort?.longShortRatio ?? null;
   const longShortTimestamp = finiteNumber(longShort.timestamp);
   const takerBuy = finiteNumber(taker.buyVol);
   const takerSell = finiteNumber(taker.sellVol);
-  const topTraderLong = finiteNumber(topPosition.longPosition ?? topPosition.longAccount);
+  const topTraderLong = finiteNumber(topPosition.longPosition ?? topPosition.longAccount) ?? (previous?.derivativesSentiment?.topTraderLong != null ? previous.derivativesSentiment.topTraderLong / 100 : null);
   const previousOi = finiteNumber(oiHistoryRows.at(-2)?.sumOpenInterestValue);
   const latestOi = finiteNumber(oiHistoryRows.at(-1)?.sumOpenInterestValue);
-  const oiChange5m = previousOi !== null && latestOi !== null && previousOi > 0 ? (latestOi / previousOi - 1) * 100 : null;
+  const oiChange5m = previousOi !== null && latestOi !== null && previousOi > 0 ? (latestOi / previousOi - 1) * 100 : previous?.derivativesSentiment?.oiChange5m ?? null;
+  const takerRatio = takerBuy !== null && takerSell !== null && takerSell > 0 ? takerBuy / takerSell : previous?.derivativesSentiment?.takerBuySellRatio ?? null;
   const ratioScore = (ratio: number | null) => ratio === null || ratio <= 0 ? null : 50 + Math.max(-35, Math.min(35, Math.log(ratio) * 30));
-  const scoreInputs = [longAccount === null ? null : longAccount * 100, ratioScore(takerBuy !== null && takerSell !== null && takerSell > 0 ? takerBuy / takerSell : null), topTraderLong === null ? null : topTraderLong * 100, fundingValue === null ? null : 50 + Math.max(-20, Math.min(20, fundingValue * 20_000))].filter((value): value is number => value !== null);
+  const scoreInputs = [longAccount === null ? null : longAccount * 100, ratioScore(takerRatio), topTraderLong === null ? null : topTraderLong * 100, fundingValue === null ? null : 50 + Math.max(-20, Math.min(20, fundingValue * 20_000))].filter((value): value is number => value !== null);
   const derivativesScore = scoreInputs.length >= 3 ? scoreInputs.reduce((sum, value) => sum + value, 0) / scoreInputs.length : null;
   const dominance = finiteNumber(global.bitcoin_dominance_percentage);
   if (!crypto.length && fundingValue === null && openInterestUsd === null && dominance === null) throw new Error('Binance 与 CoinPaprika 均暂时不可用');
   return {
     crypto,
+    derivativeInputs: { markPrice, contracts },
     btcTechnical: btcTechnical(),
     fundingRate: editorialMetric(fundingValue === null ? null : fundingValue * 100, fundingValue === null ? '暂无数据' : `${fundingValue >= 0 ? '+' : ''}${(fundingValue * 100).toFixed(4)}%`, 'Binance USDⓈ-M Futures', 'https://www.binance.com/en/futures/BTCUSDT'),
     openInterest: editorialMetric(openInterestUsd, openInterestUsd === null ? '暂无数据' : `$${(openInterestUsd / 1_000_000_000).toFixed(2)}B`, 'Binance USDⓈ-M Futures', 'https://www.binance.com/en/futures/BTCUSDT'),
@@ -9784,7 +9880,7 @@ async function fetchEditorialCryptoData() {
       updatedAt: longShortTimestamp === null ? null : new Date(longShortTimestamp).toISOString(),
       sourceUrl: 'https://www.binance.com/en/futures/BTCUSDT',
     },
-    derivativesSentiment: { score: derivativesScore === null ? null : round(derivativesScore, 1), accountLong: longAccount === null ? null : longAccount * 100, takerBuySellRatio: takerBuy !== null && takerSell !== null && takerSell > 0 ? takerBuy / takerSell : null, topTraderLong: topTraderLong === null ? null : topTraderLong * 100, fundingRate: fundingValue === null ? null : fundingValue * 100, oiChange5m, updatedAt: longShortTimestamp === null ? null : new Date(longShortTimestamp).toISOString() },
+    derivativesSentiment: { score: derivativesScore === null ? null : round(derivativesScore, 1), accountLong: longAccount === null ? null : longAccount * 100, takerBuySellRatio: takerRatio, topTraderLong: topTraderLong === null ? null : topTraderLong * 100, fundingRate: fundingValue === null ? null : fundingValue * 100, oiChange5m, updatedAt: longShortTimestamp === null ? previous?.derivativesSentiment?.updatedAt ?? null : new Date(longShortTimestamp).toISOString() },
     binanceLiquidations: {
       totalUsd: liquidationTotal,
       longUsd: liquidationLong,
@@ -9795,7 +9891,7 @@ async function fetchEditorialCryptoData() {
   };
 }
 
-async function fetchGlassnodeEditorialMetrics() {
+async function fetchGlassnodeEditorialMetrics(only?: readonly string[]) {
   const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
   const env = loadEnv(mode, rootDir, '');
   const apiKey = String(process.env.GLASSNODE_API_KEY || env.GLASSNODE_API_KEY || '').trim();
@@ -9803,6 +9899,7 @@ async function fetchGlassnodeEditorialMetrics() {
   const missing = (label: string) => unavailableEditorialMetric(label, 'Glassnode API', sourceUrl, '需在 .env.local 配置 GLASSNODE_API_KEY；未授权时不使用其他指标替代。');
   if (!apiKey) return { mvrvZScore: missing('MVRV Z-Score'), lthSupplyRatio: missing('LTH 持有比例'), sopr: missing('SOPR'), lthSopr: missing('LTH-SOPR'), puellMultiple: missing('Puell Multiple') };
   const getLatest = async (path: string) => {
+    if (only && !only.includes(path)) throw new Error('本次无需重试此指标');
     const url = `https://api.glassnode.com/v1/metrics/${path}?a=BTC&i=24h&api_key=${encodeURIComponent(apiKey)}`;
     const rows = JSON.parse(await fetchRoutedText(url, 'direct', 20_000, 'application/json')) as Array<Record<string, unknown>>;
     return finiteNumber(rows.at(-1)?.v);
@@ -10000,6 +10097,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     binanceLiquidations: { totalUsd: null, longUsd: null, shortUsd: null, updatedAt: null, sourceUrl: 'https://marginpad.io/liquidations/by-exchange/' },
     day1BtcMetrics: { etfFlowUsd: null, fundingRate: null, longShortRatio: null, fearGreed: null, lthMvrv: null, nupl: null, lthSopr: null, sthSopr: null, lthSupplyPercent: null, ma365Ratio: null, wma200Multiple: null, weeklyRsi: null, volume24h: null, volumeChangePercent: null, updatedAt: null, sourceUrl: day1BriefPageUrl },
     btcTechnical: null,
+    derivativeInputs: { markPrice: null, contracts: null },
   };
   const glassnodeChain = glassnodeResult.status === 'fulfilled' ? glassnodeResult.value : await fetchGlassnodeEditorialMetrics();
   const coinMetricsFallback = coinMetricsFallbackResult.status === 'fulfilled' ? coinMetricsFallbackResult.value : null;
@@ -10110,6 +10208,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
   ];
   const editorial: DailyBriefEditorialSnapshot = {
     generatedAt, issue,
+    derivativeInputs: cryptoData.derivativeInputs,
     sentiment: { cryptoFearGreed: cryptoFear.metric, stockFearGreed: stockFear.metric, vix, mvrvZScore: chain.mvrvZScore, lthSupplyRatio: chain.lthSupplyRatio, sopr: chain.sopr, stockComponents: stockFear.components, cryptoHistory: cryptoFear.history },
     signals: { ...signals, methodology: '由 HTML 指定的 8 项同名指标等权归一化；至少 4 项可用时计算，覆盖度同步展示。' },
     indices: yahoo.indices, stocks: yahoo.stocks, crypto: cryptoData.crypto, macroAssets: yahoo.macroVisualQuotes, btcTechnical: cryptoData.btcTechnical, futuresLongShort: cryptoData.futuresLongShort, derivativesSentiment: cryptoData.derivativesSentiment, binanceLiquidations: cryptoData.binanceLiquidations, day1BtcMetrics, assetGroups,
@@ -10133,7 +10232,29 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
   return { version: 18, date: window.date, slot: window.slot, generatedAt, updatedAt: generatedAt, summaryMode: aiSummary ? 'ai' : 'rules', summary, markets, macro, news, portfolio: { connected: false, positions: [], detail: '每日策略不读取 IBKR 持仓。' }, sources, errors, editorial, day1 };
 }
 
-const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot });
+const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot,
+  repairTasks: () => createDailyBriefRepairTasks({
+    yahoo: (symbol, range) => withPublicSourceRefresh(() => readYahooMacroQuote(symbol, range)),
+    yahooConfigs: [
+      ...editorialStockConfigs.map(([symbol, name]) => ({ symbol, name, displaySymbol: symbol, kind: 'stock' as const })),
+      ...editorialIndexConfigs.map(([symbol, name]) => ({ symbol, name, displaySymbol: symbol.replace(/^\^/, ''), kind: 'index' as const })),
+      ...editorialAssetYahooConfigs.map(c => ({ symbol: c.yahooSymbol, displaySymbol: c.symbol, name: c.name, kind: 'asset' as const })),
+      ...editorialMacroVisualYahooConfigs.map(c => ({ symbol: c.yahooSymbol, displaySymbol: c.symbol, name: c.name, kind: 'asset' as const, macro: true })),
+    ],
+    crypto: fetchEditorialCryptoData, cryptoFear: fetchEditorialCryptoFearGreed, stockFear: fetchEditorialStockFearGreed,
+    coinMetrics: fetchCoinMetricsEditorialFallback, glassnode: fetchGlassnodeEditorialMetrics,
+    hasGlassnodeKey: () => Boolean(process.env.GLASSNODE_API_KEY || loadEnv(process.env.NODE_ENV === 'production' ? 'production' : 'development', rootDir, '').GLASSNODE_API_KEY),
+    day1Metrics: fetchDay1BtcMetrics, cycle: getCachedBitcoinCycleHistory,
+    news: async () => {
+      const payload = await getNewsFeed();
+      return payload.items.slice(0, 10).map((item) => ({ id: String(item.id), title: item.title,
+        source: item.source, category: item.categoryLabel || item.category || '市场', publishedAt: item.publishedAt,
+        summary: item.summary, weight: item.weight, url: item.url }));
+    },
+    calendar: async () => (await loadGlobalCalendarSection()).calendar.map(event => ({ id: event.id, date: event.date,
+      time: event.time, title: event.title, source: event.source, url: event.url })),
+  }),
+});
 const dailyBriefAiSummaryCache = createDailyBriefAiSummaryCache({
   store: createPublicSnapshotStore(path.join(sparkflowStateDir, 'daily-brief-ai-summary'), 256 * 1024),
   promptVersion: DAILY_BRIEF_AI_PROMPT_VERSION,
@@ -11060,7 +11181,7 @@ async function writeObsidianNote(body: { vaultPath?: string; folder?: string; ti
 
 async function getCachedCryptoHeatmapUniverse() {
   const now = Date.now();
-  if (cryptoHeatmapUniverseCache && now - cryptoHeatmapUniverseCache.storedAt < 60_000) {
+  if (cryptoHeatmapUniverseCache && now - cryptoHeatmapUniverseCache.storedAt < 15 * 60_000) {
     return cryptoHeatmapUniverseCache.data;
   }
   if (!cryptoHeatmapUniverseInFlight) {
@@ -11692,8 +11813,14 @@ const chinaMacroMethodology = '实时指数来自东方财富、腾讯证券与 
 
 async function loadChinaMacroIndicesSection() {
   const [equityResult, goldenDragonResult] = await Promise.allSettled([
-    getEquityIndexSnapshots(),
-    getYahooMacroQuote('^HXC', '1mo'),
+    readFastEquitySource().then(result => {
+      if (!result.data) throw new Error(result.error || '指数来源超时');
+      return result.data;
+    }),
+    readFastGoldenDragonSource().then(result => {
+      if (!result.data) throw new Error(result.error || '中国金龙指数来源超时');
+      return result.data;
+    }),
   ]);
   const indices = equityResult.status === 'fulfilled'
     ? equityResult.value.indices.filter((item) => item.market === 'china')
@@ -11855,9 +11982,17 @@ async function loadPublicDashboardResource(key: string): Promise<unknown> {
     case '/api/crypto-market-heatmap': return getCachedCryptoMarketHeatmap();
     case '/api/global-market-heatmap': return getGlobalMarketHeatmap(market);
     case '/api/international-market-overview': return getInternationalMarketOverview(market as InternationalMarketMode);
-    case '/api/global-macro-core-index': return { generatedAt: generatedAt(), index: await loadIsolatedGlobalMacroCoreIndex(id as IsolatedGlobalMacroCoreIndexId) };
-    case '/api/global-macro-fx-rate': return { generatedAt: generatedAt(), rate: await loadIsolatedGlobalMacroFxRate(id as IsolatedGlobalMacroFxRateId) };
-    case '/api/global-macro-asset': return { generatedAt: generatedAt(), asset: await loadIsolatedGlobalMacroAsset(id as IsolatedGlobalMacroAssetId) };
+    case '/api/global-macro-core-index':
+    case '/api/global-macro-fx-rate':
+    case '/api/global-macro-asset': {
+      // All real-time cards share one batched frame, not one history fetch per
+      // card/visitor. Slow dashboard sections continue to supply chart history.
+      const frame = await getCachedGlobalMacroFastQuotes();
+      const field = url.pathname.endsWith('core-index') ? 'index' : url.pathname.endsWith('fx-rate') ? 'rate' : 'asset';
+      const item = (field === 'index' ? frame.coreIndices : [...frame.macro, ...frame.commodities]).find(item => item.id === id);
+      if (!item || !validatePublicResource(key, { [field]: item })) throw new Error('该资产的最新行情暂不可用');
+      return { generatedAt: frame.generatedAt, [field]: item };
+    }
     case '/api/global-risk-sentiment': return loadGlobalRiskSentiment();
     case '/api/global-macro-fed-rate': return { generatedAt: generatedAt(), expectation: await loadIsolatedFedRateExpectation() };
     case '/api/global-macro-ppi-expectation': return { generatedAt: generatedAt(), macro: [await getUsPpiMacroMetric(false, true)] };
@@ -11892,7 +12027,7 @@ function allWeatherApiPlugin() {
         concurrency: Number(preloadEnvironment.SPARKFLOW_PUBLIC_CACHE_CONCURRENCY) === 1 ? 1 : 2,
       });
       const servePublicData = publicCache ? createPublicDataHandler(publicCache) : undefined;
-      publicCache?.start();
+      publicCache?.start(250);
       server.httpServer?.once('close', () => publicCache?.stop());
       const newsPageCache = createNewsPageCache({
         subscriptions: () => newsSubscriptions.list(), load: getNewsFeed,

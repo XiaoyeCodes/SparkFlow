@@ -11,13 +11,18 @@ try {
   const b=publicDataFetch('/api/market-quotes');
   cancel.abort(); await assert.rejects(a); complete();
   assert.equal((await(await b).json()).indices[0].price,100); assert.equal(calls,1,'one consumer cannot cancel another');
-  await publicDataFetch('/api/market-quotes'); assert.equal(calls,1,'navigation uses memory');
+  const nextPoll=publicDataFetch('/api/market-quotes'); complete(); await nextPoll;
+  assert.equal(calls,2,'live polls check server; first-paint snapshot remains available');
   assert.equal(peekPublicData('/api/market-quotes').indices[0].price,100);
   const copy=peekPublicData('/api/market-quotes');copy.indices[0].price=0;assert.equal(peekPublicData('/api/market-quotes').indices[0].price,100);
   now+=6100;assert.equal(peekPublicData('/api/market-quotes'),undefined,'expired snapshots cannot render on remount');
   globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({indices:[{price:200}]}));};
-  await publicDataFetch('/api/market-quotes');assert.equal(calls,2);
-  await publicDataFetch('/api/market-quotes?fresh=1');assert.equal(calls,3,'manual refresh bypasses browser memory only');
+  await publicDataFetch('/api/market-quotes');assert.equal(calls,3);
+  await publicDataFetch('/api/market-quotes?fresh=1');assert.equal(calls,4,'manual refresh bypasses browser memory only');
+  const slowBefore=calls;
+  await publicDataFetch('/api/china-macro-dashboard?section=metrics');
+  await publicDataFetch('/api/china-macro-dashboard?section=metrics');
+  assert.equal(calls,slowBefore+1,'slow data still reuses browser memory');
   for(const url of ['/api/ibkr/status','/api/daily-brief','/api/ai-analysis','https://example.com/api/market-quotes']){
     const before=calls;await publicDataFetch(url);await publicDataFetch(url);assert.equal(calls,before+2,url);
   }

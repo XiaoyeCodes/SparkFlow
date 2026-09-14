@@ -151,6 +151,7 @@ export type DailyBriefAssetGroup = {
 };
 
 export type DailyBriefEditorialSnapshot = {
+  derivativeInputs?: { markPrice: number | null; contracts: number | null };
   generatedAt: string;
   issue: number;
   sentiment: {
@@ -278,6 +279,7 @@ export type DailyBriefDay1Snapshot = {
 };
 
 export type DailyBriefSnapshot = {
+  repair?: Record<string, { label: string; state: 'ready' | 'failed' | 'blocked'; attempts: number; checkedAt: string; nextRetryAt?: string; detail?: string }>;
   version: 18;
   date: string;
   slot: DailyBriefSlot;

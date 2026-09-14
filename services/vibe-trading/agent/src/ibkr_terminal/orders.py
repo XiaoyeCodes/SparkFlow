@@ -231,11 +231,12 @@ class OrderLedger:
         unresolved = [row for row in self._records(intent.accountKey, intent.mode) if row.intent.clientIntentId != exclude
             and (row.submission in ('UNKNOWN', 'RECONCILING') or row.reconciliationRequired or row.pendingAmendmentId)]
         manual_paper = intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'
+        broker_managed = manual_paper and grant.source == 'user' and context.brokerManagedRisk
         if unresolved and not manual_paper:
             raise RiskDenied('UNRESOLVED_ORDER')
         self._source(grant.source)
         checkpoint = self._db.execute('SELECT payload FROM order_account_proofs WHERE mode=? AND account_key=? ORDER BY rowid DESC LIMIT 1', (intent.mode, intent.accountKey)).fetchone()
-        if checkpoint and not (manual_paper and unresolved):
+        if checkpoint and not broker_managed and not (manual_paper and unresolved):
             proof = json.loads(checkpoint[0])
             positions = {str(row.conId): Decimal(row.quantity) for row in context.holdings if Decimal(row.quantity)}
             expected = {key: Decimal(value) for key, value in proof['positions'].items() if Decimal(value)}

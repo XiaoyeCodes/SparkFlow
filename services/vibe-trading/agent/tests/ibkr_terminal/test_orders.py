@@ -172,6 +172,20 @@ def test_manual_paper_orders_ignore_strategy_throttles_but_keep_financial_reserv
             db.reserve(third, context(dailyLoss='999'))
 
 
+def test_user_manual_paper_order_delegates_financial_risk_to_broker(tmp_path):
+    order = intent('broker-managed',quantity='999999',authorizationId='user-manual')
+    grant = authorization(authorizationId='user-manual',kind='manual',source='user',
+        confirmedIntentHash=intent_hash(order))
+    state = context(source='ibkr',brokerManagedRisk=True,reconciled=False,quoteState='missing',
+        referenceKind='order-input',referencePrice=None,settledCash=None,totalCash=None,
+        netLiquidation=None,dailyLoss=None,holdings=[],openOrdersComplete=False)
+    with OrderLedger(tmp_path/'orders.db',clock=lambda:NOW) as db:
+        db.record_authorization(grant)
+        row = db.reserve(order,state)
+        assert row.submission == 'PERSISTED'
+        assert (row.reservedCash,row.reservedNotional,row.reservedQuantity) == ('0','0','0')
+
+
 def test_manual_paper_order_can_follow_unresolved_order_using_remaining_cash(tmp_path):
     with ledger(tmp_path / 'orders.db') as db:
         db.record_authorization(authorization())

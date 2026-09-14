@@ -65,6 +65,41 @@ def test_managed_pending_order_is_reserved_locally_and_not_treated_as_external()
     assert list(source._external_open_orders(snapshot))==list(snapshot.orders)
 
 
+def test_user_manual_paper_source_does_not_require_quote_pnl_or_account_risk_reads(api_event_loop):
+    from datetime import timedelta
+    from test_readonly import FakeEvent
+    from test_reviews import Source,draft
+    from ib_async import Contract
+    async def run():
+        snapshot=Item(accountKey='paper:engineering',baseCurrency='USD',sessionRevision=1,snapshotId='fresh',state='empty',
+            positions=(),orders=(),cash=(),metrics=Item(netLiquidation=None))
+        class Broker:
+            pnlEvent=FakeEvent();pendingTickersEvent=FakeEvent();errorEvent=FakeEvent()
+            wrapper=Item(reqId2Ticker={})
+            async def reqContractDetailsAsync(self,contract):
+                return [Item(contract=Contract(conId=12,symbol='TEST',secType='STK',currency='USD',primaryExchange='NASDAQ'),
+                    minTick=.01,validExchanges='SMART',marketRuleIds='26',
+                    liquidSessions=lambda:[Item(start=NOW-timedelta(hours=1),end=NOW+timedelta(hours=1))])]
+            def reqTickByTickData(self,contract,*args): return Item(contract=contract,tickByTicks=[])
+            def cancelTickByTickData(self,*args): pass
+            async def reqMarketRuleAsync(self,rule): return [Item(lowEdge=0,increment=.01)]
+            def isConnected(self): return True
+            def reqPnL(self,*args): raise AssertionError('local PnL risk read is disabled')
+            async def reqAccountSnapshotAsync(self,*args): raise AssertionError('local account risk read is disabled')
+            async def reqFreshSummaryAsync(self,*args): raise AssertionError('local account risk read is disabled')
+        ib=Broker()
+        connection=Item(_ib=ib,binding=Item(brokerAccount='TEST'),healthy=lambda:True,reconciliation_blocked=False,
+            _fixture=False,session=Item(snapshot=lambda:snapshot))
+        scope=Source().load(draft()).scope.model_copy(update={'source':'user'})
+        source=PaperRiskSource(connection,scope,clock=lambda:NOW)
+        prepared=await source.prepare(draft(quantity='999999'))
+        assert prepared.context.brokerManagedRisk
+        assert prepared.context.referenceKind=='order-input' and prepared.context.referencePrice=='100'
+        assert prepared.context.settledCash is None and prepared.context.netLiquidation is None
+        source.close()
+    api_event_loop.run_until_complete(run())
+
+
 def test_risk_load_uses_latest_daily_loss_and_rejects_changed_cash():
     from datetime import timedelta
     from test_reviews import Source,draft

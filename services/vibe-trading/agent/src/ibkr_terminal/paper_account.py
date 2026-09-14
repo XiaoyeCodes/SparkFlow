@@ -4,7 +4,7 @@ from datetime import datetime,timezone
 from decimal import Decimal
 from uuid import uuid4
 from .broker_views import decimal_text
-from .reconcile import AccountProof
+from .reconcile import AccountProof,RECOVERABLE_SDK_DIAGNOSTICS
 from .risk import RiskDenied
 
 
@@ -84,13 +84,14 @@ class PaperAccountReconciliation:
                 with self.rec.ledger.transaction():
                     halt = self.rec.db.execute('SELECT reason FROM order_integrity_halts WHERE mode=? AND account_key=?',
                         (self.rec.mode,self.rec.account_key)).fetchone()
-                    if halt and halt[0] == 'SDK_SESSION_CHANGED':
+                    recoverable_empty_halt = halt and (halt[0] == 'SDK_SESSION_CHANGED' or halt[0] in RECOVERABLE_SDK_DIAGNOSTICS)
+                    if recoverable_empty_halt:
                         from .audit import read_events, append_event
                         read_events(self.rec.db,self.rec.account_key)
                         self.rec.db.execute('DELETE FROM order_integrity_halts WHERE mode=? AND account_key=? AND reason=?',
-                            (self.rec.mode,self.rec.account_key,'SDK_SESSION_CHANGED'))
+                            (self.rec.mode,self.rec.account_key,halt[0]))
                         append_event(self.rec.db,self.rec.account_key,'EMPTY_SESSION_HALT_RECOVERED',cash_at.isoformat(),
-                            {'sessionRevision':self.rec.revision,'snapshotId':snapshot.snapshotId})
+                            {'reason':halt[0],'sessionRevision':self.rec.revision,'snapshotId':snapshot.snapshotId})
                 return {'reconciledOrders':0,'detail':'无本系统订单；账户读取完成。'}
         proof=AccountProof(accountKey=snapshot.accountKey,mode=snapshot.mode,sessionRevision=snapshot.sessionRevision,
             source='fixture' if c._fixture else 'ibkr',snapshotId='account-proof:'+uuid4().hex,

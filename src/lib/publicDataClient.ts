@@ -96,7 +96,9 @@ export function publicDataFetch(input: string, init: RequestInit = {}): Promise<
             meta?.state === 'stale' ? Date.now() + 1000 : refreshAt);
           const body = JSON.stringify(data);
           const size = body.length * 2;
-          if (until > Date.now() && size <= 2 * 1024 * 1024) {
+          // Real-time quotes keep a bounded first-paint snapshot, but every poll
+          // checks the shared server cache instead of adding another 3s TTL.
+          if ((until > Date.now() || policy.realtime) && size <= 2 * 1024 * 1024 && hardExpiry > Date.now()) {
             remove(policy.key);
             while (entries.size && (entries.size >= MAX_ENTRIES || bytes + size > MAX_BYTES)) remove(entries.keys().next().value!);
             entries.set(policy.key, { body, headers: [...response.headers.entries()], until,

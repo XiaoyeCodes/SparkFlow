@@ -40,7 +40,7 @@ import {
 import { MacroAiAnalyst, type MacroAiRunState } from './MacroAiAnalyst';
 import { requestIsolatedJson } from '../lib/isolatedResource';
 import { publicDataFetch, peekPublicData } from '../lib/publicDataClient';
-import { PublicDataCacheNotice } from './PublicDataCacheNotice';
+import { startQuotePolling } from '../lib/realtimeQuotes';
 import { publicDataExpiresAt } from '../lib/publicDataPolicy';
 import { FinancialConditionsCard } from './FinancialConditionsCard';
 import type { FinancialConditionsPayload, FinancialConditionsSnapshot } from '../lib/financialConditionsTypes';
@@ -2235,11 +2235,11 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const applyFastQuotes = useCallback((payload: FastQuotePayload) => {
     if (payload.generatedAt && payload.generatedAt === lastFastQuoteFrameRef.current) return;
     lastFastQuoteFrameRef.current = payload.generatedAt;
-    setData((current) => mergeDashboardPayload(current, payload, false));
+    setData((current) => mergeDashboardPayload(current, payload, true));
     setSelected((current) => {
       if (!current || !payload.markets) return current;
       const incoming = payload.markets.find((item) => item.id === current.id);
-      return incoming ? mergeDashboardItems([current], [incoming], false)[0] : current;
+      return incoming ? mergeDashboardItems([current], [incoming], true)[0] : current;
     });
     if (payload.markets?.length) setLoading(false);
   }, []);
@@ -2362,56 +2362,32 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       timers.add(timer);
     };
 
-    ISOLATED_CORE_INDEX_IDS.forEach((id) => {
-      const refresh = async () => {
-        try {
+    const stopLivePolls = [
+      ...ISOLATED_CORE_INDEX_IDS.map(id => startQuotePolling(async signal => {
           const payload = await requestIsolatedJson<IsolatedCoreIndexPayload>(
             `/api/global-macro-core-index?id=${encodeURIComponent(id)}`,
-            { signal: controller.signal },
+            { signal, maxAttempts: 1, timeoutMs: 10_000 },
           );
-          if (controller.signal.aborted) return;
-          setIsolatedCoreIndices((current) => ({ ...current, [id]: payload.index }));
-          schedule(() => void refresh(), 15_000);
-        } catch {
-          // This resource stops after its own third attempt. Sibling resources continue independently.
-        }
-      };
-      void refresh();
-    });
-
-    ISOLATED_FX_RATE_IDS.forEach((id) => {
-      const refresh = async () => {
-        try {
+          if (!signal.aborted) setIsolatedCoreIndices(current => ({ ...current,
+            [id]: mergeDashboardItems(current[id] ? [current[id]!] : [], [payload.index], true)[0] }));
+      })),
+      ...ISOLATED_FX_RATE_IDS.map(id => startQuotePolling(async signal => {
           const payload = await requestIsolatedJson<IsolatedFxRatePayload>(
             `/api/global-macro-fx-rate?id=${encodeURIComponent(id)}`,
-            { signal: controller.signal },
+            { signal, maxAttempts: 1, timeoutMs: 10_000 },
           );
-          if (controller.signal.aborted) return;
-          setIsolatedFxRates((current) => ({ ...current, [id]: payload.rate }));
-          schedule(() => void refresh(), 15_000);
-        } catch {
-          // This resource stops after its own third attempt. Sibling resources continue independently.
-        }
-      };
-      void refresh();
-    });
-
-    ISOLATED_MARKET_ASSET_IDS.forEach((id) => {
-      const refresh = async () => {
-        try {
+          if (!signal.aborted) setIsolatedFxRates(current => ({ ...current,
+            [id]: mergeDashboardItems(current[id] ? [current[id]!] : [], [payload.rate], true)[0] }));
+      })),
+      ...ISOLATED_MARKET_ASSET_IDS.map(id => startQuotePolling(async signal => {
           const payload = await requestIsolatedJson<IsolatedMarketAssetPayload>(
             `/api/global-macro-asset?id=${encodeURIComponent(id)}`,
-            { signal: controller.signal },
+            { signal, maxAttempts: 1, timeoutMs: 10_000 },
           );
-          if (controller.signal.aborted) return;
-          setIsolatedMarketAssets((current) => ({ ...current, [id]: payload.asset }));
-          schedule(() => void refresh(), 15_000);
-        } catch {
-          // This resource stops after its own third attempt. Sibling resources continue independently.
-        }
-      };
-      void refresh();
-    });
+          if (!signal.aborted) setIsolatedMarketAssets(current => ({ ...current,
+            [id]: mergeDashboardItems(current[id] ? [current[id]!] : [], [payload.asset], true)[0] }));
+      })),
+    ];
 
     const refreshFedRate = async () => {
       try {
@@ -2446,6 +2422,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     void refreshRiskSentiment();
 
     return () => {
+      stopLivePolls.forEach(stop => stop());
       controller.abort();
       timers.forEach((timer) => window.clearTimeout(timer));
       timers.clear();
@@ -2538,7 +2515,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       } catch {
         // The next recursive poll retries without creating overlapping requests.
       }
-      if (!disposed && !document.hidden) pollTimer = window.setTimeout(() => void poll(), 4_000);
+      if (!disposed && !document.hidden) pollTimer = window.setTimeout(() => void poll(), 3_000);
     };
 
     const startPolling = (delay = 0) => {
@@ -2557,15 +2534,18 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
         return;
       }
       eventSource = new EventSource('/api/global-macro-stream');
-      streamWatchdog = window.setTimeout(() => {
+      const armWatchdog = () => {
+        if (streamWatchdog !== undefined) window.clearTimeout(streamWatchdog);
+        streamWatchdog = window.setTimeout(() => {
         clearTransport();
         startPolling();
-      }, 12_000);
+        }, 12_000);
+      };
+      armWatchdog();
       eventSource.onmessage = (event) => {
-        if (streamWatchdog !== undefined) window.clearTimeout(streamWatchdog);
-        streamWatchdog = undefined;
         try {
           applyFastQuotes(JSON.parse(event.data) as FastQuotePayload);
+          armWatchdog();
         } catch {
           // Ignore one malformed frame; the stream remains connected for the next quote frame.
         }
@@ -2632,9 +2612,8 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     : null;
   const exchangeRates = FX_RATE_META.flatMap((meta) => {
     const isolatedRate = isolatedFxRates[meta.id];
-    if (isolatedRate) return [isolatedRate];
     const fallback = commodities.find((item) => item.id === meta.id);
-    return fallback ? [fallback] : [];
+    return mergeDashboardItems(fallback ? [fallback] : [], isolatedRate ? [isolatedRate] : [], true);
   });
   const crypto = commodities.filter((item) => ['bitcoin', 'ethereum'].includes(item.id));
   const markets = data?.markets || [];
@@ -2692,7 +2671,6 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
 
   return (
     <section className={`global-macro-shell${phoneDesktopMode ? ' macro-phone-desktop-mode' : ''}${phoneDesktopMode && phoneDesktopPortrait ? ' macro-phone-desktop-portrait' : ''}`}>
-      <PublicDataCacheNotice scope="global" />
       {phoneDevice ? (
         <>
           <button

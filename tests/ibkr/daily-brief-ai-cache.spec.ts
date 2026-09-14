@@ -12,8 +12,9 @@ const summary = (headline: string): DailyBriefSummary => ({ headline, regime: '�
     advice: Array.from({ length: 5 }, (_, index) => ({ label: `建议 ${index}`, detail: '缓存验证内容' })) } });
 const snapshot = (): DailyBriefSnapshot => {
   const now = new Date();
-  return { version: 18, date: new Date(now.getTime() - 3600_000).toISOString().slice(0, 10), slot: 'morning',
-    generatedAt: now.toISOString(), updatedAt: now.toISOString(), summaryMode: 'rules', summary: summary('简报基础内容'),
+  const date = new Date(now.getTime() - 3600_000).toISOString().slice(0, 10);
+  return { version: 18, date, slot: 'morning',
+    generatedAt: `${date}T01:00:00Z`, updatedAt: now.toISOString(), summaryMode: 'rules', summary: summary('简报基础内容'),
     markets: [], macro: [], news: [], portfolio: { connected: false, positions: [] }, sources: [], errors: [] };
 };
 

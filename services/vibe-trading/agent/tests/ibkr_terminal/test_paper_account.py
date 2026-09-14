@@ -7,7 +7,11 @@ from test_orders import ledger,NOW,intent,context
 from test_order_events import setup,event,fill,fee
 
 
-@pytest.mark.parametrize('reason,recovered',[('SDK_SESSION_CHANGED',True),('CONFLICTING_TERMINAL_STATUS',False)])
+@pytest.mark.parametrize('reason,recovered',[
+    ('SDK_SESSION_CHANGED',True),
+    ('IBKR_1100',True),
+    ('CONFLICTING_TERMINAL_STATUS',False),
+])
 def test_empty_session_halt_recovers_only_after_completed_account_proof(tmp_path,api_event_loop,reason,recovered):
     from src.ibkr_terminal.reconcile import OrderReconciler
     async def run():

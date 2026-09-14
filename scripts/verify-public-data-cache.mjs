@@ -36,13 +36,15 @@ const yahooLoader = loaderBody('async function getYahooMacroQuote(', 'async func
 });
 assert.equal((await yahooLoader('TEST')).price,100,'legacy fallback preserved');
 await assert.rejects(withPublicSourceRefresh(() => yahooLoader('TEST')), /offline/,'public refresh cannot renew an old Yahoo response');
+let sourceNow = 10000;
 const budgeted = loaderBody('function createBudgetedFastQuoteSource<T>', 'const readFastEquitySource', {
-  isPublicSourceRefresh, setTimeout, clearTimeout,
+  isPublicSourceRefresh, setTimeout, clearTimeout, Date: { now: () => sourceNow },
 });
 let upstreamFails = false;
 const readBudgeted = budgeted(async () => { if (upstreamFails) throw Error('offline'); return {price:100}; });
 assert.equal((await readBudgeted()).data.price,100);
 upstreamFails = true;
+sourceNow += 3001;
 assert.equal((await withPublicSourceRefresh(readBudgeted)).data,undefined,'public refresh awaits the source instead of returning last-good immediately');
 
 let now = 1_000_000;

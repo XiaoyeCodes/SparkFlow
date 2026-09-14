@@ -175,9 +175,12 @@ class OrderReviewService:
             reservedCash=reserved['cash'], reservedNotional=reserved['notional'],
             reservedQuantity=reserved['quantity'], testData=loaded.scope.source == 'fixture',
             warnings=(('工程测试数据；不得视为 IBKR 账户事实。',) if loaded.scope.source == 'fixture' else ())
-                + (('资金估算采用美元现金余额与券商可用资金的较低值；IBKR 未返回已结算现金。',) if loaded.context.settledCash is None else ())
-                + ((f'资金估算参考：IBKR {"持仓估值" if loaded.context.referenceKind == "portfolio" else "行情快照"} {loaded.context.referencePrice} USD；非实时逐笔报价，实际成交价由券商确定。',) if loaded.context.referenceKind != 'trade' else ())
-                + (('市价单按实际成交价结算；现金按参考价加 5% 预留，这不是成交价格上限。',) if draft.orderType == 'MKT' else ())
+                + (('手动模拟盘订单不执行 SparkFlow 本地资金、持仓、行情或仓位风控；能否接受与成交完全由 IBKR 模拟账户决定。',)
+                    if loaded.context.brokerManagedRisk else ())
+                + (('资金估算采用美元现金余额与券商可用资金的较低值；IBKR 未返回已结算现金。',)
+                    if loaded.context.settledCash is None and not loaded.context.brokerManagedRisk else ())
+                + ((f'资金估算参考：IBKR {"持仓估值" if loaded.context.referenceKind == "portfolio" else "行情快照"} {loaded.context.referencePrice} USD；非实时逐笔报价，实际成交价由券商确定。',) if loaded.context.referenceKind in ('portfolio','broker-snapshot') else ())
+                + (('市价单按实际成交价结算；现金按参考价加 5% 预留，这不是成交价格上限。',) if draft.orderType == 'MKT' and not loaded.context.brokerManagedRisk else ())
                 + (('当前不在常规交易时段；此模拟单已启用盘前盘后交易。能否立即成交由 IBKR、交易所、品种及订单类型决定，也可能被挂起或拒绝。',)
                     if not loaded.context.regularHours else ())
                 + (('此单将使用 IBKR OVERNIGHT 夜盘路由；仅支持符合条件的美股/ETF限价单，能否成交以券商回报为准。',)

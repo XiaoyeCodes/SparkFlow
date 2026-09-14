@@ -11,6 +11,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { dailyBriefDate, dailyBriefEditionDate, dailyBriefDayEnd, isCurrentDailyBrief } from '../src/lib/dailyBriefFreshness.ts';
+import { runDailyBriefRepairs, type DailyBriefRepairTask } from './dailyBriefRepair.ts';
 import type {
   DailyBriefResponse,
   DailyBriefSlot,
@@ -93,6 +95,7 @@ function isSnapshot(value: unknown): value is DailyBriefSnapshot {
     item &&
     item.version === 18 &&
     /^\d{4}-\d{2}-\d{2}$/.test(item.date || "") &&
+    dailyBriefDate(item.generatedAt || '') === item.date &&
     ["morning", "midday", "evening"].includes(item.slot || "") &&
     item.summary &&
     Array.isArray(item.markets),
@@ -118,13 +121,15 @@ async function atomicJsonWrite(filePath: string, value: unknown) {
 export function createDailyBriefService(options: {
   stateDir: string;
   generate: GenerateBrief;
+  repairTasks?: () => DailyBriefRepairTask[];
   now?: () => Date;
 }) {
   const root = path.join(options.stateDir, "daily-brief");
   const clock = options.now || (() => new Date());
   const running = new Map<string, Promise<DailyBriefResponse>>();
   const memory = new Map<string, DailyBriefSnapshot>();
-  const contentRetryAt = new Map<string, number>();
+  const repairs = new Map<string, Promise<void>>();
+  let writes: Promise<unknown> = Promise.resolve();
 
   const pathsFor = ({ date, slot }: BriefWindow) => ({
     file: path.join(root, date, `${slot}.json`),
@@ -202,6 +207,7 @@ export function createDailyBriefService(options: {
         };
       }
     }
+    if (window.date !== dailyBriefDate(clock())) throw new Error('上期简报缓存未就绪，请等待今日09:00更新。');
     const lockHandle = await acquireLock(locations.lock);
     if (!lockHandle) {
       const peer = await waitForPeer(locations.file);
@@ -273,21 +279,53 @@ export function createDailyBriefService(options: {
   }
 
   async function getForPage(window = getDailyBriefWindow(clock())): Promise<DailyBriefResponse> {
+    if (window.date !== dailyBriefEditionDate(clock().getTime())) throw new Error('简报版次已过期，请刷新当前版次。');
     const response = await get(window);
-    const incomplete = !response.snapshot.day1?.analysis && response.snapshot.summaryMode !== 'ai';
-    if (incomplete && !response.cache.stale && !response.cache.generated && (contentRetryAt.get(pathsFor(window).key) || 0) <= clock().getTime()) {
-      contentRetryAt.set(pathsFor(window).key, clock().getTime() + 5 * 60_000);
-      // A usable edition renders immediately while missing editorial content is
-      // retried once per five minutes, shared across visitors.
-      void get(window, true).catch(() => undefined);
-    } else if (response.cache.generated) {
-      contentRetryAt.set(pathsFor(window).key, clock().getTime() + 5 * 60_000);
+    if (!isCurrentDailyBrief(response.snapshot, clock().getTime())) {
+      throw new Error('今日简报尚未就绪，暂不展示往日数据，请稍后重试。');
     }
+    startRepairs(response.snapshot);
     return { ...response, _pageCache: {
-      state: incomplete || response.cache.stale ? 'stale' : 'fresh',
+      state: response.cache.stale ? 'stale' : 'fresh',
       storedAt: response.snapshot.generatedAt,
-      expiresAt: new Date(Date.parse(`${response.snapshot.date}T09:00:00+08:00`) + 24 * 3600_000).toISOString(),
+      expiresAt: new Date(dailyBriefDayEnd(response.snapshot.date)).toISOString(),
     } };
+  }
+
+  function startRepairs(snapshot: DailyBriefSnapshot) {
+    if (!options.repairTasks || !snapshot.editorial || !isCurrentDailyBrief(snapshot, clock().getTime())) return;
+    const locations = pathsFor(snapshot);
+    if (repairs.has(locations.key)) return;
+    const task = runDailyBriefRepairs({ tasks: options.repairTasks(), now: () => clock().getTime(),
+      active: () => isCurrentDailyBrief(snapshot, clock().getTime()) && (memory.get(locations.key)?.generatedAt ?? snapshot.generatedAt) === snapshot.generatedAt,
+      get: () => memory.get(locations.key) || snapshot,
+      commit: change => {
+        const write = writes.then(async () => {
+          if (!isCurrentDailyBrief(snapshot, clock().getTime())) return;
+          const lock = await acquireLock(locations.lock);
+          if (!lock) return; // A full generation owns this edition; do not race it.
+          try {
+            const current = await readSnapshot(locations.file);
+            if (!current || current.generatedAt !== snapshot.generatedAt) return;
+            const draft = structuredClone(current);
+            change(draft);
+            if (JSON.stringify(draft) === JSON.stringify(current)) return;
+            const { repair: _beforeRepair, ...beforeData } = current;
+            const { repair: _afterRepair, ...afterData } = draft;
+            if (JSON.stringify(beforeData) !== JSON.stringify(afterData)) draft.updatedAt = clock().toISOString();
+            await atomicJsonWrite(locations.file, draft);
+            await atomicJsonWrite(path.join(root, 'latest.json'), draft);
+            memory.set(locations.key, draft);
+          } finally {
+            await lock.close().catch(() => undefined);
+            await rm(locations.lock, { force: true });
+          }
+        });
+        writes = write.catch(() => undefined);
+        return write;
+      },
+    }).catch(() => undefined).finally(() => repairs.delete(locations.key));
+    repairs.set(locations.key, task);
   }
 
   function schedule(onError: (error: unknown) => void = () => undefined) {
@@ -299,7 +337,7 @@ export function createDailyBriefService(options: {
       const next = getNextDailyBriefRun(now);
       const delay = Math.max(1_000, next.getTime() - now.getTime());
       timer = setTimeout(() => {
-        void get(getDailyBriefWindow(clock()), true)
+        void getForPage()
           .catch(onError)
           .finally(arm);
       }, delay);
@@ -308,10 +346,13 @@ export function createDailyBriefService(options: {
     // Restore/generate the current edition at startup, including a missed 09:00
     // run while the host was offline. Existing snapshots avoid model requests.
     void getForPage().catch(onError);
+    const recovery = setInterval(() => { if (!stopped) void getForPage().catch(onError); }, 60_000);
+    recovery.unref?.();
     arm();
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      clearInterval(recovery);
     };
   }
 

@@ -34,7 +34,7 @@ import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper
 import { PageTransition } from '../components/PageTransition';
 import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
 import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
-import { PublicDataCacheNotice } from '../components/PublicDataCacheNotice';
+import { mergeQuoteRows } from '../lib/realtimeQuotes';
 import { loadIntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 import './Market.css';
@@ -557,7 +557,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
     try {
       const payload = await requestJson<MarketIntelligence>('/api/public-market-intelligence', { signal: controller.signal });
       if (controller.signal.aborted) return;
-      setData(payload);
+      setData(current => ({ ...payload, indices: mergeQuoteRows(current?.indices || [], payload.indices) }));
       setLoadState('success');
     } catch (requestError) {
       if (controller.signal.aborted) return;
@@ -637,7 +637,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 5_000);
+    const timer = window.setInterval(() => void refresh(), 3_000);
     return () => {
       cancelled = true;
       controller.abort();
@@ -656,7 +656,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
       try {
         const payload = await requestJson<{ indices: MarketIndexSnapshot[] }>('/api/market-quotes', { signal: controller.signal });
         if (!cancelled && payload.indices.length) {
-          setData((current) => (current ? { ...current, generatedAt: new Date().toISOString(), indices: payload.indices } : current));
+          setData((current) => (current ? { ...current, indices: mergeQuoteRows(current.indices, payload.indices) } : current));
         }
       } catch {
         // The 45-second intelligence snapshot remains available when a live quote poll misses.
@@ -1151,7 +1151,6 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
   return (
     <PageTransition>
       <section className="market-terminal min-h-screen px-3 pb-16 pt-[calc(var(--nav-height)+18px)] text-white sm:px-5 lg:px-7">
-        <PublicDataCacheNotice scope="market" />
         <div className="market-terminal-frame mx-auto w-full max-w-[1780px]">
           <header className="market-terminal-hero mb-4 flex flex-col gap-5 pb-5 xl:flex-row xl:items-end xl:justify-between">
             <div>

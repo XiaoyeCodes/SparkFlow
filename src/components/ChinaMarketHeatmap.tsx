@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { getMarketSessionStatus, type MarketSessionMarket } from '../lib/marketSessions';
+import { mergeCryptoMiniTickers, parseCryptoMiniTickerMessage, type CryptoMiniTicker } from '../lib/cryptoHeatmapStream';
 import { publicDataFetch } from '../lib/publicDataClient';
 import { publicDataExpiresAt } from '../lib/publicDataPolicy';
 
@@ -864,14 +865,86 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
 
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void load(controller.signal);
-    }, REFRESH_INTERVAL_MS);
+    }, config.sessionMarket === 'crypto' ? 60_000 : REFRESH_INTERVAL_MS);
 
     return () => {
       mountedRef.current = false;
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [load]);
+  }, [config.sessionMarket, load]);
+
+  useEffect(() => {
+    if (config.sessionMarket !== 'crypto') return;
+    const streamUrls = [
+      'wss://data-stream.binance.vision/ws/!miniTicker@arr',
+      'wss://stream.binance.com:9443/ws/!miniTicker@arr',
+    ];
+    const pending = new Map<string, CryptoMiniTicker>();
+    let socket: WebSocket | undefined;
+    let reconnectTimer: number | undefined;
+    let disposed = false;
+    let endpointIndex = 0;
+
+    const connect = () => {
+      if (disposed || document.visibilityState !== 'visible') return;
+      if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
+      socket = new WebSocket(streamUrls[endpointIndex % streamUrls.length]);
+      socket.onmessage = (event) => {
+        try {
+          parseCryptoMiniTickerMessage(JSON.parse(String(event.data))).forEach((ticker) => pending.set(ticker.symbol, ticker));
+        } catch {
+          // Ignore one malformed frame; the next market frame will replace it.
+        }
+      };
+      socket.onerror = () => socket?.close();
+      socket.onclose = () => {
+        if (disposed) return;
+        socket = undefined;
+        endpointIndex += 1;
+        reconnectTimer = window.setTimeout(connect, 2_000);
+      };
+    };
+
+    const flushTimer = window.setInterval(() => {
+      if (!pending.size) return;
+      const quotes = new Map(pending);
+      pending.clear();
+      setData((current) => {
+        if (!current) return current;
+        const merged = mergeCryptoMiniTickers(current.stocks, quotes.values());
+        if (!merged.changed) return current;
+        const marketCapSource = current.source.split(' 市值')[0] || current.source;
+        return {
+          ...current,
+          generatedAt: merged.latestUpdatedAt || current.generatedAt,
+          source: `${marketCapSource} 市值 + Binance 实时行情`,
+          stocks: merged.stocks,
+        };
+      });
+    }, REFRESH_INTERVAL_MS);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+        connect();
+      } else {
+        if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+        socket?.close();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    connect();
+    return () => {
+      disposed = true;
+      pending.clear();
+      window.clearInterval(flushTimer);
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      socket?.close();
+    };
+  }, [config.sessionMarket]);
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -1102,7 +1175,9 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
     : config.sessionMarket === 'uk' ? 'LSE' : '';
   const isPublicSnapshotMarket = Boolean(publicSnapshotExchange);
   const quoteFreshnessLabel = data?.quoteStatus === 'closed'
-    ? sourceDelayLabel ? `收盘快照 · ${sourceDelayLabel}` : '常规盘已收盘'
+    ? config.sessionMarket === 'korea'
+      ? `抓取 ${updatedAt}`
+      : sourceDelayLabel ? `收盘快照 · ${sourceDelayLabel}` : '常规盘已收盘'
     : isPublicSnapshotMarket
       ? `公开行情快照 ${updatedAt}`
       : sourceDelayLabel || (data?.quoteStatus === 'live' ? '实时行情' : `抓取 ${updatedAt}`);

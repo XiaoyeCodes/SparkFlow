@@ -104,12 +104,12 @@ for (const endpoint of [
   assert.match(frontend, new RegExp(endpoint), `前端缺少独立链路 ${endpoint}`);
   assert.match(server, new RegExp(endpoint), `服务端缺少独立接口 ${endpoint}`);
 }
-assert.match(frontend, /ISOLATED_CORE_INDEX_IDS\.forEach/, '核心指数必须逐项启动');
-assert.match(frontend, /ISOLATED_FX_RATE_IDS\.forEach/, '汇率必须逐项启动');
-assert.match(frontend, /ISOLATED_MARKET_ASSET_IDS\.forEach/, '七项高频资产必须逐项启动');
+assert.match(frontend, /ISOLATED_CORE_INDEX_IDS\.map\(id => startQuotePolling/, '核心指数必须逐项独立轮询');
+assert.match(frontend, /ISOLATED_FX_RATE_IDS\.map\(id => startQuotePolling/, '汇率必须逐项独立轮询');
+assert.match(frontend, /ISOLATED_MARKET_ASSET_IDS\.map\(id => startQuotePolling/, '七项高频资产必须逐项独立轮询');
 for (const id of assetIds) {
   assert.match(frontend, new RegExp(`['"]${id}['"]`), `前端缺少 ${id} 独立资源声明`);
   assert.match(server, new RegExp(`\\b${id}: \\{`), `服务端缺少 ${id} 独立资源配置`);
 }
 
-console.log('独立市场数据链路验证通过：60 秒超时、最多 3 次、七项资产单卡失败隔离。');
+console.log('独立请求默认超时/重试与单卡失败隔离通过；实时卡片使用独立的 3 秒持续轮询。');

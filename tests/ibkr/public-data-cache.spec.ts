@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 
-test('public cache survives page switches and shows stale/unavailable provenance', async ({ page }) => {
+test.beforeEach(async ({ page }) => {
+  await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => route.abort());
+});
+
+test('public cache survives page switches without a global banner; section failures remain visible', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
   const requests = new Map<string, number>();
   let stale = false;
@@ -33,19 +37,22 @@ test('public cache survives page switches and shows stale/unavailable provenance
   await expect(page.locator('.china-command-shell')).toHaveCount(0);
   await page.getByRole('button', { name: '中国宏观', exact: true }).click();
   await expect(page.locator('.china-news-list')).toContainText('公共数据预加载回归新闻');
-  expect(Object.fromEntries(requests)).toEqual(first);
+  for (const section of ['metrics', 'policy', 'news']) expect(requests.get(section)).toEqual(first[section]);
+  expect(requests.get('indices')).toBeGreaterThan(first.indices);
 
   // Explicit browser invalidation simulates a fresh visitor receiving stale server data.
   stale = true;
   await page.reload();
-  await expect(page.getByRole('status').filter({ hasText: '部分公共数据使用上次缓存' })).toBeVisible();
-  await expect(page.getByRole('status').filter({ hasText: '缓存保存于' })).toBeVisible();
-  await page.screenshot({ path: 'output/public-data-stale-notice.png' });
+  await expect(page.locator('.china-news-list')).toContainText('公共数据预加载回归新闻');
+  await expect(page.getByText(/部分公共数据使用上次缓存|缓存保存于/)).toHaveCount(0);
+  await page.screenshot({ path: 'output/cache-audit/no-global-notice.png' });
   await page.route('**/api/china-macro-dashboard?*', route => route.fulfill({ status: 503, json: {
     error: 'public_data_preparing', _publicCache: { state: 'unavailable' },
   } }));
   await page.reload();
-  await expect(page.getByRole('status').filter({ hasText: '部分公共数据尚未就绪或已过期' })).toBeVisible();
+  await expect(page.locator('.china-command-error')).toContainText('中国宏观数据分区均未加载成功');
+  await expect(page.locator('.china-command-error').getByRole('button', { name: '重新获取' })).toBeVisible();
+  await expect(page.getByText('部分公共数据尚未就绪或已过期，后台正在重试')).toHaveCount(0);
 });
 
 test('client shared transport never memoizes account endpoints', async ({ page }) => {
@@ -61,4 +68,46 @@ test('client shared transport never memoizes account endpoints', async ({ page }
   });
   expect(calls).toBe(2);
   expect(values.map(value => value.account)).toEqual([1, 2]);
+});
+
+test('China live indices update on the three-second path and recover after a failed poll', async ({ page }) => {
+  await page.route('**/api/**', route => route.fulfill({ status: 503, json: { error: 'fixture-unavailable' } }));
+  let calls = 0;
+  await page.route('**/api/china-macro-dashboard?section=indices', route => {
+    calls++;
+    if (calls === 2) return route.fulfill({ status: 503, json: { _publicCache: { state: 'unavailable' } } });
+    const now = Date.now();
+    return route.fulfill({ json: { indices: [{ id: 'live', name: '三秒回归指数', price: calls === 1 ? 3100 : 3200,
+      changePercent: 1, updatedAt: new Date(now).toISOString(), sourceUrl: 'https://example.com' }],
+      _publicCache: { state: 'fresh', storedAt: new Date(now).toISOString(), refreshAt: new Date(now + 3000).toISOString(), expiresAt: new Date(now + 90000).toISOString() },
+    } });
+  });
+  await page.goto('http://127.0.0.1:5187/market#china-macro');
+  await expect(page.locator('.china-index-tape')).toContainText('3,100');
+  await expect.poll(() => calls, { timeout: 5000 }).toBeGreaterThanOrEqual(2);
+  await expect(page.locator('.china-index-tape')).toContainText('3,100');
+  await expect(page.locator('.china-index-tape')).toContainText('3,200', { timeout: 5000 });
+});
+
+test('global gold card continues after three failures and rejects an older quote', async ({ page }) => {
+  await page.route('**/api/**', route => route.fulfill({ status: 503, json: { error: 'fixture-unavailable' } }));
+  let calls = 0;
+  const base = Date.now();
+  await page.route('**/api/global-macro-asset?id=gold', route => {
+    calls++;
+    if (calls >= 2 && calls <= 4) return route.fulfill({ status: 503, json: { error: 'temporary-network-failure' } });
+    const price = calls === 1 ? 2345 : calls === 5 ? 2346 : 2344;
+    return route.fulfill({ json: { asset: { id: 'gold', label: '黄金', value: price, display: String(price), change: 1,
+      updatedAt: new Date(base + (calls === 5 ? 2000 : calls === 1 ? 1000 : 0)).toISOString(),
+      status: 'live', sourceUrl: 'https://example.com/gold', history: [] },
+      _publicCache: { state: 'fresh', expiresAt: new Date(base + 90000).toISOString() },
+    } });
+  });
+  await page.goto('http://127.0.0.1:5187/terminal');
+  const gold = page.locator('.macro-key-change-grid').getByText('2345', { exact: true });
+  await expect(gold).toBeVisible();
+  await expect(page.locator('.macro-key-change-grid')).toContainText('2346', { timeout: 16000 });
+  await expect.poll(() => calls, { timeout: 5000 }).toBeGreaterThanOrEqual(6);
+  await expect(page.locator('.macro-key-change-grid')).toContainText('2346');
+  await expect(page.locator('.macro-key-change-grid')).not.toContainText('2344');
 });

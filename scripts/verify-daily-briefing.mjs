@@ -119,28 +119,25 @@ try {
     "failed scheduled fetch must retain the last successful snapshot",
   );
   assert.equal(fallback.snapshot.summary.headline, "snapshot-2");
-  // Disk restoration must render before an incomplete edition finishes retrying.
-  let finish;
+  // A valid daily edition stays frozen even if optional source analysis failed.
   let retries = 0;
   const restored = createDailyBriefService({
     stateDir: root,
     now: () => new Date('2026-08-30T04:30:00Z'),
     generate: async target => {
       retries++;
-      await new Promise(resolve => { finish = resolve; });
       return { ...snapshot(target, 3), summaryMode: 'ai' };
     },
   });
   const page = await restored.getForPage(window);
   assert.equal(page.snapshot.summary.headline, 'snapshot-2');
-  assert.equal(page._pageCache.state, 'stale');
+  assert.equal(page._pageCache.state, 'fresh');
   assert.equal(page._pageCache.expiresAt, '2026-08-31T01:00:00.000Z');
   await restored.getForPage(window);
   await restored.getForPage(window);
-  for (let i = 0; !finish && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 5));
-  assert.equal(retries, 1, 'background retry is coalesced and throttled');
-  finish();
+  assert.equal(retries, 0, 'missing optional analysis must not regenerate daily prices on visits');
   await restored.get(window, true);
+  assert.equal(retries, 1, 'explicit manual refresh remains supported');
   assert.equal((await restored.getForPage(window))._pageCache.state, 'fresh');
   let restartCalls = 0;
   const restart = createDailyBriefService({ stateDir: root, now: () => new Date('2026-08-30T04:30:00Z'),
@@ -157,6 +154,20 @@ try {
   assert.equal((await startup.getForPage()).snapshot.date, '2026-08-31');
   stopStartup();
   assert.equal(restartCalls, 1, 'startup catches up a missed morning edition once');
+  let earlyCalls = 0;
+  const early = createDailyBriefService({ stateDir: root, now: () => new Date('2026-09-01T00:00:00Z'),
+    generate: async target => { earlyCalls++; return snapshot(target, 5); } });
+  assert.equal((await early.getForPage()).snapshot.date, '2026-08-31', 'before 09:00 yesterday remains the current edition');
+  const stopEarly = early.schedule(error => errors.push(error));
+  stopEarly();
+  assert.equal(earlyCalls, 0, 'pre-publication startup waits for 09:00 without regenerating yesterday');
+  const offlineToday = createDailyBriefService({ stateDir: root, now: () => new Date('2026-09-01T02:00:00Z'),
+    generate: async () => { throw new Error('network unavailable'); } });
+  await assert.rejects(offlineToday.getForPage(), /往日数据/, 'failed current edition must not expose the historical fallback on the daily page');
+  assert.equal((await offlineToday.latest()).date, '2026-08-31', 'historical snapshot stays recoverable on disk');
+  const badDate = createDailyBriefService({ stateDir: root, now: () => new Date('2026-09-01T02:00:00Z'),
+    generate: async target => ({ ...snapshot(target, 6), generatedAt: '2026-08-31T01:00:00Z' }) });
+  await assert.rejects(badDate.getForPage(), /往日数据/, 'relabeling an old snapshot with today is not accepted');
   console.log(
     "[daily-brief] cache, lock, schedule-window and persistence checks passed.",
   );

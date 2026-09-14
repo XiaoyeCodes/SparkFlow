@@ -4,22 +4,24 @@ export type PublicDataPolicy = {
   maxAgeMs: number;
   clientMs: number;
   warm: boolean;
+  realtime: boolean;
 };
 const policies = new Map<string, PublicDataPolicy>();
+export const REALTIME_QUOTE_INTERVAL_MS = 3_000;
 const keyFor = (url: URL) => { url.searchParams.sort(); return url.pathname + url.search; };
 function add(key: string, seconds: number, maxAgeSeconds: number, warm = false) {
   const canonical = keyFor(new URL(key, 'http://public.local'));
   policies.set(canonical, { key: canonical, refreshMs: seconds * 1000, maxAgeMs: maxAgeSeconds * 1000,
-    clientMs: Math.min(seconds * 1000, 15_000), warm });
+    clientMs: seconds === 3 ? 0 : Math.min(seconds * 1000, 15_000), warm, realtime: seconds === 3 });
 }
 
 // Finite allowlist: never broaden this to `/api/*`. No account, broker, research,
 // settings, custom subscriptions, user-entered symbols or streaming resources.
 add('/api/public-market-intelligence', 120, 600, true);
-add('/api/market-quotes', 15, 90, true);
-add('/api/global-macro-quotes', 15, 90, true);
+add('/api/market-quotes', 3, 90, true);
+add('/api/global-macro-quotes', 3, 90, true);
 for (const section of ['indices', 'metrics', 'policy', 'news']) {
-  const seconds = section === 'indices' ? 30 : section === 'policy' ? 600 : 120;
+  const seconds = section === 'indices' ? 3 : section === 'policy' ? 600 : 120;
   add(`/api/china-macro-dashboard?section=${section}`, seconds, section === 'indices' ? 120 : 1800, true);
 }
 for (const section of ['markets', 'macro', 'pmi', 'commodities', 'news', 'calendar']) {
@@ -31,10 +33,14 @@ add('/api/china-fisher?mode=loan', 60, 300);
 add('/api/china-fisher?mode=deposit', 60, 300, true);
 add('/api/china-gdp', 3600, 3600, true);
 add('/api/china-income', 60, 900, true);
-for (const market of ['china', 'hong-kong', 'us', 'crypto']) add(`/api/${market}-market-heatmap`, 60, 180);
-for (const id of ['nasdaq', 'sp500', 'shanghai', 'sox']) add(`/api/global-macro-core-index?id=${id}`, 60, 180);
-for (const id of ['usd-jpy', 'usd-cny', 'usd-eur']) add(`/api/global-macro-fx-rate?id=${id}`, 60, 180);
-for (const id of ['vix', 'dxy', 'us10y', 'gold', 'brent', 'bitcoin', 'ethereum']) add(`/api/global-macro-asset?id=${id}`, 60, 180);
+for (const market of ['china', 'hong-kong', 'us']) add(`/api/${market}-market-heatmap`, 3, 180);
+// The browser applies Binance's live mini-ticker stream every three seconds.
+// This REST snapshot is the resilient bootstrap/fallback, while its internally
+// cached market-cap universe remains on a slower cadence.
+add('/api/crypto-market-heatmap', 60, 900, true);
+for (const id of ['nasdaq', 'sp500', 'shanghai', 'sox']) add(`/api/global-macro-core-index?id=${id}`, 3, 180);
+for (const id of ['usd-jpy', 'usd-cny', 'usd-eur']) add(`/api/global-macro-fx-rate?id=${id}`, 3, 180);
+for (const id of ['vix', 'dxy', 'us10y', 'gold', 'brent', 'bitcoin', 'ethereum']) add(`/api/global-macro-asset?id=${id}`, 3, 180);
 for (const id of ['ppi', 'cpi', 'unemployment', 'nonfarm', 'pmi', 'pce']) add(`/api/us-macro-card?id=${id}`, 120, 900);
 add('/api/global-macro-fed-rate', 900, 1800);
 for (const endpoint of ['global-risk-sentiment', 'global-macro-ppi-expectation', 'fed-net-liquidity', 'financial-conditions']) {
@@ -42,10 +48,10 @@ for (const endpoint of ['global-risk-sentiment', 'global-macro-ppi-expectation',
 }
 const international = ['japan', 'korea', 'india', 'germany', 'france', 'uk'];
 for (const market of international) {
-  add(`/api/global-market-heatmap?market=${market}`, 60, 180);
-  add(`/api/international-market-overview?market=${market}`, 60, 180);
+  add(`/api/global-market-heatmap?market=${market}`, 3, 180);
+  add(`/api/international-market-overview?market=${market}`, 3, 180);
 }
-for (const market of ['australia', 'euro', 'saudi']) add(`/api/global-market-heatmap?market=${market}`, 60, 180);
+for (const market of ['australia', 'euro', 'saudi']) add(`/api/global-market-heatmap?market=${market}`, 3, 180);
 for (const market of ['china', 'hongkong', 'us', ...international]) add(`/api/valuation-temperature?market=${market}`, 900, 3600);
 for (const market of ['hongkong', 'us']) add(`/api/regional-market-content?market=${market}`, 300, 1800);
 add('/api/bitcoin-cycle-history', 21600, 43200);

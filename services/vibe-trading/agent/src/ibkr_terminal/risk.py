@@ -139,7 +139,7 @@ class RiskContext(Contract):
     asOf: AwareDatetime
     quoteAt: AwareDatetime
     quoteState: Literal['realtime', 'delayed', 'frozen', 'disconnected', 'missing', 'snapshot']
-    referenceKind: Literal['trade', 'portfolio', 'broker-snapshot'] = 'trade'
+    referenceKind: Literal['trade', 'portfolio', 'broker-snapshot', 'order-input'] = 'trade'
     conId: int = Field(gt=0, strict=True)
     referencePrice: Amount | None
     settledCash: Amount | None
@@ -159,6 +159,7 @@ class RiskContext(Contract):
     halted: bool
     openOrdersComplete: bool = False
     externalOrders: tuple[ExternalOrderRisk, ...] = ()
+    brokerManagedRisk: bool = False
 
 
 def canonical(model):
@@ -195,6 +196,24 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
     require(intent.strategyVersion == grant.strategyVersion, 'STRATEGY_VERSION')
     require(grant.kind != 'manual' or grant.confirmedIntentHash == (confirmation_hash or intent_hash(intent)), 'MANUAL_CONFIRMATION')
     require(intent.conId == context.conId and intent.conId in grant.conIds, 'CONTRACT_SCOPE')
+    manual_paper = intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'
+    broker_managed = manual_paper and grant.source == 'user' and context.brokerManagedRisk
+    if broker_managed:
+        require(context.connected, 'SDK_NOT_READY')
+        require(context.market == 'US' and context.secType == 'STK' and context.currency == context.baseCurrency == 'USD'
+            and Decimal(context.multiplier) == 1, 'UNSUPPORTED_CONTRACT')
+        require(intent.tif == 'DAY', 'UNSUPPORTED_ORDER_POLICY')
+        require(intent.tradingSession != 'OVERNIGHT' or intent.orderType == 'LMT', 'UNSUPPORTED_OVERNIGHT_ORDER')
+        quantity = Decimal(intent.quantity)
+        tick, step = Decimal(context.minTick), Decimal(context.minQuantity)
+        require(tick > 0 and step >= 1 and step == step.to_integral_value(), 'INVALID_CONTRACT_RULES')
+        require(quantity == quantity.to_integral_value() and quantity % step == 0, 'INVALID_ORDER_INCREMENT')
+        if intent.orderType == 'LMT':
+            require(Decimal(intent.limitPrice) % tick == 0, 'INVALID_ORDER_INCREMENT')
+        # Explicit manual paper orders delegate buying power, position, exposure,
+        # quote and session eligibility to IBKR. The local ledger retains only
+        # identity/idempotency state, so it must not reserve synthetic funds.
+        return {'cash':'0','notional':'0','quantity':'0'}
     require(context.connected and context.reconciled, 'RECONCILIATION_REQUIRED')
     require(not context.halted, 'HALTED')
     # Broker-routed paper and live orders explicitly opt into eligible
@@ -216,7 +235,6 @@ def check_risk(intent, grant, context, reserved, *, now: datetime, daily_count: 
         funding = min(Decimal(context.totalCash), Decimal(context.availableFunds))
     require(funding is not None and all(getattr(context, name) is not None for name in ('netLiquidation', 'dailyLoss', 'referencePrice')), 'MISSING_ACCOUNT_DATA')
     require(context.market == 'US' and context.secType == 'STK' and context.currency == context.baseCurrency == 'USD' and Decimal(context.multiplier) == 1, 'UNSUPPORTED_CONTRACT')
-    manual_paper = intent.mode == 'paper' and grant.kind == 'manual' and purpose == 'new_order'
     require(intent.tif == 'DAY' and (intent.orderType == 'LMT' or
         intent.orderType == 'MKT' and grant.kind == 'manual' and purpose == 'new_order'), 'UNSUPPORTED_ORDER_POLICY')
     require(intent.tradingSession != 'OVERNIGHT' or manual_paper and intent.orderType == 'LMT', 'UNSUPPORTED_OVERNIGHT_ORDER')

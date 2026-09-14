@@ -101,7 +101,9 @@ export class EastmoneyTicketQuotes {
     const market = ['NASDAQ','ISLAND'].includes(venue || '') ? '105' : venue === 'NYSE' ? '106' : ['ARCA','AMEX','NYSEARCA'].includes(venue || '') ? '107' : null;
     const key = JSON.stringify([contract.conId,contract.symbol,market,source ?? 'auto']);
     const cached = this.cache.get(key);
-    if (cached && Date.now() - cached.at < 4000) return cached.value;
+    // Let the next three-second quote poll reach the provider, while coalescing
+    // near-simultaneous reads. This remains separate from the public cache.
+    if (cached && Date.now() - cached.at < 2500) return cached.value;
     if (this.flights.has(key)) return this.flights.get(key)!;
     const flight = (async () => {
       try {

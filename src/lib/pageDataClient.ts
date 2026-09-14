@@ -1,3 +1,5 @@
+import { dailyBriefDayEnd, isCurrentDailyBrief } from './dailyBriefFreshness.ts';
+
 // Page-local data may include configured subscriptions or AI output. Keep it in
 // tab memory, separate from the visitor-independent public dashboard cache.
 type Entry = { body: string; until: number; expiresAt: number };
@@ -24,9 +26,9 @@ function deadline(key: string, data: any, now: number, maxAgeMs: number) {
   if (!data || typeof data !== 'object' || data.error) return 0;
   let expiry = now + maxAgeMs;
   if (key === '/api/daily-brief') {
-    if (!data.snapshot?.summary || !Array.isArray(data.snapshot.markets) || data.cache?.stale) return 0;
-    // An edition is valid until 09:00 Beijing time on the following day.
-    expiry = Date.parse(`${data.snapshot.date}T09:00:00+08:00`) + 24 * 3600_000;
+    if (!data.snapshot?.summary || !Array.isArray(data.snapshot.markets) || data.cache?.stale
+      || !isCurrentDailyBrief(data.snapshot, now)) return 0;
+    expiry = dailyBriefDayEnd(data.snapshot.date);
   } else {
     if (key === '/api/news-feed' && (!Array.isArray(data.items) || !Array.isArray(data.sources))) return 0;
     if (key.includes('/details?')) {

@@ -60,6 +60,15 @@ const employment = context.parseBlsReleaseReport('THE EMPLOYMENT SITUATION - AUG
 assert.equal(employment.nonfarm, 162);
 assert.equal(employment.nonfarmPrevious, 21, 'Use revised prior payrolls');
 assert.equal(context.parseBlsReleaseReport('PRODUCER PRICE INDEXES - JULY 2026. The Producer Price Index for final demand was unchanged in July. The index for final demand increased 4.7 percent for the 12 months ended in July.', 'ppi', 'test').ppiYoy, 4.7, 'A missing prior value must not invalidate the actual PPI');
+const augustPpi = context.parseBlsReleaseReport('PRODUCER PRICE INDEXES - AUGUST 2026. The Producer Price Index for final demand moved up 0.4 percent in August, seasonally adjusted. Final demand prices rose 0.1 percent in July. The index for final demand increased 5.4 percent for the 12 months ended in August.', 'ppi', 'test');
+assert.equal(augustPpi.ppi, 0.4, 'BLS moved up wording must parse as a positive monthly change');
+assert.equal(augustPpi.ppiYoy, 5.4);
+assert.equal(augustPpi.ppiPrevious, 0.1);
+assert.equal(augustPpi.period, '2026-08');
+for (const [verb, expected] of [['rose', 0.4], ['fell', -0.4], ['decreased', -0.4]]) {
+  assert.equal(context.parseBlsReleaseReport(`PRODUCER PRICE INDEXES - AUGUST 2026. The Producer Price Index for final demand ${verb} 0.4 percent in August. The index for final demand increased 5.4 percent for the 12 months ended in August.`, 'ppi', 'test').ppi, expected);
+}
+assert.throws(() => context.parseBlsReleaseReport('PRODUCER PRICE INDEXES - AUGUST 2026. The Producer Price Index for final demand moved up in August.', 'ppi', 'test'), /数值无法识别/, 'Missing measurements must not become successful cached data');
 assert.equal(context.parseBlsReleaseReport('CONSUMER PRICE INDEX - JULY 2026. The Consumer Price Index for All Urban Consumers (CPI-U) increased 0.1 percent in July. Over the last 12 months, the all items index increased 3.4 percent.', 'cpi', 'test').cpiYoy, 3.4);
 for (const id of ['nonfarm', 'unemployment', 'cpi', 'ppi', 'pmi', 'pce']) {
   const card = await context.refreshIsolatedUsMacroCard(id);

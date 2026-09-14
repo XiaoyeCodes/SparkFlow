@@ -40,6 +40,7 @@ class PaperRiskSource:
     """One selected contract and bounded subscriptions on the account owner loop."""
     def __init__(self, connection, scope, *, ledger=None, clock=None):
         self.connection, self.scope = connection, scope
+        self.broker_managed = scope.mode == 'paper' and scope.source == 'user'
         self.ledger = ledger
         self.ib = connection._ib
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -53,12 +54,13 @@ class PaperRiskSource:
         self.ib.pendingTickersEvent += self._ticks
         self.ib.errorEvent += self._quote_error
         self._pnl_subscribed = False
-        try:
-            self.ib.reqPnL(connection.binding.brokerAccount)
-            self._pnl_subscribed = True
-        except BaseException:
-            self.close()
-            raise
+        if not self.broker_managed:
+            try:
+                self.ib.reqPnL(connection.binding.brokerAccount)
+                self._pnl_subscribed = True
+            except BaseException:
+                self.close()
+                raise
 
     def _pnl(self, row):
         if row.account == self.connection.binding.brokerAccount and not row.modelCode:
@@ -184,6 +186,25 @@ class PaperRiskSource:
             if tick is None or Decimal(tick) <= 0:
                 raise RiskDenied('CONTRACT_MARKET_RULE_UNAVAILABLE')
             self.instrument = self.instrument.model_copy(update={'minTick':tick})
+        if self.broker_managed:
+            snapshot = self.connection.session.snapshot()
+            if not self.connection.healthy() or snapshot.sessionRevision != self.scope.sessionRevision or snapshot.state not in ('ready','empty'):
+                raise RiskDenied('SDK_NOT_READY')
+            now = self.clock()
+            cash = next((decimal_text(row.amount) for row in snapshot.cash if row.currency == 'USD'), None)
+            if cash is not None and Decimal(cash) < 0:
+                cash = None
+            net = decimal_text(snapshot.metrics.netLiquidation)
+            if net is not None and Decimal(net) < 0:
+                net = None
+            holdings = tuple(Holding(conId=row.conId,quantity=decimal_text(row.quantity),
+                marketValue=decimal_text(row.marketValue) or '0',currency='USD')
+                for row in snapshot.positions if row.currency == 'USD' and decimal_text(row.quantity) is not None
+                and Decimal(decimal_text(row.quantity)) > 0)
+            self.reference = (draft.limitPrice if draft.orderType == 'LMT' else None,now,'order-input','missing')
+            self.prepared = (snapshot,dict(settledCash=None,availableFunds=cash,totalCash=cash,
+                netLiquidation=net,dailyLoss=None,holdings=holdings),now)
+            return self.load(draft)
         if not await self.connection.reconcile():
             raise RiskDenied('RECONCILIATION_REQUIRED')
         # Account summary and portfolio are separate completed broker reads.
@@ -214,15 +235,29 @@ class PaperRiskSource:
         return self.load(draft)
 
     def load(self, draft):
+        broker_managed = getattr(self,'broker_managed',False)
         reference = (*self.quote, 'trade', 'realtime') if self._fresh_trade() else getattr(self, 'reference', None)
         if self.prepared is None or self.instrument is None or reference is None or self.pnl_at is None:
-            raise ReviewBlocked('MISSING_QUOTE_AND_RISK_PROFILE')
+            if not broker_managed:
+                raise ReviewBlocked('MISSING_QUOTE_AND_RISK_PROFILE')
         if draft.conId != self.instrument.conId or not self.connection.healthy() or self.connection.reconciliation_blocked:
             raise ReviewBlocked('RECONCILIATION_REQUIRED')
         snapshot, risk, account_at = self.prepared
         current = self.connection.session.snapshot()
         if current.sessionRevision != self.scope.sessionRevision or current.state not in ('ready','empty'):
             raise ReviewBlocked('RECONCILIATION_REQUIRED')
+        if broker_managed:
+            try:
+                regular = any(s.start <= self.clock() < s.end for s in self.details.liquidSessions())
+            except Exception as error:
+                raise ReviewBlocked('TRADING_HOURS_UNAVAILABLE') from error
+            context = RiskContext(accountKey=snapshot.accountKey,mode='paper',sessionRevision=snapshot.sessionRevision,
+                snapshotId=snapshot.snapshotId,source='ibkr',connected=True,reconciled=False,asOf=account_at,
+                quoteAt=reference[1],quoteState='missing',referenceKind='order-input',conId=draft.conId,
+                referencePrice=reference[0],currency='USD',baseCurrency='USD',market='US',secType='STK',
+                multiplier='1',minTick=self.instrument.minTick,minQuantity='1',regularHours=regular,halted=False,
+                openOrdersComplete=False,brokerManagedRisk=True,**risk)
+            return PreviewInput(context=context,scope=self.scope,symbol=self.instrument.symbol,currency='USD')
         quantities = lambda positions: sorted((p.conId, Decimal(p.quantity)) for p in positions)
         if quantities(current.positions) != quantities(snapshot.positions) or current.orders != snapshot.orders:
             raise ReviewBlocked('PREVIEW_SOURCE_CHANGED')

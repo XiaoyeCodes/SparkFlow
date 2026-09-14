@@ -8,6 +8,8 @@ import { UsMarketHeatmap, type HeatmapStockSelection } from '../ChinaMarketHeatm
 import { PaperOrderReceipt } from './PaperOrderReceipt';
 import { paperReceiptStatus, type PaperReceipt } from '../../lib/ibkr/paperReceipt';
 import { paperPeFact } from '../../lib/ibkr/paperValuation';
+import { startQuotePolling } from '../../lib/realtimeQuotes';
+import { getUsTradingSessionDisplay } from '../../lib/ibkr/usTradingSession';
 
 const api = '/api/ibkr-workbench/paper/';
 async function paperRequest<T>(endpoint: string, value?: unknown, signal?: AbortSignal): Promise<T> {
@@ -195,13 +197,13 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
   useEffect(() => {
     ++quoteRevision.current;setPreview(null); setQuote(null); setQuoteBusy(false);setQuoteError('');
     if (!selected) return;
-    let disposed = false, timer: ReturnType<typeof setTimeout>;
-    const poll = async (quiet = true) => {
-      if (!document.hidden) await refreshQuote(selected,quiet);
-      if (!disposed) timer = setTimeout(() => void poll(),5000);
-    };
-    void poll(false);
-    return () => { disposed=true;clearTimeout(timer);++quoteRevision.current; };
+    let quiet = false;
+    const stop = startQuotePolling(async () => {
+      const initial = !quiet;
+      quiet = true;
+      await refreshQuote(selected, !initial);
+    });
+    return () => { stop();++quoteRevision.current; };
   }, [selected?.conId,selected?.symbol,selected?.exchange, refreshQuote]);
   useEffect(() => {
     if (order.orderType !== 'LMT' || latestPrice == null || !Number.isFinite(Number(latestPrice)) || Number(latestPrice) <= 0) return;
@@ -359,6 +361,7 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
   const change = quote?.last && quote.close ? (Number(quote.last) / Number(quote.close) - 1) * 100 : null;
   const outsideRegularHours = quote?.regularHours === false;
   const previewSeconds = preview ? Math.max(0, Math.ceil((Date.parse(preview.expiresAt) - now) / 1000)) : 0;
+  const currentTradingSession = useMemo(() => getUsTradingSessionDisplay(now), [now]);
   if (!paperSelected) return <section className="awb-panel awb-paper-blocked"><ShoppingCart/><h2>连接模拟账户，开始练习交易</h2><p>请在连接设置中选择 IB Gateway 模拟盘。</p><button className="primary" onClick={openSettings}>前往连接设置</button></section>;
 
   return <div className="awb-paper-workspace pt-workspace">
@@ -392,7 +395,7 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
           return <article className="pt-market-fact" data-kind={kind} key={field} title={pe?.title} aria-label={`${factLabel} ${display}`}><div><span aria-hidden="true"><Icon size={15}/></span><small>{factLabel}</small></div><b>{display}</b></article>;
         })}</div>
         <TicketPriceChart contract={selected} dataSource={dataSource}/>
-        <div className="pt-session"><Clock3 size={18}/><div><strong>{quote?.regularHours === true ? '美股常规交易时段' : quote?.regularHours === false ? '当前不在常规交易时段' : '常规交易时间 09:30–16:00 美东'}</strong><p>{outsideRegularHours ? '模拟盘已启用盘前盘后；能否成交以 IBKR 回报为准' : quote?.nextOpen ? '下次开市：' + new Date(quote.nextOpen).toLocaleString('zh-CN', { hour12: false }) + '（本地时间）' : '限价单 · 当日有效 · 支持盘前盘后'}</p></div></div>
+        <div className="pt-session"><Clock3 size={18}/><div><strong data-testid="paper-current-trading-session">{currentTradingSession.title}</strong><p>{currentTradingSession.schedule}</p></div></div>
       </section>
       <section className={'awb-panel pt-ticket ' + (order.side === 'SELL' ? 'is-sell' : '')}>
         <div className="pt-ticket-heatmap">

@@ -34,7 +34,7 @@ import './ChinaMacroCommandCenter.css';
 import { ChinaMapContext } from './ChinaMapContext';
 import { useMapFrameState } from '../lib/useMapFrameState';
 import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
-import { PublicDataCacheNotice } from './PublicDataCacheNotice';
+import { startQuotePolling, mergeQuoteRows } from '../lib/realtimeQuotes';
 import { ChinaFisherCard } from './ChinaFisherCard';
 import { ChinaGdpCard } from './ChinaGdpCard';
 import { ChinaIncomeCard } from './ChinaIncomeCard';
@@ -741,6 +741,31 @@ function timeAgo(value?: string) {
   return value.slice(0, 10);
 }
 
+function formatBeijingPart(value: Date, part: 'hour' | 'minute' | 'second') {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    hour: part === 'hour' ? '2-digit' : undefined,
+    minute: part === 'minute' ? '2-digit' : undefined,
+    second: part === 'second' ? '2-digit' : undefined,
+    hourCycle: 'h23',
+  }).format(value).padStart(2, '0');
+}
+
+function formatBeijingDate(value: Date) {
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value || '';
+  return `${part('year')}.${part('month')}.${part('day')} / ${part('weekday')}`;
+}
+
+function formatBeijingClockLabel(value: Date) {
+  return `北京时间 ${new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).format(value)}`;
+}
+
 function readPreparedChinaDashboard(): ChinaMacroDashboard | null {
   const parts = ['indices', 'metrics', 'policy', 'news'].map(section => peekPublicData<Partial<ChinaMacroDashboard>>(`/api/china-macro-dashboard?section=${section}`)).filter(Boolean);
   return parts.length ? Object.assign({}, EMPTY_CHINA_DASHBOARD, ...parts) : null;
@@ -748,6 +773,7 @@ function readPreparedChinaDashboard(): ChinaMacroDashboard | null {
 
 export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
   const [data, setData] = useState<ChinaMacroDashboard | null>(readPreparedChinaDashboard);
+  const [beijingNow, setBeijingNow] = useState(() => new Date());
   const [geoData, setGeoData] = useState<RegionCollection | null>(null);
   const [mapTrail, setMapTrail] = useState<MapTrailItem[]>([]);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(() => readPreparedChinaDashboard() ? 'ready' : 'loading');
@@ -807,7 +833,8 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
       if (!response.ok) throw new Error(`${section} 分区请求失败 (${response.status})`);
       const partial = await response.json() as Partial<ChinaMacroDashboard>;
       if (controller.signal.aborted) return;
-      setData((current) => ({ ...EMPTY_CHINA_DASHBOARD, ...current, ...partial }));
+      setData((current) => ({ ...EMPTY_CHINA_DASHBOARD, ...current, ...partial,
+        ...(partial.indices ? { indices: mergeQuoteRows(current?.indices || [], partial.indices) } : {}) }));
       setLoadState('ready');
     });
     try {
@@ -844,6 +871,22 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
       provinceFeedRequestRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const updateClock = () => setBeijingNow(new Date());
+    updateClock();
+    const timer = window.setInterval(updateClock, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => startQuotePolling(async signal => {
+    const response = await publicDataFetch('/api/china-macro-dashboard?section=indices', { signal });
+    if (!response.ok) throw new Error('指数报价暂不可用');
+    const partial = await response.json() as Partial<ChinaMacroDashboard>;
+    if (!signal.aborted && partial.indices?.length) setData(current => ({
+      ...EMPTY_CHINA_DASHBOARD, ...current, indices: mergeQuoteRows(current?.indices || [], partial.indices!),
+    }));
+  }), []);
 
   useEffect(() => {
     provinceFeedRequestRef.current?.abort();
@@ -1053,14 +1096,15 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
 
   return (
     <section className="china-command-shell">
-      <PublicDataCacheNotice scope="china" />
       <header className="china-command-ticker">
-        <button type="button" className="china-back-button" onClick={onBack} title="返回股票市场">
-          <ArrowLeft size={17} />
-        </button>
-        <div className="china-command-brand">
-          <span><Landmark size={15} /> CHINA MACRO INTELLIGENCE</span>
-          <strong>中国核心宏观主控台</strong>
+        <div className="china-command-identity">
+          <button type="button" className="china-back-button" onClick={onBack} title="返回股票市场">
+            <ArrowLeft size={17} />
+          </button>
+          <div className="china-command-brand">
+            <span><Landmark size={15} /> CHINA MACRO INTELLIGENCE</span>
+            <strong>中国核心宏观主控台</strong>
+          </div>
         </div>
         <div className="china-index-tape" aria-label="中国主要市场指数">
           <div className="china-index-track">
@@ -1073,9 +1117,16 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
             ))}
           </div>
         </div>
-        <div className="china-command-updated">
-          <span>{loadState === 'loading' ? '连接数据中' : `更新 ${data?.generatedAt ? new Date(data.generatedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '--'}`}</span>
-          <button type="button" onClick={() => void load()} title="刷新中国宏观数据"><RefreshCw size={15} className={loadState === 'loading' ? 'is-spinning' : ''} /></button>
+        <div className="china-command-clock" aria-label="北京时间电子时钟">
+          <div className="china-clock-signal" aria-hidden="true"><i /><span>BEIJING // UTC+8</span></div>
+          <time dateTime={beijingNow.toISOString()} aria-label={formatBeijingClockLabel(beijingNow)}>
+            <span>{formatBeijingPart(beijingNow, 'hour')}</span><i>:</i><span>{formatBeijingPart(beijingNow, 'minute')}</span><i>:</i><span className="china-clock-seconds">{formatBeijingPart(beijingNow, 'second')}</span>
+          </time>
+          <div className="china-clock-meta">
+            <span>{formatBeijingDate(beijingNow)}</span>
+            <b>{loadState === 'loading' ? 'SYNCING' : 'CST ONLINE'}</b>
+          </div>
+          <button type="button" onClick={() => void load()} title="刷新中国宏观数据" aria-label="刷新中国宏观数据"><RefreshCw size={14} className={loadState === 'loading' ? 'is-spinning' : ''} /></button>
         </div>
       </header>
 

@@ -31,15 +31,18 @@
 }
 
 .china-command-ticker {
-  display: flex;
+  display: grid;
+  grid-template-columns: 338px minmax(620px, 1fr) 376px;
   align-items: stretch;
   min-width: 0;
+  gap: 1px;
   border-bottom: 1px solid var(--china-border);
-  background: rgba(4, 11, 10, 0.98);
+  background: var(--china-border);
 }
 
+.china-command-identity { display: flex; min-width: 0; background: rgba(4, 11, 10, 0.98); }
 .china-back-button,
-.china-command-updated button {
+.china-command-clock button {
   display: grid;
   place-items: center;
   width: 48px;
@@ -51,11 +54,11 @@
 }
 
 .china-back-button:hover,
-.china-command-updated button:hover { color: var(--china-green); background: rgba(102, 223, 183, 0.06); }
-.china-command-brand { display: grid; align-content: center; width: 290px; padding: 0 18px; border-right: 1px solid var(--china-border); }
+.china-command-clock button:hover { color: var(--china-green); background: rgba(102, 223, 183, 0.08); }
+.china-command-brand { display: grid; min-width: 0; flex: 1; align-content: center; padding: 0 18px; }
 .china-command-brand span { display: flex; align-items: center; gap: 7px; color: var(--china-green); font: 600 9px/1.2 "JetBrains Mono", monospace; letter-spacing: 0.16em; }
 .china-command-brand strong { margin-top: 5px; font-size: 18px; letter-spacing: 0; }
-.china-index-tape { min-width: 0; flex: 1; overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 22px, #000 calc(100% - 22px), transparent); }
+.china-index-tape { min-width: 0; overflow: hidden; background: rgba(4, 11, 10, 0.98); mask-image: linear-gradient(90deg, transparent, #000 22px, #000 calc(100% - 22px), transparent); }
 .china-index-track { display: flex; width: max-content; height: 100%; animation: china-index-scroll 58s linear infinite; will-change: transform; }
 .china-index-tape:hover .china-index-track { animation-play-state: paused; }
 .china-index-item { display: grid; grid-template-columns: auto auto; align-content: center; column-gap: 16px; min-width: 198px; padding: 0 20px; border-right: 1px solid var(--china-border); color: var(--china-text); text-decoration: none; }
@@ -63,9 +66,30 @@
 .china-index-item strong { font: 600 18px "JetBrains Mono", monospace; }
 .china-index-item b { align-self: end; justify-self: end; font: 600 11px "JetBrains Mono", monospace; }
 .china-index-item:hover { background: rgba(102, 223, 183, 0.05); }
-.china-command-updated { display: flex; align-items: stretch; flex: 0 0 auto; border-left: 1px solid var(--china-border); }
-.china-command-updated > span { align-content: center; padding: 0 15px; color: var(--china-muted); font: 10px "JetBrains Mono", monospace; white-space: nowrap; }
-.china-command-updated button { width: 46px; border-right: 0; border-left: 1px solid var(--china-border); }
+.china-command-clock {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 13px 28px 12px;
+  align-content: center;
+  min-width: 0;
+  padding: 5px 55px 5px 17px;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(102, 223, 183, 0.065), transparent 38%),
+    rgba(4, 11, 10, 0.98);
+  isolation: isolate;
+}
+.china-command-clock::before { position: absolute; z-index: -1; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, transparent 0 4px, rgba(102, 223, 183, 0.025) 4px 5px); content: ""; }
+.china-command-clock::after { position: absolute; z-index: 2; left: 8px; top: 8px; width: 7px; height: 7px; border-top: 1px solid rgba(102, 223, 183, 0.74); border-left: 1px solid rgba(102, 223, 183, 0.74); content: ""; }
+.china-clock-signal { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: #63847b; font: 600 7px/1 "JetBrains Mono", monospace; letter-spacing: 0.18em; white-space: nowrap; }
+.china-clock-signal i { width: 4px; height: 4px; border-radius: 50%; background: #72e8c4; box-shadow: 0 0 8px rgba(102, 223, 183, 0.78); animation: china-clock-pulse 2s ease-in-out infinite; }
+.china-command-clock time { grid-column: 1; align-self: center; justify-self: center; color: #e8fff7; font: 600 24px/1 "JetBrains Mono", monospace; letter-spacing: 0.09em; text-shadow: 0 0 13px rgba(102, 223, 183, 0.24); white-space: nowrap; }
+.china-command-clock time i { padding: 0 2px; color: #4b8877; font-style: normal; animation: china-clock-colon 1s steps(1, end) infinite; }
+.china-clock-seconds { color: #72e8c4; }
+.china-clock-meta { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #6e8b83; font: 500 8px/1 "JetBrains Mono", monospace; letter-spacing: 0.06em; white-space: nowrap; }
+.china-clock-meta b { color: #77bba7; font-size: 7px; font-weight: 600; letter-spacing: 0.15em; }
+.china-command-clock button { position: absolute; top: 0; right: 0; bottom: 0; width: 43px; border-right: 0; border-left: 1px solid var(--china-border); }
 
 .china-command-error { position: fixed; z-index: 20; top: 76px; left: 50%; display: flex; gap: 16px; transform: translateX(-50%); border: 1px solid rgba(237, 105, 120, 0.42); background: #251015; padding: 10px 14px; color: #ffd2d7; font-size: 12px; }
 .china-command-error button { border: 0; color: white; background: transparent; text-decoration: underline; cursor: pointer; }
@@ -418,10 +442,14 @@
 @keyframes china-index-scroll { to { transform: translateX(-50%); } }
 @keyframes china-footer-scroll { to { transform: translateX(-50%); } }
 @keyframes china-spin { to { transform: rotate(360deg); } }
+@keyframes china-clock-pulse { 50% { opacity: 0.38; box-shadow: 0 0 3px rgba(102, 223, 183, 0.32); } }
+@keyframes china-clock-colon { 50% { opacity: 0.35; } }
 
 @media (max-width: 1500px) {
+  .china-command-ticker,
   .china-command-layout { grid-template-columns: 300px minmax(540px, 1fr) 330px; }
-  .china-command-brand { width: 250px; }
+  .china-command-clock { padding-left: 13px; }
+  .china-command-clock time { font-size: 21px; }
   .china-metric-cell { padding-inline: 8px; }
   .china-metric-cell > strong { font-size: 15px; }
 }
@@ -429,6 +457,7 @@
 @media (max-width: 1180px) {
   .china-command-shell { height: auto; min-height: 100%; overflow: auto; }
   .china-command-layout { grid-template-columns: 1fr; background: transparent; }
+  .china-command-ticker { grid-template-columns: 48px minmax(0, 1fr) 250px; }
   .china-command-left,
   .china-command-right { overflow: visible; }
   .china-map-stage { min-height: 720px; order: -1; }
@@ -438,7 +467,13 @@
 
 @media (max-width: 720px) {
   .china-command-ticker { height: 58px; }
-  .china-command-updated > span { display: none; }
+  .china-command-ticker { grid-template-columns: 44px minmax(0, 1fr) 148px; }
+  .china-back-button { width: 44px; }
+  .china-command-clock { grid-template-rows: 1fr; align-content: stretch; padding: 0 39px 0 10px; }
+  .china-clock-signal,
+  .china-clock-meta { display: none; }
+  .china-command-clock time { align-self: center; font-size: 15px; letter-spacing: 0.035em; }
+  .china-command-clock button { width: 34px; }
   .china-index-item { min-width: 160px; padding-inline: 12px; }
   .china-map-stage { min-height: 630px; padding-inline: 10px; }
   .china-map-stage.has-selection { grid-template-rows: 70px 420px max-content max-content; }
@@ -453,6 +488,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .china-clock-signal i,
+  .china-command-clock time i { animation: none; }
   .china-local-intel-skeleton { animation: none; }
   .china-local-intel a,
   .china-news-list > a { transition: none; }

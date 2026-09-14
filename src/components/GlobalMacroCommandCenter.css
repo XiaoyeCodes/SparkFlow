@@ -952,6 +952,10 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-key-change-card .macro-key-change-move { align-items: flex-end; text-align: right; }
 .macro-key-change-move b { font: 600 10px "JetBrains Mono", monospace; white-space: nowrap; }
 .macro-key-change-move small { max-width: 76px; margin-top: 6px; }
+.macro-key-change-card.asset-gold { grid-template-columns: max-content minmax(0, 1fr); column-gap: 6px; padding-inline: 10px; }
+.macro-key-change-card.asset-gold .macro-key-change-copy > strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.macro-key-change-card.asset-gold .macro-key-change-move { max-width: 100%; }
+.macro-key-change-card.asset-gold .macro-key-change-move small { max-width: 100%; }
 .macro-core-index-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .macro-core-index-card {
   position: relative;
