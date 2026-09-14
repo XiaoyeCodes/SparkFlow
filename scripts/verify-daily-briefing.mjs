@@ -89,11 +89,11 @@ try {
   assert.equal(calls, 1, "same date/slot must read disk cache");
   const forced = await service.get(window, true);
   assert.equal(
-    forced.cache.hit,
+    forced.cache.generated,
     true,
-    "scheduled force must be idempotent after the scheduled hour",
+    "explicit refresh must regenerate the current edition",
   );
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   const stored = JSON.parse(
     await readFile(
       path.join(root, "daily-brief", "2026-08-30", "morning.json"),
@@ -118,7 +118,45 @@ try {
     true,
     "failed scheduled fetch must retain the last successful snapshot",
   );
-  assert.equal(fallback.snapshot.summary.headline, "snapshot-1");
+  assert.equal(fallback.snapshot.summary.headline, "snapshot-2");
+  // Disk restoration must render before an incomplete edition finishes retrying.
+  let finish;
+  let retries = 0;
+  const restored = createDailyBriefService({
+    stateDir: root,
+    now: () => new Date('2026-08-30T04:30:00Z'),
+    generate: async target => {
+      retries++;
+      await new Promise(resolve => { finish = resolve; });
+      return { ...snapshot(target, 3), summaryMode: 'ai' };
+    },
+  });
+  const page = await restored.getForPage(window);
+  assert.equal(page.snapshot.summary.headline, 'snapshot-2');
+  assert.equal(page._pageCache.state, 'stale');
+  assert.equal(page._pageCache.expiresAt, '2026-08-31T01:00:00.000Z');
+  await restored.getForPage(window);
+  await restored.getForPage(window);
+  for (let i = 0; !finish && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(retries, 1, 'background retry is coalesced and throttled');
+  finish();
+  await restored.get(window, true);
+  assert.equal((await restored.getForPage(window))._pageCache.state, 'fresh');
+  let restartCalls = 0;
+  const restart = createDailyBriefService({ stateDir: root, now: () => new Date('2026-08-30T04:30:00Z'),
+    generate: async () => { restartCalls++; throw new Error('complete edition must not regenerate during warmup'); } });
+  const errors = [];
+  const stop = restart.schedule(error => errors.push(error));
+  assert.equal((await restart.getForPage(window)).snapshot.summary.headline, 'snapshot-3');
+  stop();
+  assert.equal(restartCalls, 0);
+  assert.deepEqual(errors, []);
+  const startup = createDailyBriefService({ stateDir: root, now: () => new Date('2026-08-31T04:30:00Z'),
+    generate: async target => { restartCalls++; return { ...snapshot(target, 4), summaryMode: 'ai' }; } });
+  const stopStartup = startup.schedule(error => errors.push(error));
+  assert.equal((await startup.getForPage()).snapshot.date, '2026-08-31');
+  stopStartup();
+  assert.equal(restartCalls, 1, 'startup catches up a missed morning edition once');
   console.log(
     "[daily-brief] cache, lock, schedule-window and persistence checks passed.",
   );

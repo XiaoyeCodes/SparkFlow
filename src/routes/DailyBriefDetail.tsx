@@ -24,6 +24,7 @@ import type {
 } from '../lib/dailyBriefTypes';
 import './DailyBrief.css';
 import './DailyBriefDetail.css';
+import { pageDataFetch, peekPageData } from '../lib/pageDataClient';
 
 type DetailKind = 'judgement' | 'flows' | 'performance';
 
@@ -33,8 +34,8 @@ const detailNavigation: Array<{ kind: DetailKind; eyebrow: string; title: string
   { kind: 'performance', eyebrow: 'LONG HORIZON', title: '长期资产表现', description: '共同起点、倍数与回撤' },
 ];
 
-async function requestJson<T>(url: string) {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+async function requestJson<T>(url: string, signal?: AbortSignal) {
+  const response = await pageDataFetch(url, { headers: { Accept: 'application/json' }, signal });
   const payload = await response.json() as T & { detail?: string };
   if (!response.ok) throw new Error(payload.detail || `请求失败（${response.status}）`);
   return payload;
@@ -201,22 +202,27 @@ function SourceNotes({ sources, errors }: { sources: Array<{ label: string; url:
 export function DailyBriefDetail() {
   const { section } = useParams();
   const kind = section as DetailKind;
-  const [brief, setBrief] = useState<DailyBriefResponse | null>(null);
-  const [detail, setDetail] = useState<DailyBriefFlowDetails | DailyBriefPerformanceDetails | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [brief, setBrief] = useState<DailyBriefResponse | null>(() => peekPageData<DailyBriefResponse>('/api/daily-brief') ?? null);
+  const [detail, setDetail] = useState<DailyBriefFlowDetails | DailyBriefPerformanceDetails | null>(() => peekPageData<DailyBriefFlowDetails | DailyBriefPerformanceDetails>(`/api/daily-brief/details?view=${kind}`) ?? null);
+  const [loading, setLoading] = useState(() => !(kind === 'judgement' ? brief : detail));
   const [error, setError] = useState('');
   const meta = useMemo(() => detailNavigation.find((item) => item.kind === kind), [kind]);
 
   useEffect(() => {
     if (!meta) return;
     let alive = true;
-    setLoading(true); setError(''); setDetail(null);
-    const task = kind === 'judgement' ? requestJson<DailyBriefResponse>('/api/daily-brief') : requestJson<DailyBriefFlowDetails | DailyBriefPerformanceDetails>(`/api/daily-brief/details?view=${kind}`);
+    const controller = new AbortController();
+    const url = kind === 'judgement' ? '/api/daily-brief' : `/api/daily-brief/details?view=${kind}`;
+    const cached = peekPageData<DailyBriefResponse | DailyBriefFlowDetails | DailyBriefPerformanceDetails>(url);
+    setLoading(!cached); setError('');
+    if (kind === 'judgement') setBrief((cached as DailyBriefResponse) ?? null);
+    else setDetail((cached as DailyBriefFlowDetails | DailyBriefPerformanceDetails) ?? null);
+    const task = requestJson<DailyBriefResponse | DailyBriefFlowDetails | DailyBriefPerformanceDetails>(url, controller.signal);
     task.then((payload) => {
       if (!alive) return;
       if (kind === 'judgement') setBrief(payload as DailyBriefResponse); else setDetail(payload as DailyBriefFlowDetails | DailyBriefPerformanceDetails);
     }).catch((reason) => { if (alive) setError(reason instanceof Error ? reason.message : String(reason)); }).finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
+    return () => { alive = false; controller.abort(); };
   }, [kind, meta]);
 
   if (!meta) return <Navigate to="/council" replace />;

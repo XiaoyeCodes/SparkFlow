@@ -203,6 +203,12 @@ export function createPublicDataCache(options: {
     initialize,
     tick,
     has: (key: string) => resources.has(key),
+    async refresh(key: string) {
+      await initialize();
+      const resource = resources.get(key);
+      if (!resource) throw new Error('Not an allowlisted public resource');
+      await enqueue(resource, true);
+    },
     async read(key: string) {
       await initialize();
       if (closed) throw new Error('Public cache stopped');

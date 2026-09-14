@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { invalidatePageData, pageDataFetch, peekPageData } from '../lib/pageDataClient';
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -70,7 +71,7 @@ function isChineseNewsItem(item: NewsItem) {
 
 export function Signals() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [feed, setFeed] = useState<NewsFeed | null>(null);
+  const [feed, setFeed] = useState<NewsFeed | null>(() => peekPageData<NewsFeed>('/api/news-feed') ?? null);
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState('');
@@ -171,25 +172,38 @@ export function Signals() {
     return () => { window.clearInterval(timer); window.clearTimeout(midnightTimer); document.removeEventListener('visibilitychange', updateTime); };
   }, []);
 
-  const fetchNews = async (force = false) => {
+  const newsRequest = useRef<AbortController | null>(null);
+  const fetchNews = useCallback(async (force = false) => {
+    newsRequest.current?.abort();
+    const controller = new AbortController();
+    newsRequest.current = controller;
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(force ? '/api/news-feed?refresh=1' : '/api/news-feed');
+      const response = await pageDataFetch(force ? '/api/news-feed?refresh=1' : '/api/news-feed', { signal: controller.signal });
       const payload = (await response.json()) as NewsFeed & { detail?: string };
       if (!response.ok) throw new Error(payload.detail || '新闻源拉取失败');
+      if (controller.signal.aborted) return;
       setFeed(payload);
       setNow(Date.now());
     } catch (err) {
+      if (controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
+      if (newsRequest.current === controller) newsRequest.current = null;
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchNews();
-  }, []);
+    void fetchNews();
+    const update = () => {
+      if (document.visibilityState === 'visible' && !newsRequest.current) void fetchNews();
+    };
+    const timer = window.setInterval(update, 30_000);
+    document.addEventListener('visibilitychange', update);
+    return () => { newsRequest.current?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', update); };
+  }, [fetchNews]);
 
   const summarizeWithAi = async () => {
     if (!visibleItems.length) return;
@@ -291,7 +305,8 @@ export function Signals() {
             </div>
           </header>
 
-          <SignalsSourceManager feed={feed} onChanged={async (id) => { await fetchNews(true); changeSource(id || 'all'); }} />
+          {feed?._pageCache?.state === 'stale' ? <p role="status" className="signals-source-context">正在显示上次新闻快照，后台更新中 · 更新于 {formatNewsTime(feed.generatedAt)}</p> : null}
+          <SignalsSourceManager feed={feed} onChanged={async (id) => { invalidatePageData('/api/news-feed'); setFeed(null); await fetchNews(true); changeSource(id || 'all'); }} />
 
           <div className="signals-layout">
             <aside className="signals-sidebar" aria-label="新闻筛选与来源">

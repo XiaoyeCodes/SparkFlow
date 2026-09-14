@@ -124,6 +124,7 @@ export function createDailyBriefService(options: {
   const clock = options.now || (() => new Date());
   const running = new Map<string, Promise<DailyBriefResponse>>();
   const memory = new Map<string, DailyBriefSnapshot>();
+  const contentRetryAt = new Map<string, number>();
 
   const pathsFor = ({ date, slot }: BriefWindow) => ({
     file: path.join(root, date, `${slot}.json`),
@@ -271,6 +272,24 @@ export function createDailyBriefService(options: {
     return readSnapshot(path.join(root, "latest.json"));
   }
 
+  async function getForPage(window = getDailyBriefWindow(clock())): Promise<DailyBriefResponse> {
+    const response = await get(window);
+    const incomplete = !response.snapshot.day1?.analysis && response.snapshot.summaryMode !== 'ai';
+    if (incomplete && !response.cache.stale && !response.cache.generated && (contentRetryAt.get(pathsFor(window).key) || 0) <= clock().getTime()) {
+      contentRetryAt.set(pathsFor(window).key, clock().getTime() + 5 * 60_000);
+      // A usable edition renders immediately while missing editorial content is
+      // retried once per five minutes, shared across visitors.
+      void get(window, true).catch(() => undefined);
+    } else if (response.cache.generated) {
+      contentRetryAt.set(pathsFor(window).key, clock().getTime() + 5 * 60_000);
+    }
+    return { ...response, _pageCache: {
+      state: incomplete || response.cache.stale ? 'stale' : 'fresh',
+      storedAt: response.snapshot.generatedAt,
+      expiresAt: new Date(Date.parse(`${response.snapshot.date}T09:00:00+08:00`) + 24 * 3600_000).toISOString(),
+    } };
+  }
+
   function schedule(onError: (error: unknown) => void = () => undefined) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
@@ -286,6 +305,9 @@ export function createDailyBriefService(options: {
       }, delay);
       timer.unref?.();
     };
+    // Restore/generate the current edition at startup, including a missed 09:00
+    // run while the host was offline. Existing snapshots avoid model requests.
+    void getForPage().catch(onError);
     arm();
     return () => {
       stopped = true;
@@ -297,5 +319,5 @@ export function createDailyBriefService(options: {
     return `${snapshot.date}/${snapshot.slot}`;
   }
 
-  return { get, latest, schedule, root };
+  return { get, getForPage, latest, schedule, root };
 }

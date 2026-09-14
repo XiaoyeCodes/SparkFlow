@@ -4,6 +4,8 @@ import regionalSources from './src/data/chinaRegionalSources.json';
 import type { RegionalSnapshot } from './src/lib/chinaRegionalEconomy';
 import react from '@vitejs/plugin-react';
 import { createPublicDataCache, createPublicSnapshotStore } from './server/publicDataCache';
+import { createNewsPageCache } from './server/newsPageCache';
+import { createDailyBriefAiSummaryCache, isDailyBriefAiSummary } from './server/dailyBriefAiSummaryCache';
 import { createPublicDataHandler } from './server/publicDataHttp';
 import { createChinaRegionalFeedService } from './server/chinaRegionalFeed';
 import { isPublicSourceRefresh, withPublicSourceRefresh } from './server/publicSourceContext';
@@ -9394,6 +9396,9 @@ function normalizeSummary(value: any, fallback: DailyBriefSummary): DailyBriefSu
   };
 }
 
+// Bump when the prompt or output normalization changes to invalidate saved summaries.
+const DAILY_BRIEF_AI_PROMPT_VERSION = 'daily-brief-summary-v1';
+
 async function generateDailyBriefAiSummary(input: {
   date: string;
   slot: string;
@@ -9403,7 +9408,7 @@ async function generateDailyBriefAiSummary(input: {
   positions: DailyBriefPosition[];
   fallback: DailyBriefSummary;
   context?: unknown;
-}, configuredAi?: ReturnType<typeof getAiRequestBody>) {
+}, configuredAi?: ReturnType<typeof getAiRequestBody>, requireComplete = false) {
   const storedAi = configuredAi || await getStoredAiRequestBody().catch(() => null);
   if (!storedAi) return null;
   const provider = storedAi.provider;
@@ -9431,7 +9436,9 @@ async function generateDailyBriefAiSummary(input: {
     useProxy: storedAi.useProxy ?? defaults.useProxy,
   });
   const jsonText = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  return normalizeSummary(JSON.parse(jsonText), input.fallback);
+  const parsed: unknown = JSON.parse(jsonText);
+  if (requireComplete && !isDailyBriefAiSummary(parsed)) throw new Error('模型摘要字段不完整');
+  return normalizeSummary(parsed, input.fallback);
 }
 
 const editorialStockConfigs = [
@@ -10127,6 +10134,14 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
 }
 
 const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot });
+const dailyBriefAiSummaryCache = createDailyBriefAiSummaryCache({
+  store: createPublicSnapshotStore(path.join(sparkflowStateDir, 'daily-brief-ai-summary'), 256 * 1024),
+  promptVersion: DAILY_BRIEF_AI_PROMPT_VERSION,
+  generate: (snapshot, config) => generateDailyBriefAiSummary({
+    date: snapshot.date, slot: snapshot.slot, markets: snapshot.markets, macro: snapshot.macro,
+    news: snapshot.news, positions: [], fallback: snapshot.summary, context: snapshot.editorial,
+  }, { ...config, prompt: '' }, true),
+});
 const marketCloseService = createMarketCloseService({
   stateDir: sparkflowStateDir,
   collect: (market, date, signal) => collectCloseResearch(market, date, async url => {
@@ -11879,6 +11894,12 @@ function allWeatherApiPlugin() {
       const servePublicData = publicCache ? createPublicDataHandler(publicCache) : undefined;
       publicCache?.start();
       server.httpServer?.once('close', () => publicCache?.stop());
+      const newsPageCache = createNewsPageCache({
+        subscriptions: () => newsSubscriptions.list(), load: getNewsFeed,
+        store: createPublicSnapshotStore(path.join(sparkflowStateDir, 'news-page-cache'), 8 * 1024 * 1024),
+      });
+      const stopNewsPreload = newsPageCache.start();
+      server.httpServer?.once('close', stopNewsPreload);
       const stopDailyBriefScheduler = dailyBriefService.schedule((error) => {
         console.error('[daily-brief] scheduled generation failed:', error);
       });
@@ -11924,7 +11945,8 @@ function allWeatherApiPlugin() {
           }
 
           if (url.pathname === '/api/news-feed') {
-            sendJson(res, 200, await getNewsFeed(url.searchParams.get('refresh') === '1'));
+            res.setHeader('Cache-Control', 'private, no-store');
+            sendJson(res, 200, await newsPageCache.get(url.searchParams.get('refresh') === '1'));
             return;
           }
 
@@ -11959,12 +11981,7 @@ function allWeatherApiPlugin() {
           if (url.pathname === '/api/daily-brief' && req.method === 'GET') {
             res.setHeader('Cache-Control', 'private, no-cache');
             const window = getDailyBriefWindow();
-            let response = await dailyBriefService.get(window);
-            // The core daily reading is only useful once a real editorial/AI result exists.
-            // Retry its upstream source once per page open until today's snapshot has one.
-            if (url.searchParams.get('retry-content') === '1' && !response.snapshot.day1?.analysis && response.snapshot.summaryMode !== 'ai') {
-              response = await dailyBriefService.get(window, true);
-            }
+            const response = await dailyBriefService.getForPage(window);
             sendJson(res, 200, response);
             return;
           }
@@ -11982,23 +11999,17 @@ function allWeatherApiPlugin() {
           }
 
           if (url.pathname === '/api/daily-brief/ai-summary' && req.method === 'POST') {
-            await getRequestBody(req);
+            res.setHeader('Cache-Control', 'private, no-store');
+            const body = JSON.parse(await getRequestBody(req) || '{}') as { snapshot?: { date?: unknown; slot?: unknown; generatedAt?: unknown } };
             const aiConfig = await getStoredAiRequestBody();
             const current = await dailyBriefService.get();
             const snapshot = current.snapshot;
-            const summary = await generateDailyBriefAiSummary({
-              date: snapshot.date,
-              slot: snapshot.slot,
-              markets: snapshot.markets,
-              macro: snapshot.macro,
-              news: snapshot.news,
-              positions: snapshot.portfolio.positions,
-              fallback: snapshot.summary,
-              context: snapshot.editorial,
-            }, aiConfig);
-            if (!summary) throw new Error('模型没有生成每日简报结论');
-            res.setHeader('Cache-Control', 'no-store');
-            sendJson(res, 200, { summary, provider: aiConfig.provider, model: aiConfig.model, generatedAt: new Date().toISOString() });
+            if (body?.snapshot && (body.snapshot.date !== snapshot.date || body.snapshot.slot !== snapshot.slot
+              || body.snapshot.generatedAt !== snapshot.generatedAt)) {
+              sendJson(res, 409, { error: 'brief_snapshot_changed', detail: '简报已更新，请重新读取本期数据' });
+              return;
+            }
+            sendJson(res, 200, await dailyBriefAiSummaryCache.get(snapshot, aiConfig));
             return;
           }
 

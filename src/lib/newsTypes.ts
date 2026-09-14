@@ -36,6 +36,7 @@ export type NewsItem = {
 };
 
 export type NewsFeed = {
+  _pageCache?: import('./pageDataTypes').PageCacheMeta;
   generatedAt: string;
   proxy: string;
   rankingVersion?: string;

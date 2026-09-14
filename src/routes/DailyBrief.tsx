@@ -3,6 +3,7 @@ import { AlertTriangle, Bitcoin, Radio, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type {
   DailyBriefChartPoint,
+  DailyBriefAiSummaryResponse,
   DailyBriefAssetGroup,
   DailyBriefEditorialEvent,
   DailyBriefEditorialMetric,
@@ -15,6 +16,7 @@ import type {
 } from "../lib/dailyBriefTypes";
 import { DailyBriefVisualDashboard } from "../components/DailyBriefVisuals";
 import "./DailyBrief.css";
+import { invalidatePageData, pageDataFetch, peekPageData, rememberPageData } from '../lib/pageDataClient';
 
 const money = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
@@ -23,7 +25,7 @@ async function requestJson<T>(url: string, init?: RequestInit) {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const response = await fetch(url, { headers: { Accept: "application/json" }, ...init });
+      const response = await pageDataFetch(url, { headers: { Accept: "application/json" }, ...init });
       const text = await response.text();
       if (!text.trim()) throw new Error(`接口返回空内容（${response.status}）`);
       let payload: T & { detail?: string };
@@ -35,6 +37,7 @@ async function requestJson<T>(url: string, init?: RequestInit) {
       if (!response.ok) throw new Error(payload.detail || `请求失败（${response.status}）`);
       return payload;
     } catch (error) {
+      if (init?.signal?.aborted) throw error;
       lastError = error;
     }
   }
@@ -309,8 +312,8 @@ function signalLabel(value: number | null, kind: "top" | "bottom") {
 }
 
 export function DailyBrief() {
-  const [brief, setBrief] = useState<DailyBriefResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [brief, setBrief] = useState<DailyBriefResponse | null>(() => peekPageData<DailyBriefResponse>('/api/daily-brief') ?? null);
+  const [loading, setLoading] = useState(() => !peekPageData('/api/daily-brief'));
   const [error, setError] = useState("");
   const [modelSummary, setModelSummary] = useState<DailyBriefSummary | null>(null);
   const [, setModelSummaryState] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
@@ -320,62 +323,71 @@ export function DailyBrief() {
   const assetGroupsRef = useRef<HTMLDivElement>(null);
   const [sideDockHeight, setSideDockHeight] = useState(0);
 
+  const briefRequest = useRef<AbortController | null>(null);
   const load = useCallback(async (refresh = false) => {
+    briefRequest.current?.abort();
+    const controller = new AbortController();
+    briefRequest.current = controller;
     setLoading(true);
     setError("");
     if (refresh) {
       setModelSummary(null);
+      invalidatePageData('/api/daily-brief');
+      invalidatePageData('/api/daily-brief/details?view=flows');
+      invalidatePageData('/api/daily-brief/details?view=performance');
     }
     try {
-      const payload = refresh ? await requestJson<DailyBriefResponse>("/api/daily-brief/refresh", { method: "POST" }) : await requestJson<DailyBriefResponse>("/api/daily-brief?retry-content=1");
+      const payload = refresh ? await requestJson<DailyBriefResponse>("/api/daily-brief/refresh", { method: "POST", signal: controller.signal }) : await requestJson<DailyBriefResponse>("/api/daily-brief", { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      if (refresh) rememberPageData('/api/daily-brief', payload);
       setBrief(payload);
       if (refresh) setAiRefreshNonce((current) => current + 1);
     } catch (reason) {
+      if (controller.signal.aborted) return;
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
+      if (briefRequest.current === controller) briefRequest.current = null;
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const update = () => { if (document.visibilityState === 'visible' && !briefRequest.current) void load(); };
+    const timer = window.setInterval(update, 60_000);
+    document.addEventListener('visibilitychange', update);
+    return () => { briefRequest.current?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', update); };
+  }, [load]);
 
   const snapshot = brief?.snapshot;
   const data: DailyBriefEditorialSnapshot | undefined = snapshot?.editorial;
 
   useEffect(() => {
     if (!snapshot) return;
-    const cacheKey = `sparkflow.daily-brief.ai-summary.v3:${snapshot.date}:${snapshot.slot}`;
-    try {
-      const cached = window.localStorage.getItem(cacheKey);
-      if (cached && aiRefreshNonce === 0) {
-        const parsed = JSON.parse(cached) as DailyBriefSummary;
-        if (parsed?.assessment?.advice?.length) {
-          setModelSummary(parsed);
-          setModelSummaryState("ready");
-          return;
-        }
-      }
-    } catch {
-      // A malformed convenience cache should never block a fresh model result.
-    }
+    // The server owns reuse across visitors and model/configuration changes.
+    // Legacy localStorage summaries cannot establish which model produced them.
     const controller = new AbortController();
     setModelSummary(null);
     setModelSummaryState("loading");
-    void requestJson<{ summary: DailyBriefSummary }>("/api/daily-brief/ai-summary", {
+    void requestJson<DailyBriefAiSummaryResponse>("/api/daily-brief/ai-summary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "生成每日简报结构化结论" }),
+      body: JSON.stringify({ snapshot: { date: snapshot.date, slot: snapshot.slot, generatedAt: snapshot.generatedAt } }),
       signal: controller.signal,
     }).then((payload) => {
+      if (controller.signal.aborted) return;
+      if (payload.snapshot.date !== snapshot.date || payload.snapshot.slot !== snapshot.slot
+        || payload.snapshot.generatedAt !== snapshot.generatedAt || Date.parse(payload.cache.expiresAt) <= Date.now()) {
+        throw new Error('AI 摘要与当前简报版次不一致');
+      }
       setModelSummary(payload.summary);
       setModelSummaryState("ready");
-      try { window.localStorage.setItem(cacheKey, JSON.stringify(payload.summary)); } catch { /* Optional cache only. */ }
     }).catch(() => {
       if (controller.signal.aborted) return;
       setModelSummaryState("fallback");
     });
     return () => controller.abort();
-  }, [snapshot?.generatedAt, aiRefreshNonce]);
+  }, [snapshot?.date, snapshot?.slot, snapshot?.generatedAt, aiRefreshNonce]);
 
   const summary = modelSummary || snapshot?.summary;
   const btc = data?.crypto.find((item) => item.symbol === "BTC");
@@ -485,6 +497,7 @@ export function DailyBrief() {
     </> : null}
     <div className="editorial-wrap">
       {error ? <div className="editorial-error">{error}</div> : null}
+      {brief?.cache.stale || brief?._pageCache?.state === 'stale' ? <p role="status" className="editorial-intelligence-foot">{brief.cache.stale ? `本期尚未就绪，当前显示 ${snapshot?.date} 的简报` : '已显示本期数据，核心分析正在后台补齐'}</p> : null}
 
       <section className="editorial-lead" aria-label="预留数据区域">
         <div className="editorial-lead-metrics"><div className="editorial-tile-grid">{data ? [

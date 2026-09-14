@@ -43,6 +43,15 @@ export type DailyBriefSummary = {
   assessment?: DailyBriefAssessment;
 };
 
+export type DailyBriefAiSummaryResponse = {
+  summary: DailyBriefSummary;
+  provider: string;
+  model: string;
+  generatedAt: string;
+  snapshot: { date: string; slot: DailyBriefSlot; generatedAt: string };
+  cache: { hit: boolean; source: 'memory' | 'disk' | 'shared' | 'generated'; expiresAt: string };
+};
+
 export type DailyBriefAssessment = {
   rating: "积极" | "中性偏积极" | "中性" | "中性偏谨慎" | "谨慎";
   score: number;
@@ -292,6 +301,7 @@ export type DailyBriefSnapshot = {
 };
 
 export type DailyBriefResponse = {
+  _pageCache?: import('./pageDataTypes').PageCacheMeta;
   snapshot: DailyBriefSnapshot;
   cache: {
     hit: boolean;
