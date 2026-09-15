@@ -58,6 +58,22 @@ function fixture(years = 1) {
   };
 }
 
+test('risk radar exposes source snapshots and rejects stale automatic inputs', () => {
+  const input = fixture();
+  input.series.marketCap = { points: [], current: 83.05, asOf: '2026-04-01', source: 'Federal Reserve Z.1', sourceUrl: 'https://fred.stlouisfed.org/series/NCBEILQ027S', status: 'snapshot', note: '' };
+  input.series.gdp = { points: [], current: 32.49, asOf: '2026-04-01', source: 'BEA', sourceUrl: 'https://fred.stlouisfed.org/series/GDP', status: 'snapshot', note: '' };
+  input.series.cape = { points: [], current: 40.9, asOf: '2026-09-01', source: 'Multpl', sourceUrl: 'https://www.multpl.com/shiller-pe', status: 'snapshot', note: '' };
+  input.series.treasury2y = { points: [], current: 4.65, asOf: '2026-09-07', source: '新浪财经', sourceUrl: 'https://stock.finance.sina.com.cn/forex/globalbd/cn2yt.html', status: 'snapshot', note: '' };
+  const result = computeValuationDashboard(input, 1);
+  assert.equal(result.riskRadar.marketCap.current, 83.05);
+  assert.equal(result.riskRadar.marketCap.eligible, true);
+  assert.equal(result.riskRadar.gdp.eligible, true);
+  assert.equal(result.riskRadar.cape.eligible, true);
+  assert.equal(result.riskRadar.treasury2y.eligible, true);
+  input.series.treasury2y.asOf = '2026-08-30';
+  assert.equal(computeValuationDashboard(input, 1).riskRadar.treasury2y.eligible, false);
+});
+
 test('empirical percentile uses midrank for ties, supports bounds, and rejects absent history', () => {
   assert.equal(empiricalPercentile([1, 2, 2, 4], 2), 50);
   assert.equal(empiricalPercentile([1, 1, 1], 1), 50);

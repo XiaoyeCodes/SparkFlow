@@ -6,10 +6,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ValuationDashboard, ValuationInputs, ValuationLookback } from '../src/lib/ibkr/valuationTypes.ts';
 import { loadValuationInputs } from './ibkrValuationData.ts';
 import { computeValuationDashboard, VALUATION_RULES } from './ibkrValuationModel.ts';
-import { allowedLocalRequest } from './localRequest.ts';
+import { allowedLocalRequest, allowedPublicReadRequest } from './localRequest.ts';
 
 const horizons: ValuationLookback[] = [1, 3, 5, 10];
 export const VALUATION_REFRESH_MS = 3600_000;
+export const VALUATION_PUBLIC_CACHE_SECONDS = 21_600;
+const RISK_RADAR_REPAIR_MS = 60_000;
 interface StoredSnapshot {
   schemaVersion: 1;
   id: string;
@@ -26,6 +28,7 @@ export function createValuationService(options: {
   let latest: StoredSnapshot | null = null;
   let pending: Promise<StoredSnapshot> | null = null;
   let checkedAt = 0;
+  let riskRadarRepairAt = 0;
   let restored: Promise<void> | undefined;
   let refreshError: string | null = null;
   function isStoredSnapshot(value: unknown, expectedId: string): value is StoredSnapshot {
@@ -78,8 +81,12 @@ export function createValuationService(options: {
         const saved = await history();
         if (saved[0]) { latest = await readSnapshot(saved[0].id); checkedAt = Math.min(Date.now(), Date.parse(latest.fetchedAt)); }
       }
-      // Old audits remain immutable; refresh the current display to the new metric schema.
-      if (latest && latest.windows[5].rules.version !== VALUATION_RULES.version) checkedAt = 0;
+      // Old audits remain immutable, but an incompatible snapshot must never be
+      // served as the current display while its replacement loads.
+      if (latest && latest.windows[5].rules.version !== VALUATION_RULES.version) {
+        latest = null;
+        checkedAt = 0;
+      }
     })();
     return restored;
   }
@@ -91,6 +98,9 @@ export function createValuationService(options: {
         throw new Error('NO_FRESH_MARKET_DATA');
       }
       const computed = Object.fromEntries(horizons.map(years => [years, computeValuationDashboard(inputs, years)])) as Record<ValuationLookback, ValuationDashboard>;
+      if (latest && riskRadarComplete(latest.windows[5]) && !riskRadarComplete(computed[5])) {
+        throw new Error('INCOMPLETE_RISK_RADAR_DATA');
+      }
       const id = createHash('sha256').update(JSON.stringify({ inputs, rules: computed[1].rules })).digest('hex').slice(0, 24);
       const windows = Object.fromEntries(horizons.map(years => [years, { ...computed[years], snapshotId: id }])) as StoredSnapshot['windows'];
       const snapshot = await persist({ schemaVersion: 1, id, fetchedAt: inputs.fetchedAt, inputs, windows });
@@ -119,10 +129,18 @@ export function createValuationService(options: {
     return refresh(force);
   }
   function dashboard(snapshot: StoredSnapshot, years: ValuationLookback) {
-    return { ...structuredClone(snapshot.windows[years]), cache: {
+    return { ...structuredClone(snapshot.windows[years]), cache: cacheMeta() };
+  }
+  function cacheMeta() {
+    return {
       checkedAt: new Date(checkedAt).toISOString(), nextCheckAt: new Date(checkedAt + VALUATION_REFRESH_MS).toISOString(),
       refreshing: Boolean(pending), error: refreshError,
-    } };
+    };
+  }
+  function riskRadarComplete(view: ValuationDashboard) {
+    const snapshots = [view.riskRadar.marketCap, view.riskRadar.gdp, view.riskRadar.cape,
+      view.riskRadar.treasury2y, view.treasury, view.sentiment];
+    return snapshots.every(item => item?.eligible && typeof item.current === 'number' && Number.isFinite(item.current));
   }
   function bundle(snapshot: StoredSnapshot) {
     return structuredClone({ id: snapshot.id, fetchedAt: snapshot.fetchedAt, windows: snapshot.windows });
@@ -148,6 +166,22 @@ export function createValuationService(options: {
       if (!horizons.includes(years)) throw new Error('VALUATION_LOOKBACK_INVALID');
       return dashboard(await current(force), years);
     },
+    riskRadar: async () => {
+      let snapshot = await current();
+      let view = snapshot.windows[5];
+      // A transient source failure used to leave a fresh-looking empty snapshot
+      // in memory for an hour. Repair it synchronously, while throttling repair
+      // work so concurrent public visitors still share one upstream refresh.
+      if (!riskRadarComplete(view) && Date.now() - riskRadarRepairAt >= RISK_RADAR_REPAIR_MS) {
+        riskRadarRepairAt = Date.now();
+        try {
+          snapshot = await refresh(true);
+          view = snapshot.windows[5];
+        } catch { /* Return the partial snapshot without allowing it into long-lived caches. */ }
+      }
+      return structuredClone({ fetchedAt: view.fetchedAt, treasury: view.treasury, sentiment: view.sentiment,
+        riskRadar: view.riskRadar, complete: riskRadarComplete(view), cache: cacheMeta() });
+    },
     snapshot: async () => bundle(await current()), history, audit,
     refresh: async () => { await restore(); return current(true); },
   };
@@ -164,16 +198,25 @@ export function ibkrValuationPlugin(): Plugin {
     server.middlewares.use((req, res, next) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (url.pathname !== '/api/ibkr-valuation' && !url.pathname.startsWith('/api/ibkr-valuation/')) return next();
-      const send = (status: number, payload: unknown) => {
+      const send = (status: number, payload: unknown, cacheControl = 'no-store') => {
         res.statusCode = status;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Cache-Control', cacheControl);
+        res.setHeader('Vary', 'Accept-Encoding');
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.end(JSON.stringify(payload));
       };
-      if (!allowedLocalRequest(req.headers, req.socket.localPort ?? 0)) return send(403, { error: '只允许本机同源访问' });
+      if (!allowedPublicReadRequest(req.headers)) return send(403, { error: '只允许同源读取公开行情' });
       if (req.method !== 'GET') return send(405, { error: '只读行情接口仅接受 GET' });
       void (async () => {
+        if (url.pathname === '/api/ibkr-valuation/risk-radar') {
+          res.setHeader('X-SparkFlow-Refresh-Mode', 'scheduled-cache');
+          const payload = await service.riskRadar();
+          const cacheControl = payload.complete
+            ? `public, max-age=300, s-maxage=${VALUATION_PUBLIC_CACHE_SECONDS}, stale-while-revalidate=86400`
+            : 'no-store';
+          return send(200, payload, cacheControl);
+        }
         if (url.pathname === '/api/ibkr-valuation/history') return send(200, { snapshots: await service.history() });
         if (url.pathname === '/api/ibkr-valuation/snapshot') return send(200, await service.snapshot());
         if (url.pathname.startsWith('/api/ibkr-valuation/audit/')) {
@@ -184,7 +227,13 @@ export function ibkrValuationPlugin(): Plugin {
         if (url.pathname !== '/api/ibkr-valuation') return send(404, { error: '行情接口不存在' });
         const requested = url.searchParams.get('years') ?? '5';
         if (!['1', '3', '5', '10'].includes(requested)) return send(400, { error: '回看窗口仅支持 1 / 3 / 5 / 10 年' });
-        return send(200, await service.get(Number(requested) as ValuationLookback, url.searchParams.get('fresh') === '1'));
+        // Public visitors can only read the shared snapshot. A force refresh is
+        // intentionally honored on localhost; scheduled service refreshes own
+        // all upstream traffic in production.
+        const force = url.searchParams.get('fresh') === '1' && allowedLocalRequest(req.headers, req.socket.localPort ?? 0);
+        const cacheControl = force ? 'no-store' : `public, max-age=300, s-maxage=${VALUATION_PUBLIC_CACHE_SECONDS}, stale-while-revalidate=86400`;
+        res.setHeader('X-SparkFlow-Refresh-Mode', force ? 'forced-local' : 'scheduled-cache');
+        return send(200, await service.get(Number(requested) as ValuationLookback, force), cacheControl);
       })().catch(() => { if (!res.writableEnded) send(503, { error: '市场数据暂不可用，请稍后刷新。上次导出的计算记录仍可离线查看。' }); });
     });
   };

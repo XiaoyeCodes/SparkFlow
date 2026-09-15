@@ -2,17 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
-  BarChart3,
-  Clock3,
+  BrainCircuit,
   ExternalLink,
   Gauge,
+  LockKeyhole,
   RefreshCw,
+  ScanSearch,
   Settings2,
-  ShieldCheck,
+  Swords,
   TrendingUp,
 } from 'lucide-react';
 import { PageTransition } from '../components/PageTransition';
-import type { ValuationDashboard } from '../lib/ibkr/valuationTypes';
+import type { ValuationDashboard, ValuationSnapshot } from '../lib/ibkr/valuationTypes';
 import './RiskRadar.css';
 
 type Ticker = 'VOO' | 'QQQ';
@@ -23,23 +24,35 @@ type PricePayload = {
   source: { label: string; url: string };
   points: Array<{ time: string; close: number }>;
 };
+type RiskRadarValuation = Pick<ValuationDashboard, 'fetchedAt' | 'treasury' | 'sentiment' | 'riskRadar' | 'cache'>;
+type RiskRadarCacheEnvelope = {
+  version: 3;
+  ticker: Ticker;
+  storedAt: string;
+  prices: PricePayload;
+  valuation: RiskRadarValuation;
+};
 type Weights = Record<WeightKey, number>;
-type Inputs = { marketCap: number; gdp: number; cape: number; twoYear: number };
 type Factor = {
   id: WeightKey;
   label: string;
   eyebrow: string;
   value: string;
-  score: number;
+  score: number | null;
   weight: number;
-  contribution: number;
+  contribution: number | null;
   detail: string;
   source: string;
   sourceUrl: string;
 };
 
-const DEFAULT_WEIGHTS: Weights = { buffett: 15, shiller: 25, yield: 25, technical: 20, sentiment: 15 };
-const DEFAULT_INPUTS: Inputs = { marketCap: 59, gdp: 29, cape: 40, twoYear: 4.2 };
+const DEFAULT_WEIGHTS: Weights = { buffett: 15, shiller: 20, yield: 25, technical: 20, sentiment: 20 };
+const RISK_CACHE_PREFIX = 'sparkflow.risk-radar.v3.';
+const RISK_CACHE_FRESH_MS = 6 * 60 * 60_000;
+const RISK_CACHE_MAX_MS = 7 * 24 * 60 * 60_000;
+const SMA_DAYS = 200;
+const CHART_DAYS = 252;
+const REQUIRED_PRICE_POINTS = SMA_DAYS + CHART_DAYS - 1;
 const HISTORICAL = [
   { label: '2000 互联网泡沫', date: '2000-03', marketCapRatio: 145, cape: 44.2, tenYear: 6.2, twoYear: 6.6, fear: 90, price: 115, sma: 100 },
   { label: '2008 次贷危机前', date: '2007-10', marketCapRatio: 110, cape: 27.5, tenYear: 4.6, twoYear: 4.2, fear: 75, price: 108, sma: 100 },
@@ -64,28 +77,81 @@ function normalizedWeights(weights: Weights) {
   return Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, value / total])) as Weights;
 }
 
-function factorScores(values: { marketCapRatio: number; cape: number; tenYear: number; twoYear: number; fear: number; price: number; sma: number }) {
-  const buffett = values.marketCapRatio > 200 ? 100 : values.marketCapRatio > 180 ? 90 : values.marketCapRatio > 150 ? 75 : values.marketCapRatio > 120 ? 50 : 25;
-  const shiller = values.cape > 40 ? 100 : values.cape > 35 ? 90 : values.cape > 30 ? 70 : values.cape > 25 ? 50 : 20;
-  const spread = values.tenYear - values.twoYear;
-  const yieldScore = spread < -.5 ? 80 : spread < 0 ? 60 : spread < .5 ? 70 : 30;
-  const deviation = values.sma > 0 ? (values.price - values.sma) / values.sma * 100 : 0;
-  const technical = deviation > 25 ? 100 : deviation > 20 ? 85 : deviation > 15 ? 65 : deviation > 5 ? 40 : deviation < -10 ? 10 : 20;
-  const sentiment = values.fear > 80 ? 100 : values.fear > 60 ? 70 : values.fear < 20 ? 0 : 40;
+type RiskValues = { marketCapRatio: number | null; cape: number | null; tenYear: number | null; twoYear: number | null; fear: number | null; price: number | null; sma: number | null };
+
+function factorScores(values: RiskValues) {
+  const buffett = values.marketCapRatio === null ? null : values.marketCapRatio > 200 ? 100 : values.marketCapRatio > 180 ? 90 : values.marketCapRatio > 150 ? 75 : values.marketCapRatio > 120 ? 50 : 25;
+  const shiller = values.cape === null ? null : values.cape > 40 ? 100 : values.cape > 35 ? 90 : values.cape > 30 ? 70 : values.cape > 25 ? 50 : 20;
+  const spread = values.tenYear === null || values.twoYear === null ? null : values.tenYear - values.twoYear;
+  const yieldScore = spread === null ? null : spread < -.5 ? 80 : spread < 0 ? 60 : spread < .5 ? 70 : 30;
+  const deviation = values.price === null || values.sma === null || values.sma <= 0 ? null : (values.price - values.sma) / values.sma * 100;
+  const technical = deviation === null ? null : deviation > 25 ? 100 : deviation > 20 ? 85 : deviation > 15 ? 65 : deviation > 5 ? 40 : deviation < -10 ? 10 : 20;
+  const sentiment = values.fear === null ? null : values.fear > 80 ? 100 : values.fear > 60 ? 70 : values.fear < 20 ? 0 : 40;
   return { buffett, shiller, yield: yieldScore, technical, sentiment, spread, deviation };
 }
 
-function calculateRisk(values: Parameters<typeof factorScores>[0], weights: Weights) {
+function calculateRisk(values: RiskValues, weights: Weights) {
   const scores = factorScores(values);
   const normalized = normalizedWeights(weights);
-  const score = (Object.keys(normalized) as WeightKey[]).reduce((sum, key) => sum + scores[key] * normalized[key], 0);
+  const complete = (Object.keys(normalized) as WeightKey[]).every(key => scores[key] !== null);
+  const score = complete ? (Object.keys(normalized) as WeightKey[]).reduce((sum, key) => sum + scores[key]! * normalized[key], 0) : null;
   return { score, scores, normalized };
 }
 
-function riskBand(score: number) {
-  if (score > 80) return { label: '极高风险', tone: 'high', summary: '五因子模型同时出现明显压力，优先检查仓位、现金缓冲和对冲成本。' };
-  if (score > 60) return { label: '风险累积', tone: 'elevated', summary: '估值或市场结构的压力正在积聚，新增仓位需要更高安全边际。' };
-  return { label: '常态区间', tone: 'low', summary: '模型未进入高风险区，继续观察因子变化和自身回撤承受力。' };
+function compactValuation(value: RiskRadarValuation): RiskRadarValuation {
+  return {
+    fetchedAt: value.fetchedAt,
+    treasury: value.treasury,
+    sentiment: value.sentiment,
+    riskRadar: value.riskRadar,
+    cache: value.cache,
+  };
+}
+
+function completeRiskInputs(value: RiskRadarValuation | null | undefined) {
+  if (!value) return false;
+  const snapshots = [value.riskRadar?.marketCap, value.riskRadar?.gdp, value.riskRadar?.cape,
+    value.riskRadar?.treasury2y, value.treasury, value.sentiment];
+  return snapshots.every(item => item?.eligible && finite(item.current));
+}
+
+function completePriceHistory(value: PricePayload | null | undefined): value is PricePayload {
+  return (value?.points?.filter(point => finite(point.close) && point.close > 0).length ?? 0) >= REQUIRED_PRICE_POINTS;
+}
+
+function readRiskCache(ticker: Ticker): RiskRadarCacheEnvelope | null {
+  try {
+    window.localStorage.removeItem(`sparkflow.risk-radar.v1.${ticker}`);
+    window.localStorage.removeItem(`sparkflow.risk-radar.v2.${ticker}`);
+    const parsed = JSON.parse(window.localStorage.getItem(`${RISK_CACHE_PREFIX}${ticker}`) || 'null') as Partial<RiskRadarCacheEnvelope> | null;
+    const storedAt = Date.parse(parsed?.storedAt || '');
+    if (parsed?.version !== 3 || parsed.ticker !== ticker || !Number.isFinite(storedAt)
+      || storedAt > Date.now() + 60_000 || Date.now() - storedAt > RISK_CACHE_MAX_MS
+      || !completePriceHistory(parsed.prices) || !completeRiskInputs(parsed.valuation as RiskRadarValuation | undefined)) {
+      window.localStorage.removeItem(`${RISK_CACHE_PREFIX}${ticker}`);
+      return null;
+    }
+    return parsed as RiskRadarCacheEnvelope;
+  } catch { return null; }
+}
+
+function writeRiskCache(ticker: Ticker, prices: PricePayload, valuation: RiskRadarValuation) {
+  try {
+    if (!completePriceHistory(prices) || !completeRiskInputs(valuation)) {
+      window.localStorage.removeItem(`${RISK_CACHE_PREFIX}${ticker}`);
+      return null;
+    }
+    const value: RiskRadarCacheEnvelope = { version: 3, ticker, storedAt: new Date().toISOString(), prices, valuation };
+    window.localStorage.setItem(`${RISK_CACHE_PREFIX}${ticker}`, JSON.stringify(value));
+    return value.storedAt;
+  } catch { return null; }
+}
+
+function riskBand(score: number | null) {
+  if (score === null) return { label: '等待数据', zone: '暂不评分', tone: 'unavailable', summary: '部分自动数据源尚未返回可用快照。系统不会用手工默认值代替，数据齐全后会自动生成风险评分。' };
+  if (score > 80) return { label: '高压风险', zone: '高风险区', tone: 'high', summary: '五因子模型同时出现明显压力，优先检查仓位、现金缓冲和对冲成本。' };
+  if (score > 60) return { label: '风险累积', zone: '警戒区', tone: 'elevated', summary: '估值或市场结构的压力正在积聚，新增仓位需要更高安全边际。' };
+  return { label: '相对安全', zone: '安全区', tone: 'low', summary: '模型处于常态波动范围，维持既定计划，同时继续观察因子变化和自身回撤承受力。' };
 }
 
 function chartPath(points: Array<{ close: number; sma: number }>, key: 'close' | 'sma') {
@@ -101,33 +167,43 @@ function chartPath(points: Array<{ close: number; sma: number }>, key: 'close' |
   }).join(' ');
 }
 
-function GaugeDial({ score }: { score: number }) {
-  const safe = Math.max(0, Math.min(100, score));
-  const radians = (-90 + safe * 1.8) * Math.PI / 180;
-  return <div className="risk-gauge" role="meter" aria-label="持仓风险指数" aria-valuemin={0} aria-valuemax={100} aria-valuenow={score}>
-    <svg viewBox="0 0 300 170" aria-hidden="true">
+function GaugeDial({ score }: { score: number | null }) {
+  const safe = score === null ? 0 : Math.max(0, Math.min(100, score));
+  const radians = Math.PI - safe / 100 * Math.PI;
+  const needle = { x: 150 + Math.cos(radians) * 99, y: 146 - Math.sin(radians) * 99 };
+  const marks = [0, 20, 40, 60, 80, 100].map(value => {
+    const angle = Math.PI - value / 100 * Math.PI;
+    return { value, x: 150 + Math.cos(angle) * 137, y: 146 - Math.sin(angle) * 137 };
+  });
+  return <div className="risk-gauge" role="meter" aria-label="市场崩盘风险指数" aria-valuemin={0} aria-valuemax={100} {...(score === null ? { 'aria-valuetext': '数据待更新' } : { 'aria-valuenow': Math.round(score), 'aria-valuetext': `${Math.round(score)} / 100` })}>
+    <svg viewBox="0 0 300 176" aria-hidden="true">
       <path className="risk-gauge-track" pathLength="100" d="M 30 146 A 120 120 0 0 1 270 146" />
-      <path className="risk-gauge-fill" pathLength="100" strokeDasharray={`${safe} 100`} d="M 30 146 A 120 120 0 0 1 270 146" />
-      <circle className="risk-gauge-dot" cx={150 + Math.cos(radians) * 112} cy={146 + Math.sin(radians) * 112} r="7" />
-      <text x="150" y="116" className="risk-gauge-score">{Math.round(score)}</text>
-      <text x="150" y="140" className="risk-gauge-unit">/ 100 · 风险指数</text>
-      <text x="24" y="164" className="risk-gauge-edge">低</text><text x="276" y="164" textAnchor="end" className="risk-gauge-edge">高</text>
+      <path className="risk-gauge-zone safe" pathLength="100" strokeDasharray="40 60" d="M 30 146 A 120 120 0 0 1 270 146" />
+      <path className="risk-gauge-zone warning" pathLength="100" strokeDasharray="30 70" strokeDashoffset="-40" d="M 30 146 A 120 120 0 0 1 270 146" />
+      <path className="risk-gauge-zone danger" pathLength="100" strokeDasharray="30 70" strokeDashoffset="-70" d="M 30 146 A 120 120 0 0 1 270 146" />
+      {marks.map(mark => <text key={mark.value} x={mark.x} y={mark.y + 4} textAnchor="middle" className="risk-gauge-mark">{mark.value}</text>)}
+      {score === null ? null : <><line className="risk-gauge-needle" x1="150" y1="146" x2={needle.x} y2={needle.y} /><circle className="risk-gauge-pivot" cx="150" cy="146" r="5" /></>}
+      <text x="150" y="126" className="risk-gauge-score">{score === null ? '—' : Math.round(score)}</text>
     </svg>
   </div>;
 }
 
-function NumberField({ label, value, step, onChange }: { label: string; value: number; step: number; onChange: (value: number) => void }) {
-  return <label className="risk-number-field"><span>{label}</span><input type="number" value={value} step={step} onChange={event => {
-    const next = Number(event.target.value);
-    if (Number.isFinite(next)) onChange(next);
-  }} /></label>;
+function ReadOnlyMetric({ label, value, unit, snapshot }: { label: string; value: number | null; unit: string; snapshot: ValuationSnapshot | undefined }) {
+  const state = snapshot?.eligible ? '已同步' : value !== null ? '已过期' : '待更新';
+  const digits = unit === '%' ? 2 : unit.includes('100') ? 0 : 1;
+  return <article className={`risk-readonly-input ${snapshot?.eligible ? 'is-live' : 'is-stale'}`}>
+    <header><span>{label}</span><b><LockKeyhole size={10} />只读</b></header>
+    <strong>{value === null ? '—' : `${value.toFixed(digits)}${unit}`}</strong>
+    <small>{state} · {formatDate(snapshot?.asOf)}</small>
+    {snapshot?.sourceUrl ? <a href={snapshot.sourceUrl} target="_blank" rel="noopener noreferrer">{snapshot.source}<ExternalLink size={9}/></a> : <span className="risk-source-pending">{snapshot?.source || '来源待连接'}</span>}
+  </article>;
 }
 
-async function fetchJson(url: string, timeoutMs: number) {
+async function fetchJson(url: string, timeoutMs: number, cache: RequestCache = 'default') {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: controller.signal, cache });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     return payload;
@@ -137,75 +213,122 @@ async function fetchJson(url: string, timeoutMs: number) {
 }
 
 export function RiskRadar() {
+  const [initialCache] = useState(() => readRiskCache('VOO'));
   const [ticker, setTicker] = useState<Ticker>('VOO');
   const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS);
-  const [inputs, setInputs] = useState<Inputs>(DEFAULT_INPUTS);
-  const [fearOverride, setFearOverride] = useState<number | null>(null);
-  const [prices, setPrices] = useState<PricePayload | null>(null);
-  const [valuation, setValuation] = useState<ValuationDashboard | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [prices, setPrices] = useState<PricePayload | null>(initialCache?.prices ?? null);
+  const [valuation, setValuation] = useState<RiskRadarValuation | null>(initialCache?.valuation ?? null);
+  const [cacheStoredAt, setCacheStoredAt] = useState<string | null>(initialCache?.storedAt ?? null);
+  const [loading, setLoading] = useState(!initialCache);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async (force = false) => {
-    if (force) setRefreshing(true); else setLoading(true);
+    const saved = readRiskCache(ticker);
+    if (!force && saved) {
+      setPrices(saved.prices);
+      setValuation(saved.valuation);
+      setCacheStoredAt(saved.storedAt);
+      setLoading(false);
+      if (Date.now() - Date.parse(saved.storedAt) < RISK_CACHE_FRESH_MS) return;
+    }
+    if (force || saved) setRefreshing(true);
+    else { setPrices(null); setValuation(null); setLoading(true); }
     try {
       const [priceResult, valuationPayload] = await Promise.all([
-        fetchJson(`/api/equity-report-chart?symbol=${ticker}&range=1y`, 9_000).catch(() => null),
-        fetchJson(`/api/ibkr-valuation?years=5${force ? '&fresh=1' : ''}`, force ? 45_000 : 15_000),
+        fetchJson(`/api/equity-report-chart?symbol=${ticker}&range=2y`, 9_000, force ? 'no-cache' : 'default').catch(() => null),
+        fetchJson('/api/ibkr-valuation/risk-radar', 15_000, force ? 'no-cache' : 'default'),
       ]);
-      const nextValuation = valuationPayload as ValuationDashboard;
+      const nextValuation = valuationPayload as RiskRadarValuation;
       let nextPrices = priceResult as PricePayload | null;
       let note = '';
-      if (!nextPrices?.points?.length) {
+      if (!completePriceHistory(nextPrices)) {
+        const fullValuation = await fetchJson('/api/ibkr-valuation?years=5', 15_000, force ? 'no-cache' : 'default') as ValuationDashboard;
         const indexKey = ticker === 'VOO' ? 'spx' : 'ndx';
-        const proxy = nextValuation.audit.inputs.series[indexKey];
+        const proxy = fullValuation.audit.inputs.series[indexKey];
         if (!proxy?.points?.length) throw new Error(`${ticker} 与对应指数历史均暂不可用`);
         nextPrices = {
-          symbol: ticker === 'VOO' ? 'SPX' : 'NDX', generatedAt: proxy.asOf || nextValuation.fetchedAt,
+          symbol: ticker === 'VOO' ? 'SPX' : 'NDX', generatedAt: proxy.asOf || fullValuation.fetchedAt,
           source: { label: `${proxy.source} · ${ticker} 趋势代理`, url: proxy.sourceUrl || 'https://fred.stlouisfed.org/' },
           points: proxy.points.map(point => ({ time: point.date, close: point.value })),
         };
         note = `${ticker} ETF 日线暂不可用，当前使用 ${nextPrices.symbol} 缓存作为趋势代理。`;
       }
+      const compact = compactValuation(nextValuation);
+      if (!completeRiskInputs(compact)) {
+        if (saved) {
+          setPrices(saved.prices);
+          setValuation(saved.valuation);
+          setCacheStoredAt(saved.storedAt);
+          setError('自动更新暂未取得完整官方数据，继续显示最近一次成功缓存。');
+        } else {
+          setPrices(nextPrices);
+          setValuation(compact);
+          setCacheStoredAt(null);
+          setError('官方数据正在补齐，页面将在一分钟内自动重试。');
+        }
+        return;
+      }
       setPrices(nextPrices);
-      setValuation(nextValuation);
+      setValuation(compact);
+      setCacheStoredAt(writeRiskCache(ticker, nextPrices, compact));
       setError(note);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '风险数据暂不可用');
+      setError(saved ? '自动更新暂不可用，继续显示本地缓存。' : reason instanceof Error ? reason.message : '风险数据暂不可用');
     } finally {
       setLoading(false); setRefreshing(false);
     }
   }, [ticker]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => { void load(); }, 60 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
+  useEffect(() => {
+    if (!valuation || completeRiskInputs(valuation)) return;
+    const timer = window.setInterval(() => { void load(true); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [load, valuation]);
 
   const priceSeries = useMemo(() => {
     const points = (prices?.points || []).filter(point => finite(point.close) && point.close > 0);
-    return points.map((point, index) => ({ ...point, sma: index >= 199 ? points.slice(index - 199, index + 1).reduce((sum, row) => sum + row.close, 0) / 200 : NaN })).filter(point => finite(point.sma));
+    return points.map((point, index) => ({ ...point, sma: index >= SMA_DAYS - 1
+      ? points.slice(index + 1 - SMA_DAYS, index + 1).reduce((sum, row) => sum + row.close, 0) / SMA_DAYS : NaN }))
+      .filter(point => finite(point.sma)).slice(-CHART_DAYS);
   }, [prices]);
   const current = priceSeries[priceSeries.length - 1];
   const usingIndexProxy = prices?.symbol !== ticker;
   const targetLabel = usingIndexProxy ? `${ticker} · ${prices?.symbol} 趋势代理` : ticker;
-  const tenYear = finite(valuation?.treasury.current) ? valuation.treasury.current : 4;
-  const liveFear = valuation?.sentiment.eligible && finite(valuation.sentiment.current) ? valuation.sentiment.current : 45;
-  const fear = fearOverride ?? liveFear;
-  const marketCapRatio = inputs.gdp > 0 ? inputs.marketCap / inputs.gdp * 100 : 0;
-  const values = { marketCapRatio, cape: inputs.cape, tenYear, twoYear: inputs.twoYear, fear, price: current?.close ?? 0, sma: current?.sma ?? 0 };
+  const radar = valuation?.riskRadar;
+  const marketCapRaw = finite(radar?.marketCap?.current) ? radar.marketCap.current : null;
+  const gdpRaw = finite(radar?.gdp?.current) ? radar.gdp.current : null;
+  const capeRaw = finite(radar?.cape?.current) ? radar.cape.current : null;
+  const twoYearRaw = finite(radar?.treasury2y?.current) ? radar.treasury2y.current : null;
+  const fearRaw = finite(valuation?.sentiment.current) ? valuation.sentiment.current : null;
+  const tenYearRaw = finite(valuation?.treasury.current) ? valuation.treasury.current : null;
+  const marketCapRatioRaw = marketCapRaw !== null && gdpRaw !== null && gdpRaw > 0 ? marketCapRaw / gdpRaw * 100 : null;
+  const marketCapRatio = radar?.marketCap?.eligible && radar?.gdp?.eligible ? marketCapRatioRaw : null;
+  const cape = radar?.cape?.eligible ? capeRaw : null;
+  const twoYear = radar?.treasury2y?.eligible ? twoYearRaw : null;
+  const tenYear = valuation?.treasury.eligible ? tenYearRaw : null;
+  const fear = valuation?.sentiment.eligible ? fearRaw : null;
+  const values: RiskValues = { marketCapRatio, cape, tenYear, twoYear, fear, price: current?.close ?? null, sma: current?.sma ?? null };
   const result = calculateRisk(values, weights);
   const band = riskBand(result.score);
-  const totalWeight = Object.values(weights).reduce((sum, value) => sum + value, 0);
-  const spreadStatus = result.scores.spread < -.5 ? '深度倒挂' : result.scores.spread < 0 ? '轻度倒挂' : result.scores.spread < .5 ? '低正利差' : '正常斜率';
+  const spreadStatus = result.scores.spread === null ? '数据待更新' : result.scores.spread < -.5 ? '深度倒挂' : result.scores.spread < 0 ? '轻度倒挂' : result.scores.spread < .5 ? '低正利差' : '正常斜率';
+  const contribution = (key: WeightKey) => result.scores[key] === null ? null : result.scores[key]! * result.normalized[key];
+  const formatValue = (value: number | null, digits: number, suffix = '') => value === null ? '—' : `${value >= 0 && suffix === '%' ? '+' : ''}${value.toFixed(digits)}${suffix}`;
   const factors: Factor[] = [
-    { id: 'buffett', label: '巴菲特指标', eyebrow: 'MARKET CAP / GDP', value: `${marketCapRatio.toFixed(1)}%`, score: result.scores.buffett, weight: weights.buffett, contribution: result.scores.buffett * result.normalized.buffett, detail: `美股总市值 ${inputs.marketCap.toFixed(1)} 万亿美元 ÷ GDP ${inputs.gdp.toFixed(1)} 万亿美元`, source: '手工输入 · 原项目口径', sourceUrl: 'https://sc.macromicro.me/series/616/wilshire5000' },
-    { id: 'shiller', label: '席勒市盈率', eyebrow: 'SHILLER CAPE', value: `${inputs.cape.toFixed(1)}x`, score: result.scores.shiller, weight: weights.shiller, contribution: result.scores.shiller * result.normalized.shiller, detail: '使用过去十年经通胀调整盈利的周期调整市盈率', source: '手工输入 · Multpl', sourceUrl: 'https://www.multpl.com/shiller-pe' },
-    { id: 'yield', label: '美债期限利差', eyebrow: 'US 10Y − 2Y', value: `${result.scores.spread >= 0 ? '+' : ''}${result.scores.spread.toFixed(2)}%`, score: result.scores.yield, weight: weights.yield, contribution: result.scores.yield * result.normalized.yield, detail: `${spreadStatus} · 10Y ${tenYear.toFixed(2)}% · 2Y ${inputs.twoYear.toFixed(2)}%`, source: `${valuation?.treasury.source || 'FRED DGS10'} + 手工 2Y`, sourceUrl: valuation?.treasury.sourceUrl || 'https://fred.stlouisfed.org/series/DGS10' },
-    { id: 'technical', label: '200 日均线乖离', eyebrow: `${prices?.symbol || ticker} PRICE / SMA200`, value: `${result.scores.deviation >= 0 ? '+' : ''}${result.scores.deviation.toFixed(1)}%`, score: result.scores.technical, weight: weights.technical, contribution: result.scores.technical * result.normalized.technical, detail: `${targetLabel} ${current?.close.toFixed(2) ?? '—'} · SMA200 ${current?.sma.toFixed(2) ?? '—'}`, source: prices?.source.label || 'Yahoo Finance · 日线收盘', sourceUrl: prices?.source.url || `https://finance.yahoo.com/quote/${ticker}` },
-    { id: 'sentiment', label: '恐惧与贪婪', eyebrow: 'CNN FEAR & GREED', value: `${Math.round(fear)} / 100`, score: result.scores.sentiment, weight: weights.sentiment, contribution: result.scores.sentiment * result.normalized.sentiment, detail: fearOverride === null ? '采用 CNN 最新公开快照' : '使用手工覆盖值', source: valuation?.sentiment.source || 'CNN · Fear & Greed', sourceUrl: valuation?.sentiment.sourceUrl || 'https://www.cnn.com/markets/fear-and-greed' },
+    { id: 'buffett', label: '巴菲特指标', eyebrow: 'MARKET CAP / GDP', value: marketCapRatioRaw === null ? '—' : `${marketCapRatioRaw.toFixed(1)}%`, score: result.scores.buffett, weight: weights.buffett, contribution: contribution('buffett'), detail: `美联储非金融企业股票市场价值 ${marketCapRaw?.toFixed(1) ?? '—'} 万亿美元 ÷ GDP ${gdpRaw?.toFixed(1) ?? '—'} 万亿美元`, source: `${radar?.marketCap.source || 'Federal Reserve Z.1'} + ${radar?.gdp.source || 'BEA GDP'}`, sourceUrl: radar?.marketCap.sourceUrl || 'https://fred.stlouisfed.org/series/NCBEILQ027S' },
+    { id: 'shiller', label: '席勒市盈率', eyebrow: 'SHILLER CAPE', value: capeRaw === null ? '—' : `${capeRaw.toFixed(1)}x`, score: result.scores.shiller, weight: weights.shiller, contribution: contribution('shiller'), detail: '过去十年经通胀调整盈利的周期调整市盈率；当前源与日期显示在只读参数中', source: radar?.cape.source || 'Robert Shiller / Multpl · CAPE', sourceUrl: radar?.cape.sourceUrl || 'https://www.multpl.com/shiller-pe' },
+    { id: 'yield', label: '美债期限利差', eyebrow: 'US 10Y − 2Y', value: formatValue(result.scores.spread, 2, '%'), score: result.scores.yield, weight: weights.yield, contribution: contribution('yield'), detail: `${spreadStatus} · 10Y ${tenYearRaw?.toFixed(2) ?? '—'}% · 2Y ${twoYearRaw?.toFixed(2) ?? '—'}%`, source: `${valuation?.treasury.source || 'FRED DGS10'} + ${radar?.treasury2y.source || '新浪财经 / FRED DGS2'}`, sourceUrl: radar?.treasury2y.sourceUrl || valuation?.treasury.sourceUrl || 'https://fred.stlouisfed.org/series/DGS2' },
+    { id: 'technical', label: '200 日均线乖离', eyebrow: `${prices?.symbol || ticker} PRICE / SMA200`, value: formatValue(result.scores.deviation, 1, '%'), score: result.scores.technical, weight: weights.technical, contribution: contribution('technical'), detail: `${targetLabel} ${current?.close.toFixed(2) ?? '—'} · SMA200 ${current?.sma.toFixed(2) ?? '—'}`, source: prices?.source.label || 'Yahoo Finance · 日线收盘', sourceUrl: prices?.source.url || `https://finance.yahoo.com/quote/${ticker}` },
+    { id: 'sentiment', label: '恐惧与贪婪', eyebrow: 'CNN FEAR & GREED', value: fearRaw === null ? '—' : `${Math.round(fearRaw)} / 100`, score: result.scores.sentiment, weight: weights.sentiment, contribution: contribution('sentiment'), detail: '采用 CNN 最新公开快照；自动同步且不可手工覆盖', source: valuation?.sentiment.source || 'CNN · Fear & Greed', sourceUrl: valuation?.sentiment.sourceUrl || 'https://www.cnn.com/markets/fear-and-greed' },
   ];
-  const historical = HISTORICAL.map(item => ({ ...item, score: calculateRisk(item, weights).score }));
+  const historical = HISTORICAL.map(item => ({ ...item, score: calculateRisk(item, weights).score! }));
   const comparison = [{ label: '当前市场', date: formatDate(prices?.generatedAt), score: result.score }, ...historical];
-  const maxComparison = Math.max(100, ...comparison.map(item => item.score));
   const pricePath = chartPath(priceSeries, 'close');
   const smaPath = chartPath(priceSeries, 'sma');
 
@@ -219,34 +342,42 @@ export function RiskRadar() {
     {error ? <div className="risk-alert" role="alert"><AlertTriangle size={16} />{error}{prices && valuation ? '，继续显示上次成功数据。' : ''}</div> : null}
     {loading && (!prices || !valuation) ? <div className="risk-loading"><RefreshCw className="is-spinning" size={20} />正在读取行情与风险快照…</div> : null}
     {prices && valuation ? <>
-      <section className={`risk-overview ${band.tone}`}>
-        <div className="risk-overview-copy"><span className="risk-status"><i />延迟行情已连接 · 宏观数据按小时缓存</span><h2>{band.label}</h2><p>{band.summary}</p><div className="risk-overview-meta"><span><Clock3 size={13} />行情 {formatDate(prices.generatedAt, true)}</span><span><ShieldCheck size={13} />五项因子已计算</span><span><BarChart3 size={13} />权重合计 {totalWeight}%</span></div></div>
-        <GaugeDial score={result.score} />
-        <aside className="risk-overview-reading"><span>CURRENT TARGET</span><strong>{targetLabel} · {usingIndexProxy ? '' : '$'}{current?.close.toFixed(2) ?? '—'}</strong><p>200 日均线 {current?.sma.toFixed(2) ?? '—'}<br />10 年期美债 {tenYear ? `${tenYear.toFixed(2)}%` : '待更新'}<br />CNN 情绪 {Math.round(fear)} / 100</p></aside>
+      <section className={`risk-command ${band.tone}`} aria-label="风险指数与量化建议">
+        <div className="risk-command-meter">
+          <span className="risk-command-eyebrow">{targetLabel} 崩盘风险指数</span>
+          <GaugeDial score={result.score} />
+          <div className="risk-meter-foot"><span className="risk-status"><i />{cacheStoredAt ? '本地缓存已加载' : '自动数据源已连接'}</span><strong>数据 {formatDate(prices.generatedAt, true)}</strong></div>
+        </div>
+        <div className="risk-command-intelligence">
+          <header><BrainCircuit size={21}/><h2>量化建议</h2></header>
+          <article className="risk-advice-card"><span>MODEL GUIDANCE / 模型建议</span><h3>{band.label}<small>（{band.zone}）</small></h3><p>{band.summary}</p></article>
+          <section className="risk-history-reference"><header><span>VS</span><h3>历史对比参考</h3></header><p>使用当前因子权重，历史高压时点的模型分数为：</p><div>{historical.map(item => <article key={item.label}><small>{item.label.replace(/\s.*$/, '')} 峰值</small><strong>{Math.round(item.score)}</strong><span>{item.date}</span></article>)}</div></section>
+        </div>
       </section>
 
-      <section className="risk-factor-grid" aria-label="五项风险因子">{factors.map((factor, index) => <article className="risk-factor" key={factor.id}>
-        <header><span>{String(index + 1).padStart(2, '0')}</span><small>{factor.eyebrow}</small><em>风险 {factor.score}</em></header>
-        <div className="risk-factor-main"><div><h3>{factor.label}</h3><strong>{factor.value}</strong></div><b>{factor.contribution.toFixed(1)} 分</b></div>
-        <div className="risk-factor-bar"><i style={{ width: `${factor.score}%` }} /></div><p>{factor.detail}</p><footer><span>原始权重 {factor.weight}%</span><a href={factor.sourceUrl} target="_blank" rel="noopener noreferrer">{factor.source} <ExternalLink size={10} /></a></footer>
-      </article>)}</section>
+      <section className="risk-factor-section" aria-label="风险因子分解"><header className="risk-section-title"><ScanSearch size={22}/><div><h2>风险因子分解</h2><span>FACTOR ATTRIBUTION · 含自定义权重</span></div></header><div className="risk-factor-strip">{factors.map(factor => <article className={`risk-factor ${factor.score === null ? 'is-missing' : ''}`} key={factor.id} title={factor.detail}>
+        <header><span>{factor.label}</span><small>权重 {factor.weight}%</small></header>
+        <strong>{factor.value}</strong>
+        <div className="risk-factor-score"><span className={factor.score !== null && factor.score > 60 ? 'is-risk' : ''}>{factor.score === null ? '数据待更新' : `${factor.score > 60 ? '↑ 风险' : '↑ 正常'} · ${factor.score}`}</span><em>贡献 {factor.contribution === null ? '—' : factor.contribution.toFixed(1)}</em></div>
+        <a href={factor.sourceUrl} target="_blank" rel="noopener noreferrer">{factor.source} <ExternalLink size={10}/></a>
+      </article>)}</div></section>
+
+      <section className="risk-panel risk-stress"><header className="risk-section-title"><Swords size={22}/><div><h2>跨时代风险大比拼 <small>Stress Test</small></h2><span>当前市场与三次历史高压时点的同权重模型对比</span></div></header><div className="risk-stress-chart"><div className="risk-stress-thresholds" aria-hidden="true"><span>警戒线</span><span>高风险线</span></div><div className="risk-stress-list">{comparison.map((item, index) => { const score = item.score; return <div key={item.label}><span><strong>{index === 0 ? '当前（Now）' : item.label}</strong><small>{item.date}</small></span><i><b className={score !== null && score > 80 ? 'high' : score !== null && score > 60 ? 'elevated' : ''} style={{ width: `${score === null ? 0 : Math.min(100, score)}%` }} /><em style={{ left: `${score === null ? 7 : Math.min(97, Math.max(7, score))}%` }}>{score === null ? '—' : score.toFixed(1)}</em></i></div>; })}</div></div><p>历史快照沿用原项目内置参考值，其中 200 日均线与 CNN 情绪为构造值，只用于复现原项目压力比较，不代表完整历史回测。</p></section>
 
       <details className="risk-controls" open>
-        <summary><span><Settings2 size={15} />模型参数</span><small>保留原项目的手工校准能力；权重不等于 100% 时自动按比例归一化</small></summary>
-        <div className="risk-control-body"><section><h2>宏观输入</h2><div className="risk-input-grid">
-          <NumberField label="美股总市值 · 万亿美元" value={inputs.marketCap} step={.5} onChange={marketCap => setInputs(value => ({ ...value, marketCap }))} />
-          <NumberField label="美国 GDP · 万亿美元" value={inputs.gdp} step={.1} onChange={gdp => setInputs(value => ({ ...value, gdp }))} />
-          <NumberField label="Shiller CAPE" value={inputs.cape} step={.1} onChange={cape => setInputs(value => ({ ...value, cape }))} />
-          <NumberField label="2 年期美债 · %" value={inputs.twoYear} step={.01} onChange={twoYear => setInputs(value => ({ ...value, twoYear }))} />
-          <label className="risk-number-field"><span>CNN 情绪 · {fearOverride === null ? '自动' : '手工'}</span><input type="range" min="0" max="100" value={fear} onChange={event => setFearOverride(Number(event.target.value))} /><b>{Math.round(fear)}</b><button type="button" onClick={() => setFearOverride(null)}>恢复自动</button></label>
+        <summary><span><Settings2 size={15} />模型参数</span><small>本地缓存每 6 小时检查共享快照；原始指标只读，权重不等于 100% 时自动归一化</small></summary>
+        <div className="risk-control-body"><section><h2>自动数据输入 · 不可修改</h2><div className="risk-input-grid">
+          <ReadOnlyMetric label="美股总市值" value={marketCapRaw} unit=" 万亿美元" snapshot={radar?.marketCap} />
+          <ReadOnlyMetric label="美国名义 GDP" value={gdpRaw} unit=" 万亿美元" snapshot={radar?.gdp} />
+          <ReadOnlyMetric label="Shiller CAPE" value={capeRaw} unit="x" snapshot={radar?.cape} />
+          <ReadOnlyMetric label="2 年期美债" value={twoYearRaw} unit="%" snapshot={radar?.treasury2y} />
+          <ReadOnlyMetric label="CNN 恐惧与贪婪" value={fearRaw} unit=" / 100" snapshot={valuation.sentiment} />
         </div></section><section><h2>因子权重</h2><div className="risk-weight-grid">{(Object.keys(DEFAULT_WEIGHTS) as WeightKey[]).map(key => <label key={key}><span>{{ buffett: '巴菲特指标', shiller: '席勒市盈率', yield: '美债利差', technical: '均线乖离', sentiment: '恐惧贪婪' }[key]}<b>{weights[key]}%</b></span><input type="range" min="0" max="50" step="5" value={weights[key]} onChange={event => setWeights(value => ({ ...value, [key]: Number(event.target.value) }))} /></label>)}</div></section></div>
       </details>
 
       <div className="risk-lower-grid"><section className="risk-panel risk-trend-panel"><header className="risk-panel-heading"><div><span>PRICE STRUCTURE</span><h2>{targetLabel} 与 200 日均线</h2></div><TrendingUp size={18} /></header>
         {pricePath && smaPath ? <><div className="risk-chart-wrap"><svg viewBox="0 0 1000 250" preserveAspectRatio="none" aria-label={`${targetLabel}价格与200日均线`}><defs><linearGradient id="riskArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#66dfbd" stopOpacity=".25" /><stop offset="1" stopColor="#66dfbd" stopOpacity="0" /></linearGradient></defs><path className="risk-chart-area" d={`${pricePath} L1000,250 L0,250 Z`} /><path className="risk-chart-trend" d={smaPath} /><path className="risk-chart-value" d={pricePath} /></svg></div><footer className="risk-chart-footer"><span>{formatDate(priceSeries[0]?.time)}</span><div><i className="actual" />{prices.symbol} 收盘 <i className="trend" />SMA200</div><span>{formatDate(priceSeries[priceSeries.length - 1]?.time)}</span></footer></> : <div className="risk-empty">尚无足够数据计算 200 日均线</div>}
-      </section><section className="risk-panel risk-breakdown"><header className="risk-panel-heading"><div><span>FACTOR CONTRIBUTION</span><h2>当前压力贡献</h2></div><Activity size={18} /></header><div className="risk-breakdown-list">{[...factors].sort((a, b) => b.contribution - a.contribution).map(factor => <div key={factor.id}><span>{factor.label}<small>因子风险 {factor.score}</small></span><i><b style={{ width: `${factor.score}%` }} /></i><strong>{factor.contribution.toFixed(1)}</strong></div>)}</div><p className="risk-score-formula">综合分采用原项目分档规则。权重合计偏离 100% 时按比例归一化，避免仪表超出 0–100。</p></section></div>
-
-      <section className="risk-panel risk-stress"><header className="risk-panel-heading"><div><span>HISTORICAL STRESS TEST</span><h2>跨时代风险对比</h2></div><BarChart3 size={18} /></header><div className="risk-stress-list">{comparison.map(item => <div key={item.label}><span><strong>{item.label}</strong><small>{item.date}</small></span><i><b className={item.score > 80 ? 'high' : item.score > 60 ? 'elevated' : ''} style={{ width: `${item.score / maxComparison * 100}%` }} /></i><em>{item.score.toFixed(1)}</em></div>)}</div><p>历史快照沿用原项目内置参考值，其中 200 日均线与 CNN 情绪为构造值，只用于复现原项目压力比较，不代表完整历史回测。</p></section>
+      </section><section className="risk-panel risk-breakdown"><header className="risk-panel-heading"><div><span>FACTOR CONTRIBUTION</span><h2>当前压力贡献</h2></div><Activity size={18} /></header><div className="risk-breakdown-list">{[...factors].sort((a, b) => (b.contribution ?? -1) - (a.contribution ?? -1)).map(factor => <div key={factor.id}><span>{factor.label}<small>因子风险 {factor.score ?? '待更新'}</small></span><i><b style={{ width: `${factor.score ?? 0}%` }} /></i><strong>{factor.contribution === null ? '—' : factor.contribution.toFixed(1)}</strong></div>)}</div><p className="risk-score-formula">综合分采用原项目分档规则。任一自动输入缺失或过期时总分留空，不使用样例值补算；权重偏离 100% 时按比例归一化。</p></section></div>
 
       <footer className="risk-project-note"><span>模型来源：US_Stock_Crash_Monitor · SparkFlow 原生移植</span><span>市场风险指数是规则评分，不是崩盘概率或投资建议。</span></footer>
     </> : null}

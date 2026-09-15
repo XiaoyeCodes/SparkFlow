@@ -16,6 +16,10 @@ const SOURCES = {
   forwardYield: ['FactSet · 标普500未来12个月一致预期', 'https://insight.factset.com/topic/earnings'],
   treasury10y: ['FRED · 美联储 DGS10', 'https://fred.stlouisfed.org/series/DGS10'],
   fearGreed: ['CNN · Fear & Greed', 'https://www.cnn.com/markets/fear-and-greed'],
+  marketCap: ['Federal Reserve Z.1 / FRED · NCBEILQ027S', 'https://fred.stlouisfed.org/series/NCBEILQ027S'],
+  gdp: ['BEA / FRED · GDP', 'https://fred.stlouisfed.org/series/GDP'],
+  cape: ['Robert Shiller / Multpl · CAPE', 'https://www.multpl.com/shiller-pe/table/by-month'],
+  treasury2y: ['新浪财经 · 美国2年期国债', 'https://stock.finance.sina.com.cn/forex/globalbd/cn2yt.html'],
 } as const;
 const proxy = new ProxyAgent(process.env.SPARKFLOW_VALUATION_PROXY || 'http://127.0.0.1:7890');
 let cache: { at: number; data: ValuationInputs } | undefined;
@@ -99,6 +103,30 @@ export function parseMultplPe(html: string): Point[] {
   return cleanValuationPoints(points, 0.01, 1000);
 }
 
+export function parseMultplCape(html: string): Point[] {
+  if (!/Shiller PE Ratio/i.test(textOnly(html))) return [];
+  const points: Point[] = [];
+  for (const row of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...row[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map(cell => textOnly(cell[1]));
+    if (cells.length !== 2) continue;
+    const parsedDate = Date.parse(`${cells[0]} UTC`);
+    const value = Number(cells[1].replace(/[^\d.\-]/g, ''));
+    if (!Number.isFinite(parsedDate) || !Number.isFinite(value) || value <= 0) continue;
+    points.push({ date: new Date(parsedDate).toISOString().slice(0, 10), value });
+  }
+  return cleanValuationPoints(points, 0.01, 1000);
+}
+
+export function parseSinaTreasury2y(payload: unknown): Point[] {
+  const rows = (payload as any)?.result?.data;
+  if (!Array.isArray(rows)) return [];
+  return cleanValuationPoints(rows.flatMap((row: any) => {
+    const date = typeof row?.d === 'string' ? row.d : null;
+    const value = typeof row?.c === 'string' || typeof row?.c === 'number' ? Number(row.c) : NaN;
+    return date && Number.isFinite(value) ? [{ date, value }] : [];
+  }), -10, 100);
+}
+
 /** Parse the publisher's QQQ monthly P/E series without executing remote scripts.
  * Completed months are dated at month-end; the open month uses the quoted as-of
  * date. These are monthly observations, never interpolated daily history.
@@ -143,7 +171,7 @@ export function parseFredCsv(csv: string, seriesId: string): Point[] {
     const values = line.split(','); const raw = values[index]?.trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(values[0]) || !raw || raw === '.') return [];
     return [{ date: values[0], value: Number(raw) }];
-  }), seriesId === 'DGS10' ? -10 : 0.0001, seriesId === 'DGS10' ? 100 : 1e9);
+  }), seriesId === 'DGS10' || seriesId === 'DGS2' ? -10 : 0.0001, seriesId === 'DGS10' || seriesId === 'DGS2' ? 100 : 1e9);
 }
 export function parseDgs10Csv(csv: string): Point[] { return parseFredCsv(csv, 'DGS10'); }
 
@@ -259,8 +287,8 @@ async function readSavedSeries(key: SeriesKey): Promise<ValuationSeries | null> 
   try {
     const raw = JSON.parse(await readFile(path.join(stateDir, `${key}.json`), 'utf8'));
     if (!raw || !Array.isArray(raw.points) || typeof raw.source !== 'string') return null;
-    if ((key === 'qqqPe' || key === 'pe') && raw.sourceUrl !== SOURCES[key][1]) return null;
-    const points = cleanValuationPoints(raw.points, key === 'treasury10y' ? -10 : 0);
+    if ((key === 'qqqPe' || key === 'pe' || key === 'marketCap' || key === 'gdp' || key === 'cape') && raw.sourceUrl !== SOURCES[key][1]) return null;
+    const points = cleanValuationPoints(raw.points, key === 'treasury10y' || key === 'treasury2y' ? -10 : 0);
     return { ...missing(key, ''), ...raw, points };
   } catch { return null; }
 }
@@ -406,9 +434,12 @@ async function boundedIndices(): Promise<Pick<ValuationInputs['series'], 'vix' |
 /** Read-only public inputs. Force refreshes market quotes; slow publications keep their own TTL. */
 export function loadValuationInputs({ force = false }: { force?: boolean } = {}): Promise<ValuationInputs> {
   if (flight) return flight;
-  if (cache && Date.now() - cache.at < (force ? 15_000 : 3600_000)) return Promise.resolve(cache.data);
+  // The service layer already throttles explicit refreshes. A forced repair must
+  // bypass a recently-created partial aggregate; individual slow series still
+  // retain their own TTL and disk cache below.
+  if (!force && cache && Date.now() - cache.at < 3600_000) return Promise.resolve(cache.data);
   flight = (async () => {
-    const [indices, pe, qqqPe, forwardYield, treasury10y, fearGreed] = await Promise.all([
+    const [indices, pe, qqqPe, forwardYield, treasury10y, fearGreed, marketCap, gdp, cape, treasury2y] = await Promise.all([
       boundedIndices(),
       loadCached('pe', 3600_000, async () => datedSeries('pe', parseSpyPe(await fetchText(SOURCES.pe[1])), etfPeNote('SPY'), 7)),
       loadCached('qqqPe', 3600_000, async () => {
@@ -420,10 +451,40 @@ export function loadValuationInputs({ force = false }: { force?: boolean } = {})
       loadCached('treasury10y', 3600_000, async () => datedSeries('treasury10y', parseDgs10Csv(await fetchText('https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10')),
         '10 年期美国国债固定期限名义收益率，日频，单位 %；FRED H.15 发布值，非盘中实时利率', 7)),
       loadCached('fearGreed', 3600_000, async () => parseCnnFearGreed(JSON.parse(await fetchText('https://production.dataviz.cnn.io/index/fearandgreed/graphdata')))),
+      loadCached('marketCap', 86_400_000, async () => {
+        const raw = parseFredCsv(await fetchText('https://fred.stlouisfed.org/graph/fredgraph.csv?id=NCBEILQ027S'), 'NCBEILQ027S');
+        const points = raw.map(point => ({ ...point, value: point.value / 1_000_000 }));
+        return { ...datedSeries('marketCap', points, '美联储 Z.1 非金融企业公司股票负债的市场价值，作为巴菲特指标的官方季度分子；该口径不等同于逐只上市公司实时总市值。原始单位百万美元，页面换算为万亿美元。', 270),
+          source: SOURCES.marketCap[0], sourceUrl: SOURCES.marketCap[1] };
+      }),
+      loadCached('gdp', 86_400_000, async () => {
+        const raw = parseFredCsv(await fetchText('https://fred.stlouisfed.org/graph/fredgraph.csv?id=GDP'), 'GDP');
+        const points = raw.map(point => ({ ...point, value: point.value / 1_000 }));
+        return { ...datedSeries('gdp', points, '美国经济分析局（BEA）名义 GDP，经 FRED 发布；季频、经季调年率；原始单位十亿美元，页面换算为万亿美元。', 270),
+          source: SOURCES.gdp[0], sourceUrl: SOURCES.gdp[1] };
+      }),
+      loadCached('cape', 21_600_000, async () => {
+        const points = parseMultplCape(await fetchText(SOURCES.cape[1]));
+        return { ...datedSeries('cape', points, 'Shiller CAPE 月度公开镜像；已核验 Yale 原始数据页，但其公开工作簿当前更新滞后，因此采用较新的公开镜像并明确标注来源。', 45),
+          source: SOURCES.cape[0], sourceUrl: SOURCES.cape[1] };
+      }),
+      loadCached('treasury2y', 21_600_000, async () => {
+        try {
+          const points = parseSinaTreasury2y(JSON.parse(await fetchText('https://bond.finance.sina.com.cn/hq/gb/daily?symbol=US2YT')));
+          if (!points.length) throw new Error('SINA_2Y_EMPTY');
+          return { ...datedSeries('treasury2y', points, '国内源优先：新浪财经美国2年期国债日线收盘收益率，单位 %；不是盘中实时利率。', 7),
+            source: SOURCES.treasury2y[0], sourceUrl: SOURCES.treasury2y[1] };
+        } catch {
+          const points = parseFredCsv(await fetchText('https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS2'), 'DGS2');
+          return { ...datedSeries('treasury2y', points, '新浪财经国内源不可用，已回退美联储 H.15 的 2 年期美国国债固定期限收益率；日频，单位 %。', 7),
+            source: 'Federal Reserve / FRED · DGS2', sourceUrl: 'https://fred.stlouisfed.org/series/DGS2' };
+        }
+      }),
     ]);
     const data: ValuationInputs = { fetchedAt: new Date().toISOString(), series: {
       vix: indices.vix || missing('vix', 'IBKR 未返回 VIX'), spx: indices.spx || missing('spx', 'IBKR 未返回 SPX'),
       ndx: indices.ndx || missing('ndx', 'IBKR 未返回 NDX'), pe, qqqPe, forwardYield, treasury10y, fearGreed,
+      marketCap, gdp, cape, treasury2y,
     } };
     cache = { at: Date.now(), data }; return data;
   })().finally(() => { flight = undefined; });

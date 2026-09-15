@@ -1,5 +1,6 @@
 export type ValuationLookback = 1 | 3 | 5 | 10;
-export type ValuationSeriesId = 'vix' | 'spx' | 'ndx' | 'pe' | 'qqqPe' | 'forwardYield' | 'treasury10y' | 'fearGreed';
+export type ValuationSeriesId = 'vix' | 'spx' | 'ndx' | 'pe' | 'qqqPe' | 'forwardYield' | 'treasury10y' | 'fearGreed'
+  | 'marketCap' | 'gdp' | 'cape' | 'treasury2y';
 export type ValuationMetricId = 'vix' | 'spx' | 'ndx' | 'pe' | 'qqqPe' | 'forwardYield' | 'erp';
 export type ValuationStatus = 'live' | 'delayed' | 'frozen' | 'close' | 'snapshot' | 'stale' | 'missing';
 
@@ -15,7 +16,8 @@ export interface ValuationSeries {
 }
 export interface ValuationInputs {
   fetchedAt: string;
-  series: Record<Exclude<ValuationSeriesId, 'qqqPe'>, ValuationSeries> & { qqqPe?: ValuationSeries };
+  series: Record<Exclude<ValuationSeriesId, 'qqqPe' | 'marketCap' | 'gdp' | 'cape' | 'treasury2y'>, ValuationSeries>
+    & Partial<Record<'qqqPe' | 'marketCap' | 'gdp' | 'cape' | 'treasury2y', ValuationSeries>>;
 }
 export interface ValuationCoverage {
   complete: boolean;
@@ -90,6 +92,7 @@ export interface ValuationDashboard {
   charts: Record<'spx' | 'ndx' | 'vix', ValuationChart>;
   sentiment: ValuationSnapshot;
   treasury: ValuationSnapshot;
+  riskRadar: Record<'marketCap' | 'gdp' | 'cape' | 'treasury2y', ValuationSnapshot>;
   rules: ValuationRules;
   /** Raw input values, timestamps and rules required for deterministic replay. */
   audit: { inputs: ValuationInputs; lookbackYears: ValuationLookback; rules: ValuationRules; contributions: ValuationContribution[] };

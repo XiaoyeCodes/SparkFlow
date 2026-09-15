@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cleanValuationPoints, parseMultplPe, parseQqqPe, parseSpyPe, parseDgs10Csv, parseFredCsv,
+  cleanValuationPoints, parseMultplPe, parseMultplCape, parseSinaTreasury2y, parseQqqPe, parseSpyPe, parseDgs10Csv, parseFredCsv,
   parseFactsetForwardPe, parseFactsetPdfText, parseForwardPeImport, parseCnnFearGreed, parseYahooIndex,
 } from '../../server/ibkrValuationData.ts';
 
@@ -54,6 +54,16 @@ test('Multpl TTM dates retain the source calendar day in both Shanghai and New Y
     if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous;
   }
   assert.deepEqual(parseMultplPe(html.replace('S&amp;P 500 PE Ratio', 'Shiller PE Ratio')), []);
+});
+
+test('risk radar parsers accept only identified CAPE and Sina US2YT observations', context => {
+  freezeClock(context);
+  const cape = '<title>Shiller PE Ratio by Month</title><table><tr><td>Aug 1, 2026</td><td>39.72</td></tr><tr><td>Sep 1, 2026</td><td>40.11</td></tr></table>';
+  assert.deepEqual(parseMultplCape(cape), [{ date: '2026-08-01', value: 39.72 }, { date: '2026-09-01', value: 40.11 }]);
+  assert.deepEqual(parseMultplCape(cape.replace('Shiller PE Ratio', 'S&P 500 PE Ratio')), []);
+  assert.deepEqual(parseSinaTreasury2y({ result: { data: [
+    { d: '2026-09-06', c: '4.51' }, { d: '2026-09-07', c: '4.63' }, { d: '2026-09-09', c: '4.80' }, { d: 'bad', c: '5' },
+  ] } }), [{ date: '2026-09-06', value: 4.51 }, { date: '2026-09-07', value: 4.63 }]);
 });
 
 test('FRED CSV parsing preserves percent units and missing observations never become zero', context => {

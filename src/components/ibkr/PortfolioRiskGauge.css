@@ -26,7 +26,8 @@
    within that space, so report length cannot move the footer or the bottom edge. */
 @media(min-width:1500px){
   .account-workbench .awb-overview-main>.awb-overview-analysis-card{align-self:stretch;display:grid;grid-template-rows:auto minmax(0,1fr) auto}
-  .awb-overview-analysis-card>.awb-portfolio-risk{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden;container-type:size}
+  .awb-overview-analysis-card>.awb-overview-analysis-body.has-report{height:100%;overflow:hidden}
+  .awb-overview-analysis-body.has-report>.awb-portfolio-risk{display:flex;flex:1 1 0;width:100%;height:100%;flex-direction:column;gap:12px;min-height:0;overflow:hidden;container-type:size}
   .awb-overview-analysis-card .awb-portfolio-risk-chart{flex:1 1 180px;width:100%;min-height:140px;margin:0 auto;display:flex;flex-direction:column;justify-content:center}
   .awb-overview-analysis-card .awb-portfolio-risk-chart svg{flex:1;min-height:0;max-height:220px}
   .awb-overview-analysis-card .awb-risk-highlights{flex:1 0 auto;min-height:0;margin:0;overflow-y:auto;scrollbar-width:thin}

@@ -10,6 +10,7 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const INDEX_IDS = new Set(['spx', 'ndx', 'vix']);
 const MAX_AGE: Record<ValuationSeriesId | 'erp', number> = {
   spx: 7, ndx: 7, vix: 7, pe: 7, qqqPe: 7, forwardYield: 45, treasury10y: 7, fearGreed: 7, erp: 7,
+  marketCap: 270, gdp: 270, cape: 45, treasury2y: 7,
 };
 const LABELS: Record<ValuationMetricId, string> = {
   vix: 'VIX 恐慌指数', spx: '标普 500 · 趋势偏离', ndx: '纳斯达克 100 · 趋势偏离',
@@ -17,7 +18,7 @@ const LABELS: Record<ValuationMetricId, string> = {
 };
 
 export const VALUATION_RULES: ValuationRules = {
-  version: 'valuation-v1.4.0',
+  version: 'valuation-v1.5.0',
   formula: '买点评分 = 17.5%×(100−标普偏离分位) + 17.5%×(100−纳指偏离分位) + 35%×(100−SPY市盈率分位) + 15%×clamp((ERP+2)/6×100,0,100) + 7.5%×VIX偏离分位 + 7.5%×(100−CNN恐惧贪婪指数)',
   weights: { spx: 17.5, ndx: 17.5, pe: 35, erp: 15, vix: 7.5, fearGreed: 7.5 },
   methodology: [
@@ -47,7 +48,8 @@ function isoDay(time: number): string { return new Date(time).toISOString().slic
 function finite(value: number | null): value is number { return typeof value === 'number' && Number.isFinite(value); }
 function validLevel(id: ValuationSeriesId | 'erp', value: number | null): value is number {
   if (!finite(value)) return false;
-  if (INDEX_IDS.has(id) || id === 'pe' || id === 'qqqPe' || id === 'forwardYield') return value > 0;
+  if (INDEX_IDS.has(id) || id === 'pe' || id === 'qqqPe' || id === 'forwardYield'
+    || id === 'marketCap' || id === 'gdp' || id === 'cape') return value > 0;
   return id === 'fearGreed' ? value >= 0 && value <= 100 : true;
 }
 
@@ -219,6 +221,15 @@ export function computeValuationDashboard(inputs: ValuationInputs, lookbackYears
   const byId = Object.fromEntries(metrics.map(item => [item.id, item])) as Record<ValuationMetricId, ValuationMetric>;
   const sentiment = snapshot(inputs.series.fearGreed, 'fearGreed', now);
   const treasury = snapshot(inputs.series.treasury10y, 'treasury10y', now);
+  const absent = (source: string, sourceUrl: string, note: string): ValuationSeries => ({
+    points: [], current: null, asOf: null, source, sourceUrl, status: 'missing', note,
+  });
+  const riskRadar = {
+    marketCap: snapshot(inputs.series.marketCap ?? absent('Federal Reserve Z.1 / FRED · NCBEILQ027S', 'https://fred.stlouisfed.org/series/NCBEILQ027S', '尚未取得美股总市值'), 'marketCap', now),
+    gdp: snapshot(inputs.series.gdp ?? absent('BEA / FRED · GDP', 'https://fred.stlouisfed.org/series/GDP', '尚未取得美国名义 GDP'), 'gdp', now),
+    cape: snapshot(inputs.series.cape ?? absent('Robert Shiller / Multpl · CAPE', 'https://www.multpl.com/shiller-pe', '尚未取得 Shiller CAPE'), 'cape', now),
+    treasury2y: snapshot(inputs.series.treasury2y ?? absent('新浪财经 · 美国2年期国债', 'https://stock.finance.sina.com.cn/forex/globalbd/cn2yt.html', '尚未取得美国2年期国债收益率'), 'treasury2y', now),
+  } satisfies ValuationDashboard['riskRadar'];
   const contributions: ValuationContribution[] = (['spx', 'ndx', 'pe', 'erp', 'vix', 'fearGreed'] as const).map(id => {
     const selected = id === 'fearGreed' ? null : byId[id];
     const eligible = id === 'fearGreed' ? sentiment.eligible : id === 'erp' ? !freshness(erp, 'erp', now) : selected!.eligible;
@@ -255,7 +266,7 @@ export function computeValuationDashboard(inputs: ValuationInputs, lookbackYears
     fetchedAt: inputs.fetchedAt, lookbackYears, window: { start: isoDay(start), end: isoDay(now) }, metrics,
     score: { value, label, conclusion, contributions, coverageWeight, missing },
     chart: charts.spx, charts,
-    sentiment, treasury, rules,
+    sentiment, treasury, riskRadar, rules,
     audit: { inputs: structuredClone(inputs), lookbackYears, rules: structuredClone(rules), contributions: structuredClone(contributions) },
   };
 }

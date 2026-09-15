@@ -4341,6 +4341,7 @@ function globalSession(config: GlobalMacroQuoteConfig, now = new Date()) {
 }
 
 const yahooMacroQuoteCache = new Map<string, Awaited<ReturnType<typeof readYahooMacroQuote>>>();
+const yahooMacroQuoteCachedAt = new Map<string, number>();
 
 async function readYahooMacroQuote(symbol: string, range = '1mo') {
   const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d&events=history`;
@@ -4361,18 +4362,22 @@ async function readYahooMacroQuote(symbol: string, range = '1mo') {
 
 async function getYahooMacroQuote(symbol: string, range = '1mo') {
   const cacheKey = `${symbol}:${range}`;
+  const cached = yahooMacroQuoteCache.get(cacheKey);
+  // The one/two-year series feed slow-moving charts such as the risk radar.
+  // Reuse them for six hours so public page views never fan out into one Yahoo request each.
+  if ((range === '1y' || range === '2y') && cached && Date.now() - (yahooMacroQuoteCachedAt.get(cacheKey) || 0) < 21_600_000) return cached;
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const quote = await readYahooMacroQuote(symbol, range);
       yahooMacroQuoteCache.set(cacheKey, quote);
+      yahooMacroQuoteCachedAt.set(cacheKey, Date.now());
       return quote;
     } catch (error) {
       lastError = error;
       if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
     }
   }
-  const cached = yahooMacroQuoteCache.get(cacheKey);
   if (cached && !isPublicSourceRefresh()) return cached;
   throw lastError instanceof Error ? lastError : new Error(`${symbol} 行情暂时不可用`);
 }
@@ -12229,7 +12234,7 @@ function allWeatherApiPlugin() {
           if (url.pathname === '/api/equity-report-chart') {
             const symbol = String(url.searchParams.get('symbol') || '').trim().toUpperCase();
             const requestedRange = String(url.searchParams.get('range') || '3mo');
-            const range = ['1mo', '3mo', '6mo', '1y'].includes(requestedRange) ? requestedRange : '3mo';
+            const range = ['1mo', '3mo', '6mo', '1y', '2y'].includes(requestedRange) ? requestedRange : '3mo';
             if (!/^[A-Z0-9.^=-]{1,24}$/.test(symbol)) {
               sendJson(res, 400, { error: '证券代码格式无效' });
               return;
@@ -12241,7 +12246,9 @@ function allWeatherApiPlugin() {
               return Number((window.reduce((sum, value) => sum + value, 0) / period).toFixed(4));
             };
             const closes = quote.history.map((point) => point.value);
-            res.setHeader('Cache-Control', 'private, max-age=300');
+            res.setHeader('Cache-Control', (range === '1y' || range === '2y') && ['VOO', 'QQQ'].includes(symbol)
+              ? 'public, max-age=300, s-maxage=21600, stale-while-revalidate=86400'
+              : 'private, max-age=300');
             sendJson(res, 200, {
               symbol,
               generatedAt: quote.updatedAt,
