@@ -3,6 +3,7 @@ export type PrimaryNavigationItem = { label: string; path: string; disabled?: bo
 export const primaryNavigation: PrimaryNavigationItem[] = [
   { label: '终端大屏', path: '/terminal' },
   { label: '股票市场', path: '/market' },
+  { label: '风险雷达', path: '/risk-radar' },
   { label: '每日简报', path: '/council' },
   { label: '今日新闻', path: '/signals' },
   { label: 'AI助手', path: '/assistant' },

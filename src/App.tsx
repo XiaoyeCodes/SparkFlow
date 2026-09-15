@@ -18,6 +18,7 @@ import { IbkrAccount } from './routes/IbkrAccount';
 import { StartupGate } from './components/StartupGate';
 import { DailyBrief } from './routes/DailyBrief';
 import { DailyBriefDetail } from './routes/DailyBriefDetail';
+import { RiskRadar } from './routes/RiskRadar';
 
 export default function App() {
   const location = useLocation();
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="/trader" element={<Trader />} />
             <Route path="/terminal" element={<Market initialDashboardView="global" />} />
             <Route path="/market" element={<Market initialDashboardView="markets" />} />
+            <Route path="/risk-radar" element={<RiskRadar />} />
             <Route path="/council" element={<DailyBrief />} />
             <Route path="/council/details/:section" element={<DailyBriefDetail />} />
             <Route path="/assistant" element={<Assistant />} />
