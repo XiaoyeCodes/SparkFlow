@@ -10,6 +10,40 @@ const DAY = 86_400_000;
 const keys = ['vix', 'spx', 'ndx', 'pe', 'forwardYield', 'treasury10y', 'fearGreed'];
 const levels = { vix: 20, spx: 100, ndx: 100, pe: 20, forwardYield: 5, treasury10y: 4, fearGreed: 50 };
 
+test('QQQ P/E is an independent reference with no fabricated history or change in score', () => {
+  const input = fixture();
+  const baseline = computeValuationDashboard(input, 1);
+  input.series.qqqPe = { ...input.series.pe, points: [{ date: '2026-09-08', value: 30.9 }], current: 30.9 };
+  const result = computeValuationDashboard(input, 1);
+  const metric = result.metrics.find(row => row.id === 'qqqPe');
+  assert.equal(metric.current, 30.9);
+  assert.equal(metric.percentile, null);
+  assert.equal(metric.unit, 'times');
+  assert.deepEqual(result.score, baseline.score);
+  assert.equal(baseline.metrics.find(row => row.id === 'qqqPe').current, null);
+});
+
+test('monthly QQQ observations cover all four windows and produce independent percentiles', () => {
+  const input = fixture();
+  const points = [];
+  for (let month = 0; month < 132; month++) {
+    const date = new Date(Date.UTC(2015, 9 + month, 0));
+    if (+date > Date.parse(NOW)) break;
+    points.push({ date: date.toISOString().slice(0, 10), value: 20 + month * 0.1 });
+  }
+  points.push({ date: NOW.slice(0, 10), value: 28.8 });
+  input.series.qqqPe = { ...input.series.pe, points, current: 28.8 };
+  const percentiles = [];
+  for (const years of [1, 3, 5, 10]) {
+    const metric = computeValuationDashboard(input, years).metrics.find(row => row.id === 'qqqPe');
+    assert.equal(metric.coverage.complete, true, JSON.stringify(metric.coverage));
+    assert.ok(metric.coverage.samples >= 12 * years);
+    assert.equal(typeof metric.percentile, 'number');
+    percentiles.push(metric.percentile);
+  }
+  assert.equal(new Set(percentiles).size, 4);
+});
+
 function fixture(years = 1) {
   const points = [];
   const start = new Date(NOW);
@@ -73,7 +107,7 @@ test('constant history produces a neutral score and VIX uses its trend deviation
   assert.equal(result.score.coverageWeight, 100);
   assert.deepEqual(result.score.missing, []);
   assert.equal(result.score.label, '保持中性');
-  for (const metric of result.metrics) assert.equal(metric.percentile, 50, metric.id);
+  for (const metric of result.metrics.filter(m => m.id !== 'qqqPe')) assert.equal(metric.percentile, 50, metric.id);
   assert.ok(Math.abs(result.metrics.find(metric => metric.id === 'vix').deviationPercent) < 1e-9);
   assert.equal(result.metrics.find(metric => metric.id === 'erp').current, 1);
   assert.equal(result.score.contributions.reduce((sum, row) => sum + row.weight, 0), 100);
@@ -160,11 +194,14 @@ test('future observations relative to a series own quote date are excluded', () 
   assert.deepEqual(computeValuationDashboard(input, 1).metrics.find(metric => metric.id === 'spx'), expected.metrics.find(metric => metric.id === 'spx'));
 });
 
-test('monthly fundamental freshness differs from market data and ERP requires valid current components', () => {
+test('forward estimates keep publication freshness while ETF valuations and rates require recent quotes', () => {
   const input = fixture();
   input.series.forwardYield.asOf = '2026-08-15';
-  input.series.pe.asOf = '2026-08-15';
   assert.equal(computeValuationDashboard(input, 1).score.value, 50);
+  const staleSpy = structuredClone(input);
+  staleSpy.series.pe.asOf = '2026-08-15';
+  assert.equal(computeValuationDashboard(staleSpy, 1).score.coverageWeight, 65);
+  assert.equal(computeValuationDashboard(staleSpy, 1).score.value, null);
   input.series.treasury10y.asOf = '2026-08-30';
   const result = computeValuationDashboard(input, 1);
   assert.equal(result.treasury.eligible, false);

@@ -9,27 +9,27 @@ const YEAR = 365.2425 * DAY;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const INDEX_IDS = new Set(['spx', 'ndx', 'vix']);
 const MAX_AGE: Record<ValuationSeriesId | 'erp', number> = {
-  spx: 7, ndx: 7, vix: 7, pe: 45, forwardYield: 45, treasury10y: 7, fearGreed: 7, erp: 7,
+  spx: 7, ndx: 7, vix: 7, pe: 7, qqqPe: 7, forwardYield: 45, treasury10y: 7, fearGreed: 7, erp: 7,
 };
 const LABELS: Record<ValuationMetricId, string> = {
   vix: 'VIX 恐慌指数', spx: '标普 500 · 趋势偏离', ndx: '纳斯达克 100 · 趋势偏离',
-  pe: '标普 500 TTM 市盈率', forwardYield: '前瞻盈利收益率', erp: '股权风险溢价（ERP）',
+  pe: '标普500 市盈率（SPY）', qqqPe: '纳指100 市盈率（QQQ）', forwardYield: '前瞻盈利收益率', erp: '股权风险溢价（ERP）',
 };
 
 export const VALUATION_RULES: ValuationRules = {
-  version: 'valuation-v1.1.0',
-  formula: '买点评分 = 17.5%×(100−标普偏离分位) + 17.5%×(100−纳指偏离分位) + 35%×(100−TTM市盈率分位) + 15%×clamp((ERP+2)/6×100,0,100) + 7.5%×VIX偏离分位 + 7.5%×(100−CNN恐惧贪婪指数)',
+  version: 'valuation-v1.4.0',
+  formula: '买点评分 = 17.5%×(100−标普偏离分位) + 17.5%×(100−纳指偏离分位) + 35%×(100−SPY市盈率分位) + 15%×clamp((ERP+2)/6×100,0,100) + 7.5%×VIX偏离分位 + 7.5%×(100−CNN恐惧贪婪指数)',
   weights: { spx: 17.5, ndx: 17.5, pe: 35, erp: 15, vix: 7.5, fearGreed: 7.5 },
   methodology: [
     '所有日期以 UTC 处理；窗口起点为快照时间减去 1 / 3 / 5 / 10 个日历年。快照之后的数据和指标自身时间戳之后的数据不参与计算。',
     '标普、纳指和 VIX 使用窗口内历史价格的自然对数，按实际经过的日数做普通最小二乘回归；偏离 = (当前价 / 当日拟合趋势价 − 1) × 100%。',
     '分位 = 100 × (小于当前值的历史样本数 + 0.5 × 等于当前值的历史样本数) / 历史样本数。趋势指标比较各日自身拟合趋势的偏离；浮点差异在 1e−9 相对容差内视为相等。',
     '指数要求历史起点距窗口起点不超过 7 天、年均最少 150 条记录、连续缺口不超过 14 天。估值及 ERP 起点允许 45 天、年均至少 6 条且总计至少 8 条记录、连续缺口不超过 75 天。历史末端须满足各指标的新鲜度要求；不足完整窗口时分位和对应得分均留空。',
-    '实时/延迟/冻结/收盘/快照均保留源状态。指数、CNN 和十年美债超过 7 天失效；TTM 市盈率与前瞻盈利收益率超过 45 天失效；明确标为过期或缺失的数据不计分。',
+    '实时/延迟/冻结/收盘/快照均保留源状态。指数、SPY/QQQ 市盈率、CNN 和十年美债超过 7 天失效；前瞻盈利收益率超过 45 天失效；明确标为过期或缺失的数据不计分。',
     'ERP 为标普 500 前瞻盈利收益率减十年期美债收益率，单位为百分点。历史按日期合并，仅向前沿用当时已知的前瞻数据最多 45 天、美债数据最多 7 天；不从未来回填。月度基本面的历史日期必须是该值可获知的日期，历史修订仍可能影响回溯。',
-    'TTM 市盈率采用自身水平分位；前瞻盈利收益率显示自身水平分位但不单独加权，避免与 ERP 重复计分。CNN 使用最新 0–100 快照的反向值，不将快照伪装为历史分位。',
+    'SPY 市盈率采用自身月度历史水平分位，替代原标普500 TTM 市盈率，权重保持 35%；纳指100 市盈率（QQQ）作为独立参考展示，不纳入原有评分；前瞻盈利收益率保留为 ERP 计算输入但不单独加权，避免与 ERP 重复计分。CNN 使用最新 0–100 快照的反向值，不将快照伪装为历史分位。',
     'ERP 子分 = clamp((ERP + 2) / 6 × 100, 0, 100)，ERP 单位为百分点。−2% → 0 分，0% → 33.33 分，+2% → 66.67 分，+4% → 100 分；两端截断。该固定参考刻度是公开的规则选择，并非经验分位、获利概率或经过回测验证的参数。ERP 历史分位不足时仍留空，规则位置独立标注。',
-    '固定权重合计 100%。任一计分所需的当前值缺失或过期时总分为空；趋势和 TTM 分位另要求完整历史，ERP 固定参考子分仅要求其两个当前分量有效。缺失时不重分配权重；覆盖率只表示有效权重占比。显示总分在最终一步四舍五入至一位小数。',
+    '固定权重合计 100%。任一计分所需的当前值缺失或过期时总分为空；趋势和 SPY 市盈率分位另要求完整历史，ERP 固定参考子分仅要求其两个当前分量有效。缺失时不重分配权重；覆盖率只表示有效权重占比。显示总分在最终一步四舍五入至一位小数。',
     '评分 ≥75 该贪婪；55–<75 偏向贪婪；45–<55 保持中性；25–<45 偏向恐惧；<25 该恐惧。判断使用未四舍五入的总分，高分代表按本规则衡量的相对买点更好。',
     '图中的趋势线在整个所选窗口重新拟合，用于描述当前相对位置；并非逐日可交易回测、收益预测或已验证的择时策略。',
   ],
@@ -47,7 +47,7 @@ function isoDay(time: number): string { return new Date(time).toISOString().slic
 function finite(value: number | null): value is number { return typeof value === 'number' && Number.isFinite(value); }
 function validLevel(id: ValuationSeriesId | 'erp', value: number | null): value is number {
   if (!finite(value)) return false;
-  if (INDEX_IDS.has(id) || id === 'pe' || id === 'forwardYield') return value > 0;
+  if (INDEX_IDS.has(id) || id === 'pe' || id === 'qqqPe' || id === 'forwardYield') return value > 0;
   return id === 'fearGreed' ? value >= 0 && value <= 100 : true;
 }
 
@@ -189,7 +189,7 @@ function metric(series: ValuationSeries, id: ValuationMetricId, now: number, sta
     : empiricalPercentile(points.map(point => point.value), current) : null;
   const note = [series.note, freshReason, coverage.reason].filter(Boolean).join('；');
   return {
-    id, label: LABELS[id], current, unit: INDEX_IDS.has(id) ? 'index' : id === 'pe' ? 'times' : 'percent',
+    id, label: LABELS[id], current, unit: INDEX_IDS.has(id) ? 'index' : ['pe', 'qqqPe'].includes(id) ? 'times' : 'percent',
     percentile, deviationPercent, trendValue, asOf: series.asOf, source: series.source,
     sourceUrl: series.sourceUrl, status: freshReason ? series.status === 'missing' ? 'missing' : 'stale' : series.status,
     note, coverage, eligible,
@@ -214,8 +214,8 @@ export function computeValuationDashboard(inputs: ValuationInputs, lookbackYears
   if (!Number.isFinite(now)) throw new Error('VALUATION_FETCHED_AT_INVALID');
   const start = windowStart(now, lookbackYears);
   const erp = erpSeries(inputs, now);
-  const ids: ValuationMetricId[] = ['vix', 'spx', 'ndx', 'pe', 'forwardYield', 'erp'];
-  const metrics = ids.map(id => metric(id === 'erp' ? erp : inputs.series[id], id, now, start, lookbackYears));
+  const ids: ValuationMetricId[] = ['vix', 'spx', 'ndx', 'erp', 'pe', 'qqqPe', 'forwardYield'];
+  const metrics = ids.map(id => metric(id === 'erp' ? erp : inputs.series[id] ?? { points: [], current: null, asOf: null, source: 'World PE Ratio · QQQ ETF 市盈率', sourceUrl: 'https://worldperatio.com/index/nasdaq-100/', status: 'missing', note: '尚未取得纳指100 市盈率（QQQ）' }, id, now, start, lookbackYears));
   const byId = Object.fromEntries(metrics.map(item => [item.id, item])) as Record<ValuationMetricId, ValuationMetric>;
   const sentiment = snapshot(inputs.series.fearGreed, 'fearGreed', now);
   const treasury = snapshot(inputs.series.treasury10y, 'treasury10y', now);

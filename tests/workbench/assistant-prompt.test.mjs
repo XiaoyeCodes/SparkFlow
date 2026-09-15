@@ -29,11 +29,12 @@ test('portfolio assistant prompt includes every holding and omits the account id
   assert.equal(displayAssistantPrompt('普通研究问题'), '普通研究问题');
 });
 
-test('portfolio assistant prompt rejects unsynchronized or empty accounts', () => {
+test('portfolio assistant prompt rejects unsynchronized accounts and supports a genuine cash-only account', () => {
   const unsynchronized = readyState();
   unsynchronized.snapshot.snapshotId = '';
   assert.throws(() => buildPortfolioAnalysisPrompt(unsynchronized), /尚未同步/);
   const empty = readyState();
   empty.snapshot.positions = [];
-  assert.throws(() => buildPortfolioAnalysisPrompt(empty), /没有可分析的持仓/);
+  assert.match(buildPortfolioAnalysisPrompt(empty), /持仓数量：0/);
+  assert.match(buildPortfolioAnalysisPrompt(empty), /0–100 整数/);
 });

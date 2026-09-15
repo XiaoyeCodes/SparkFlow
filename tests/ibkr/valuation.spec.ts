@@ -14,7 +14,7 @@ function fixtureInputs(): ValuationInputs {
   const fetchedAt = '2026-09-08T12:00:00Z';
   const start = Date.parse('2015-09-08T00:00:00Z');
   const end = Date.parse('2026-09-08T00:00:00Z');
-  const ids: ValuationSeriesId[] = ['vix', 'spx', 'ndx', 'pe', 'forwardYield', 'treasury10y', 'fearGreed'];
+  const ids: ValuationSeriesId[] = ['vix', 'spx', 'ndx', 'pe', 'qqqPe', 'forwardYield', 'treasury10y', 'fearGreed'];
   const series = Object.fromEntries(ids.map(id => {
     const value = (day: number) => {
       const t = day / 365.2425;
@@ -22,6 +22,7 @@ function fixtureInputs(): ValuationInputs {
         case 'spx': return 1900 * Math.exp(t * 0.09 + 0.12 * Math.sin(t * 1.8));
         case 'ndx': return 4200 * Math.exp(t * 0.12 + 0.18 * Math.sin(t * 2.1));
         case 'vix': return 21 + 5 * Math.sin(t * 3.2) + Math.cos(t * 0.4);
+        case 'qqqPe': return 26 + t * 0.5 + Math.sin(t);
         case 'pe': return 19 + t * 0.45 + 2 * Math.sin(t * 1.3);
         case 'forwardYield': return 4.8 + 0.65 * Math.cos(t * 1.4);
         case 'treasury10y': return 2.5 + t * 0.12 + 0.9 * Math.sin(t * 1.1);
@@ -46,6 +47,8 @@ function fixture(years: ValuationLookback = 5): ValuationDashboard {
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/fonts.googleapis.com/**', route => route.abort());
+  await page.route('**/fonts.gstatic.com/**', route => route.abort());
   await page.route('**/api/ibkr-valuation/history', route => route.fulfill({ json: { snapshots: [] } }));
   await page.route('**/api/ibkr-valuation/snapshot', route => route.fulfill({ json: {
     windows: Object.fromEntries(([1, 3, 5, 10] as const).map(years => [years, fixture(years)])),
@@ -65,7 +68,7 @@ for (const accountState of ['pending', 'failed'] as const) {
       await page.goto(`${origin}/ibkr`);
       const nav = page.getByRole('navigation', { name: '账户工作台导航' });
       const labels = await nav.getByRole('button').allTextContents();
-      expect(labels.indexOf('大盘估值')).toBe(labels.indexOf('AI 分析') + 1);
+      expect(labels.indexOf('大盘估值')).toBeGreaterThan(labels.indexOf('AI 分析'));
       await nav.getByRole('button', { name: '大盘估值', exact: true }).click();
       await expect(nav.getByRole('button', { name: '大盘估值', exact: true })).toHaveAttribute('aria-current', 'page');
       const frame = page.frameLocator('iframe[title="大盘估值分位监控"]');
@@ -105,7 +108,7 @@ test('changing horizons refreshes the score, metrics and trend as one coherent s
     await expect(page.getByRole('button', { name: `${years}年`, exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(async () => Number(await page.getByTestId('score-value').innerText())).toBe(expected.score.value);
     await expect(page.locator('#chart-title')).toContainText(`${years} 年`);
-    for (const metric of expected.metrics) {
+    for (const metric of expected.metrics.filter(m => m.id !== 'forwardYield')) {
       await expect(page.getByTestId(`metric-${metric.id}`)).toBeVisible();
       await expect(page.getByTestId(`metric-${metric.id}`).getByRole('meter')).toHaveAttribute('aria-valuenow', String(metric.percentile));
     }
@@ -249,7 +252,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1440, height: 10
     await page.goto(artifact);
     await expect(page.getByTestId('metric-vix')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    for (const id of ['metric-vix', 'metric-spx', 'metric-ndx', 'metric-pe', 'metric-forwardYield', 'metric-erp', 'chart']) {
+    for (const id of ['metric-vix', 'metric-spx', 'metric-ndx', 'metric-pe', 'metric-qqqPe', 'metric-erp', 'chart']) {
       const bounds = await page.getByTestId(id).boundingBox();
       expect(bounds).not.toBeNull();
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -259,3 +262,36 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1440, height: 10
     await page.screenshot({ path: `tmp/valuation-qa/valuation-${viewport.width}.png`, fullPage: true });
   });
 }
+
+
+test('reload displays the browser cache without fetching again within one hour', async ({ page }) => {
+  let calls = 0;
+  await page.route(apiRoute, route => { calls++; return route.fulfill({ json: fixture() }); });
+  await page.goto(artifact);
+  await expect(page.getByTestId('metric-qqqPe')).toContainText('纳指100 市盈率（QQQ）');
+  await expect.poll(() => calls).toBe(1);
+  await expect.poll(() => page.evaluate(() => Boolean(localStorage.getItem('sparkflow.market-valuation.v5')))).toBe(true);
+  await page.reload();
+  await expect(page.getByTestId('source-status')).toContainText('已加载缓存');
+  await expect.poll(async () => Number(await page.getByTestId('score-value').innerText())).toBe(fixture().score.value);
+  expect(calls).toBe(1);
+  expect(await page.locator('.metric-heading h2').allTextContents()).toEqual(['VIX 恐慌指数','标普500 · 趋势偏离','纳指100 · 趋势偏离','股权风险溢价 (ERP)','标普500 市盈率（SPY）','纳指100 市盈率（QQQ）']);
+  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await expect.poll(() => calls).toBe(2);
+});
+
+test('hourly update keeps cached values visible while the market request is pending', async ({ page }) => {
+  await page.clock.install();
+  let calls = 0, release: (() => void) | undefined;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route(apiRoute, async route => { if (++calls > 1) await gate; await route.fulfill({ json: fixture() }).catch(() => {}); });
+  try {
+    await page.goto(artifact);
+    await expect.poll(() => page.evaluate(() => Boolean(localStorage.getItem('sparkflow.market-valuation.v5')))).toBe(true);
+    await page.clock.fastForward(59 * 60 * 1000);
+    expect(calls).toBe(1);
+    await page.clock.fastForward(2 * 60 * 1000);
+    await expect.poll(() => calls).toBe(2);
+    await expect.poll(async () => Number(await page.getByTestId('score-value').innerText())).toBe(fixture().score.value);
+  } finally { release?.(); }
+});

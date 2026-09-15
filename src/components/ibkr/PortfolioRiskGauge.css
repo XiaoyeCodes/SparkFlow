@@ -1,0 +1,37 @@
+.awb-portfolio-risk{margin-top:20px;min-width:0}.awb-portfolio-risk-chart{max-width:460px;margin:auto;text-align:center;color:#afc8c3}.awb-portfolio-risk-eyebrow{font:11px/1.6 ui-monospace,monospace;letter-spacing:1.4px;color:#83b7aa}.awb-portfolio-risk-chart svg{display:block;width:100%;max-height:245px;margin:12px auto 0;overflow:visible}.awb-risk-tick{font:10px ui-monospace,monospace;fill:#87a49c}.awb-risk-number{font:600 54px ui-monospace,monospace;fill:#e5f6ef;letter-spacing:-3px}.awb-risk-caption{font:10px system-ui;fill:#8ea99f}.awb-portfolio-risk-conclusion{border-left:2px solid #70bda6;background:rgba(100,155,134,.055);padding:15px 20px;border-radius:0 12px 12px 0;margin-top:5px}.awb-portfolio-risk-conclusion.is-high{border-color:#cc8884}.awb-portfolio-risk-conclusion .awb-research-prose{font-size:15px;line-height:1.95;color:#c8d8d0}.awb-portfolio-risk-conclusion .awb-research-prose p{margin:0}
+.awb-research-document{max-width:none;width:100%;box-sizing:border-box;margin:0 auto;padding:38px clamp(20px,4vw,58px);border:1px solid #263f36;border-radius:18px;background:linear-gradient(150deg,rgba(20,42,34,.64),rgba(7,17,14,.9) 60%);min-width:0}.awb-research-document .awb-research-prose{font:15.5px/1.95 system-ui,sans-serif;color:#c8d8d0;overflow-wrap:anywhere}.awb-research-document .awb-research-prose h1{font-size:clamp(24px,2.5vw,32px);line-height:1.5;color:#e8f6ef;margin:0 0 28px;letter-spacing:-.5px}.awb-research-document .awb-research-prose h2{font-size:21px;color:#8dddc2;margin:36px 0 16px;padding-bottom:12px;border-bottom:1px solid #254137}.awb-research-document .awb-research-prose h3{font-size:17px;color:#d4e8dd;margin:24px 0 12px}.awb-research-document .awb-research-prose p{margin:0 0 18px}.awb-research-document .awb-research-prose blockquote{margin:20px 0;padding:12px 20px;background:rgba(125,171,144,.055);border-left:2px solid #719f87}.awb-research-document .awb-research-prose table{display:block;overflow-x:auto;max-width:100%}@media(max-width:600px){.awb-research-document{padding:24px 18px}.awb-portfolio-risk-conclusion{padding:12px 14px}}
+/* Compact report facts use the report's measurements, without decorative scales. */
+.awb-risk-change{font-size:11px}.awb-risk-change.is-up{fill:#d9ad70}.awb-risk-change.is-down{fill:#8bbfa9}
+.awb-risk-highlights{display:flex;flex-direction:column;border:1px solid #2a4035;border-radius:10px;overflow:hidden;margin:0 0 14px;background:rgba(148,186,164,.045)}
+.account-workbench .awb-risk-highlight{display:grid;grid-template-columns:18px minmax(0,1fr) minmax(0,auto) 12px;align-items:center;gap:10px;width:100%;min-width:0;text-align:left;background:transparent;border:0;border-radius:0;padding:12px;color:#c5d6cc;box-shadow:none;white-space:normal}
+.account-workbench .awb-risk-highlight+.awb-risk-highlight{border-top:1px solid #283c31}
+.account-workbench .awb-risk-highlight:hover{background:rgba(145,188,163,.08)}
+.account-workbench .awb-risk-highlight:focus-visible{outline:2px solid #83bda6;outline-offset:-2px}
+.account-workbench .awb-risk-highlight:disabled{opacity:1;cursor:default}
+.awb-risk-highlight-icon{color:#8cab9c}.awb-risk-highlight-copy{min-width:0;display:flex;flex-direction:column;gap:4px}.awb-risk-highlight-copy b{font-size:12px;font-weight:550;color:#d2dfd7}.awb-risk-highlight-copy small{font-size:10px;line-height:1.5;color:#8fa499;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.awb-risk-highlight-values{display:flex;flex-direction:column;gap:4px;text-align:right;max-width:126px;overflow-wrap:anywhere}.awb-risk-highlight-values strong{font:550 13px/1.35 ui-monospace,Consolas,monospace;color:#d9ad70}.awb-risk-highlight-arrow{color:#758f80}
+.awb-risk-summary-label{display:block;margin-bottom:9px;font-size:10px;letter-spacing:1px;color:#91aa9b}
+.awb-portfolio-risk-conclusion{max-height:360px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#3b5646 transparent;overflow-wrap:anywhere}
+.awb-portfolio-risk-conclusion .awb-research-prose{font-size:13px;line-height:1.85}
+.awb-portfolio-risk-conclusion .awb-report-risk-callout{background:none;border:0;padding:0;margin:0;border-radius:0;color:inherit}
+.awb-portfolio-risk-conclusion .awb-report-key-data{color:#d9ad70}
+.awb-risk-source-focus{outline:1px solid #81b89d;outline-offset:6px;background:rgba(130,184,157,.09)!important;scroll-margin:100px 0}
+/* Stacked layouts follow content height; the wide overview fills its shared grid. */
+.account-workbench .awb-overview-main>.awb-overview-analysis-card{align-self:start;height:auto;min-height:0;overflow:hidden;gap:12px}
+.account-workbench .awb-overview-analysis-card .awb-overview-analysis-footer{margin-top:2px}
+.awb-overview-analysis-card .awb-portfolio-risk{margin-top:8px}
+.awb-overview-analysis-card .awb-portfolio-risk-chart{max-width:360px}
+.awb-overview-analysis-card .awb-portfolio-risk-chart svg{max-height:220px;margin-top:8px}
+/* The shared outer grid fixes the card height. All three inner regions resize
+   within that space, so report length cannot move the footer or the bottom edge. */
+@media(min-width:1500px){
+  .account-workbench .awb-overview-main>.awb-overview-analysis-card{align-self:stretch;display:grid;grid-template-rows:auto minmax(0,1fr) auto}
+  .awb-overview-analysis-card>.awb-portfolio-risk{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden;container-type:size}
+  .awb-overview-analysis-card .awb-portfolio-risk-chart{flex:1 1 180px;width:100%;min-height:140px;margin:0 auto;display:flex;flex-direction:column;justify-content:center}
+  .awb-overview-analysis-card .awb-portfolio-risk-chart svg{flex:1;min-height:0;max-height:220px}
+  .awb-overview-analysis-card .awb-risk-highlights{flex:1 0 auto;min-height:0;margin:0;overflow-y:auto;scrollbar-width:thin}
+  .awb-overview-analysis-card .awb-risk-highlight{flex:1 0 auto;min-height:48px}
+  .awb-overview-analysis-card .awb-portfolio-risk-conclusion{flex:0 1 auto;min-height:80px;max-height:360px;margin:0}
+  .awb-overview-analysis-card .awb-portfolio-risk-conclusion .awb-research-prose{font-size:clamp(12px,2cqh,15px);line-height:1.85}
+}
+@media(max-width:600px){.account-workbench .awb-risk-highlight{padding:11px 9px;gap:7px;grid-template-columns:16px minmax(0,1fr) minmax(0,auto) 10px}.awb-risk-highlight-values{max-width:112px}.awb-risk-highlight-values strong{font-size:12px}.awb-portfolio-risk-conclusion{max-height:340px}.awb-risk-highlight-copy small{font-size:10px}}

@@ -29,6 +29,45 @@ function highlightResearch() {
 }
 const remarkPlugins = [remarkGfm];
 const rehypePlugins = [highlightResearch];
-export const ResearchRichText = memo(function ResearchRichText({ text, className = '' }: { text?: string; className?: string }) {
-  return text ? <div className={`awb-research-prose ${className}`}><ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}>{text}</ReactMarkdown></div> : null;
+// Long reports use editorial emphasis, not keyword coloring throughout every sentence.
+function highlightDocumentResearch() {
+  return (tree: TextNode) => {
+    const plain = (node: TextNode): string => node.value ?? node.children?.map(plain).join('') ?? '';
+    let remaining = 8;
+    const visit = (node: TextNode) => {
+      if (['code', 'pre', 'a', 'h1', 'h2', 'h3', 'h4'].includes(node.tagName || '')) return;
+      if (node.tagName === 'p') {
+        const risk = /今日整体风险关注度[：:]/.test(plain(node));
+        if (risk) node.properties = { ...node.properties, className: ['awb-report-risk-callout'] };
+        let blockRemaining = 2;
+        const decorate = (parent: TextNode, emphasized = false) => {
+          if (['code', 'pre', 'a'].includes(parent.tagName || '')) return;
+          const important = emphasized || parent.tagName === 'strong';
+          parent.children = parent.children?.flatMap(child => {
+            if (child.type !== 'text' || !child.value) { decorate(child, important); return [child]; }
+            if (!risk && !important) return [child];
+            const pattern = risk ? /风险指数\s*\d{1,3}\s*[/／]\s*100/g : /[$¥￥€][\d,]+(?:\.\d+)?|\d[\d,]*(?:\.\d+)?(?:%|％|万美元|亿美元|美元|亿元|万元|个百分点|基点)/g;
+            const result: TextNode[] = []; let cursor = 0;
+            for (const match of child.value.matchAll(pattern)) {
+              if (blockRemaining <= 0 || (!risk && remaining <= 0)) break;
+              result.push({ type: 'text', value: child.value.slice(cursor, match.index) });
+              result.push({ type: 'element', tagName: 'span', properties: { className: ['awb-report-key-data'] }, children: [{ type: 'text', value: match[0] }] });
+              cursor = match.index! + match[0].length;
+              blockRemaining--; if (!risk) remaining--;
+            }
+            result.push({ type: 'text', value: child.value.slice(cursor) });
+            return result;
+          });
+        };
+        decorate(node);
+        return;
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+const documentPlugins = [highlightDocumentResearch];
+export const ResearchRichText = memo(function ResearchRichText({ text, className = '', restrained = false }: { text?: string; className?: string; restrained?: boolean }) {
+  return text ? <div className={`awb-research-prose ${className}`}><ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={restrained ? documentPlugins : rehypePlugins}>{text}</ReactMarkdown></div> : null;
 });

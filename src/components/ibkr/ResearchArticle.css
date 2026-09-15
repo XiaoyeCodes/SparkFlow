@@ -1,0 +1,34 @@
+/* A continuous editorial document, with decoration kept outside the reading flow. */
+.account-workbench .awb-research-document{position:relative;background:radial-gradient(ellipse at 0 0,rgba(86,139,120,.09),transparent 48%),#0b1511;box-shadow:inset 0 1px 0 #ffffff05;padding-top:28px}
+.awb-report-masthead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:30px;padding-bottom:16px;border-bottom:1px solid #2a3b33;color:#94aea2;font-size:11px;letter-spacing:.12em}
+.awb-report-masthead>span:first-child{display:flex;align-items:center;gap:10px}
+.awb-report-masthead>span:first-child::before{content:'';width:18px;height:3px;border-radius:2px;background:#83baa4}
+.account-workbench .awb-research-document .awb-research-prose{font-size:16px;line-height:1.95;color:#c4cec8}
+.account-workbench .awb-research-document .awb-research-prose h1{display:block;font-size:clamp(25px,2.2vw,34px);line-height:1.5;margin:12px 0 32px;color:#e7eee9;letter-spacing:-.025em}
+.account-workbench .awb-research-document .awb-research-prose h2{display:block;position:relative;font-size:21px;color:#dce7e0;margin:38px 0 20px;padding:12px 16px;border:0;border-left:3px solid #739f8d;border-radius:0 6px 6px 0;background:linear-gradient(90deg,#88b69e0d,transparent 85%)}
+.account-workbench .awb-research-document .awb-research-prose h3{display:block;font-size:17px;color:#d9e3dc;margin:28px 0 14px;padding-bottom:9px;border-bottom:1px solid #25362e}
+.account-workbench .awb-research-document .awb-research-prose p{margin-bottom:20px}
+.account-workbench .awb-research-document .awb-research-prose strong{color:#e0e8e2;font-weight:650}
+.account-workbench .awb-research-document .awb-research-prose :is(h1,h2,h3) strong{color:inherit}
+.account-workbench .awb-research-document .awb-research-prose :is(ul,ol){margin:18px 0 24px;padding-left:1.6em}
+.account-workbench .awb-research-document .awb-research-prose ul{list-style:disc outside}
+.account-workbench .awb-research-document .awb-research-prose ol{list-style:decimal outside}
+.account-workbench .awb-research-document .awb-research-prose li{padding-left:5px;margin:8px 0}
+.account-workbench .awb-research-document .awb-research-prose li::marker{color:#91ad9f}
+.account-workbench .awb-research-document .awb-research-prose blockquote{margin:24px 0;padding:16px 22px;border-left:2px solid #6b8d7d;border-radius:0 8px 8px 0;background:#7ea58d09;color:#aebeb4}
+.account-workbench .awb-research-document .awb-research-prose blockquote>:last-child{margin-bottom:0}
+.account-workbench .awb-research-document .awb-research-prose .awb-report-risk-callout{margin:28px 0 8px;padding:20px 24px;border:1px solid #8e78502b;border-left:3px solid #b49d70;border-radius:0 10px 10px 0;background:#b49d7009;color:#d9dfd8}
+.account-workbench .awb-research-document .awb-report-key-data{color:#d9bd87;font-weight:600;font-variant-numeric:tabular-nums}
+.account-workbench .awb-research-document .awb-research-prose a{color:#9dbeb1;text-decoration-color:#567a68;text-underline-offset:4px}
+.account-workbench .awb-research-document .awb-research-prose hr{height:1px;margin:32px 0;background:linear-gradient(90deg,#42634f,transparent);border:0}
+.account-workbench .awb-research-document .awb-research-prose :not(pre)>code{padding:2px 6px;border:1px solid #314238;border-radius:4px;background:#ffffff04;color:#cbd6ce;font-size:.9em}
+.account-workbench .awb-research-document .awb-research-prose pre{padding:18px;border:1px solid #2b3e32;border-radius:8px;background:#060e0a;overflow:auto}
+.awb-report-endmark{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:36px;color:#8ba496;font-size:10px;letter-spacing:.18em}
+.awb-report-endmark>span{width:48px;height:1px;background:#355041}
+@media(max-width:600px){
+  .account-workbench .awb-research-document{padding:22px 18px}
+  .awb-report-masthead{font-size:10px;gap:8px;margin-bottom:24px}
+  .account-workbench .awb-research-document .awb-research-prose{font-size:14px;line-height:1.9}
+  .account-workbench .awb-research-document .awb-research-prose h2{font-size:19px;padding:10px 12px}
+  .account-workbench .awb-research-document .awb-research-prose .awb-report-risk-callout{padding:16px}
+}

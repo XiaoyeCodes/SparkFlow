@@ -1,4 +1,5 @@
 import { createRegionalEconomyService } from './server/chinaRegionalEconomy';
+import { createAssistantResearch } from './server/ibkrAssistantResearch';
 import regionalVerifiedSeed from './src/data/chinaRegionalVerified.json';
 import regionalSources from './src/data/chinaRegionalSources.json';
 import type { RegionalSnapshot } from './src/lib/chinaRegionalEconomy';
@@ -10831,7 +10832,7 @@ async function syncVibeLlmSettings(baseUrl: string, body: any) {
   return settings;
 }
 
-async function prepareVibeResearchSession(body: any) {
+async function prepareVibeResearchSession(body: any, requireExisting = false) {
   const baseUrl = await ensureVibeTradingServer();
   const settings = await syncVibeLlmSettings(baseUrl, { ...body, ...(await getStoredAiRequestBody()) });
   const prompt = String(body.prompt || '').trim();
@@ -10846,11 +10847,13 @@ async function prepareVibeResearchSession(body: any) {
       await requestVibeJson(baseUrl, `/sessions/${encodeURIComponent(sessionId)}`);
       reused = true;
     } catch {
+      if (requireExisting) throw new Error('ASSISTANT_SESSION_UNAVAILABLE');
       sessionId = '';
     }
   }
 
   if (!sessionId) {
+    if (requireExisting) throw new Error('ASSISTANT_SESSION_UNAVAILABLE');
     const session = await requestVibeJson<{ session_id: string }>(baseUrl, '/sessions', {
       method: 'POST',
       body: JSON.stringify({ title: prompt.slice(0, 50) }),
@@ -12799,6 +12802,10 @@ export default defineConfig({
     react(),
     ibkrValuationPlugin(),
     ibkrWorkbenchPlugin({
+      assistantResearch: createAssistantResearch(
+        sessionId => prepareVibeResearchSession({ prompt: '分析一下我的当前持仓情况', sessionId }, Boolean(sessionId)),
+        requestVibeJson,
+      ),
       fetchJson: async url => {
         // Tencent's US minute endpoint can time out on the direct route even
         // when its quote endpoint works. Reuse the configured foreign proxy.

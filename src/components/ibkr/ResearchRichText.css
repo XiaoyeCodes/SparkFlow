@@ -30,8 +30,8 @@
 .account-workbench .awb-research-article .awb-analysis-brief-points>div{display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:14px 0;border-top:1px solid #22382d}
 .account-workbench .awb-research-article .awb-analysis-brief-points>div>span{color:#70c8a6;font-size:12px}
 .account-workbench .awb-research-article .awb-analysis-brief-points .awb-research-prose p{display:block;grid-template-columns:none;padding:0;border:0}
-.account-workbench .awb-overview-analysis-card{align-self:start;min-height:0;height:auto}
-.account-workbench .awb-overview-analysis-card .awb-overview-analysis-footer{margin-top:20px}
+.account-workbench .awb-overview-analysis-card{align-self:stretch;min-height:0;height:auto}
+.account-workbench .awb-overview-analysis-card .awb-overview-analysis-footer{margin-top:auto}
 .account-workbench .awb-analysis-workspace .awb-analysis-back{scroll-margin-top:100px}
 .account-workbench .awb-analysis-hero.awb-research-digest-hero>h2{font-size:clamp(22px,2.1vw,30px);line-height:1.5}
 @media(max-width:640px){.account-workbench .awb-research-prose{font-size:13px}.account-workbench .awb-research-risk-line{padding:12px}.account-workbench .awb-research-chapter-title{font-size:18px}}

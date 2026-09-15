@@ -1,4 +1,5 @@
-import { ResearchDigest } from './ResearchDigest';
+import { previousRiskReport } from '../../lib/ibkr/riskHighlights';
+import { PortfolioRiskGauge } from './PortfolioRiskGauge';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -22,7 +23,7 @@ export function OverviewPnlSummary({ state }: { state: WorkbenchState }) {
     <div className="awb-pnl-summary-values"><div className="awb-pnl-summary-field" title="当前持仓相对成本的累计浮动盈亏。">
       <span>未实现盈亏</span>
       <strong className={value === null || value === 0 ? '' : value < 0 ? 'negative' : 'positive'}>{value !== null && value > 0 ? '+' : ''}{amount(value)}</strong>
-      <small>{baseCurrency ?? '—'} · {value === null ? '未提供' : 'IBKR 账面'}</small>
+      <small>{baseCurrency ?? '—'}{value === null ? ' · 未提供' : ''}</small>
     </div></div>
   </article>;
 }
@@ -113,7 +114,7 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
     : { title: `开始积累 ${state.gatewayMode === 'paper' ? '模拟盘' : '实盘'}净值轨迹`, detail: points.length ? '有效观测不足，至少两个不同日期后显示曲线' : '智能连接并成功同步后，SparkFlow 会按日保存该 Gateway 账户净值' };
   return <section className="awb-panel awb-performance awb-performance-redesign" aria-label="资产表现">
     <div className="awb-chart-toolbar"><div className="awb-chart-tabs">{[['nav', '资产净值'], ['return', '投资收益']].map(([value, label]) => <button key={value} aria-pressed={mode === value} disabled={value === 'return' && !performance?.returnMethod} onClick={() => { setMode(value as typeof mode); setHover(null); }}>{label}</button>)}</div><div className="awb-period-tabs">{([[7, '1周'], [30, '1月'], [90, '3月'], [365, '1年'], ['all', '全部']] as const).map(([value, label]) => <button key={value} aria-pressed={range === value} title={value === 'all' ? '全部可用历史' : undefined} onClick={() => { setRange(value); setHover(null); }}>{label}</button>)}</div></div>
-    <div className="awb-chart-reading"><span>{selected && hover !== null ? `${selected.date} · ${mode === 'nav' ? amount(values[hover]) : signed(values[hover])}` : mode === 'nav' ? `资产净值 · ${performance?.currency ?? state.snapshot.baseCurrency ?? '币种待核实'}` : twr ? '时间加权收益 · 所选区间' : '资金加权累计收益 · 原始口径'}</span><small>{performance?.source ?? '历史尚未取得'}</small></div>
+    <div className="awb-chart-reading"><span>{selected && hover !== null ? `${selected.date} · ${mode === 'nav' ? amount(values[hover]) : signed(values[hover])}` : mode === 'nav' ? `资产净值 · ${performance?.currency ?? state.snapshot.baseCurrency ?? '币种待核实'}` : twr ? '时间加权收益 · 所选区间' : '资金加权累计收益 · 原始口径'}</span></div>
     {values.filter(v => v !== null).length > 1 ? <div className="awb-nav-chart-wrap"><svg className="awb-nav-chart" ref={chartRef} viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="账户资产表现曲线" aria-describedby={selected ? tooltipId : undefined} tabIndex={0} onBlur={() => setHover(null)} onMouseLeave={() => setHover(null)} onMouseMove={e => {
       const rect = e.currentTarget.getBoundingClientRect(), target = (e.clientX - rect.left) / rect.width * chartWidth;
       setHover(points.reduce((best, _, i) => Math.abs(x(i) - target) < Math.abs(x(best) - target) ? i : best, 0));
@@ -136,14 +137,14 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
       <small>{performance?.source ?? '来源待核实'}</small>
     </div>}</div> : <div className="awb-chart-empty"><strong>{emptyCopy.title}</strong><p>{emptyCopy.detail}</p></div>}
     <div className="awb-chart-legend">{state.metrics?.sectors.slice(0, 3).map((s, i) => <span key={s.name}><i style={{ background: colors[i] }}/>{industryLabel(s.name)} {percent(s.weight)}</span>)}<span><i style={{ background: colors[5] }}/>现金 {percent(overviewAllocation(state.snapshot).cashWeight)}</span>{hasBenchmark && <span><i style={{ background: '#a49ddb' }}/>{performance?.benchmark} 基准</span>}</div>
-    <p className="awb-overview-note">{performance?.note ?? '净值变化含出入金，不能直接视为投资收益。'}{failed && ' 历史刷新失败，保留已有记录。'}</p>
+    {failed && <p className="awb-overview-note" role="status">历史刷新失败，正在显示已保存记录。</p>}
     {hasBenchmark && <div className="awb-performance-stats"><span>区间超额 <b>{signed(points.map((_, i) => values[i] !== null && benchmark[i] !== null ? values[i]! - benchmark[i]! : null).filter(v => v !== null).slice(-1)[0])}</b></span><span>波动率比较 <b>{performance?.volatilityRatio == null ? '至少需要 60 个共同交易日' : `${performance.volatilityRatio.toFixed(2)}×（完整共同历史）`}</b></span><small>{performance?.benchmarkSource ?? '基准未取得'}</small></div>}
     {localHistory ? <div className="awb-performance-bottom awb-performance-local-bottom"><div className="awb-return-summary" aria-label="本地净值摘要">
-      <div className="awb-inception-return"><small>历史记录</small><b>{all.filter(point => point.nav !== null).length} 个日期</b><span>{state.source === 'gateway' ? `IB Gateway ${state.gatewayMode === 'paper' ? '模拟盘' : '实盘'}` : 'MCP 当前账户快照'}</span></div>
+      <div className="awb-inception-return"><small>历史记录</small><b>{all.filter(point => point.nav !== null).length} 个日期</b></div>
       <div><small>起始净值</small><b>{amount(firstNav?.nav)}</b><span>{firstNav?.date ?? '等待首次同步'}</span></div>
       <div><small>最新净值</small><b>{amount(latestNav?.nav)}</b><span>{latestNav?.date ?? '等待首次同步'}</span></div>
-      <div><small>净值变动 · 含出入金</small><b className={localNavChange == null ? '' : localNavChange < 0 ? 'negative' : 'positive'}>{localNavChange !== null && localNavChange > 0 ? '+' : ''}{amount(localNavChange)}</b><span>不作为投资收益率</span></div>
-    </div><div className="awb-monthly awb-local-history-note"><div className="awb-section-heading"><h3>当前历史口径</h3><small>{performance?.source ?? '来源待同步'}</small></div><p>{state.source === 'gateway' ? 'Gateway 提供当前账户账面数据；这里展示 SparkFlow 按日保存的独立净值轨迹。实盘与模拟盘分别保存，不从 MCP 借用历史。' : '当前账户由 MCP 同步；PortfolioAnalyst 收益历史可用后会自动切换为经过券商核实的 TWR 或 MWR。'}</p></div></div> : <div className="awb-performance-bottom"><div className="awb-return-summary" aria-label="收益摘要">
+      <div><small>净值变动 · 含出入金</small><b className={localNavChange == null ? '' : localNavChange < 0 ? 'negative' : 'positive'}>{localNavChange !== null && localNavChange > 0 ? '+' : ''}{amount(localNavChange)}</b></div>
+    </div></div> : <div className="awb-performance-bottom"><div className="awb-return-summary" aria-label="收益摘要">
       <div className="awb-inception-return" title={performance?.inception?.note ?? '等待 IBKR 核实自始以来的完整业绩'}>
         <small>自始以来总回报</small>
         <b className={performance?.inception?.value == null ? '' : performance.inception.value < 0 ? 'negative' : 'positive'}>{signed(performance?.inception?.value)}</b>
@@ -157,7 +158,7 @@ export function PerformancePanel({ state }: { state: WorkbenchState }) {
   </section>;
 }
 
-export function OverviewBrief({ state, report, pending, canAnalyze, analyzing, openReport, startAnalysis }: { state: WorkbenchState; report?: AnalysisReport; pending?: AnalysisJob; canAnalyze: boolean; analyzing: boolean; openReport: () => void; startAnalysis: () => void }) {
+export function OverviewBrief({ state, report, pending, canAnalyze, analyzing, openReport, startAnalysis }: { state: WorkbenchState; report?: AnalysisReport; pending?: AnalysisJob; canAnalyze: boolean; analyzing: boolean; openReport: (source?: string) => void; startAnalysis: () => void }) {
   const localDay = (value: Date | string) => { const date = new Date(value); return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date) : undefined; };
   const today = localDay(new Date());
   const reportDay = report ? localDay(report.generatedAt) : undefined;
@@ -169,8 +170,8 @@ export function OverviewBrief({ state, report, pending, canAnalyze, analyzing, o
     <div className="awb-overview-analysis-head"><span className="awb-ai-badge"><Sparkles size={13}/>今日分析结论</span><small>{todayReport ? stamp(todayReport.generatedAt) : '今日尚未生成'}</small></div>
     {!todayReport && <h2 className="awb-ai-headline">今天还没有账户分析结论</h2>}
     {showIncomplete && <p className="awb-brief-notice">{todayPending?.state === 'running' ? '今日账户分析正在生成，完成后会自动显示在这里。' : '今日账户分析尚未完成，可前往 AI 分析继续。'}</p>}
-    {todayReport ? <ResearchDigest content={todayReport.content}/> : todayPending ? <p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p> : <div className="awb-overview-analysis-empty-state"><p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p><button className={`awb-analysis-core-button ${analyzing ? 'is-analyzing' : ''}`} type="button" disabled={!canAnalyze || analyzing} onClick={startAnalysis} title={analyzing ? '正在启动账户分析' : canAnalyze ? '使用最新账户快照生成今天的完整分析' : '请先确认账户已同步、AI 已授权且今日仍有调用额度'}><span className="awb-analysis-core-orbit" aria-hidden="true"><i/><i/><i/></span><span className="awb-analysis-core-icon" aria-hidden="true">{analyzing ? <LoaderCircle size={21}/> : <Sparkles size={21}/>}</span><span><b>{analyzing ? '正在启动分析' : '生成今日分析'}</b><small>读取最新账户与全部持仓</small></span><ArrowUpRight size={18} aria-hidden="true"/></button></div>}
-    <div className="awb-overview-analysis-footer"><small>{todayReport ? `${todayReport.kind === 'daily' ? '定时分析' : '手动分析'} · ${todayReport.model}` : schedule?.enabled ? `定时已开启 · ${accountScheduleDescription(schedule)}` : '定时未开启'}</small><button className="awb-ai-cta" onClick={openReport}>{todayReport ? '查看完整分析' : todayPending ? '查看分析进度' : '前往 AI 分析'}<ChevronRight size={16}/></button></div>
+    {todayReport ? <PortfolioRiskGauge content={todayReport.content} previousContent={previousRiskReport(todayReport, state.reports)?.content} onFocus={openReport}/> : todayPending ? <p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p> : <div className="awb-overview-analysis-empty-state"><p className="awb-overview-analysis-empty">只有你手动发起或已开启的定时任务会生成分析；启动服务不会自动补跑。</p><button className={`awb-analysis-core-button ${analyzing ? 'is-analyzing' : ''}`} type="button" disabled={!canAnalyze || analyzing} onClick={startAnalysis} title={analyzing ? '正在启动账户分析' : canAnalyze ? '使用最新账户快照生成今天的完整分析' : '请先确认账户已同步、AI 已授权且今日仍有调用额度'}><span className="awb-analysis-core-orbit" aria-hidden="true"><i/><i/><i/></span><span className="awb-analysis-core-icon" aria-hidden="true">{analyzing ? <LoaderCircle size={21}/> : <Sparkles size={21}/>}</span><span><b>{analyzing ? '正在启动分析' : '生成今日分析'}</b><small>读取最新账户与全部持仓</small></span><ArrowUpRight size={18} aria-hidden="true"/></button></div>}
+    <div className="awb-overview-analysis-footer"><small>{todayReport ? `${todayReport.kind === 'daily' ? '定时分析' : '手动分析'} · ${todayReport.model}` : schedule?.enabled ? `定时已开启 · ${accountScheduleDescription(schedule)}` : '定时未开启'}</small><button className="awb-ai-cta" onClick={() => openReport()}>{todayReport ? '查看完整分析' : todayPending ? '查看分析进度' : '前往 AI 分析'}<ChevronRight size={16}/></button></div>
   </section>;
 }
 
@@ -287,7 +288,7 @@ export function OverviewAllocation({ state }: { state: WorkbenchState }) {
         })}
       </svg>
       <div className="awb-sector-legend">{sectors.map((sector, i) => <button key={sector.name} onMouseEnter={() => setActive(sector.name)} onMouseLeave={() => setActive(null)} onFocus={() => setActive(sector.name)} onBlur={() => setActive(null)} onClick={() => setActive(active === sector.name ? null : sector.name)} aria-pressed={active === sector.name}><i style={{ background: palette[i % palette.length] }}/><span>{industryLabel(sector.name)}</span><b>{percent(sector.weight)}</b></button>)}</div>
-      <p className="awb-overview-note">扇区按已统计持仓归一化，列表为占净资产比例。行业未知单独列示；ETF 不穿透。</p>
+
     </> : <p className="awb-overview-note">行业资料尚未取得。</p>}
   </section>;
 }
@@ -329,9 +330,9 @@ export function OverviewPnl({ state, select }: { state: WorkbenchState; select: 
           <b className={pnl === null || pnl === 0 ? 'awb-pnl-neutral' : pnl > 0 ? 'positive' : 'negative'}>{pnlLabel(pnl)}</b>
         </button>)}
       </div>
-      <p className="awb-overview-note awb-pnl-caption">比例 = 对应持仓数 ÷ 本币种全部持仓数。条长表示金额，左右同尺度；列表可滚动，点击查看持仓。</p>
+
     </> : <p className="awb-overview-note">暂无持仓，盈亏比例待生成。</p>}
-    <p className="awb-overview-note awb-pnl-source" title={state.snapshot.asOf ?? undefined}>IBKR 未实现盈亏 · 非今日收益或收益率</p>
+
   </section>;
 }
 
@@ -352,22 +353,22 @@ export function OverviewFunds({ state }: { state: WorkbenchState }) {
   const scale = Math.max(nav !== null && nav > 0 ? nav : 0, ...metrics.map(item => Math.abs(item.value ?? 0)));
   const signedAmount = (item: typeof metrics[number]) => `${item.name === '未实现盈亏' && item.value !== null && item.value > 0 ? '+' : ''}${amount(item.value)}`;
   return <section className="awb-panel awb-funds-panel awb-funds-hud">
-    <div className="awb-section-heading"><h2>资金概况</h2><small>IBKR · {currency}</small></div>
-    <div className="awb-funds-nav"><span><i />净清算值 <small>NET LIQUIDATION</small></span><strong>{amount(nav)}<small>{currency}</small></strong></div>
-    <div className="awb-funds-scale" aria-hidden="true"><span>金额刻度 · {currency}</span><div><span>0</span><span>{scale > 0 ? amount(scale / 2) : '—'}</span><span>{scale > 0 ? amount(scale) : '—'}</span></div></div>
+    <div className="awb-section-heading"><h2>资金概况</h2><small>{currency}</small></div>
+    <div className="awb-funds-nav"><span><i />净清算值 </span><strong>{amount(nav)}<small>{currency}</small></strong></div>
+    <div className="awb-funds-scale" aria-hidden="true"><div><span>0</span><span>{scale > 0 ? amount(scale / 2) : '—'}</span><span>{scale > 0 ? amount(scale) : '—'}</span></div></div>
     <div className="awb-funds-bars" role="group" aria-label="资金指标横向柱状图，统一绝对金额刻度">
-      {metrics.map((item, index) => <div className="awb-funds-bar-item" key={item.name} data-funds-bar={item.name} title={item.detail}>
+      {metrics.map((item, index) => <div className="awb-funds-bar-item" key={item.name} data-funds-bar={item.name} title={`${item.detail} · 占净资产 ${percent(item.ratio)}`}>
         <div className="awb-funds-bar-heading"><span><small>{String(index + 1).padStart(2, '0')}</small>{item.name}</span><b style={{ color: item.color }}>{signedAmount(item)}</b></div>
         <div className="awb-funds-bar-track" role="img" aria-label={`${item.name} ${signedAmount(item)} ${currency}，占净资产 ${percent(item.ratio)}`}>
           {item.value !== null && scale > 0 && <i style={{ width: `${Math.abs(item.value) / scale * 100}%`, background: item.color, color: item.color }} />}
           {item.value === null && <span className="awb-funds-bar-missing">数据未取得</span>}
         </div>
-        <div className="awb-funds-bar-reading"><span>{item.value !== null && item.value < 0 ? '负值 · 条长按绝对金额' : item.name === '购买力' ? '可用交易额度' : item.name === '维持保证金' ? '当前持仓要求' : '券商账面'}</span><span>占净资产 <b>{percent(item.ratio)}</b></span></div>
+
       </div>)}
     </div>
-    <div className="awb-funds-hud-footer"><p>统一金额刻度；指标有重叠，不相加。</p>{nav === null || nav <= 0 ? <p>净资产无效，占比暂不显示。</p> : null}
+    <div className="awb-funds-hud-footer">{nav === null || nav <= 0 ? <p>净资产无效，占比暂不显示。</p> : null}
       {snapshot.cash.filter(c => c.currency !== snapshot.baseCurrency && c.currency !== 'BASE').map(c => <p key={c.currency}>{c.currency} 现金 <b>{amount(c.amount)}</b></p>)}
-      <small><i />快照 {stamp(snapshot.asOf)}{snapshot.state === 'stale' ? ' · 已过期，待刷新' : ''}</small>
+      {snapshot.state === 'stale' && <small role="status">数据已过期，待刷新</small>}
     </div>
   </section>;
 }

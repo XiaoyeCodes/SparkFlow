@@ -97,6 +97,7 @@ class SessionService:
         role: str = "user",
         *,
         include_shell_tools: bool = False,
+        require_idle: bool = False,
     ) -> Dict[str, Any]:
         """Send a message to a session and trigger execution.
 
@@ -112,6 +113,13 @@ class SessionService:
         session = self.store.get_session(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
+
+        # No await between the guard and attempt creation: concurrent requests on
+        # this runtime cannot both append a new portfolio follow-up.
+        if require_idle and session.last_attempt_id:
+            current = self.store.get_attempt(session_id, session.last_attempt_id)
+            if current and current.status in (AttemptStatus.PENDING, AttemptStatus.RUNNING):
+                raise RuntimeError("ASSISTANT_SESSION_BUSY")
 
         message = Message(session_id=session_id, role=role, content=content)
         self.store.append_message(message)
@@ -136,7 +144,7 @@ class SessionService:
         """Return the message history."""
         return self.store.get_messages(session_id, limit)
 
-    def cancel_current(self, session_id: str) -> bool:
+    def cancel_current(self, session_id: str, *, expected_attempt_id: Optional[str] = None) -> bool:
         """Cancel the currently running AgentLoop for a session.
 
         Args:
@@ -145,6 +153,10 @@ class SessionService:
         Returns:
             Whether cancellation succeeded. True means an active loop existed and received a cancel signal.
         """
+        if expected_attempt_id:
+            session = self.store.get_session(session_id)
+            if not session or session.last_attempt_id != expected_attempt_id:
+                return False
         loop = self._active_loops.get(session_id)
         if loop is None:
             return False

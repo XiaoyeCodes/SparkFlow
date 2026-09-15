@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createValuationService } from '../../server/ibkrValuation.ts';
+import { createValuationService, VALUATION_REFRESH_MS } from '../../server/ibkrValuation.ts';
 import { VALUATION_RULES } from '../../server/ibkrValuationModel.ts';
 
 const NOW = '2026-09-08T00:00:00.000Z';
 const DAY = 86_400_000;
-const levels = { vix: 20, spx: 100, ndx: 100, pe: 20, forwardYield: 5, treasury10y: 4, fearGreed: 50 };
+const levels = { vix: 20, spx: 100, ndx: 100, pe: 20, qqqPe: 30, forwardYield: 5, treasury10y: 4, fearGreed: 50 };
 
 function fixture(fetchedAt = NOW) {
   const days = [];
@@ -44,7 +44,6 @@ test('service coalesces simultaneous horizon and snapshot requests into one load
   const one = service.get(1);
   const five = service.get(5, true);
   const bundle = service.snapshot();
-  assert.equal(calls, 1);
   release();
   const [a, b, all] = await Promise.all([one, five, bundle]);
   assert.equal(calls, 1);
@@ -75,11 +74,12 @@ test('service uses normal cache and throttles force refresh without discarding f
   clock += 2_000;
   await service.get(5, true);
   assert.deepEqual(requests, [{ force: false }, { force: true }]);
-  clock += 54_000;
+  clock += VALUATION_REFRESH_MS - 1_000;
   await service.get(10);
   assert.equal(requests.length, 2);
   clock += 2_000;
   await service.get(1);
+  await service.refresh();
   assert.equal(requests.length, 3);
   assert.equal(requests.at(-1).force, false);
 });
@@ -114,7 +114,7 @@ test('new snapshots preserve older audit results and survive service recreation 
   input = fixture('2026-09-09T00:00:00.000Z');
   input.series.fearGreed.current = 0;
   clock += 60_000;
-  const second = await service.get(1);
+  const second = await service.get(1, true);
   assert.notEqual(first.id, second.snapshotId);
   assert.notEqual(first.windows[1].score.value, second.score.value);
   assert.deepEqual(await service.audit(first.id), preserved);
@@ -140,7 +140,8 @@ test('cached and persisted snapshots are independent of loader and caller mutati
   assert.deepEqual(await service.audit(preserved.id), preserved);
   const one = await service.get(1);
   one.score.contributions[0].points = -100;
-  assert.deepEqual(await service.get(1), preserved.windows[1]);
+  const { cache, ...display } = await service.get(1);
+  assert.deepEqual(display, preserved.windows[1]);
 });
 
 test('audit freezes historical model output across rule changes and uses distinct version identities', async t => {
@@ -195,4 +196,45 @@ test('malformed persisted entries are ignored by history and cannot break later 
   const disk = JSON.parse(await readFile(path.join(directory, `${result.snapshotId}.json`), 'utf8'));
   assert.equal(disk.id, result.snapshotId);
   assert.equal(result.score.value, 50);
+});
+
+
+test('restart immediately restores the latest disk cache and stale reads refresh in the background', async t => {
+  const stateDir = await temporaryState(t);
+  let clock = Date.parse(NOW);
+  t.mock.method(Date, 'now', () => clock);
+  const original = createValuationService({ stateDir, load: async () => fixture() });
+  const first = await original.get(5);
+  let calls = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const restarted = createValuationService({ stateDir, load: async () => { calls++; await gate; return fixture('2026-09-09T00:00:00Z'); } });
+  assert.equal((await restarted.get(5)).snapshotId, first.snapshotId);
+  assert.equal(calls, 0);
+  clock += VALUATION_REFRESH_MS + 1;
+  const cached = await restarted.get(5);
+  assert.equal(cached.snapshotId, first.snapshotId);
+  assert.equal(cached.cache.refreshing, true);
+  assert.equal(calls, 1);
+  const finished = restarted.refresh();
+  release();
+  await finished;
+  const updated = await restarted.get(5);
+  assert.notEqual(updated.snapshotId, first.snapshotId);
+  assert.equal(updated.cache.refreshing, false);
+  assert.equal(calls, 1);
+});
+
+test('a failed hourly update retains the previous disk snapshot and does not retry every visit', async t => {
+  const stateDir = await temporaryState(t);
+  let clock = Date.parse(NOW), calls = 0;
+  t.mock.method(Date, 'now', () => clock);
+  const service = createValuationService({ stateDir, load: async () => { if (++calls > 1) throw new Error('offline'); return fixture(); } });
+  const first = await service.get(5);
+  clock += VALUATION_REFRESH_MS + 1;
+  await assert.rejects(service.refresh(), /offline/);
+  const retained = await service.get(5);
+  assert.equal(retained.snapshotId, first.snapshotId);
+  assert.match(retained.cache.error, /保留/);
+  assert.equal(calls, 2);
+  assert.equal((await service.history()).length, 1);
 });

@@ -11,7 +11,8 @@ const root = process.cwd();
 const stateDir = path.join(root, '.sparkflow', 'valuation');
 const DAY = 86_400_000;
 const SOURCES = {
-  pe: ['Multpl · 标普500 TTM as-reported P/E', 'https://www.multpl.com/s-p-500-pe-ratio/table/by-month'],
+  pe: ['World PE Ratio · SPY ETF 市盈率', 'https://worldperatio.com/index/sp-500/'],
+  qqqPe: ['World PE Ratio · QQQ ETF 市盈率', 'https://worldperatio.com/index/nasdaq-100/'],
   forwardYield: ['FactSet · 标普500未来12个月一致预期', 'https://insight.factset.com/topic/earnings'],
   treasury10y: ['FRED · 美联储 DGS10', 'https://fred.stlouisfed.org/series/DGS10'],
   fearGreed: ['CNN · Fear & Greed', 'https://www.cnn.com/markets/fear-and-greed'],
@@ -96,6 +97,42 @@ export function parseMultplPe(html: string): Point[] {
     points.push({ date: new Date(parsedDate).toISOString().slice(0, 10), value });
   }
   return cleanValuationPoints(points, 0.01, 1000);
+}
+
+/** Parse the publisher's QQQ monthly P/E series without executing remote scripts.
+ * Completed months are dated at month-end; the open month uses the quoted as-of
+ * date. These are monthly observations, never interpolated daily history.
+ */
+function parseEtfPe(html: string, symbol: 'SPY' | 'QQQ'): Point[] {
+  const text = textOnly(html);
+  const benchmark = symbol === 'SPY' ? 'S&P 500 Index' : 'Nasdaq 100 Index';
+  if (!text.includes(`P/E Ratio is calculated on the ${symbol} Etf, whose benchmark is the ${benchmark}.`)) return [];
+  const quote = /Price-to-Earnings \(P\/E\) Ratio for (S&P 500 Index|Nasdaq 100 Index) is ([\d.]+)\s*, calculated on (\d{1,2} [A-Za-z]+ \d{4})\s*\./.exec(text);
+  const history = /\bdetailPE_data\s*=\s*(\[[\s\S]*?);/.exec(html)?.[1];
+  if (!quote || quote[1] !== benchmark || !history) return [];
+  const asOf = Date.parse(`${quote[3]} UTC`), current = Number(quote[2]);
+  if (!Number.isFinite(asOf) || asOf > Date.now() || !Number.isFinite(current) || current <= 0) return [];
+  const quoteDate = new Date(asOf);
+  const rows: Point[] = [];
+  let latestValue: number | null = null;
+  for (const row of history.matchAll(/\[Date\.UTC\((\d{4}),\s*(\d{1,2}),\s*1\),\s*(\d+(?:\.\d+)?)\]/g)) {
+    const year = Number(row[1]), month = Number(row[2]), value = Number(row[3]);
+    if (month > 11 || Date.UTC(year, month, 1) > asOf) continue;
+    const openMonth = year === quoteDate.getUTCFullYear() && month === quoteDate.getUTCMonth();
+    const date = openMonth ? asOf : Date.UTC(year, month + 1, 0);
+    rows.push({ date: new Date(date).toISOString().slice(0, 10), value });
+    if (openMonth) latestValue = value;
+  }
+  // The displayed quote and chart must represent the same current observation.
+  if (latestValue === null || Math.abs(latestValue - current) > 0.011) return [];
+  return cleanValuationPoints(rows, 0.01, 1000);
+}
+
+export const parseQqqPe = (html: string): Point[] => parseEtfPe(html, 'QQQ');
+export const parseSpyPe = (html: string): Point[] => parseEtfPe(html, 'SPY');
+
+function etfPeNote(symbol: 'SPY' | 'QQQ') {
+  return `${symbol} ETF 市盈率，作为${symbol === 'SPY' ? '标普500' : '纳指100'}估值参考；非指数官方估值。当前值及月度历史统一来自 World PE Ratio；已结束月份记为月末，当前月份使用报价日期，不插值为日频。分位按月度样本计算，不沿用来源的去极值均值或标准差；来源未明确盈利口径，展示为 P/E，不标为已确认的 TTM。`;
 }
 
 export function parseFredCsv(csv: string, seriesId: string): Point[] {
@@ -222,6 +259,7 @@ async function readSavedSeries(key: SeriesKey): Promise<ValuationSeries | null> 
   try {
     const raw = JSON.parse(await readFile(path.join(stateDir, `${key}.json`), 'utf8'));
     if (!raw || !Array.isArray(raw.points) || typeof raw.source !== 'string') return null;
+    if ((key === 'qqqPe' || key === 'pe') && raw.sourceUrl !== SOURCES[key][1]) return null;
     const points = cleanValuationPoints(raw.points, key === 'treasury10y' ? -10 : 0);
     return { ...missing(key, ''), ...raw, points };
   } catch { return null; }
@@ -368,20 +406,24 @@ async function boundedIndices(): Promise<Pick<ValuationInputs['series'], 'vix' |
 /** Read-only public inputs. Force refreshes market quotes; slow publications keep their own TTL. */
 export function loadValuationInputs({ force = false }: { force?: boolean } = {}): Promise<ValuationInputs> {
   if (flight) return flight;
-  if (cache && Date.now() - cache.at < (force ? 15_000 : 60_000)) return Promise.resolve(cache.data);
+  if (cache && Date.now() - cache.at < (force ? 15_000 : 3600_000)) return Promise.resolve(cache.data);
   flight = (async () => {
-    const [indices, pe, forwardYield, treasury10y, fearGreed] = await Promise.all([
+    const [indices, pe, qqqPe, forwardYield, treasury10y, fearGreed] = await Promise.all([
       boundedIndices(),
-      loadCached('pe', 6 * 3600_000, async () => datedSeries('pe', parseMultplPe(await fetchText(SOURCES.pe[1])),
-        'TTM 已报告盈利口径；月度历史，最新 PE 为最新已报告盈利与市价估计；不使用 CAPE / Shiller PE', 45)),
-      loadCached('forwardYield', 6 * 3600_000, loadForwardYield),
+      loadCached('pe', 3600_000, async () => datedSeries('pe', parseSpyPe(await fetchText(SOURCES.pe[1])), etfPeNote('SPY'), 7)),
+      loadCached('qqqPe', 3600_000, async () => {
+        const points = parseQqqPe(await fetchText(SOURCES.qqqPe[1]));
+        if (!points.length) throw new Error('QQQ_PE_UNAVAILABLE');
+        return datedSeries('qqqPe', points, etfPeNote('QQQ'), 7);
+      }),
+      loadCached('forwardYield', 3600_000, loadForwardYield),
       loadCached('treasury10y', 3600_000, async () => datedSeries('treasury10y', parseDgs10Csv(await fetchText('https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10')),
         '10 年期美国国债固定期限名义收益率，日频，单位 %；FRED H.15 发布值，非盘中实时利率', 7)),
-      loadCached('fearGreed', 5 * 60_000, async () => parseCnnFearGreed(JSON.parse(await fetchText('https://production.dataviz.cnn.io/index/fearandgreed/graphdata')))),
+      loadCached('fearGreed', 3600_000, async () => parseCnnFearGreed(JSON.parse(await fetchText('https://production.dataviz.cnn.io/index/fearandgreed/graphdata')))),
     ]);
     const data: ValuationInputs = { fetchedAt: new Date().toISOString(), series: {
       vix: indices.vix || missing('vix', 'IBKR 未返回 VIX'), spx: indices.spx || missing('spx', 'IBKR 未返回 SPX'),
-      ndx: indices.ndx || missing('ndx', 'IBKR 未返回 NDX'), pe, forwardYield, treasury10y, fearGreed,
+      ndx: indices.ndx || missing('ndx', 'IBKR 未返回 NDX'), pe, qqqPe, forwardYield, treasury10y, fearGreed,
     } };
     cache = { at: Date.now(), data }; return data;
   })().finally(() => { flight = undefined; });

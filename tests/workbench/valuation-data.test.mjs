@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cleanValuationPoints, parseMultplPe, parseDgs10Csv, parseFredCsv,
+  cleanValuationPoints, parseMultplPe, parseQqqPe, parseSpyPe, parseDgs10Csv, parseFredCsv,
   parseFactsetForwardPe, parseFactsetPdfText, parseForwardPeImport, parseCnnFearGreed, parseYahooIndex,
 } from '../../server/ibkrValuationData.ts';
 
@@ -9,6 +9,24 @@ import {
 // external requests, local market caches, or account sessions belong in tests.
 const NOW = Date.parse('2026-09-08T12:00:00Z');
 const freezeClock = context => context.mock.method(Date, 'now', () => NOW);
+
+test('SPY P/E uses its own history and rejects QQQ or an index-mismatched quote', context => {
+  freezeClock(context);
+  const html = '<p>The estimated Price-to-Earnings (P/E) Ratio for S&amp;P 500 Index is <b>24.48</b>, calculated on <b>7 September 2026</b>.</p><p>P/E Ratio is calculated on the SPY Etf, whose benchmark is the S&amp;P 500 Index.</p><script>detailPE_data = [[Date.UTC(2026, 7, 1),25.2],[Date.UTC(2026, 8, 1),24.481],];</script>';
+  assert.deepEqual(parseSpyPe(html), [{ date: '2026-08-31', value: 25.2 }, { date: '2026-09-07', value: 24.481 }]);
+  assert.deepEqual(parseQqqPe(html), []);
+  assert.deepEqual(parseSpyPe(html.replaceAll('SPY', 'QQQ')), []);
+  assert.deepEqual(parseSpyPe(html.replace('for S&amp;P 500 Index', 'for Nasdaq 100 Index')), []);
+});
+
+test('QQQ monthly P/E parsing verifies the ETF, dates and current quote without interpolating', context => {
+  freezeClock(context);
+  const html = '<p>The estimated Price-to-Earnings (P/E) Ratio for Nasdaq 100 Index is <b>28.81</b>, calculated on <b>7 September 2026</b>.</p><p>P/E Ratio is calculated on the QQQ Etf, whose benchmark is the Nasdaq 100 Index.</p><script>detailPE_data = [[Date.UTC(2026, 6, 1),31.6],[Date.UTC(2026, 7, 1),29.15],[Date.UTC(2026, 8, 1),28.8127],];detailPE_data_avg = [[Date.UTC(2026, 8, 1),100]];</script>';
+  assert.deepEqual(parseQqqPe(html), [{ date: '2026-07-31', value: 31.6 }, { date: '2026-08-31', value: 29.15 }, { date: '2026-09-07', value: 28.8127 }]);
+  for (const bad of [html.replace('QQQ Etf', 'SPY Etf'), html.replace('7 September', '9 September'), html.replace('28.81</b>', '39.81</b>'), html.replace('detailPE_data =', 'detailPE_data_avg =')]) {
+    assert.deepEqual(parseQqqPe(bad), []);
+  }
+});
 
 test('market history normalization rejects impossible dates, future rows and numeric strings', context => {
   freezeClock(context);

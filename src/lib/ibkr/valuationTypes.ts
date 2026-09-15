@@ -1,6 +1,6 @@
 export type ValuationLookback = 1 | 3 | 5 | 10;
-export type ValuationSeriesId = 'vix' | 'spx' | 'ndx' | 'pe' | 'forwardYield' | 'treasury10y' | 'fearGreed';
-export type ValuationMetricId = 'vix' | 'spx' | 'ndx' | 'pe' | 'forwardYield' | 'erp';
+export type ValuationSeriesId = 'vix' | 'spx' | 'ndx' | 'pe' | 'qqqPe' | 'forwardYield' | 'treasury10y' | 'fearGreed';
+export type ValuationMetricId = 'vix' | 'spx' | 'ndx' | 'pe' | 'qqqPe' | 'forwardYield' | 'erp';
 export type ValuationStatus = 'live' | 'delayed' | 'frozen' | 'close' | 'snapshot' | 'stale' | 'missing';
 
 export interface ValuationPoint { date: string; value: number }
@@ -15,7 +15,7 @@ export interface ValuationSeries {
 }
 export interface ValuationInputs {
   fetchedAt: string;
-  series: Record<ValuationSeriesId, ValuationSeries>;
+  series: Record<Exclude<ValuationSeriesId, 'qqqPe'>, ValuationSeries> & { qqqPe?: ValuationSeries };
 }
 export interface ValuationCoverage {
   complete: boolean;
@@ -73,6 +73,7 @@ export interface ValuationChart {
   note: string;
 }
 export interface ValuationDashboard {
+  cache?: { checkedAt: string; nextCheckAt: string; refreshing: boolean; error: string | null };
   fetchedAt: string;
   lookbackYears: ValuationLookback;
   window: { start: string; end: string };

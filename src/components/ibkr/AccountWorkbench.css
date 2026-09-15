@@ -321,6 +321,14 @@
 
 /* Keep the account workspace below the persistent global navigation. */
 .account-workbench>.awb-sidebar{top:var(--nav-height);height:calc(100dvh - var(--nav-height))}
+.awb-sidebar-inner{display:contents}
+/* Stretch the rail background with the page; only its menu stays viewport-sticky. */
+@media(min-width:601px){
+  .account-workbench>.awb-sidebar{position:relative;top:auto;height:auto;min-height:calc(100dvh - var(--nav-height));align-self:stretch;padding:0}
+  .awb-sidebar-inner{position:sticky;top:var(--nav-height);height:calc(100dvh - var(--nav-height));display:flex;flex-direction:column;padding:22px 12px}
+}
+@media(min-width:601px) and (max-width:1200px){.awb-sidebar-inner{padding:25px 11px}}
+@media(min-width:1700px){.awb-sidebar-inner{padding:24px 16px}}
 
 /* One reading font for the entire trading workspace, including SVG labels.
    Override local serif/monospace shorthands without changing size or weight. */

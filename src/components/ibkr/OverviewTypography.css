@@ -1,0 +1,76 @@
+/* Overview labels share the calm system type used by the research cards. */
+.account-workbench.awb-overview-compact > .awb-body {
+  padding-top: 8px;
+}
+.account-workbench.awb-overview-compact .awb-page-heading,
+.account-workbench.awb-overview-compact .awb-topbar {
+  display: none;
+}
+@media(max-width:600px) {
+  .account-workbench.awb-overview-compact .awb-topbar {
+    display: flex;
+    height: 32px;
+    margin-bottom: 8px;
+    border-bottom: 0;
+  }
+  .account-workbench.awb-overview-compact .awb-topbar > :not(.awb-menu) {
+    display: none;
+  }
+}
+.account-workbench.awb-overview-compact {
+  font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  --awb-text-secondary: #c7d8cf;
+  --awb-text-muted: #a2b9ab;
+}
+.account-workbench.awb-overview-compact :is(.awb-chart-tabs button,.awb-section-heading h2,.awb-section-heading h3) {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: .02em;
+  color: #d2dfd7;
+}
+.account-workbench.awb-overview-compact :is(.awb-chart-reading,.awb-chart-legend,.awb-section-heading>small,.awb-metrics small,.awb-pnl-summary-field>small,.awb-return-summary small,.awb-pnl-subtitle,.awb-pnl-chart-title,.awb-pnl-chart-title small,.awb-funds-nav>span,.awb-funds-bar-heading,.awb-sector-legend button) {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.65;
+  letter-spacing: .01em;
+}
+.account-workbench.awb-overview-compact :is(.awb-period-tabs button,.awb-return-summary>div>span,.awb-funds-bar-reading,.awb-funds-hud-footer,.awb-funds-hud-footer>small,.awb-funds-scale,.awb-pnl-axis,.awb-overview-note) {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.account-workbench.awb-overview-compact .awb-metrics article>div>span {font-size:13px;font-weight:400}
+.account-workbench.awb-overview-compact .awb-performance-redesign svg text {font-family:inherit;font-size:12px;fill:#a2b9ab}
+.account-workbench.awb-overview-compact .awb-funds-bar-heading>b {font-size:15px;line-height:1.5;font-weight:550}
+.account-workbench.awb-overview-compact .awb-funds-bar-heading>span>small {font-size:11px}
+.account-workbench.awb-overview-compact .awb-funds-hud-footer:empty {display:none}
+.account-workbench.awb-overview-compact .awb-funds-bars {gap:2px;min-height:0;justify-content:space-evenly}
+.account-workbench.awb-overview-compact .awb-funds-bar-item {padding:2px 0}
+.account-workbench.awb-overview-compact .awb-funds-scale>div {padding:8px 0}
+.account-workbench.awb-overview-compact .awb-sector-legend {gap:5px}
+.account-workbench.awb-overview-compact .awb-sector-legend button {padding:4px 2px}
+.account-workbench.awb-overview-compact .awb-allocation-panel {display:flex;flex-direction:column;min-height:0}
+.account-workbench.awb-overview-compact .awb-allocation-panel .awb-sector-legend {flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin}
+.account-workbench.awb-overview-compact .awb-performance-local-bottom {display:block;padding-top:16px;margin-top:16px}
+.account-workbench.awb-overview-compact .awb-performance-local-bottom .awb-return-summary {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;border:0;margin:0;padding:0}
+.account-workbench.awb-overview-compact .awb-performance-local-bottom .awb-inception-return {grid-column:auto;border:0;padding:0}
+.account-workbench.awb-overview-compact .awb-performance-local-bottom .awb-return-summary>div+div {border-left:1px solid #293a2f;padding-left:16px}
+.account-workbench.awb-overview-compact .awb-performance-local-bottom .awb-return-summary b {font-size:22px;font-weight:550;line-height:1.5}
+.account-workbench.awb-overview-compact .awb-holdings-summary :is(th,.awb-symbol small) {font-family:inherit;font-size:12px;line-height:1.5}
+.account-workbench.awb-overview-compact .awb-holdings-summary td {font-family:inherit;font-size:13px;line-height:1.55}
+.account-workbench.awb-overview-compact .awb-holdings-summary td small {font-size:12px}
+.account-workbench.awb-overview-compact .awb-pnl-bar-row {font-size:13px}
+@media(max-width:1499px) {
+  .account-workbench.awb-overview-compact .awb-performance-local-bottom .awb-return-summary {grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  .account-workbench.awb-overview-compact .awb-performance-local-bottom .awb-return-summary>div:nth-child(3) {border-left:0;padding-left:0}
+}
+@media(max-width:600px) {
+  .account-workbench.awb-overview-compact .awb-metrics article>div>span {font-size:12px}
+  .account-workbench.awb-overview-compact .awb-performance-local-bottom .awb-return-summary b {font-size:19px}
+  .account-workbench.awb-overview-compact .awb-performance-local-bottom .awb-return-summary>div+div {padding-left:10px}
+  .account-workbench.awb-overview-compact .awb-performance-local-bottom .awb-return-summary>div:nth-child(3) {padding-left:0}
+}

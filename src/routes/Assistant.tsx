@@ -24,8 +24,8 @@ import { useLocation } from 'react-router-dom';
 import { Strands } from '../components/Strands';
 import { ResearchHistoryItem } from '../components/ResearchHistoryItem';
 import { exportSparkFlowResearchPdf } from '../lib/exportResearchPdf';
-import { buildPortfolioAnalysisPrompt, displayAssistantPrompt, portfolioAnalysisStarterPrompt } from '../lib/ibkr/assistantPrompt';
-import type { WorkbenchState } from '../lib/ibkr/workbenchTypes';
+import { displayAssistantPrompt, portfolioAnalysisStarterPrompt } from '../lib/ibkr/assistantPrompt';
+import type { AnalysisJob } from '../lib/ibkr/workbenchTypes';
 import './Assistant.css';
 
 type AssistantRouteState = {
@@ -876,10 +876,25 @@ export function Assistant() {
 
     let preparedSessionId = '';
     try {
-      const researchPrompt = question === portfolioAnalysisStarterPrompt
-        ? buildPortfolioAnalysisPrompt(await requestJson<WorkbenchState>('/api/ibkr-workbench/state', { signal: submission.controller.signal }))
-        : question;
-      if (researchPrompt.length > 5000) throw new Error('当前持仓数据超过研究引擎的提示词长度限制，请减少持仓后重试。');
+      if (question === portfolioAnalysisStarterPrompt) {
+        // A stop during dispatch waits for the job id, then cancels that exact job.
+        submission.dispatched = true;
+        const job = await requestJson<AnalysisJob>('/api/ibkr-workbench/analyze', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+          signal: submission.controller.signal,
+        });
+        if (!job.assistantSessionId) throw new Error('账户研究尚未接入 AI 助手，请重启服务后再试。');
+        submission.sessionId = job.assistantSessionId;
+        submission.dispatched = true;
+        if (submission.stopRequested) {
+          await requestJson('/api/ibkr-workbench/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: job.id }) });
+        }
+        setPrompt('');
+        await openSession(job.assistantSessionId);
+        return;
+      }
+      const researchPrompt = question;
+      if (researchPrompt.length > 5000) throw new Error('研究问题不能超过 5000 个字符。');
       setPrompt('');
       setNotice('正在连接研究引擎');
       pendingQuestionScrollRef.current = 'smooth';

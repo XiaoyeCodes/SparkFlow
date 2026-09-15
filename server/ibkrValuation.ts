@@ -1,14 +1,15 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { link, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ValuationDashboard, ValuationInputs, ValuationLookback } from '../src/lib/ibkr/valuationTypes.ts';
 import { loadValuationInputs } from './ibkrValuationData.ts';
-import { computeValuationDashboard } from './ibkrValuationModel.ts';
+import { computeValuationDashboard, VALUATION_RULES } from './ibkrValuationModel.ts';
 import { allowedLocalRequest } from './localRequest.ts';
 
 const horizons: ValuationLookback[] = [1, 3, 5, 10];
+export const VALUATION_REFRESH_MS = 3600_000;
 interface StoredSnapshot {
   schemaVersion: 1;
   id: string;
@@ -25,6 +26,8 @@ export function createValuationService(options: {
   let latest: StoredSnapshot | null = null;
   let pending: Promise<StoredSnapshot> | null = null;
   let checkedAt = 0;
+  let restored: Promise<void> | undefined;
+  let refreshError: string | null = null;
   function isStoredSnapshot(value: unknown, expectedId: string): value is StoredSnapshot {
     if (!value || typeof value !== 'object') return false;
     const candidate = value as Partial<StoredSnapshot>;
@@ -64,23 +67,62 @@ export function createValuationService(options: {
     await Promise.all(saved.slice(48).map(row => unlink(path.join(directory, `${row.id}.json`)).catch(() => undefined)));
     return savedSnapshot;
   }
-  async function current(force = false): Promise<StoredSnapshot> {
+  async function restore() {
+    if (!restored) restored = (async () => {
+      try {
+        const pointer = JSON.parse(await readFile(path.join(directory, 'latest.json'), 'utf8'));
+        if (!/^[a-f0-9]{24}$/.test(pointer.id)) throw new Error('INVALID_POINTER');
+        latest = await readSnapshot(pointer.id);
+        checkedAt = Math.min(Date.now(), Number(pointer.checkedAt) || Date.parse(latest.fetchedAt));
+      } catch {
+        const saved = await history();
+        if (saved[0]) { latest = await readSnapshot(saved[0].id); checkedAt = Math.min(Date.now(), Date.parse(latest.fetchedAt)); }
+      }
+      // Old audits remain immutable; refresh the current display to the new metric schema.
+      if (latest && latest.windows[5].rules.version !== VALUATION_RULES.version) checkedAt = 0;
+    })();
+    return restored;
+  }
+  function refresh(force = false): Promise<StoredSnapshot> {
     if (pending) return pending;
-    if (latest && Date.now() - checkedAt < (force ? 10_000 : 55_000)) return latest;
     pending = (async () => {
       const inputs = structuredClone(await load({ force }));
+      if (latest && !Object.values(inputs.series).some(series => series && series.current !== null && !['missing', 'stale'].includes(series.status))) {
+        throw new Error('NO_FRESH_MARKET_DATA');
+      }
       const computed = Object.fromEntries(horizons.map(years => [years, computeValuationDashboard(inputs, years)])) as Record<ValuationLookback, ValuationDashboard>;
       const id = createHash('sha256').update(JSON.stringify({ inputs, rules: computed[1].rules })).digest('hex').slice(0, 24);
       const windows = Object.fromEntries(horizons.map(years => [years, { ...computed[years], snapshotId: id }])) as StoredSnapshot['windows'];
       const snapshot = await persist({ schemaVersion: 1, id, fetchedAt: inputs.fetchedAt, inputs, windows });
       checkedAt = Date.now();
       latest = snapshot;
+      refreshError = null;
+      const pointer = path.join(directory, `latest.${randomBytes(6).toString('hex')}.tmp`);
+      try {
+        await writeFile(pointer, JSON.stringify({ id: snapshot.id, checkedAt }), 'utf8');
+        await rename(pointer, path.join(directory, 'latest.json'));
+      } finally { await unlink(pointer).catch(() => undefined); }
       return snapshot;
-    })().finally(() => { pending = null; });
+    })().catch(error => {
+      refreshError = '行情更新失败，保留上次缓存';
+      if (latest) checkedAt = Date.now();
+      throw error;
+    }).finally(() => { pending = null; });
     return pending;
   }
+  async function current(force = false): Promise<StoredSnapshot> {
+    await restore();
+    if (latest) {
+      if (Date.now() - checkedAt < (force ? 10_000 : VALUATION_REFRESH_MS)) return latest;
+      if (!force) { void refresh().catch(() => undefined); return latest; }
+    }
+    return refresh(force);
+  }
   function dashboard(snapshot: StoredSnapshot, years: ValuationLookback) {
-    return structuredClone(snapshot.windows[years]);
+    return { ...structuredClone(snapshot.windows[years]), cache: {
+      checkedAt: new Date(checkedAt).toISOString(), nextCheckAt: new Date(checkedAt + VALUATION_REFRESH_MS).toISOString(),
+      refreshing: Boolean(pending), error: refreshError,
+    } };
   }
   function bundle(snapshot: StoredSnapshot) {
     return structuredClone({ id: snapshot.id, fetchedAt: snapshot.fetchedAt, windows: snapshot.windows });
@@ -107,12 +149,18 @@ export function createValuationService(options: {
       return dashboard(await current(force), years);
     },
     snapshot: async () => bundle(await current()), history, audit,
+    refresh: async () => { await restore(); return current(true); },
   };
 }
 
 export function ibkrValuationPlugin(): Plugin {
   const service = createValuationService();
-  const install = (server: { middlewares: { use: (handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => unknown } }) => {
+  const install = (server: { httpServer?: { once: (event: string, callback: () => void) => unknown } | null; middlewares: { use: (handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => unknown } }) => {
+    // The app service maintains the hourly cache even when this page is closed.
+    void service.get(5).catch(() => undefined);
+    const timer = setInterval(() => { void service.refresh().catch(() => undefined); }, VALUATION_REFRESH_MS);
+    timer.unref();
+    server.httpServer?.once('close', () => clearInterval(timer));
     server.middlewares.use((req, res, next) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (url.pathname !== '/api/ibkr-valuation' && !url.pathname.startsWith('/api/ibkr-valuation/')) return next();

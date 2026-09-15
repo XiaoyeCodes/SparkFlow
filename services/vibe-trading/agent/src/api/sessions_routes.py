@@ -42,7 +42,8 @@ class SessionResponse(BaseModel):
 
 class SendMessageRequest(BaseModel):
     """Send chat message: natural-language strategy description."""
-    content: str = Field(..., description="Natural language strategy description", min_length=1, max_length=5000)
+    content: str = Field(..., description="Natural language research prompt, including a bounded read-only portfolio snapshot", min_length=1, max_length=64000)
+    require_idle: bool = False
 
 
 class MessageResponse(BaseModel):
@@ -633,19 +634,24 @@ def register_sessions_routes(app: FastAPI) -> None:
                 session_id=session_id,
                 content=payload.content,
                 include_shell_tools=_host_shell_tools_enabled_for_request(http_request),
+                require_idle=payload.require_idle,
             )
             return result
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
+        except RuntimeError as exc:
+            if str(exc) == "ASSISTANT_SESSION_BUSY":
+                raise HTTPException(status_code=409, detail="ASSISTANT_SESSION_BUSY") from exc
+            raise
 
     @app.post("/sessions/{session_id}/cancel", dependencies=[Depends(require_auth)])
-    async def cancel_session(session_id: str):
+    async def cancel_session(session_id: str, expected_attempt_id: Optional[str] = None):
         """Cancel the in-flight agent loop for this session."""
         _host_validate_path_param(session_id, "session_id")
         svc = _host_get_session_service()
         if not svc:
             raise HTTPException(status_code=501, detail="Session runtime not enabled")
-        cancelled = svc.cancel_current(session_id)
+        cancelled = svc.cancel_current(session_id, expected_attempt_id=expected_attempt_id) if expected_attempt_id else svc.cancel_current(session_id)
         if not cancelled:
             return {"status": "no_active_loop"}
         return {"status": "cancelled"}

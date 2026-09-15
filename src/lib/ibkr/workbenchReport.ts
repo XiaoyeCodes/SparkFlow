@@ -27,6 +27,7 @@ const frameworkLabel = {
 const tableCell = (value: string) => value.replace(/\|/g, '｜').replace(/\s*\n\s*/g, ' ');
 
 export function reportMarkdown(report: AnalysisReport) {
+  if (report.content.reportFormat === 'markdown' && report.content.rawContent?.trim()) return report.content.rawContent;
   const content = editorialResearchContent(report.content);
   const digest = researchDigest(content);
   const refs = (ids?: string[]) => ids?.map(id => {
