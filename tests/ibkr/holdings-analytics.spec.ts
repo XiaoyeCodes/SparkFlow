@@ -124,3 +124,68 @@ test('holdings charts respond to range changes and export the same range', async
   const mobile = await page.locator('.ha-card').evaluateAll(cards => cards.map(card => card.getBoundingClientRect().top));
   expect(mobile[0]).toBeLessThan(mobile[1]); expect(mobile[1]).toBeLessThan(mobile[2]);
 });
+
+
+test('financed accounts render signed cash and preserve the NAV reconciliation', async ({ page }) => {
+  const data = snapshot();
+  data.metrics.netLiquidation = '1000808.03';
+  data.positions = [{ ...data.positions[0], marketValue: '1231592.48' }];
+  data.cash[0].amount = '-231897.09';
+  const model = holdingsAllocation(data);
+  expect(model.assets).toEqual([]);
+  expect(model.signedAssets.find(row => row.label === '现金余额（负债）')?.value).toBe(-231897.09);
+  expect(model.signedAssets.reduce((sum, row) => sum + row.value, 0)).toBeCloseTo(1000808.03, 2);
+  expect(model.signedAssets.find(row => row.label === '其他净额（待核对）')?.value).toBeCloseTo(1112.64, 2);
+  const state = { source: 'mcp', snapshot: data, performance: history(), connection: { state: 'connected', detail: 'fixture', tools: [], accounts: [] }, quotes: [], evidence: [], alerts: [], reports: [], jobs: [], preferences: { maxAiCalls: 12 }, ai: { configured: false, enabled: false, fields: [] } };
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: state }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/ibkr-workbench/logo?*', route => route.fulfill({ json: {} }));
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=holdings');
+  const card = page.getByRole('article', { name: '资产构成', exact: true });
+  await expect(card.getByRole('img', { name: '账户资产金额构成' })).toBeVisible();
+  await expect(card).toContainText('融资欠额');
+  await expect(card).toContainText('总持有价值');
+  await expect(card).toContainText('可融资额度');
+  expect(model.heldValue).toBeCloseTo(1231592.48, 2);
+  expect(model.financingDebt).toBeCloseTo(231897.09, 2);
+  expect(model.heldValue - model.financingDebt + model.residual).toBeCloseTo(model.total, 2);
+  await expect(card).toContainText('-231,897.09');
+  expect(model.fundingTotal).toBeCloseTo(1232705.12, 2);
+  expect(model.fundingSlices.map(row => row.label)).toEqual(['自有净值', '融资负债']);
+  await expect(card).not.toContainText('暂无可绘制数据');
+  await expect(card.getByRole('button', { name: /^现金余额/ })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: /^可融资额度/ })).toContainText('100.00');
+  await card.getByRole('button', { name: /融资欠额/ }).focus();
+  await expect(card.getByRole('img', { name: '账户资产金额构成' })).toContainText('231,897.09');
+  await expect(card.getByRole('img', { name: '账户资产金额构成' })).toContainText('融资欠额');
+  await card.screenshot({ path: 'output/ibkr/financed-assets.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(card.getByRole('img', { name: '账户资产金额构成' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('signed allocation supports zero or negative equity and still excludes incomplete data', () => {
+  for (const total of ['0', '-100']) {
+    const data = snapshot(); data.metrics.netLiquidation = total; data.cash[0].amount = String(Number(total) - 900);
+    const model = holdingsAllocation(data);
+    expect(model.signedAssets.reduce((sum, row) => sum + row.value, 0)).toBe(Number(total));
+    expect(model.signedAssets.every(row => Number.isFinite(row.value))).toBe(true);
+    data.positions[0].marketValue = null;
+    expect(holdingsAllocation(data).signedAssets).toEqual([]);
+  }
+});
+
+
+test('custom financing availability switches at negative cash without inventing missing values', () => {
+  const data = snapshot(); data.metrics.buyingPower = '3000';
+  expect(holdingsAllocation(data).financingAvailable).toBe(2000);
+  data.cash[0].amount = '0';
+  expect(holdingsAllocation(data).financingAvailable).toBe(2000);
+  data.cash[0].amount = '-0.01';
+  expect(holdingsAllocation(data).financingAvailable).toBe(3000);
+  data.metrics.buyingPower = null;
+  expect(holdingsAllocation(data).financingAvailable).toBeNull();
+  data.metrics.buyingPower = '3000'; data.cash = [];
+  expect(holdingsAllocation(data).financingAvailable).toBeNull();
+});

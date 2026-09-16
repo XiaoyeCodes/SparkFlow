@@ -38,3 +38,11 @@
 .holdings-analytics:not(.ha-print) .ha-no-history{font-size:13px}
 .holdings-analytics:not(.ha-print) .ha-no-history small,
 .holdings-analytics:not(.ha-print) .ha-empty-label{font-size:11.5px}
+
+
+.holdings-analytics .ha-amount-donut .ha-legend{gap:4px;max-height:none;overflow:visible}
+.holdings-analytics .ha-amount-donut .ha-legend button{height:auto;min-height:28px;padding:5px 2px;justify-content:space-between;gap:12px}
+.holdings-analytics .ha-amount-donut .ha-legend span{white-space:normal;flex:1}
+.holdings-analytics .ha-amount-donut .ha-legend b{white-space:nowrap}
+.holdings-analytics.ha-print .ha-donut-layout{min-height:190px}
+.holdings-analytics.ha-print .ha-amount-donut .ha-legend button{min-height:24px;padding:2px 0;font-size:11px}

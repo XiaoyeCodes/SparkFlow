@@ -9,6 +9,7 @@ import { PaperOrderReceipt } from './PaperOrderReceipt';
 import { paperFilledQuantity, paperOrderNeedsStatusCheck, paperReceiptStatus, type PaperReceipt } from '../../lib/ibkr/paperReceipt';
 import { paperPeFact } from '../../lib/ibkr/paperValuation';
 import { startQuotePolling } from '../../lib/realtimeQuotes';
+import { paperHoldingValues, paperOrderTime, paperSortNumber, sortPaperTable, type PaperTableSort } from '../../lib/ibkr/paperTableSort';
 import { getUsTradingSessionDisplay } from '../../lib/ibkr/usTradingSession';
 
 const api = '/api/ibkr-workbench/paper/';
@@ -87,6 +88,8 @@ export const sortPaperOrdersNewestFirst = (orders: PaperOrderRecord[]) => [...or
   }
   return b.intent.clientIntentId.localeCompare(a.intent.clientIntentId);
 });
+const orderColumns = [['symbol', '股票'], ['side', '方向'], ['quantity', '委托数量'], ['limitPrice', '限价 / USD'], ['execution', '订单状态'], ['filled', '成交数量'], ['averageFillPrice', '成交均价 / USD'], ['createdAt', '下单时间（北京时间）']];
+const holdingColumns = [['symbol', '股票'], ['quantity', '持仓数量'], ['currentPrice', '当前价格'], ['averageCost', '平均成本'], ['unrealizedPnl', '当前盈亏'], ['marketValue', '持仓市值']];
 const taskMessages: Record<string, string> = {
   search: '正在搜索股票…', resolve: '正在核验股票合约…', status: '正在刷新交易状态…',
   transport: '正在连接模拟盘订单服务…', preview: '正在读取账户并预览订单…',
@@ -148,7 +151,9 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
     maxQuoteAgeSeconds: '5', maxAccountAgeSeconds: '20', maxPriceDeviation: '2', feeReserve: '5',
   }));
   const selected = contracts.find(row => String(row.conId) === order.conId);
-  const orderedOrders = useMemo(() => sortPaperOrdersNewestFirst(status?.orders ?? []), [status?.orders]);
+  const [orderSort, setOrderSort] = useState<PaperTableSort>({ key: 'createdAt', direction: 'default' });
+  const [holdingSort, setHoldingSort] = useState<PaperTableSort>({ key: 'symbol', direction: 'default' });
+  const [pages, setPages] = useState({ orders: 1, holdings: 1 });
   const latestPrice = quote && String(quote.conId) === order.conId
     ? (quote.last ?? quote.close)
     : null;
@@ -161,10 +166,9 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
   const syncAgeSeconds = syncObservedAt ? Math.max(0, Math.floor((now-syncObservedAt)/1000)) : null;
   const syncDelayed = statusSync.failed || syncAgeSeconds == null || syncAgeSeconds > 8;
   const syncLabel = status?.connection !== 'connected' ? '等待连接，自动重试'
-    : statusSync.inFlight ? '正在读取 IBKR'
+    : !syncObservedAt && !statusSync.failed ? '正在同步'
     : syncDelayed ? '自动同步延迟'
-    : syncAgeSeconds <= 1 ? '刚刚已同步'
-    : `${syncAgeSeconds} 秒前已同步`;
+    : '已同步';
   const cash = snapshot.cash.find(row => row.currency === 'USD')?.amount;
   const position = snapshot.positions.find(row => row.conId === selected?.conId);
   const referencePrice = order.orderType === 'MKT' ? Number((order.side === 'BUY' ? quote?.ask : quote?.bid) ?? quote?.last ?? 0) : Number(order.limitPrice);
@@ -416,6 +420,35 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
   };
   const contractFor = (id: number) => contracts.find(r => r.conId === id) || snapshot.positions.find(r => r.conId === id);
   const nameFor = (id: number) => contractFor(id)?.symbol || '合约 ' + id;
+  const orderedOrders = useMemo(() => sortPaperTable(sortPaperOrdersNewestFirst(status?.orders ?? []), orderSort, (row, key) => {
+    switch (key) {
+      case 'symbol': return contracts.find(r => r.conId === row.intent.conId)?.symbol || snapshot.positions.find(r => r.conId === row.intent.conId)?.symbol || '合约 ' + row.intent.conId;
+      case 'side': return row.intent.side === 'BUY' ? '买入' : '卖出';
+      case 'quantity': return paperSortNumber(row.intent.quantity);
+      case 'limitPrice': return row.intent.orderType === 'MKT' ? null : paperSortNumber(row.intent.limitPrice);
+      case 'execution': return executionNames[row.execution] || submissionNames[row.submission] || '等待券商回报';
+      case 'filled': return paperSortNumber(paperFilledQuantity(row));
+      case 'averageFillPrice': return paperSortNumber(row.averageFillPrice);
+      default: return Date.parse(row.createdAt || '');
+    }
+  }), [status?.orders, orderSort, contracts, snapshot.positions]);
+  const holdingRows = useMemo(() => snapshot.positions.map(row => ({ ...row, ...paperHoldingValues(row) })), [snapshot.positions]);
+  const orderedHoldings = useMemo(() => sortPaperTable(holdingRows, holdingSort, (row, key) => {
+    if (key === 'symbol') return row.symbol;
+    return paperSortNumber(row[key as 'quantity' | 'averageCost' | 'marketValue' | 'currentPrice' | 'unrealizedPnl']);
+  }), [holdingRows, holdingSort]);
+  const activeSort = tableTab === 'orders' ? orderSort : holdingSort;
+  const totalRows = tableTab === 'orders' ? orderedOrders.length : orderedHoldings.length;
+  const pageCount = Math.max(1, Math.ceil(totalRows / 10));
+  const currentPage = Math.min(pages[tableTab], pageCount);
+  const pageStart = (currentPage - 1) * 10;
+  const changeSort = (sort: PaperTableSort) => {
+    (tableTab === 'orders' ? setOrderSort : setHoldingSort)(sort);
+    setPages(previous => ({ ...previous, [tableTab]: 1 }));
+  };
+  const sortableHeader = ([key, label]: string[]) => <th key={key} aria-sort={activeSort.key === key && activeSort.direction !== 'default' ? (activeSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+    <button className="pt-sort-heading" onClick={() => changeSort({ key, direction: activeSort.key !== key || activeSort.direction === 'default' ? 'asc' : activeSort.direction === 'asc' ? 'desc' : 'default' })}>{label}<span aria-hidden="true">{activeSort.key === key && activeSort.direction !== 'default' ? (activeSort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button>
+  </th>;
   const logoFor = (id: number) => { const contract = contractFor(id); return contract ? <HoldingLogo holding={{ ...contract, assetType: 'STK' }}/> : null; };
   const quoteNames: Record<string, string> = { reference: '参考行情 · 实时性未确认', stale: '刷新失败 · 上次报价', realtime: '实时快照', delayed: '延迟行情', frozen: '冻结行情', 'delayed-frozen': '延迟冻结行情', missing: '暂无行情' };
   const change = quote?.last && quote.close ? (Number(quote.last) / Number(quote.close) - 1) * 100 : null;
@@ -497,7 +530,7 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
           {(busy || quoteBusy) && <div className="pt-feedback-message is-pending" role="status"><RefreshCw size={16} className="pt-spin"/><span>{busy ? taskMessages[busy] || '正在处理…' : '正在刷新股票行情…'}</span></div>}
           {error && <div className="pt-feedback-message is-error" role="alert"><AlertTriangle size={16}/><span data-testid={subscriptionError ? 'paper-preview-status' : undefined}>{subscriptionError ? '预览未完成，订单尚未发送。' : error}</span><button aria-label="关闭错误" onClick={() => setError('')}><X size={15}/></button></div>}
           {notice && <div className="pt-feedback-message is-success" role="status"><Check size={16}/><span>{notice}</span><button aria-label="关闭交易提示" onClick={() => setNotice('')}><X size={15}/></button></div>}
-          {status?.syncError && <div className="pt-feedback-message is-warning" role="status"><RefreshCw size={16}/><span>{['COMMISSION_PENDING','UNRESOLVED_ORDER','EVENT_BARRIER_CHANGED','STALE_ACCOUNT_PROOF','ORDER_QUANTITY_MISMATCH'].includes(status.syncError) ? '正在等待券商补全成交与费用回报，将自动继续核对。' : errors[status.syncError] || '账户同步暂未完成，系统正在自动重试。'}</span>{status.syncError==='CASH_MISMATCH' && <button className="pt-inline-reconcile" disabled={!!busy} onClick={()=>void execute('reconcile',async()=>{await paperRequest('reconcile');await load();})}><RefreshCw size={14}/>{busy==='reconcile'?'核对中…':'立即核对'}</button>}</div>}
+          {status?.syncError && status.syncError !== 'MISSING_ACCOUNT_DATA' && <div className="pt-feedback-message is-warning" role="status"><RefreshCw size={16}/><span>{['COMMISSION_PENDING','UNRESOLVED_ORDER','EVENT_BARRIER_CHANGED','STALE_ACCOUNT_PROOF','ORDER_QUANTITY_MISMATCH'].includes(status.syncError) ? '正在等待券商补全成交与费用回报，将自动继续核对。' : errors[status.syncError] || '账户同步暂未完成，系统正在自动重试。'}</span>{status.syncError==='CASH_MISMATCH' && <button className="pt-inline-reconcile" disabled={!!busy} onClick={()=>void execute('reconcile',async()=>{await paperRequest('reconcile');await load();})}><RefreshCw size={14}/>{busy==='reconcile'?'核对中…':'立即核对'}</button>}</div>}
           {(quoteError || quote?.state === 'missing') && <div className="pt-feedback-message is-warning" role="status"><AlertTriangle size={16}/><span>{quoteError || '参考行情源暂未返回这只股票的报价，请稍后刷新。'}</span></div>}
           {online && !status?.supportedOrderTypes?.includes('MKT') && <div className="pt-feedback-message is-warning" role="status"><AlertTriangle size={16}/><span>市价单接口已更新，请点击智能连接更新本地桥接服务后使用。</span></div>}
         </div>
@@ -508,9 +541,9 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
         </div>
       </section>
     </div>
-    <section className="awb-panel pt-activity"><div className="pt-activity-header"><div role="tablist" aria-label="交易记录"><button role="tab" aria-selected={tableTab === 'orders'} onClick={() => setTableTab('orders')}>订单 <span>{status?.orders.length ?? 0}</span></button><button role="tab" aria-selected={tableTab === 'holdings'} onClick={() => setTableTab('holdings')}>持仓 <span>{snapshot.positions.length}</span></button></div><span className={`pt-auto-sync ${syncDelayed?'is-delayed':'is-live'} ${statusSync.inFlight?'is-syncing':''}`} title={syncObservedAt ? `最近成功读取：${new Date(syncObservedAt).toLocaleString('zh-CN',{hour12:false})}` : '尚未完成首次同步'}><RefreshCw size={14}/>{syncLabel}{status?.connection === 'connected' && <small>· 每 2 秒</small>}</span></div>
-      <div className="awb-table-scroll">{tableTab === 'orders' ? <table><thead><tr><th>股票</th><th>方向</th><th>委托数量</th><th>限价 / USD</th><th>订单状态</th><th>成交数量</th><th>成交均价 / USD</th><th>操作</th></tr></thead><tbody>{orderedOrders.map(row => <tr key={row.intent.clientIntentId}><td><div className="pt-stock-cell">{logoFor(row.intent.conId)}<div><b>{nameFor(row.intent.conId)}</b><small>{(row.orderId ?? row.brokerOrderId) ? '#' + (row.orderId ?? row.brokerOrderId) : '等待订单编号'}</small></div></div></td><td className={row.intent.side === 'BUY' ? 'pt-up' : 'pt-down'}>{row.intent.side === 'BUY' ? '买入' : '卖出'}</td><td>{row.intent.quantity} 股</td><td>{row.intent.orderType === 'MKT' ? '市价' : money(row.intent.limitPrice)}</td><td><span className={'pt-order-state ' + (row.execution === 'FILLED' ? 'filled' : '')}>{executionNames[row.execution] || submissionNames[row.submission] || '等待券商回报'}</span>{paperOrderNeedsStatusCheck(row) && <small>正在自动核对</small>}</td><td>{paperFilledQuantity(row)}</td><td>{money(row.averageFillPrice)}</td><td><div className="pt-order-actions"><button onClick={() => viewReceipt(row)}>查看回执</button><button disabled={!!busy || ['FILLED', 'CANCELLED', 'REJECTED'].includes(row.execution)} onClick={() => setCancelOrder(row)}>撤单</button></div></td></tr>)}</tbody></table> : <table><thead><tr><th>股票</th><th>持仓数量</th><th>平均成本</th><th>持仓市值</th><th>操作</th></tr></thead><tbody>{snapshot.positions.map(row => <tr key={row.conId}><td><div className="pt-stock-cell"><HoldingLogo holding={{ ...row, assetType: row.assetType || 'STK' }}/><div><b>{row.symbol}</b><small>{row.currency}</small></div></div></td><td>{row.quantity} 股</td><td>{money(row.averageCost)}</td><td>{money(row.marketValue)}</td><td><button onClick={() => { add({ conId: row.conId, symbol: row.symbol, currency: row.currency }); updateOrder({ side: 'SELL', quantity: String(Math.floor(Number(row.quantity))) }); }}>卖出</button></td></tr>)}</tbody></table>}
-      {!(tableTab === 'orders' ? status?.orders.length : snapshot.positions.length) && <div className="pt-empty"><ShoppingCart size={24}/><div><b>{tableTab === 'orders' ? '还没有模拟订单' : '暂无持仓'}</b><p>{tableTab === 'orders' ? '在上方选股票、填写价格与数量，预览并确认后，订单会出现在这里。' : '成交并同步后，持仓会显示在这里。'}</p></div></div>}</div><p className="pt-source-note">此处记录 SparkFlow 提交的委托，成交状态以 IBKR 回报为准。模拟资金不影响实盘账户。</p></section>
+    <section className="awb-panel pt-activity"><div className="pt-activity-header"><div role="tablist" aria-label="交易记录"><button role="tab" aria-selected={tableTab === 'orders'} onClick={() => setTableTab('orders')}>订单 <span>{status?.orders.length ?? 0}</span></button><button role="tab" aria-selected={tableTab === 'holdings'} onClick={() => setTableTab('holdings')}>持仓 <span>{snapshot.positions.length}</span></button></div><span className={`pt-auto-sync ${syncDelayed?'is-delayed':'is-live'}`} title={syncObservedAt ? `最近成功读取：${new Date(syncObservedAt).toLocaleString('zh-CN',{hour12:false})}` : '尚未完成首次同步'}><span className="pt-sync-dot" aria-hidden="true"/><span className="pt-sync-label">{syncLabel}</span>{status?.connection === 'connected' && <small>· 每 2 秒</small>}</span></div>
+      <div className="awb-table-scroll">{tableTab === 'orders' ? <table><thead><tr>{orderColumns.map(sortableHeader)}<th>操作</th></tr></thead><tbody>{orderedOrders.slice(pageStart, pageStart + 10).map(row => <tr key={row.intent.clientIntentId}><td><div className="pt-stock-cell">{logoFor(row.intent.conId)}<div><b>{nameFor(row.intent.conId)}</b><small>{(row.orderId ?? row.brokerOrderId) ? '#' + (row.orderId ?? row.brokerOrderId) : '等待订单编号'}</small></div></div></td><td className={row.intent.side === 'BUY' ? 'pt-up' : 'pt-down'}>{row.intent.side === 'BUY' ? '买入' : '卖出'}</td><td>{row.intent.quantity} 股</td><td>{row.intent.orderType === 'MKT' ? '市价' : money(row.intent.limitPrice)}</td><td><span className={'pt-order-state ' + (row.execution === 'FILLED' ? 'filled' : '')}>{executionNames[row.execution] || submissionNames[row.submission] || '等待券商回报'}</span>{paperOrderNeedsStatusCheck(row) && <small>正在自动核对</small>}</td><td>{paperFilledQuantity(row)}</td><td>{money(row.averageFillPrice)}</td><td className="pt-order-time">{paperOrderTime(row.createdAt)}</td><td><div className="pt-order-actions"><button onClick={() => viewReceipt(row)}>查看回执</button><button disabled={!!busy || ['FILLED', 'CANCELLED', 'REJECTED'].includes(row.execution)} onClick={() => setCancelOrder(row)}>撤单</button></div></td></tr>)}</tbody></table> : <table><thead><tr>{holdingColumns.map(sortableHeader)}<th>操作</th></tr></thead><tbody>{orderedHoldings.slice(pageStart, pageStart + 10).map(row => <tr key={row.conId}><td><div className="pt-stock-cell"><HoldingLogo holding={{ ...row, assetType: row.assetType || 'STK' }}/><div><b>{row.symbol}</b><small>{row.currency}</small></div></div></td><td>{row.quantity} 股</td><td title="按券商持仓市值 ÷ 持仓数量折算">{money(row.currentPrice)}</td><td>{money(row.averageCost)}</td><td className={row.unrealizedPnl == null || row.unrealizedPnl === 0 ? undefined : row.unrealizedPnl > 0 ? 'pt-up' : 'pt-down'}>{row.unrealizedPnl != null && row.unrealizedPnl > 0 ? '+' : ''}{money(row.unrealizedPnl)}</td><td>{money(row.marketValue)}</td><td><button className="pt-holding-sell" onClick={() => { add({ conId: row.conId, symbol: row.symbol, currency: row.currency }); updateOrder({ side: 'SELL', quantity: String(Math.floor(Number(row.quantity))) }); }}>卖出</button></td></tr>)}</tbody></table>}
+      {!(tableTab === 'orders' ? status?.orders.length : snapshot.positions.length) && <div className="pt-empty"><ShoppingCart size={24}/><div><b>{tableTab === 'orders' ? '还没有模拟订单' : '暂无持仓'}</b><p>{tableTab === 'orders' ? '在上方选股票、填写价格与数量，预览并确认后，订单会出现在这里。' : '成交并同步后，持仓会显示在这里。'}</p></div></div>}</div>{totalRows > 10 && <nav className="pt-pagination" aria-label={tableTab === 'orders' ? '订单分页' : '持仓分页'}><span>第 {pageStart + 1}–{Math.min(pageStart + 10, totalRows)} 条，共 {totalRows} 条</span><button disabled={currentPage === 1} onClick={() => setPages(previous => ({ ...previous, [tableTab]: currentPage - 1 }))}>上一页</button><label>第 <select aria-label="页码" value={currentPage} onChange={e => setPages(previous => ({ ...previous, [tableTab]: Number(e.target.value) }))}>{Array.from({ length: pageCount }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select> / {pageCount} 页</label><button disabled={currentPage === pageCount} onClick={() => setPages(previous => ({ ...previous, [tableTab]: currentPage + 1 }))}>下一页</button></nav>}<p className="pt-source-note">{tableTab === 'holdings' && <>价格与金额以各持仓币种计；当前价格按券商持仓市值折算，当前盈亏为未实现盈亏，优先使用券商回报，缺失时按市值减持仓成本计算。<br/></>}此处记录 SparkFlow 提交的委托，成交状态以 IBKR 回报为准。模拟资金不影响实盘账户。</p></section>
     {preview && <div className="awb-overlay pt-modal-backdrop"><section className="pt-review" role="dialog" aria-modal="true" aria-label="确认模拟订单"><div className="pt-section-title"><span>确认模拟订单</span><button aria-label="关闭订单预览" disabled={!!busy} onClick={() => setPreview(null)}><X size={18}/></button></div><span className="pt-paper-tag">IBKR 模拟账户 · {status?.account}</span><h2>{preview.side === 'BUY' ? '买入' : '卖出'} {preview.symbol}</h2><div className="pt-review-total">{preview.quantity} <small>股</small></div><dl><dt>委托价格</dt><dd>{preview.orderType === 'MKT' ? '市价成交' : money(preview.limitPrice) + ' USD'}</dd><dt>订单类型</dt><dd>{preview.orderType === 'MKT' ? '市价单' : '限价单'} · 当日有效</dd><dt>交易时段</dt><dd>{preview.tradingSession === 'OVERNIGHT' ? 'IBKR 夜盘（OVERNIGHT）' : '含盘前盘后（Outside RTH）'}</dd><dt>{preview.orderType === 'MKT' ? '预估占用（含 5% 缓冲）' : '订单金额'}</dt><dd>{money(preview.reservedNotional)} USD</dd><dt>预留现金（含费用预留）</dt><dd>{money(preview.reservedCash)} USD</dd></dl>{preview.warnings.map(w => <p className="pt-muted-message" key={w}>{w}</p>)}<p className="pt-submit-note">{previewSeconds ? '请在 ' + previewSeconds + ' 秒内确认，发送时会再次校验。' : '预览已过期，请返回重新预览。'}</p><button className="primary pt-submit" disabled={!!busy || !previewSeconds} onClick={() => void confirm()}><Check size={17}/>{busy === 'confirm' ? '发送中…' : '确认发送模拟订单'}</button><button className="pt-back" disabled={!!busy} onClick={() => setPreview(null)}>返回修改</button></section></div>}
     {receipt && <PaperOrderReceipt receipt={receipt} refreshing={receiptRefreshing} onRefresh={() => void refreshReceipt()} onClose={() => setReceipt(null)} onViewOrders={() => { setReceipt(null); setTableTab('orders'); requestAnimationFrame(() => document.querySelector('.pt-activity')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }}/>}
     {cancelOrder && <div className="awb-overlay"><section className="awb-paper-confirm" role="dialog" aria-modal="true" aria-label="撤销模拟订单"><AlertTriangle/><h2>确认撤销模拟订单？</h2><p>{nameFor(cancelOrder.intent.conId)} · {cancelOrder.intent.side === 'BUY' ? '买入' : '卖出'} {cancelOrder.intent.quantity} 股 · 限价 {cancelOrder.intent.orderType === 'MKT' ? '市价' : money(cancelOrder.intent.limitPrice)} USD</p><div><button disabled={!!busy} onClick={() => setCancelOrder(null)}>返回</button><button className="primary" disabled={!!busy} onClick={() => void cancel()}>确认撤单</button></div></section></div>}

@@ -27,8 +27,29 @@ export function holdingsAllocation(snapshot: AccountSnapshot) {
     { label: '现金余额', value: allocation.cash!, color: allocationColors[1] },
     ...(residual! > 0.01 ? [{ label: '其他净资产', value: residual!, color: allocationColors[3] }] : []),
   ].filter(slice => slice.value > 0) : [];
-  const assetNote = allocation.excluded ? `${allocation.excluded} 项持仓缺少本币市值，资产构成暂不绘制。` : residual === null ? '缺少总资产或本币现金数据，暂无法计算构成。' : !canChartAssets ? '存在空头、负余额或未对齐的账面差额，暂不绘制构成饼图。' : residual > 0.01 ? '其他净资产为净值与持仓、现金的差额，具体项目待券商明细核对。' : '按本币账面值；分项合计与净值可能有分币舍入差异。';
-  return { total, invested: allocation.excluded ? null : invested, cash: allocation.cash, gross, short, slices, assets, assetNote, excluded: allocation.excluded, currency: snapshot.baseCurrency || '—' };
+  const signedAssets: AllocationSlice[] = residual !== null && !canChartAssets ? [
+    ...(short ? [
+      { label: '多头持仓', value: allocation.rows.reduce((sum, row) => sum + Math.max(0, row.value), 0), color: allocationColors[0] },
+      { label: '空头持仓', value: allocation.rows.reduce((sum, row) => sum + Math.min(0, row.value), 0), color: allocationColors[5] },
+    ] : [{ label: '持仓市值', value: invested, color: allocationColors[0] }]),
+    { label: allocation.cash! < 0 ? '现金余额（负债）' : '现金余额', value: allocation.cash!, color: allocation.cash! < 0 ? allocationColors[5] : allocationColors[1] },
+    ...(Math.abs(residual) > 0.01 ? [{ label: '其他净额（待核对）', value: residual, color: allocationColors[3] }] : []),
+  ] : [];
+  const fundingSlices: AllocationSlice[] = signedAssets.length ? (total! >= 0 ? [
+    { label: '自有净值', value: total!, color: allocationColors[0] },
+    ...signedAssets.filter(row => row.value < 0).map(row => ({ ...row, value: -row.value, label: row.label === '现金余额（负债）' ? '融资负债' : row.label })),
+  ] : [
+    { label: '正资产', value: signedAssets.reduce((sum, row) => sum + Math.max(0, row.value), 0), color: allocationColors[0] },
+    { label: '净资产缺口', value: -total!, color: allocationColors[5] },
+  ]).filter(row => row.value > 0) : [];
+  const fundingTotal = fundingSlices.reduce((sum, row) => sum + row.value, 0);
+  const assetNote = allocation.excluded ? `${allocation.excluded} 项持仓缺少本币市值，资产构成暂不绘制。` : residual === null ? '缺少总资产或本币现金数据，暂无法计算构成。' : !canChartAssets ? total! < 0 ? '圆环展示负债覆盖：正资产与净资产缺口；比例以负债总额为基数。现金余额保留实际正负值。' : '圆环展示资金来源：自有净值与负债；比例以两者合计为基数。负现金作为融资负债展示，余额保留负号。' : residual > 0.01 ? '其他净资产为净值与持仓、现金的差额，具体项目待券商明细核对。' : '按本币账面值；分项合计与净值可能有分币舍入差异。';
+  const financingDebt = allocation.cash === null ? null : Math.max(0, -allocation.cash);
+  const buyingPower = finite(snapshot.metrics.buyingPower);
+  const financingAvailable = buyingPower === null || financingDebt === null ? null : financingDebt > 0 ? buyingPower : total === null ? null : buyingPower - total;
+  const heldValue = allocation.excluded || allocation.cash === null ? null : allocation.rows.reduce((sum, row) => sum + Math.max(0, row.value), 0) + Math.max(0, allocation.cash);
+  const amountSlices = (signedAssets.length ? signedAssets : assets).filter(row => row.value > 0 && !row.label.startsWith('其他'));
+  return { financingDebt, heldValue, amountSlices, residual, buyingPower, financingAvailable, total, invested: allocation.excluded ? null : invested, cash: allocation.cash, gross, short, slices, assets, signedAssets, fundingSlices, fundingTotal, assetNote, excluded: allocation.excluded, currency: snapshot.baseCurrency || '—' };
 }
 
 export function holdingsReturnSeries(performance: PortfolioPerformance | undefined, range: HoldingsRange) {
