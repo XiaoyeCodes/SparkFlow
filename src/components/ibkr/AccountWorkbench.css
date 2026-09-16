@@ -332,5 +332,91 @@
 
 /* One reading font for the entire trading workspace, including SVG labels.
    Override local serif/monospace shorthands without changing size or weight. */
-.account-workbench{--awb-font-body:Inter,"Microsoft YaHei",system-ui,sans-serif}
+.account-workbench{--awb-font-body:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif}
 .account-workbench,.account-workbench *{font-family:var(--awb-font-body)!important}
+
+/* Holdings view: preserve the dense workstation layout while making every
+   label, value and company description readable on high-density displays. */
+.awb-sidebar nav button{
+  font-size:14.5px;
+  font-weight:560;
+  line-height:1.4;
+  letter-spacing:.01em;
+}
+.awb-sidebar nav button[aria-current=page]{font-weight:650;color:#e1f2e9}
+.awb-terminal-link{font-size:12.5px;font-weight:520}
+.awb-holdings:not(.awb-holdings-summary) .awb-section-heading{margin-bottom:14px}
+.awb-holdings:not(.awb-holdings-summary) .awb-section-heading h2{
+  color:#e7f0eb;
+  font-size:18px;
+  font-weight:680;
+  letter-spacing:-.01em;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-section-heading h2 small{
+  font-size:11px;
+  font-weight:650;
+  line-height:1.5;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-section-heading input{
+  min-height:40px;
+  font-size:13px;
+  font-weight:500;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-table-scroll th{
+  padding:10px 12px;
+  color:#afc4b8;
+  font-size:12px;
+  font-weight:620;
+  line-height:1.45;
+  letter-spacing:.015em;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-table-scroll td{
+  padding:12px;
+  color:#dbe7e0;
+  font-size:13.5px;
+  font-weight:570;
+  line-height:1.45;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-table-scroll td small{
+  margin-top:4px;
+  color:#9fb5a8;
+  font-size:11.5px;
+  font-weight:480;
+  line-height:1.45;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-symbol{gap:12px!important}
+.awb-holdings:not(.awb-holdings-summary) .awb-symbol>span:last-child{max-width:240px}
+.awb-holdings:not(.awb-holdings-summary) .awb-symbol b{
+  color:#edf4f0;
+  font-size:14.5px;
+  font-weight:700;
+  line-height:1.35;
+  letter-spacing:.005em;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-symbol small{
+  max-width:230px;
+  color:#a9bdb2;
+  font-size:11.5px;
+  font-weight:480;
+  line-height:1.45;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-company-icon{
+  width:34px;
+  height:34px;
+  flex:0 0 34px;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-weight{height:4px;margin-top:7px}
+.awb-secondary-metrics{
+  color:#b6c9be;
+  font-size:13px;
+  line-height:1.55;
+}
+.awb-secondary-metrics b{font-size:13.5px;font-weight:650}
+@media(max-width:1200px){
+  .awb-holdings:not(.awb-holdings-summary) .awb-symbol>span:last-child{max-width:170px}
+  .awb-holdings:not(.awb-holdings-summary) .awb-symbol small{max-width:160px}
+}
+@media(max-width:600px){
+  .awb-holdings:not(.awb-holdings-summary) .awb-table-scroll th{font-size:11.5px}
+  .awb-holdings:not(.awb-holdings-summary) .awb-table-scroll td{font-size:13px}
+}
