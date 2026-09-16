@@ -81,6 +81,22 @@ for (const accountState of ['pending', 'failed'] as const) {
   });
 }
 
+test('embedded valuation uses the outer SparkFlow page scrollbar', async ({ page }) => {
+  await page.setViewportSize({ width: 451, height: 873 });
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ status: 503, json: { error: 'Synthetic account service failure' } }));
+  await page.route(apiRoute, route => route.fulfill({ json: fixture() }));
+  await page.goto(`${origin}/ibkr?tab=valuation`);
+  const iframe = page.locator('iframe[title="大盘估值分位监控"]');
+  const frame = page.frameLocator('iframe[title="大盘估值分位监控"]');
+  await expect(frame.getByTestId('metric-vix')).toBeVisible();
+  await expect.poll(() => iframe.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(1_200);
+  const outer = await page.evaluate(() => ({ viewport: innerHeight, content: document.documentElement.scrollHeight }));
+  const inner = await frame.locator('body').evaluate(() => ({ viewport: innerHeight, content: document.documentElement.scrollHeight, overflow: getComputedStyle(document.documentElement).overflowY }));
+  expect(outer.content).toBeGreaterThan(outer.viewport);
+  expect(Math.abs(inner.content - inner.viewport)).toBeLessThanOrEqual(1);
+  expect(inner.overflow).toBe('hidden');
+});
+
 test('an unavailable first response never produces a fabricated score or chart', async ({ page }) => {
   await page.route(apiRoute, route => route.fulfill({ status: 503, json: { error: 'Synthetic market source failure' } }));
   await page.goto(artifact);
@@ -110,11 +126,40 @@ test('changing horizons refreshes the score, metrics and trend as one coherent s
     await expect(page.locator('#chart-title')).toContainText(`${years} 年`);
     for (const metric of expected.metrics.filter(m => m.id !== 'forwardYield')) {
       await expect(page.getByTestId(`metric-${metric.id}`)).toBeVisible();
-      await expect(page.getByTestId(`metric-${metric.id}`).getByRole('meter')).toHaveAttribute('aria-valuenow', String(metric.percentile));
+      const position = metric.id === 'vix' ? Math.max(0, Math.min(100, metric.current! / 40 * 100))
+        : metric.id === 'erp' ? Math.max(0, Math.min(100, metric.current! / 6 * 100)) : metric.percentile;
+      await expect(page.getByTestId(`metric-${metric.id}`).getByRole('meter')).toHaveAttribute('aria-valuenow', String(position));
+      await expect(page.getByTestId(`metric-state-${metric.id}`)).not.toContainText('等待数据');
     }
     await expect(page.getByTestId('chart').locator('path')).toHaveCount(2);
   }
   expect(requested).toEqual([5, 1, 3, 10]);
+});
+
+test('metric cards explain their thresholds and expose the current state', async ({ page }) => {
+  await page.route(apiRoute, route => route.fulfill({ json: fixture() }));
+  await page.goto(artifact);
+  await expect(page.locator('.metric-state')).toHaveCount(6);
+  await expect(page.locator('.metric .threshold')).toHaveCount(12);
+  await expect(page.getByTestId('metric-vix')).toContainText(/平静|适中|恐惧/);
+  await expect(page.getByTestId('metric-spx')).toContainText(/相对低估|合理区间|相对高估/);
+  await expect(page.getByTestId('metric-erp')).toContainText(/相对低估|合理区间|相对高估/);
+  await expect(page.locator('.metric-scale-labels')).toHaveCount(6);
+  const scaleSizing = await page.locator('.metric .scale').first().evaluate(element => ({
+    bar: Number.parseFloat(getComputedStyle(element).height),
+    tick: Number.parseFloat(getComputedStyle(element.querySelector('.threshold')!).height),
+    marker: Number.parseFloat(getComputedStyle(element.querySelector('.marker')!).width),
+    label: Number.parseFloat(getComputedStyle(element.nextElementSibling!).fontSize),
+  }));
+  expect(scaleSizing).toEqual({ bar: 8, tick: 20, marker: 13, label: 10.5 });
+  await page.getByRole('button', { name: '指标使用说明', exact: true }).click();
+  const guide = page.getByRole('dialog', { name: '大盘估值监控使用说明' });
+  await expect(guide).toBeVisible();
+  await expect(guide).toContainText('各指标怎样判断');
+  await expect(guide).toContainText('为什么市盈率不用固定倍数');
+  await expect(guide.getByRole('link', { name: /Cboe VIX/ })).toHaveAttribute('href', /cboe\.com/);
+  await page.getByRole('button', { name: '关闭使用说明' }).click();
+  await expect(guide).not.toBeVisible();
 });
 
 test('a missing required component leaves the total blank and names the uncovered weight', async ({ page }) => {

@@ -1,0 +1,29 @@
+{
+  "created_at": "2026-09-16T08:56:55.533597+00:00",
+  "valuation_snapshot_fetched_at": "2026-09-16T08:45:01.029Z",
+  "pe": {
+    "rows": 266,
+    "first": "2015-09-30",
+    "last": "2026-09-15",
+    "sha256": "d5408d328feb955fd73e8d2d0c11190ae2002b49aedf2070ac9076b1aa84367a",
+    "sources": [
+      "World PE Ratio · QQQ ETF 市盈率",
+      "World PE Ratio · SPY ETF 市盈率"
+    ],
+    "source_urls": [
+      "https://worldperatio.com/index/nasdaq-100/",
+      "https://worldperatio.com/index/sp-500/"
+    ]
+  },
+  "prices": {
+    "rows": 2782,
+    "first": "2015-08-21",
+    "last": "2026-09-15",
+    "sha256": "cc9af19516fb49dc97938ae51abfa8dd06c5b70960cb41fe3509bbdabd641a5d",
+    "source": "Yahoo Finance via yfinance; adjusted close includes splits and cash distributions",
+    "source_urls": [
+      "https://finance.yahoo.com/quote/SPY/history/",
+      "https://finance.yahoo.com/quote/QQQ/history/"
+    ]
+  }
+}
