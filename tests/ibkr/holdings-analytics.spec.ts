@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { emptySnapshot } from '../../src/lib/ibkr/store';
 import type { AccountSnapshot, PortfolioPerformance } from '../../src/lib/ibkr/workbenchTypes';
-import { holdingsAllocation, holdingsReturnSeries, returnGeometry } from '../../src/lib/ibkr/holdingsAnalytics';
+import { donutArcPath, holdingsAllocation, holdingsReturnSeries, returnGeometry } from '../../src/lib/ibkr/holdingsAnalytics';
 
 const snapshot = (): AccountSnapshot => ({ ...emptySnapshot('live'), snapshotId: 'charts-test', accountKey: 'live:charts-test', connection: 'connected', state: 'ready', baseCurrency: 'USD', asOf: '2026-09-08T05:00:00Z', metrics: { netLiquidation: '1000', unrealizedPnl: '20', buyingPower: '100', maintenanceMargin: '0' }, cash: [{ currency: 'USD', amount: '100' }], positions: [{ accountKey: 'live:charts-test', conId: 1, symbol: 'AAPL', currency: 'USD', quantity: '3', averageCost: '190', marketValue: '600' }, { accountKey: 'live:charts-test', conId: 2, symbol: 'MSFT', currency: 'USD', quantity: '1', averageCost: '280', marketValue: '300' }] });
 const history = (): PortfolioPerformance => ({ source: 'IBKR PortfolioAnalyst', fetchedAt: '2026-09-08T05:00:00Z', currency: 'USD', returnMethod: 'TWR', benchmark: 'none', note: '', points: [{ date: '2026-07-01', nav: 100, cumulativeReturn: 0 }, { date: '2026-08-11', nav: 1100, cumulativeReturn: .1 }, { date: '2026-09-08', nav: 1200, cumulativeReturn: .2 }] });
@@ -188,4 +188,12 @@ test('custom financing availability switches at negative cash without inventing 
   expect(holdingsAllocation(data).financingAvailable).toBeNull();
   data.metrics.buyingPower = '3000'; data.cash = [];
   expect(holdingsAllocation(data).financingAvailable).toBeNull();
+});
+
+
+test('donut arcs close once without wrapped dash fragments', () => {
+  expect(donutArcPath(0, 1, 76).match(/ A/g)).toHaveLength(2);
+  expect(donutArcPath(.9, .1, 76).match(/ A/g)).toHaveLength(1);
+  expect(donutArcPath(.9, .1000000000001, 76)).toBe(donutArcPath(.9, .1, 76));
+  expect(donutArcPath(1, 0, 76)).toBe('');
 });

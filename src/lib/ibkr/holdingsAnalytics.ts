@@ -8,6 +8,15 @@ export type HoldingsRange = 30 | 90 | 0;
 export const chartMoney = (value: number | null) => value === null ? '—' : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const chartPercent = (value: number | null) => value === null ? '—' : `${value > 0 ? '+' : ''}${(value * 100).toFixed(2)}%`;
 
+// Explicit arcs avoid repeated dash fragments at the circle's closing seam.
+export function donutArcPath(start: number, fraction: number, radius: number) {
+  const length = Math.min(Math.max(fraction, 0), Math.max(0, 1 - start));
+  if (!Number.isFinite(start + length + radius) || length <= 0) return '';
+  const point = (turn: number) => `${100 + radius * Math.cos(turn * Math.PI * 2 - Math.PI / 2)},${100 + radius * Math.sin(turn * Math.PI * 2 - Math.PI / 2)}`;
+  if (length >= 1 - 1e-12) return `M${point(0)} A${radius},${radius} 0 1 1 ${point(.5)} A${radius},${radius} 0 1 1 ${point(1)}`;
+  return `M${point(start)} A${radius},${radius} 0 ${length > .5 ? 1 : 0} 1 ${point(start + length)}`;
+}
+
 export function holdingsAllocation(snapshot: AccountSnapshot) {
   const allocation = overviewAllocation(snapshot);
   const total = finite(snapshot.metrics.netLiquidation);
