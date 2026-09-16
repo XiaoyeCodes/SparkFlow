@@ -16,6 +16,11 @@ export function getUsTradingSessionDisplay(now: Date | number) {
     : undefined;
   return {
     state: status.state,
+    tone: status.tone,
+    label: status.label,
+    detail: status.detail,
+    nextLabel: status.nextLabel,
+    localTime: status.localTime,
     title: active
       ? `当前：${active.label} · ${active.hours} 美东`
       : `当前：${status.label} · ${status.detail}`,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Activity, AlertTriangle, ArrowUpRight, BarChart3, Check, ChevronDown, CircleDollarSign, Clock3, History, Minus, Plus, RefreshCw, Scale, Search, ShieldCheck, ShoppingCart, SlidersHorizontal, Sunrise, TrendingDown, TrendingUp, X } from 'lucide-react';
 import type { PaperContract, PaperSearchCandidate, PaperOrderPreview, PaperOrderRecord, PaperQuote, PaperRiskLimits, PaperStatus, WorkbenchState, TicketDataSource } from '../../lib/ibkr/workbenchTypes';
 import './PaperTradingWorkspace.css';
@@ -98,6 +98,25 @@ const completedMessages: Record<string, string> = {
 const limitFields = [
   ['feeReserve', '手续费预留', 'USD'],
   ['maxQuoteAgeSeconds', '行情最大年龄', '秒'], ['maxAccountAgeSeconds', '账户快照最大年龄', '秒'],
+] as const;
+
+const easternClock = (value: number) => {
+  const date = new Date(value);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23', timeZoneName: 'short',
+  }).formatToParts(date).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  return {
+    hour: parts.hour || '00', minute: parts.minute || '00', second: parts.second || '00', zone: parts.timeZoneName || 'ET',
+    date: new Intl.DateTimeFormat('zh-CN', { timeZone: 'America/New_York', year: 'numeric', month: 'long', day: '2-digit', weekday: 'long' }).format(date),
+  };
+};
+
+const paperSessionPhases = [
+  { key: 'overnight', label: '夜盘', hours: '20:00–04:00' },
+  { key: 'preopen', label: '盘前', hours: '04:00–09:30' },
+  { key: 'trading', label: '常规', hours: '09:30–16:00' },
+  { key: 'after-hours', label: '盘后', hours: '16:00–20:00' },
 ] as const;
 
 export function PaperTradingWorkspace({ state, openSettings }: { state: WorkbenchState; openSettings: () => void }) {
@@ -362,6 +381,14 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
   const outsideRegularHours = quote?.regularHours === false;
   const previewSeconds = preview ? Math.max(0, Math.ceil((Date.parse(preview.expiresAt) - now) / 1000)) : 0;
   const currentTradingSession = useMemo(() => getUsTradingSessionDisplay(now), [now]);
+  const clock = useMemo(() => easternClock(now), [now]);
+  const clockClosed = currentTradingSession.state === 'closed' || currentTradingSession.state === 'holiday';
+  const clockProgress = useMemo(() => {
+    const [hour = 0, minute = 0, second = 0] = currentTradingSession.localTime.split(':').map(Number);
+    const easternMinutes = hour * 60 + minute + second / 60;
+    return ((easternMinutes - 20 * 60 + 24 * 60) % (24 * 60)) / (24 * 60) * 100;
+  }, [currentTradingSession.localTime]);
+  const clockBadge = clockClosed ? `${clock.zone} · CLOSED` : currentTradingSession.state === 'halted' ? `${clock.zone} · HALTED` : `${clock.zone} · LIVE`;
   if (!paperSelected) return <section className="awb-panel awb-paper-blocked"><ShoppingCart/><h2>连接模拟账户，开始练习交易</h2><p>请在连接设置中选择 IB Gateway 模拟盘。</p><button className="primary" onClick={openSettings}>前往连接设置</button></section>;
 
   return <div className="awb-paper-workspace pt-workspace">
@@ -395,7 +422,21 @@ export function PaperTradingWorkspace({ state, openSettings }: { state: Workbenc
           return <article className="pt-market-fact" data-kind={kind} key={field} title={pe?.title} aria-label={`${factLabel} ${display}`}><div><span aria-hidden="true"><Icon size={15}/></span><small>{factLabel}</small></div><b>{display}</b></article>;
         })}</div>
         <TicketPriceChart contract={selected} dataSource={dataSource}/>
-        <div className="pt-session"><Clock3 size={18}/><div><strong data-testid="paper-current-trading-session">{currentTradingSession.title}</strong><p>{currentTradingSession.schedule}</p></div></div>
+        <section className={`pt-eastern-clock is-${currentTradingSession.state}`} aria-label={`纽约时间 ${clock.hour}:${clock.minute}:${clock.second}，${currentTradingSession.title}`}>
+          <div className="pt-clock-grid" aria-hidden="true"/>
+          <header className="pt-clock-header"><span><Clock3 size={16}/>NEW YORK MARKET TIME</span><b><i/>{clockBadge}</b></header>
+          <div className="pt-clock-main">
+            <time dateTime={new Date(now).toISOString()}><strong>{clock.hour}<em>:</em>{clock.minute}</strong><span>{clock.second}</span></time>
+            <div className="pt-clock-session"><small>CURRENT SESSION</small><strong data-testid="paper-current-trading-session">{currentTradingSession.label}</strong><p>{currentTradingSession.detail}</p></div>
+          </div>
+          <div className={`pt-clock-rail${clockClosed ? ' is-market-closed' : ''}`} style={{ '--pt-clock-progress': `${clockProgress}%` } as CSSProperties} aria-label={clockClosed ? `${currentTradingSession.label}，${currentTradingSession.detail}` : `美股交易日进度 ${clockProgress.toFixed(1)}%`}>
+            {clockClosed ? <div className="pt-clock-closure"><span>MARKET CLOSED</span><b>{currentTradingSession.label}</b><small>{currentTradingSession.detail} · {currentTradingSession.nextLabel}</small></div> : <>
+              <span className="pt-clock-progress" aria-hidden="true"><i/></span>
+              {paperSessionPhases.map(phase => <div key={phase.key} className={currentTradingSession.state === phase.key ? 'is-active' : ''}><span><b>{phase.label}</b><small>{phase.hours}</small></span></div>)}
+            </>}
+          </div>
+          <footer><span>{clock.date} · 美国纽约</span><span>下一节点 <b>{currentTradingSession.nextLabel}</b></span></footer>
+        </section>
       </section>
       <section className={'awb-panel pt-ticket ' + (order.side === 'SELL' ? 'is-sell' : '')}>
         <div className="pt-ticket-heatmap">
