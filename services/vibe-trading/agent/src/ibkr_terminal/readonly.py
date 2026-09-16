@@ -112,16 +112,34 @@ class ReadonlyConnection:
         version = self._position_version
         try:
             # Fresh response collections, not positions()/openTrades() caches. Never bind orders.
+            completed_read = (self._ib.reqCompletedOrdersAsync(True) if hasattr(self._ib, 'reqCompletedOrdersAsync')
+                else asyncio.sleep(0, result=[]))
             results = await asyncio.gather(
                 asyncio.wait_for(self._ib.reqPositionsAsync(), timeout=8),
                 asyncio.wait_for(self._ib.reqAllOpenOrdersAsync(), timeout=8),
                 asyncio.wait_for(self._ib.reqExecutionsAsync(ExecutionFilter(acctCode=self.binding.brokerAccount)), timeout=8),
+                asyncio.wait_for(completed_read, timeout=8),
                 return_exceptions=True)
             for result in results:
                 if isinstance(result, BaseException):
                     raise result
-            positions, trades, fills = results
-            orders = tuple(order_view(row, self.binding.accountKey) for row in trades if _obj_get(_obj_get(row, 'order'), 'account') == self.binding.brokerAccount)
+            positions, trades, fills, completed = results
+            observer = getattr(getattr(self._ib, 'wrapper', None), 'managed_observer', None)
+            if observer is not None:
+                for trade in completed:
+                    if _obj_get(_obj_get(trade, 'order'), 'account') == self.binding.brokerAccount:
+                        observer.completed_order(_obj_get(trade, 'contract'), _obj_get(trade, 'order'),
+                            _obj_get(trade, 'orderStatus'))
+            orders_by_identity = {}
+            for trade in (*trades, *completed):
+                if _obj_get(_obj_get(trade, 'order'), 'account') != self.binding.brokerAccount:
+                    continue
+                mapped = order_view(trade, self.binding.accountKey)
+                key = ('perm', mapped.permId) if mapped.permId else ('order', mapped.clientId, mapped.orderId)
+                current = orders_by_identity.get(key)
+                if current is None or mapped.execution in ('FILLED','CANCELLED','INACTIVE','REJECTED'):
+                    orders_by_identity[key] = mapped
+            orders = tuple(orders_by_identity.values())
             executions = {}
             for fill in fills:
                 if _obj_get(_obj_get(fill, 'execution'), 'acctNumber') != self.binding.brokerAccount:

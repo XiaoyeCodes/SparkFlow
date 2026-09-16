@@ -50,6 +50,73 @@ def test_status_automatically_reconciles_filled_order_and_retries_late_commissio
             assert len(final['orders'])==1
 
 
+def test_status_keeps_polling_a_resting_order_after_initial_proof_is_clean(tmp_path,api_event_loop):
+    import time
+    from test_orders import NOW,ledger
+    from test_order_events import setup,event
+    from test_paper_account import connection
+    from src.ibkr_terminal.paper_account import PaperAccountReconciliation
+    with SnapshotStore(tmp_path/'snapshot',allow_fixtures=True) as store,ledger(tmp_path/'orders') as orders:
+        rec=setup(orders)
+        rec.apply(event('open',status='OPEN',filled='0',remaining='6'))
+        orders.clock=lambda:NOW+timedelta(seconds=2)
+        app=create_app(store=store,session_token='test',paper_ledger=orders,clock=orders.clock)
+        source=connection(rec,cash='1000',quantity='0')
+        source.binding.readonly=False
+        snapshot=source.session.snapshot();snapshot.connection='connected';snapshot.detail='';snapshot.snapshotId='fresh-open'
+        scope=SimpleNamespace(sessionRevision=1,expiresAt=NOW+timedelta(hours=1))
+        account=PaperAccountReconciliation(source,rec,clock=orders.clock)
+        calls=[]
+        async def run():
+            calls.append(True)
+            return await account.run()
+        app.state.market_sources['paper']=source
+        app.state.paper_flow=SimpleNamespace(enabled=True,source=SimpleNamespace(connection=source,scope=scope),
+            account_reconciliation=SimpleNamespace(run=run))
+        with TestClient(app,base_url='http://127.0.0.1:8765',backend_options={'loop_factory':lambda:api_event_loop}) as client:
+            headers={'Authorization':'Bearer test'}
+            first=client.get('/api/ibkr-terminal/paper/status',headers=headers).json()
+            assert first['orders'][0]['execution']=='OPEN' and not first['orders'][0]['reconciliationRequired']
+            client.get('/api/ibkr-terminal/paper/status',headers=headers)
+            assert len(calls)==1
+            time.sleep(2.05)
+            client.get('/api/ibkr-terminal/paper/status',headers=headers)
+            assert len(calls)==2
+
+
+def test_cash_mismatch_does_not_slow_active_order_status_polling(tmp_path,api_event_loop):
+    import time
+    from test_orders import NOW,ledger
+    from test_order_events import setup,event
+    from test_paper_account import connection
+    from src.ibkr_terminal.risk import RiskDenied
+    with SnapshotStore(tmp_path/'snapshot',allow_fixtures=True) as store,ledger(tmp_path/'orders') as orders:
+        rec=setup(orders)
+        rec.apply(event('open',status='OPEN',filled='0',remaining='6'))
+        orders.clock=lambda:NOW+timedelta(seconds=2)
+        app=create_app(store=store,session_token='test',paper_ledger=orders,clock=orders.clock)
+        source=connection(rec,cash='1000',quantity='0')
+        source.binding.readonly=False
+        snapshot=source.session.snapshot();snapshot.connection='connected';snapshot.detail='';snapshot.snapshotId='fresh-open'
+        scope=SimpleNamespace(sessionRevision=1,expiresAt=NOW+timedelta(hours=1))
+        calls=[]
+        async def run():
+            calls.append(True)
+            raise RiskDenied('CASH_MISMATCH')
+        app.state.market_sources['paper']=source
+        app.state.paper_flow=SimpleNamespace(enabled=True,source=SimpleNamespace(connection=source,scope=scope),
+            account_reconciliation=SimpleNamespace(run=run))
+        with TestClient(app,base_url='http://127.0.0.1:8765',backend_options={'loop_factory':lambda:api_event_loop}) as client:
+            headers={'Authorization':'Bearer test'}
+            first=client.get('/api/ibkr-terminal/paper/status',headers=headers).json()
+            assert first['syncError']=='CASH_MISMATCH' and len(calls)==1
+            client.get('/api/ibkr-terminal/paper/status',headers=headers)
+            assert len(calls)==1
+            time.sleep(2.05)
+            client.get('/api/ibkr-terminal/paper/status',headers=headers)
+            assert len(calls)==2
+
+
 def test_status_recovers_legacy_false_halt_without_active_trading_policy(tmp_path,api_event_loop):
     from test_orders import NOW,ledger
     from test_order_events import setup,event,fill,fee
@@ -158,3 +225,24 @@ def test_paper_policy_rejects_a_readonly_gateway_binding(tmp_path,api_event_loop
             assert response.status_code==409 and response.json()['detail']=='PAPER_GATEWAY_READONLY'
             session=client.get('/api/ibkr-terminal/session',headers={'Authorization':'Bearer test'}).json()
             assert session['paperOrdersAvailable'] is False and session['paperOrdersEnabled'] is False
+
+
+def test_contract_lookup_is_cached_within_gateway_session(tmp_path,api_event_loop):
+    with SnapshotStore(tmp_path/'snapshot') as store,OrderLedger(tmp_path/'orders') as orders:
+        app=create_app(store=store,session_token='test',paper_ledger=orders)
+        binding=AccountBinding(mode='paper',accountKey='paper:engineering',brokerAccount='DU-TEST',confirmed=True,readonly=False)
+        session=app.state.sessions['paper'];session.bind(binding)
+        calls=[]
+        async def details(contract):
+            calls.append(contract.symbol)
+            return [SimpleNamespace(contract=SimpleNamespace(conId=43645865,symbol='AVGO',currency='USD',
+                primaryExchange='NASDAQ',secType='STK'),longName='Broadcom Inc.')]
+        source=SimpleNamespace(binding=binding,session=session,healthy=lambda:True,_fixture=False,
+            _ib=SimpleNamespace(reqContractDetailsAsync=details))
+        app.state.market_sources['paper']=source
+        with TestClient(app,base_url='http://127.0.0.1:8765',backend_options={'loop_factory':lambda:api_event_loop}) as client:
+            headers={'Authorization':'Bearer test'}
+            first=client.get('/api/ibkr-terminal/paper/contract?symbol=AVGO',headers=headers)
+            second=client.get('/api/ibkr-terminal/paper/contract?symbol=AVGO',headers=headers)
+            assert first.status_code==200 and second.json()==first.json()
+            assert first.json()[0]['conId']==43645865 and calls==['AVGO']

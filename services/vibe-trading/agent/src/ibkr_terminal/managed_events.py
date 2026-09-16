@@ -152,6 +152,29 @@ class ManagedOrderObserver:
             return self.rec.apply(self._event(row, 'sdk:status:' + uuid4().hex, 'status',
                 status=state, filled=filled, remaining=remaining))
 
+    def completed_order(self, contract, order, order_state):
+        """Recover a terminal status that was missed while the bridge was offline.
+
+        completedOrder is authoritative for terminal state and full order body,
+        but it carries no execution price or commission.  Keep those fields and
+        reservation release dependent on execDetails/account proof.
+        """
+        with self.rec.ledger._lock:
+            row = self.open_order(order.orderId, contract, order, order_state)
+            if row is None:
+                return None
+            state = STATUSES.get(order_state.status)
+            if state not in ('FILLED', 'CANCELLED', 'INACTIVE'):
+                return row
+            quantity = Decimal(amount(order.totalQuantity))
+            filled = quantity if state == 'FILLED' else Decimal(row.filledQuantity)
+            remaining = Decimal(0) if state in ('FILLED', 'CANCELLED') else max(Decimal(0), quantity-filled)
+            if (row.execution == state and row.brokerFilled is not None and row.brokerRemaining is not None
+                and Decimal(row.brokerFilled) == filled and Decimal(row.brokerRemaining) == remaining):
+                return row
+            return self.rec.apply(self._event(row, 'sdk:completed:' + uuid4().hex, 'status',
+                status=state, filled=format(filled, 'f'), remaining=format(remaining, 'f')))
+
     def _predecessor(self, exec_id):
         history = self.rec._executions(include_superseded=True)
         existing = next((event for event in history if event.execId == exec_id), None)

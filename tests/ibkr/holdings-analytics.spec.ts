@@ -35,12 +35,12 @@ test('short positions and negative cash are not normalized into an asset pie', (
   expect(holdingsAllocation(data).assets).toEqual([]);
 });
 
-test('large portfolios keep all value while limiting printable legend rows', () => {
+test('large portfolios keep all value while fitting the legend without scrolling', () => {
   const data = snapshot(); data.positions = Array.from({ length: 40 }, (_, index) => ({ ...data.positions[0], conId: index, symbol: `STOCK${index}`, marketValue: String(index + 1) }));
   const model = holdingsAllocation(data);
-  expect(model.slices).toHaveLength(12);
+  expect(model.slices).toHaveLength(10);
   expect(model.slices.reduce((sum, slice) => sum + slice.value, 0)).toBe(820);
-  expect(model.slices[11].label).toBe('其他 29 项');
+  expect(model.slices[9].label).toBe('其他 31 项');
 });
 
 test('TWR compounds selected dates and does not infer profit from cash-inflated NAV', () => {
@@ -54,6 +54,7 @@ test('TWR compounds selected dates and does not infer profit from cash-inflated 
   expect(local.kind).toBe('nav');
   expect(local.points.map(point => point.nav)).toEqual([1100, 1200]);
   expect(local.value).toBeCloseTo(1200 / 1100 - 1);
+  expect(local.amount).toBe(100);
   expect(local.note).toContain('含出入金');
   data.returnMethod = 'MWR';
   expect(holdingsReturnSeries(data, 30).value).toBe(.2);
@@ -77,6 +78,7 @@ test('Gateway holdings show a labeled local NAV trajectory instead of an empty r
   await page.goto('http://127.0.0.1:5187/ibkr?tab=holdings');
   await expect(page.getByRole('article', { name: '账户净值轨迹' })).toBeVisible();
   await expect(page.locator('.ha-return strong')).toHaveText('+2.00%');
+  await expect(page.locator('.ha-return-change b')).toContainText('+20.00USD');
   await expect(page.locator('.ha-performance')).toContainText('含出入金');
   await expect(page.getByRole('img', { name: /账户净值变动曲线/ })).toBeVisible();
 });

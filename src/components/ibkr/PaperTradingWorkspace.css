@@ -114,7 +114,12 @@
 .pt-feedback-message.is-error{color:#efb5aa;background:#2c1c18;border-color:#644137}
 .pt-workspace .pt-feedback-message>button{flex:none;display:flex;align-items:center;justify-content:center;padding:4px;margin-left:auto;border:0;background:transparent;color:inherit;border-radius:5px}
 .pt-workspace .pt-feedback-message>button:hover{background:#ffffff0d}
-.pt-auto-sync{display:inline-flex;align-items:center;gap:7px;color:var(--awb-text-muted,#bdbdbd);font-size:12px;white-space:nowrap}
+.pt-workspace .pt-feedback-message>.pt-inline-reconcile{gap:6px;padding:6px 10px;border:1px solid currentColor;background:#ffffff08;font-size:12px;white-space:nowrap}
+.pt-auto-sync{display:inline-flex;align-items:center;gap:7px;color:var(--awb-text-muted,#bdbdbd);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.pt-auto-sync small{font:inherit;color:inherit;opacity:.72}
+.pt-auto-sync.is-live{color:#7fd8bc}
+.pt-auto-sync.is-delayed{color:#e3b65f}
+.pt-auto-sync.is-syncing svg{animation:pt-spin .9s linear infinite}
 .pt-workspace .pt-source-note,.pt-workspace .pt-submit-note,.pt-workspace .pt-estimate p,.pt-workspace .pt-field-help{font-size:13px;color:var(--awb-text-secondary, #dedede);line-height:1.85}
 .pt-workspace .pt-submit-note{margin-top:14px}
 .pt-workspace .pt-estimate>span,.pt-workspace .pt-settings summary,.pt-workspace .pt-fixed-field,.pt-workspace .pt-field{font-size:14px;color:#c4d7cb}

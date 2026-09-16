@@ -54,6 +54,12 @@ class PaperCancellation(Contract):
 def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
     app.state.paper_flow=None
     lock=asyncio.Lock()
+    # Contract discovery is read-only and should not queue behind an account
+    # proof, preview, or order submission.  Keep it on its own serialized IBKR
+    # lane and cache results within the current gateway session.
+    contract_lock=asyncio.Lock()
+    contract_cache={}
+    contract_cache_ttl=600.0
     next_auto_sync=0.0
     sync_detail=None
     sync_owner=None
@@ -104,13 +110,19 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
         with ledger._lock:
             halt=ledger._db.execute('SELECT reason FROM order_integrity_halts WHERE mode=? AND account_key=?',
                 ('paper',binding.accountKey)).fetchone() if binding else None
-            order_pending=bool(binding and any(row.reconciliationRequired or row.submission in ('SUBMITTING','UNKNOWN','RECONCILING')
-                for row in ledger._records(binding.accountKey,'paper')))
+            records=ledger._records(binding.accountKey,'paper') if binding else []
+            order_pending=any(row.reconciliationRequired or row.submission in ('SUBMITTING','UNKNOWN','RECONCILING')
+                for row in records)
+            # Regular-hours callbacks usually update these orders immediately.
+            # Overnight venues may omit/delay them, so active orders also need
+            # bounded open/execution/completed-order reads as a fallback.
+            order_active=any(row.execution in ('OPEN','PARTIALLY_FILLED','CANCEL_PENDING') for row in records)
         checkpoint_stale=bool(binding and source and account_checkpoint_stale(ledger,binding.accountKey,'paper',source.session.revision,
             'fixture' if getattr(source,'_fixture',False) else 'ibkr'))
         pending=bool(order_pending or (halt and halt[0] in RECOVERABLE_SDK_DIAGNOSTICS) or checkpoint_stale)
+        refresh_needed=bool(pending or order_active)
         runner=current.account_reconciliation if current is not None else None
-        if runner is None and pending and source is not None and binding is not None:
+        if runner is None and refresh_needed and source is not None and binding is not None:
             recovery_key=(id(source),source.session.revision,binding.accountKey)
             if recovery_owner != recovery_key:
                 rec=OrderReconciler(ledger,binding.accountKey,'paper',source.session.revision)
@@ -120,17 +132,28 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
                 recovery=PaperAccountReconciliation(source,rec,clock=clock)
                 recovery_owner=recovery_key
             runner=recovery
-        if runner is not None and pending and not lock.locked() and asyncio.get_running_loop().time()>=next_auto_sync:
+        if runner is not None and refresh_needed and not lock.locked() and asyncio.get_running_loop().time()>=next_auto_sync:
             async with lock:
                 if current_flow() is current:
+                    sync_started_at=asyncio.get_running_loop().time()
+                    retry_delay=2
                     try:
                         await runner.run()
                         sync_detail=None
                     except Exception as exc:
                         code=exc.code if isinstance(exc,(RiskDenied,ReviewBlocked)) else 'BROKER_READ_TIMEOUT' if isinstance(exc,TimeoutError) else 'PAPER_SYNC_FAILED'
                         sync_detail=code
+                        # A durable external cash/position change will not heal
+                        # every two seconds.  Resting orders are different:
+                        # overnight fills can arrive without a reliable push,
+                        # so keep their broker reads on the normal fast cadence.
+                        if code in ('CASH_MISMATCH','POSITION_MISMATCH') and not order_active:
+                            retry_delay=30
                     finally:
-                        next_auto_sync=asyncio.get_running_loop().time()+2
+                        # Keep a true start-to-start cadence.  Measuring from
+                        # completion made a 700 ms broker read turn the visible
+                        # two-second poll into a roughly 2.7-second cycle.
+                        next_auto_sync=sync_started_at+retry_delay
         state=source.session.snapshot() if source else None
         policy=current.source.scope if current else None
         with ledger._lock:
@@ -144,7 +167,7 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
             'account':(binding.brokerAccount[:2]+'***'+binding.brokerAccount[-3:]) if binding else None,
             'accountKey':binding.accountKey if binding else None,'policy':policy,'orders':orders,
             'connection':state.connection if state else 'unconfigured','state':state.state if state else 'permission-required',
-            'snapshot':state,'syncError':sync_detail if pending and runner is not None else 'ACCOUNT_INTEGRITY_HALT' if halt else None,
+            'snapshot':state,'syncError':sync_detail if refresh_needed and runner is not None else 'ACCOUNT_INTEGRITY_HALT' if halt else None,
             'detail':state.detail if state else '等待指定模拟账户连接。'}
 
     @app.get(PREFIX+'contract')
@@ -154,11 +177,20 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
         if not (conId > 0 and not symbol) and not (conId == 0 and re.fullmatch(r'[A-Za-z][A-Za-z0-9. -]{0,15}',symbol)):
             return JSONResponse({'detail':'INVALID_SYMBOL'},status_code=422)
         try:
-            async with lock:
+            async with contract_lock:
                 source=connection()
+                cache_key=(id(source),source.session.revision,source.binding.accountKey,conId,symbol.upper())
+                now=asyncio.get_running_loop().time()
+                cached=contract_cache.get(cache_key)
+                if cached is not None and now-cached[0] < contract_cache_ttl:
+                    return cached[1]
                 rows=await asyncio.wait_for(source._ib.reqContractDetailsAsync(IbContract(conId=conId,symbol=symbol.upper(),secType='STK',exchange='SMART',currency='USD')),4)
-                return [{'conId':r.contract.conId,'symbol':r.contract.symbol,'currency':r.contract.currency,
+                result=[{'conId':r.contract.conId,'symbol':r.contract.symbol,'currency':r.contract.currency,
                     'exchange':r.contract.primaryExchange,'name':r.longName} for r in rows[:20] if r.contract.secType=='STK']
+                if len(contract_cache)>=128:
+                    contract_cache.clear()
+                contract_cache[cache_key]=(now,result)
+                return result
         except Exception as exc:
             return error(exc)
 

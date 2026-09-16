@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { paperReceiptStatus } from '../../src/lib/ibkr/paperReceipt.ts';
+import { paperFilledQuantity, paperOrderNeedsStatusCheck, paperReceiptStatus } from '../../src/lib/ibkr/paperReceipt.ts';
 
 const record = { submission: 'SUBMITTING', execution: 'NONE', filledQuantity: '0' };
 test('local persistence and a successful API response alone do not claim a sent or filled order', () => {
@@ -20,11 +20,23 @@ test('ambiguous and rejected responses never show a success receipt', () => {
   assert.equal(paperReceiptStatus({ ...record, execution: 'OPEN', reconciliationRequired: true }).kind, 'warning');
   assert.equal(paperReceiptStatus({ ...record, submission: 'DENIED' }).kind, 'error');
   assert.equal(paperReceiptStatus({ ...record, dispatchState: 'SENT', execution: 'REJECTED' }).kind, 'error');
+  assert.equal(paperReceiptStatus({ ...record, submission: 'UNKNOWN', lastError: 'IBKR_201' }).kind, 'error');
+  assert.equal(paperReceiptStatus({ ...record, submission: 'UNKNOWN', execution: 'INACTIVE' }).kind, 'error');
+  assert.equal(paperReceiptStatus({ ...record, submission: 'ACKNOWLEDGED', execution: 'OPEN', lastError: 'IBKR_201' }).kind, 'accepted');
 });
 test('late accounting or commission reconciliation does not hide a confirmed full execution', () => {
   const status = paperReceiptStatus({ ...record, submission: 'ACKNOWLEDGED', execution: 'FILLED', filledQuantity: '10', reconciliationRequired: true });
   assert.equal(status.kind, 'filled');
   assert.match(status.detail, /资金、费用与持仓正在自动核对/);
+});
+test('a broker-confirmed resting order remains accepted while account proof retries separately', () => {
+  const row = { ...record, submission: 'ACKNOWLEDGED', execution: 'OPEN', brokerFilled: '0.0', brokerRemaining: '1.0', reconciliationRequired: true };
+  assert.equal(paperReceiptStatus(row).kind, 'accepted');
+  assert.equal(paperOrderNeedsStatusCheck(row), false);
+});
+test('broker terminal counters are visible before detailed executions arrive', () => {
+  const row = { ...record, execution: 'FILLED', brokerFilled: '10.0', brokerRemaining: '0.0' };
+  assert.equal(paperFilledQuantity(row), '10.0');
 });
 test('cancellation acknowledgements and pending cancellations are distinct from fills', () => {
   assert.equal(paperReceiptStatus({ ...record, execution: 'CANCELLED', filledQuantity: '4' }).kind, 'neutral');

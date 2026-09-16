@@ -36,6 +36,7 @@ class ReconcileIB(FakeIB):
         super().__init__()
         self.reads = []
         self.fresh_positions = []
+        self.completed = []
         self.fail_orders = False
 
     async def reqPositionsAsync(self):
@@ -58,6 +59,10 @@ class ReconcileIB(FakeIB):
                 commissionReport=Item(execId=exec_id, commission=float('nan'), currency='USD'))
         return [fill('TEST-ACCOUNT', 'EXEC-1'), fill('TEST-ACCOUNT', 'EXEC-1'), fill('OTHER-ACCOUNT', 'PRIVATE')]
 
+    async def reqCompletedOrdersAsync(self, api_only):
+        self.reads.append(('completed', api_only))
+        return self.completed
+
 
 def test_active_reads_replace_ghost_positions_preserve_order_identity_and_do_not_refresh_source_time(tmp_path, api_event_loop):
     now = [datetime(2026, 9, 4, 14, tzinfo=timezone.utc)]
@@ -76,7 +81,7 @@ def test_active_reads_replace_ghost_positions_preserve_order_identity_and_do_not
         now[0] += timedelta(seconds=30)
         assert api_event_loop.run_until_complete(connection.reconcile())
         state = session.snapshot()
-        assert fake.reads == ['positions', 'orders', ('executions', 'TEST-ACCOUNT')]
+        assert fake.reads == ['positions', 'orders', ('executions', 'TEST-ACCOUNT'), ('completed', True)]
         assert state.positions == ()  # a fresh empty response beats a populated SDK cache
         assert state.provenance['metrics.netLiquidation'].observedAt == observed
         assert state.provenance['metrics.netLiquidation'].brokerAsOf is None
@@ -93,4 +98,21 @@ def test_active_reads_replace_ghost_positions_preserve_order_identity_and_do_not
             api_event_loop.run_until_complete(connection.reconcile())
         assert session.snapshot().state == 'stale'
         assert session.snapshot().orders == state.orders
+        connection.close()
+
+
+def test_completed_order_wins_over_stale_open_order_in_snapshot(tmp_path, api_event_loop):
+    with SnapshotStore(tmp_path / 'db', allow_fixtures=True) as store:
+        session=AccountSession('paper',store)
+        session.bind(AccountBinding(mode='paper',accountKey='paper:test',brokerAccount='TEST-ACCOUNT',confirmed=True,baseCurrency='USD'))
+        fake=ReconcileIB()
+        fake.completed=[Item(contract=Item(conId=12,symbol='TEST',currency='USD'),
+            order=Item(account='TEST-ACCOUNT',orderId=7,clientId=91,permId=123,totalQuantity=5,action='BUY',orderType='LMT',lmtPrice=100),
+            orderStatus=Item(status='Filled',filled=None,remaining=None))]
+        connection=ReadonlyConnection(session,sdk=fake)
+        api_event_loop.run_until_complete(connection.connect())
+        assert api_event_loop.run_until_complete(connection.reconcile())
+        state=session.snapshot()
+        assert len(state.orders)==1 and state.orders[0].execution=='FILLED'
+        assert state.orders[0].filled=='5' and state.orders[0].remaining=='0'
         connection.close()

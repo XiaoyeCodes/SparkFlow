@@ -1,5 +1,6 @@
 from types import SimpleNamespace as NS
 from datetime import timedelta
+import asyncio
 import pytest
 from src.ibkr_terminal.paper_account import PaperAccountReconciliation
 from src.ibkr_terminal.risk import RiskDenied
@@ -127,4 +128,28 @@ def test_open_order_refresh_precedes_barrier_and_allows_next_reservation(tmp_pat
             db.reserve(intent('next',quantity='1'),context(snapshotId='next-read',asOf=NOW+timedelta(seconds=1),
                 totalCash='1000',settledCash='1000'))
             assert db.get(rec.account_key,'paper','next').submission=='PERSISTED'
+    api_event_loop.run_until_complete(run())
+
+
+def test_cash_and_position_snapshots_are_read_in_parallel(tmp_path,api_event_loop):
+    from src.ibkr_terminal.reconcile import OrderReconciler
+    async def run():
+        with ledger(tmp_path/'orders') as db:
+            rec=OrderReconciler(db,'paper:engineering','paper',1)
+            conn=connection(rec,cash='1000',quantity='0')
+            active=0
+            max_active=0
+            async def observed(result):
+                nonlocal active,max_active
+                active+=1
+                max_active=max(max_active,active)
+                await asyncio.sleep(.02)
+                active-=1
+                return result
+            conn._ib=NS(
+                reqAccountSnapshotAsync=lambda account:observed({'portfolio':[NS(account=account,contract=NS(conId=12,currency='USD'),position='0')]}),
+                reqFreshSummaryAsync=lambda:observed([NS(account='BROKER-ENGINEERING',tag='TotalCashValue',currency='USD',value='1000')]),
+            )
+            result=await PaperAccountReconciliation(conn,rec,clock=lambda:NOW+timedelta(seconds=2)).run()
+            assert result['reconciledOrders']==0 and max_active==2
     api_event_loop.run_until_complete(run())

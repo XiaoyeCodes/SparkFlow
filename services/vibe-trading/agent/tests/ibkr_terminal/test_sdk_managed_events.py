@@ -213,6 +213,19 @@ def test_identical_open_status_does_not_reopen_account_proof_barrier(tmp_path, a
     api_event_loop.run_until_complete(run())
 
 
+def test_completed_order_recovers_missed_filled_status_without_inventing_execution(tmp_path):
+    from ib_async import OrderState
+    with ledger(tmp_path / 'orders.db') as db:
+        rec, observer, contract, order = unknown_bridge(db)
+        observer.open_order(71, contract, order, OrderState(status='Submitted'))
+        observer.order_status(71, 'Submitted', 0, 6, 901, 78)
+        observer.completed_order(contract, order, OrderState(status='Filled'))
+        row=db.get('paper:engineering','paper','intent-1')
+        assert row.execution=='FILLED' and row.brokerFilled=='6' and row.brokerRemaining=='0'
+        assert row.filledQuantity=='0' and row.reservedCash=='601' and row.reconciliationRequired
+        assert rec.executions()==[]
+
+
 def test_confirmed_permanent_id_mismatch_still_freezes_account(tmp_path, api_event_loop):
     async def run():
         with ledger(tmp_path / 'orders.db') as db:

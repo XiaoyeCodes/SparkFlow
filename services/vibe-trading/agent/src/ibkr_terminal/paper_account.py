@@ -54,10 +54,14 @@ class PaperAccountReconciliation:
         # orderStatus callbacks. They belong to this proof, so sample the stable
         # event barrier after that refresh, not before it.
         barrier=self.rec.watermark()
-        raw=await asyncio.wait_for(c._ib.reqAccountSnapshotAsync(c.binding.brokerAccount),4)
-        portfolio_at=self.clock()
-        summary=await asyncio.wait_for(c._ib.reqFreshSummaryAsync(),4)
-        cash_at=self.clock()
+        # These are independent read-only broker snapshots.  Reading them in
+        # parallel halves the worst-case wait while the event barrier below
+        # still rejects any mixed or racing proof.
+        raw,summary=await asyncio.gather(
+            asyncio.wait_for(c._ib.reqAccountSnapshotAsync(c.binding.brokerAccount),4),
+            asyncio.wait_for(c._ib.reqFreshSummaryAsync(),4),
+        )
+        portfolio_at=cash_at=self.clock()
         snapshot=c.session.snapshot()
         if not c.healthy() or snapshot.sessionRevision!=self.rec.revision or snapshot.state not in ('ready','empty') or snapshot.baseCurrency!='USD':
             raise RiskDenied('RECONCILIATION_REQUIRED')

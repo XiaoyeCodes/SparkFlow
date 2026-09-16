@@ -2,6 +2,7 @@ import type { AccountSnapshot, PortfolioPerformance } from './workbenchTypes';
 import { chartSeries, finite, overviewAllocation } from './overview';
 
 export const allocationColors = ['#68d9b6', '#70a8ed', '#c6a6ef', '#e4b969', '#69c7d0', '#ef9684', '#a6c978', '#b58ab8', '#88b8a9', '#cbab96', '#8394c9', '#d4cf8b'];
+const MAX_ALLOCATION_LEGEND_ITEMS = 10;
 export type AllocationSlice = { label: string; value: number; color: string };
 export type HoldingsRange = 30 | 90 | 0;
 export const chartMoney = (value: number | null) => value === null ? '—' : value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -14,7 +15,10 @@ export function holdingsAllocation(snapshot: AccountSnapshot) {
   const gross = allocation.rows.reduce((sum, row) => sum + Math.abs(row.value), 0);
   const short = allocation.rows.some(row => row.value < 0);
   const allSlices: AllocationSlice[] = allocation.rows.filter(row => row.value !== 0).map((row, index) => ({ label: `${row.holding.symbol}${row.value < 0 ? ' · 空头' : ''}`, value: Math.abs(row.value), color: allocationColors[index % allocationColors.length] }));
-  const slices = allSlices.length > 12 ? [...allSlices.slice(0, 11), { label: `其他 ${allSlices.length - 11} 项`, value: allSlices.slice(11).reduce((sum, slice) => sum + slice.value, 0), color: allocationColors[11] }] : allSlices;
+  const visibleCount = MAX_ALLOCATION_LEGEND_ITEMS - 1;
+  const slices = allSlices.length > MAX_ALLOCATION_LEGEND_ITEMS
+    ? [...allSlices.slice(0, visibleCount), { label: `其他 ${allSlices.length - visibleCount} 项`, value: allSlices.slice(visibleCount).reduce((sum, slice) => sum + slice.value, 0), color: allocationColors[visibleCount] }]
+    : allSlices;
   const residual = total !== null && allocation.cash !== null && allocation.excluded === 0 ? total - invested - allocation.cash : null;
   // Never normalize negative balances or unconverted currencies into a positive asset pie.
   const canChartAssets = residual !== null && total! > 0 && !short && allocation.cash! >= 0 && residual >= -0.01;
@@ -38,8 +42,10 @@ export function holdingsReturnSeries(performance: PortfolioPerformance | undefin
     const base = visible[0]?.nav;
     const points = base != null && base !== 0 ? visible.map(point => ({ date: point.date, nav: point.nav, value: point.nav === null ? null : point.nav / base - 1 })) : [];
     const count = points.length;
+    const finalNav = points[points.length - 1]?.nav;
+    const amount = count >= 2 && base != null && finalNav != null ? finalNav - base : null;
     return { points, count, start: points[0]?.date, end: points[points.length - 1]?.date, value: count >= 2 ? points[points.length - 1]?.value ?? null : null, method, kind: 'nav' as const,
-      note: '本地账户净值变动（含出入金），用于观察资产轨迹，不代表投资收益率或盈亏金额。' };
+      amount, note: '本地账户净值变动（含出入金），用于观察资产轨迹，不代表投资收益率或盈亏金额。' };
   }
   const first = window.findIndex(point => point.cumulativeReturn !== null);
   const visible = first < 0 ? [] : window.slice(first);
@@ -51,7 +57,7 @@ export function holdingsReturnSeries(performance: PortfolioPerformance | undefin
   })) : [];
   const count = points.filter(point => point.value !== null).length;
   return { points, count, start: points[0]?.date, end: points[points.length - 1]?.date, value: count >= 2 ? points[points.length - 1]?.value ?? null : null, method, kind: 'return' as const,
-    note: method === 'TWR' ? '时间加权收益率 · 区间起点归零，剔除出入金影响；非盈亏金额。' : method === 'MWR' ? '资金加权收益率 · 原始累计口径，未按所选区间重算；非盈亏金额。' : '缺少已核实的收益率历史，暂不以资产净值变化代替盈亏。' };
+    amount: null, note: method === 'TWR' ? '时间加权收益率 · 区间起点归零，剔除出入金影响；非盈亏金额。' : method === 'MWR' ? '资金加权收益率 · 原始累计口径，未按所选区间重算；非盈亏金额。' : '缺少已核实的收益率历史，暂不以资产净值变化代替盈亏。' };
 }
 
 export function returnGeometry(points: { date: string; value: number | null }[]) {

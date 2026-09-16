@@ -24,6 +24,8 @@ def order_view(trade, account_key):
     execution = {'PendingSubmit': 'PENDING', 'ApiPending': 'PENDING', 'PreSubmitted': 'OPEN', 'Submitted': 'OPEN',
         'PendingCancel': 'CANCEL_PENDING', 'ApiCancelled': 'CANCELLED', 'Cancelled': 'CANCELLED', 'Filled': 'FILLED', 'Inactive': 'INACTIVE'}.get(raw_status, 'UNKNOWN')
     filled, remaining = decimal_text(_obj_get(status, 'filled')), decimal_text(_obj_get(status, 'remaining'))
+    if execution == 'FILLED' and filled is None:
+        filled, remaining = decimal_text(_obj_get(order, 'totalQuantity')), '0'
     if execution == 'OPEN' and filled is not None and Decimal(filled) > 0 and remaining is not None and Decimal(remaining) > 0:
         execution = 'PARTIALLY_FILLED'
     order_id, client_id, perm_id = (_obj_get(order, key) for key in ('orderId', 'clientId', 'permId'))
