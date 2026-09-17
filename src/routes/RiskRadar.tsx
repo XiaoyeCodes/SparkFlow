@@ -431,6 +431,7 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
 }) {
   const [cursor, setCursor] = useState<number | null>(null);
   const [mode, setMode] = useState<'overall' | 'vulnerability' | 'stress'>('overall');
+  const [visibleTickers, setVisibleTickers] = useState<Ticker[]>(['VOO', 'QQQ']);
   const model = useMemo(() => {
     if (!payload?.series.length) return null;
     const scored = payload.series.map(series => {
@@ -448,7 +449,8 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
       }
       return { ...series, lastDate: points[points.length - 1]?.date ?? series.lastDate, points };
     }).filter(series => series.points.length > 1);
-    const stamps = scored.flatMap(series => series.points.map(point => Date.parse(point.date))).filter(Number.isFinite);
+    const visibleSeries = scored.filter(series => visibleTickers.includes(series.ticker));
+    const stamps = visibleSeries.flatMap(series => series.points.map(point => Date.parse(point.date))).filter(Number.isFinite);
     if (!stamps.length) return null;
     const minTime = Math.min(...stamps);
     const maxTime = Math.max(...stamps);
@@ -462,7 +464,7 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
     const plotHeight = height - top - bottom;
     const x = (date: string) => left + (Date.parse(date) - minTime) / Math.max(maxTime - minTime, 1) * plotWidth;
     const y = (score: number) => top + (100 - score) / 100 * plotHeight;
-    const paths = scored.map(series => ({
+    const paths = visibleSeries.map(series => ({
       ...series,
       path: series.points.map((point, index) => `${index ? 'L' : 'M'}${x(point.date).toFixed(2)},${y(point.score).toFixed(2)}`).join(' '),
     }));
@@ -471,8 +473,16 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
     const startTick = Math.ceil(firstYear / 5) * 5;
     const years = [firstYear, ...Array.from({ length: Math.max(0, Math.floor((lastYear - startTick) / 5) + 1) }, (_, index) => startTick + index * 5), lastYear]
       .filter((year, index, list) => list.indexOf(year) === index && year >= firstYear && year <= lastYear);
-    return { paths, minTime, maxTime, width, height, left, right, top, bottom, plotWidth, plotHeight, x, y, years };
-  }, [current, mode, payload, weights]);
+    return { paths, series: scored, minTime, maxTime, width, height, left, right, top, bottom, plotWidth, plotHeight, x, y, years };
+  }, [current, mode, payload, visibleTickers, weights]);
+
+  const toggleTicker = useCallback((ticker: Ticker) => {
+    setVisibleTickers(currentTickers => {
+      if (!currentTickers.includes(ticker)) return [...currentTickers, ticker];
+      if (currentTickers.length === 1) return currentTickers;
+      return currentTickers.filter(currentTicker => currentTicker !== ticker);
+    });
+  }, []);
 
   const hovered = useMemo(() => {
     if (!model || cursor === null) return null;
@@ -495,7 +505,12 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
       <div className="risk-timeline-tools"><span className={`risk-timeline-cache-state${payload?.cache?.stale ? ' is-stale' : ''}`}><RefreshCw size={11} className={refreshing || payload?.cache?.refreshing ? 'is-spinning' : ''}/>{refreshing || payload?.cache?.refreshing ? '正在更新历史快照' : payload?.cache?.stale ? '旧缓存 · 等待更新' : '历史快照已缓存'}{payload?.cache?.checkedAt || cacheStoredAt ? ` · ${formatDate(payload?.cache?.checkedAt || cacheStoredAt, true)}` : ''}</span><div className="risk-timeline-mode" aria-label="选择历史风险层">{([
         ['overall', '综合状态'], ['vulnerability', '潜在脆弱性'], ['stress', '即时压力'],
       ] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{label}</button>)}</div>
-      {model ? <div className="risk-timeline-legend">{model.paths.map(series => { const latest = series.points[series.points.length - 1]; return <span key={series.ticker} className={series.ticker.toLowerCase()} title={`截至 ${formatDate(latest.date)}`}><i />{series.ticker}<b>{latest.score.toFixed(1)}</b><small>{latest.date.slice(0, 7).replace('-', '/')}</small></span>; })}</div> : null}</div>
+      {model ? <div className="risk-timeline-legend" role="group" aria-label="选择显示的指数">{model.series.map(series => {
+        const latest = series.points[series.points.length - 1];
+        const visible = visibleTickers.includes(series.ticker);
+        const isLastVisible = visible && visibleTickers.length === 1;
+        return <button type="button" key={series.ticker} className={series.ticker.toLowerCase()} aria-pressed={visible} disabled={isLastVisible} title={isLastVisible ? '至少保留一个指数' : `${visible ? '隐藏' : '显示'} ${series.ticker} · 截至 ${formatDate(latest.date)}`} onClick={() => toggleTicker(series.ticker)}><i />{series.ticker}<b>{latest.score.toFixed(1)}</b><small>{latest.date.slice(0, 7).replace('-', '/')}</small></button>;
+      })}</div> : null}</div>
     </header>
     {loading && !model ? <div className="risk-timeline-state"><RefreshCw className="is-spinning" size={18}/>正在重建历史月度得分…</div> : error && !model ? <div className="risk-timeline-state is-error"><AlertTriangle size={18}/>{error}</div> : model ? <>
       <div className="risk-timeline-frame" onMouseLeave={() => setCursor(null)} onMouseMove={event => {
@@ -505,7 +520,7 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
         setCursor(Math.max(0, Math.min(1, (event.clientX - rect.left - plotLeft) / Math.max(plotRight - plotLeft, 1))));
       }}>
         <svg viewBox={`0 0 ${model.width} ${model.height}`} role="img" aria-labelledby="risk-timeline-title risk-timeline-desc">
-          <title id="risk-timeline-title">VOO 与 QQQ 近30年{mode === 'overall' ? '综合风险' : mode === 'vulnerability' ? '潜在脆弱性' : '即时压力'}走势</title>
+          <title id="risk-timeline-title">{model.paths.map(series => series.ticker).join(' 与 ')} 近30年{mode === 'overall' ? '综合风险' : mode === 'vulnerability' ? '潜在脆弱性' : '即时压力'}走势</title>
           <desc id="risk-timeline-desc">纵轴从零到一百分，绿色为正常区，黄色为警戒区，红色为高风险区。</desc>
           <rect className="risk-timeline-band high" x={model.left} y={model.y(100)} width={model.plotWidth} height={model.y(70) - model.y(100)} />
           <rect className="risk-timeline-band elevated" x={model.left} y={model.y(70)} width={model.plotWidth} height={model.y(40) - model.y(70)} />

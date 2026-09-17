@@ -460,8 +460,14 @@
 .risk-timeline-mode { display: flex; gap: 3px; padding: 3px; border: 1px solid rgba(106, 179, 151, .18); border-radius: 8px; background: rgba(5, 16, 10, .6); }
 .risk-timeline-mode button { padding: 6px 10px; border: 0; border-radius: 5px; background: transparent; color: #83998e; font-size: 10px; cursor: pointer; }
 .risk-timeline-mode button[aria-pressed="true"] { background: rgba(96, 211, 175, .16); color: #80e2c3; }
-.risk-timeline-legend { display: flex; align-items: center; gap: 18px; }
-.risk-timeline-legend span { display: grid; grid-template-columns: 18px auto auto; align-items: center; gap: 7px; color: #aebeb6; font: 650 11px/1.3 "Segoe UI Variable Text", "Segoe UI", sans-serif; }
+.risk-timeline-legend { display: flex; align-items: center; gap: 6px; }
+.risk-timeline-legend button { display: grid; grid-template-columns: 18px auto auto; align-items: center; gap: 7px; min-width: 112px; padding: 7px 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #aebeb6; font: 650 11px/1.3 "Segoe UI Variable Text", "Segoe UI", sans-serif; text-align: left; cursor: pointer; transition: border-color 150ms ease, background-color 150ms ease, opacity 150ms ease; }
+.risk-timeline-legend button:hover { border-color: rgba(118, 190, 162, .22); background: rgba(96, 211, 175, .06); }
+.risk-timeline-legend button[aria-pressed="true"] { border-color: rgba(118, 190, 162, .18); background: rgba(96, 211, 175, .08); }
+.risk-timeline-legend button[aria-pressed="false"] { opacity: .48; }
+.risk-timeline-legend button[aria-pressed="false"] i { box-shadow: none; filter: saturate(.35); }
+.risk-timeline-legend button:focus-visible { outline: 2px solid rgba(103, 224, 188, .7); outline-offset: 2px; }
+.risk-timeline-legend button:disabled { cursor: default; }
 .risk-timeline-legend i, .risk-timeline-tooltip i { display: inline-block; width: 17px; height: 2px; background: #67e0bc; box-shadow: 0 0 10px rgba(103, 224, 188, .3); }
 .risk-timeline-legend .qqq i, .risk-timeline-tooltip .qqq i { background: #89aef6; box-shadow: 0 0 10px rgba(137, 174, 246, .28); }
 .risk-timeline-legend b { color: #ecf4ef; font-variant-numeric: tabular-nums; }
@@ -580,7 +586,7 @@
 .risk-timeline-heading p { color: #a5b7ae; font-size: 12px; }
 .risk-timeline-cache-state { color: #91a69b; font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; font-size: 10px; font-weight: 600; }
 .risk-timeline-mode button { color: #9fb2a8; font-size: 11px; font-weight: 600; }
-.risk-timeline-legend span { color: #c0cec7; font-size: 12px; font-weight: 700; }
+.risk-timeline-legend button { color: #c0cec7; font-size: 12px; font-weight: 700; }
 .risk-timeline-legend small { color: #879b91; font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; font-size: 9px; font-weight: 600; }
 .risk-timeline-grid text,
 .risk-timeline-threshold text,

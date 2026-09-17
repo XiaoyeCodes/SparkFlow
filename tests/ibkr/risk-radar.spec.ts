@@ -132,6 +132,18 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
     await expect(timelineChart.locator('[data-series="VOO"]')).toHaveAttribute('d', /L/);
     await expect(timelineChart.locator('[data-series="QQQ"]')).toHaveAttribute('d', /L/);
     await expect(timelineChart.locator('.risk-timeline-legend .voo small')).toHaveText(/^\d{4}\/\d{2}$/);
+    const indexSelector = timelineChart.getByRole('group', { name: '选择显示的指数' });
+    const vooToggle = indexSelector.getByRole('button', { name: /VOO/ });
+    const qqqToggle = indexSelector.getByRole('button', { name: /QQQ/ });
+    await expect(vooToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(qqqToggle).toHaveAttribute('aria-pressed', 'true');
+    await qqqToggle.click();
+    await expect(qqqToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(timelineChart.locator('[data-series="QQQ"]')).toHaveCount(0);
+    await expect(timelineChart.locator('[data-series="VOO"]')).toHaveCount(1);
+    await expect(vooToggle).toBeDisabled();
+    await qqqToggle.click();
+    await expect(timelineChart.locator('.risk-timeline-line')).toHaveCount(2);
     await expect(timelineChart).toContainText('历史快照已缓存');
     await timelineChart.getByRole('button', { name: '即时压力' }).click();
     await expect(timelineChart.getByRole('button', { name: '即时压力' })).toHaveAttribute('aria-pressed', 'true');
