@@ -43,7 +43,7 @@ import {
   CHINA_PROVINCE_ECONOMY,
 } from './src/data/chinaProvinceEconomy';
 import { CozeReportTaskService } from './server/cozeReportTasks';
-import { fetchOfficialMetrics, fetchOfficialNews, fetchExportMetric, createVerifiedMetricMerger, officialPeriod, type OfficialMetric } from './server/chinaOfficialSources';
+import { fetchOfficialMetrics, fetchOfficialNews, fetchExportMetric, createVerifiedMetricMerger, officialPeriod, alignChinaUsTenYearSpread, type OfficialMetric } from './server/chinaOfficialSources';
 import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, parseSyndication, type NewsSource } from './server/newsFeed';
 import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from './server/newsSubscriptions';
 import { dailyHotPlugin } from './server/dailyhotPlugin';
@@ -11389,6 +11389,7 @@ type ChinaMacroMetric = OfficialMetric & {
   sourceUrl: string;
   status: 'live' | 'delayed' | 'unavailable';
   note?: string;
+  history?: Array<{ time: string; value: number }>;
 };
 
 // Registry contains identity and provenance only; all numbers come from parsed releases.
@@ -11508,18 +11509,47 @@ async function getPbcFinancialStatisticsMetrics(): Promise<ChinaMacroMetric[]> {
 
 async function getChinaMoneyFdrMetric(): Promise<ChinaMacroMetric> {
   const sourceUrl = 'https://www.chinamoney.com.cn/chinese/bkfrr/';
-  const payload = await fetchExternalJson('https://www.chinamoney.com.cn/r/cms/www/chinamoney/data/currency/fdr.json', 12_000) as {
+  const currentRequest = fetchExternalJson('https://www.chinamoney.com.cn/r/cms/www/chinamoney/data/currency/fdr.json', 12_000) as Promise<{
     records?: Array<{ productCode?: string; produceDate?: string; value?: string }>;
-  };
+  }>;
+  const end = new Date();
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 120);
+  const historyUrl = `https://www.chinamoney.com.cn/ags/ms/cm-u-bk-currency/FrrHis?lang=CN&startDate=${start.toISOString().slice(0, 10)}&endDate=${end.toISOString().slice(0, 10)}`;
+  const historyRequest = fetchWithTimeout(historyUrl, {
+    method: 'POST',
+    headers: { Accept: 'application/json,text/plain,*/*' },
+  }, 12_000).then(async (response) => {
+    if (!response.ok) throw new Error(`FDR 历史接口返回 ${response.status}`);
+    const data = await response.json() as {
+      records?: Array<{ lfiProducDate?: string; frValueMap?: Record<string, string> }>;
+    };
+    return (data.records || []).flatMap((item) => {
+      const value = asFiniteNumber(item.frValueMap?.FDR007);
+      return item.lfiProducDate && value !== undefined ? [{ time: item.lfiProducDate, value }] : [];
+    }).sort((left, right) => left.time.localeCompare(right.time)).slice(-65);
+  }).catch(() => [] as Array<{ time: string; value: number }>);
+  const [payload, history] = await Promise.all([currentRequest, historyRequest]);
   const row = payload.records?.find((item) => item.productCode === 'FDR007');
   const value = asFiniteNumber(row?.value);
   if (value === undefined || !row?.produceDate) throw new Error('FDR007 官方接口未返回有效值');
-  return { id: 'dr007', label: 'FDR007 定盘', value, display: `${value.toFixed(4)}%`, period: row.produceDate, source: '中国外汇交易中心', sourceUrl, status: 'live', note: '银行间 7 天回购定盘利率' };
+  const mergedHistory = [...history.filter((item) => item.time !== row.produceDate), { time: row.produceDate, value }]
+    .sort((left, right) => left.time.localeCompare(right.time)).slice(-65);
+  return { id: 'dr007', label: 'FDR007 定盘', value, display: `${value.toFixed(4)}%`, period: row.produceDate, source: '中国外汇交易中心', sourceUrl, status: 'live', note: '银行间 7 天回购定盘利率', history: mergedHistory };
 }
 
 async function getChinaBondCurveMetrics(): Promise<ChinaMacroMetric[]> {
   const sourceUrl = 'https://yield.chinabond.com.cn/cbweb-pbc-web/pbc/more?locale=cn_zh';
-  const html = await fetchExternalText(sourceUrl, 16_000, 'text/html,application/xhtml+xml,*/*');
+  const end = new Date();
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 120);
+  const historyUrl = `https://yield.chinabond.com.cn/cbweb-pbc-web/pbc/historyQuery?startDate=${start.toISOString().slice(0, 10)}&endDate=${end.toISOString().slice(0, 10)}&gjqx=10&qxId=hzsylqx&locale=cn_ZH`;
+  const [html, historyHtml] = await Promise.all([
+    fetchExternalText(sourceUrl, 16_000, 'text/html,application/xhtml+xml,*/*'),
+    fetchWithTimeout(historyUrl, { headers: { Accept: 'text/html,application/xhtml+xml,*/*' } }, 16_000)
+      .then(async (response) => response.ok ? response.text() : Promise.reject(new Error(`中债历史接口返回 ${response.status}`)))
+      .catch(() => ''),
+  ]);
   const rows = [...html.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)].map((match) => parseOfficialTableCells(match[0]));
   const header = rows.find((cells) => cells[0]?.match(/^20\d{2}-\d{2}-\d{2}/));
   const government = rows.find((cells) => cells[0] === '中债国债收益率曲线');
@@ -11529,8 +11559,20 @@ async function getChinaBondCurveMetrics(): Promise<ChinaMacroMetric[]> {
   const aaa10y = asFiniteNumber(aaa?.[7]);
   if (!period || government10y === undefined || aaa10y === undefined) throw new Error('中债收益率曲线关键字段不完整');
   const spread = (aaa10y - government10y) * 100;
+  const history = [...historyHtml.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)]
+    .map((match) => parseOfficialTableCells(match[0]))
+    .flatMap((cells) => {
+      const value = asFiniteNumber(cells[cells.length - 1]);
+      return cells[0] === '中债国债收益率曲线' && /^20\d{2}-\d{2}-\d{2}$/.test(cells[1] || '') && value !== undefined
+        ? [{ time: cells[1], value }]
+        : [];
+    })
+    .sort((left, right) => left.time.localeCompare(right.time))
+    .slice(-65);
+  const mergedHistory = [...history.filter((item) => item.time !== period), { time: period, value: government10y }]
+    .sort((left, right) => left.time.localeCompare(right.time)).slice(-65);
   return [
-    { id: 'cn10y', label: '中国 10Y 国债', value: government10y, display: `${government10y.toFixed(4)}%`, period, source: '中债估值中心', sourceUrl, status: 'delayed', note: '中债国债收益率曲线日终估值' },
+    { id: 'cn10y', label: '中国 10Y 国债', value: government10y, display: `${government10y.toFixed(4)}%`, period, source: '中债估值中心', sourceUrl, status: 'delayed', note: '中债国债收益率曲线日终估值', history: mergedHistory },
     { id: 'credit-spread', label: 'AAA 信用利差', value: spread, display: `${spread.toFixed(2)}bp`, changeDisplay: '10Y AAA - 国债', period, source: '中债估值中心', sourceUrl, status: 'delayed' },
   ];
 }
@@ -11564,10 +11606,15 @@ async function getChinaUsTenYearSpreadMetric(china10y: ChinaMacroMetric): Promis
   const values = await getFredSeries('DGS10');
   const latest = values.at(-1);
   if (!latest || china10y.value === null) throw new Error('中美十年期国债利差缺少有效序列');
-  const value = (china10y.value - latest.value) * 100;
   const usDate = latest.time.slice(0, 10);
-  const sameDay = china10y.period === usDate;
-  return { id: 'cn-us-spread', label: '中美 10Y 利差', value: sameDay ? value : null, display: sameDay ? `${value.toFixed(0)}bp` : '待同日数据', changeDisplay: '中债 - 美债', period: sameDay ? usDate : `${china10y.period} / ${usDate}`, source: '中债估值 + FRED', sourceUrl: 'https://fred.stlouisfed.org/series/DGS10', status: sameDay ? 'delayed' : 'unavailable', note: `中债 ${china10y.period}：${china10y.value}%；美债 ${usDate}：${latest.value}%。仅同日数据计算利差。` };
+  const aligned = alignChinaUsTenYearSpread(
+    { period: china10y.period, value: china10y.value },
+    { period: usDate, value: latest.value },
+  );
+  if (!aligned) throw new Error(`中美十年期国债利差来源日期相差超过 7 天：${china10y.period} / ${usDate}`);
+  const period = aligned.gapDays === 0 ? usDate : `${china10y.period} / ${usDate}`;
+  const alignment = aligned.gapDays === 0 ? '同日数据' : `最近可用交易日对齐，日期相差 ${aligned.gapDays} 天`;
+  return { id: 'cn-us-spread', label: '中美 10Y 利差', value: aligned.value, display: `${aligned.value.toFixed(0)}bp`, changeDisplay: '中债 - 美债', period, source: '中债估值 + FRED', sourceUrl: 'https://fred.stlouisfed.org/series/DGS10', status: 'delayed', note: `中债 ${china10y.period}：${china10y.value}%；美债 ${usDate}：${latest.value}%。${alignment}。` };
 }
 
 const mergeChinaMacroMetrics = createVerifiedMetricMerger(chinaMacroReferenceMetrics);
@@ -11929,7 +11976,7 @@ async function loadChinaMacroMetricsSection() {
     { label: '国家统计局房地产', run: fetchOfficialMetrics('property', readOfficial) },
     { label: '财政部财政收支', run: fetchOfficialMetrics('fiscal', readOfficial) },
     { label: '人民银行 LPR', run: fetchOfficialMetrics('lpr', readOfficial) },
-    { label: '新华社海关出口发布', run: fetchExportMetric(readOfficial) },
+    { label: '海关出口累计发布', run: fetchExportMetric(readOfficial) },
     { label: '中国人民银行金融统计', run: getPbcFinancialStatisticsMetrics() },
     { label: '中国外汇交易中心 FDR', run: getChinaMoneyFdrMetric() },
     { label: '中债收益率曲线', run: bondJob },
@@ -11939,6 +11986,7 @@ async function loadChinaMacroMetricsSection() {
       id: 'cpi', label: 'CPI 同比', value: item.value, display: item.display, change: item.change,
       changeDisplay: item.change === null ? undefined : `${item.change > 0 ? '+' : ''}${item.change.toFixed(1)}% 环比`,
       period: item.period, source: item.source, sourceUrl: item.sourceUrl, status: item.status,
+      history: item.history,
     } satisfies ChinaMacroMetric)) },
     { label: '国家统计局 PPI', run: getChinaPpiMetric().then((item) => item as ChinaMacroMetric) },
     { label: '财新制造业 PMI', run: getChinaCaixinPmiMetric().then((item) => item as ChinaMacroMetric) },

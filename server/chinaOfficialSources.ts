@@ -4,6 +4,7 @@ export type OfficialMetric = {
   id: string; label: string; value: number | null; display: string; period: string;
   source: string; sourceUrl: string; status: 'live' | 'delayed' | 'unavailable';
   change?: number | null; changeDisplay?: string; note?: string;
+  history?: Array<{ time: string; value: number }>;
   releasedAt?: string; checkedAt?: string; freshness?: 'checked' | 'cached' | 'unverified';
 };
 export type OfficialArticle = { title: string; url: string; publishedAt?: string; period: string };
@@ -37,8 +38,25 @@ export const officialLists = {
   fiscal: 'https://gks.mof.gov.cn/tongjishuju/',
   lpr: 'https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125440/index.html',
   xinhua: 'https://www.news.cn/fortune/gundong/index.html',
+  ndrcTrade: 'https://www.ndrc.gov.cn/wsdwhfz/',
   government: 'https://www.gov.cn/zhengce/zuixin/ZUIXINZHENGCE.json',
 };
+
+export function alignChinaUsTenYearSpread(
+  china: { period: string; value: number | null },
+  us: { period: string; value: number },
+  maxGapDays = 7,
+) {
+  const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+  if (!isoDate.test(china.period) || !isoDate.test(us.period) || china.value === null
+    || !Number.isFinite(china.value) || !Number.isFinite(us.value)) return null;
+  const chinaTime = Date.parse(`${china.period}T00:00:00Z`);
+  const usTime = Date.parse(`${us.period}T00:00:00Z`);
+  if (!Number.isFinite(chinaTime) || !Number.isFinite(usTime)) return null;
+  const gapDays = Math.round(Math.abs(chinaTime - usTime) / 86_400_000);
+  if (gapDays > maxGapDays) return null;
+  return { value: (china.value - us.value) * 100, gapDays };
+}
 export function officialText(html: string) {
   return html.replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
     .replace(/<[^>]+>/g, '').replace(/&nbsp;|&#160;/gi, ' ').replace(/&amp;/gi, '&')
@@ -170,18 +188,37 @@ export async function fetchOfficialNews(kind: 'statistics' | 'xinhua' | 'governm
   return items;
 }
 export async function fetchExportMetric(read: Reader): Promise<OfficialMetric> {
-  // Xinhua reports the Customs release. Retain attribution and the CNY basis.
-  const articles = (await fetchOfficialNews('xinhua', read)).filter(item => /进出口|外贸|出口|进口/.test(item.title))
-    .sort((a, b) => b.publishedAt!.localeCompare(a.publishedAt!));
-  for (const article of articles.slice(0, 8)) {
-    const text = officialText(await read(article.url));
-    const year = article.publishedAt!.slice(0, 4);
-    const month = text.match(/(?:前|1[—–-])(\d{1,2})(?:个)?月/)?.[1];
-    const match = text.match(/我国出口([\d.]+)万亿元[，,](?:同比)?(增长|下降)([\d.]+)%/)
-      || text.match(/其中[，,]出口([\d.]+)万亿元[，,](?:同比)?(增长|下降)([\d.]+)%/);
-    if (!month || !match) continue;
-    const value = signed(match[2], match[3]);
-    return { id: 'exports', label: '出口累计同比（人民币）', value, display: pct(value), period: `${year}-01—${month.padStart(2, '0')}`, source: '海关总署 / 新华社', sourceUrl: article.url, releasedAt: article.publishedAt!.slice(0, 10), status: 'delayed', note: `新华社转引海关数据；人民币计价，累计出口${match[1]}万亿元`, freshness: 'checked' };
+  // Both publishers quote the Customs release. A second official channel keeps
+  // this metric available when a rolling news archive omits the latest article.
+  const [xinhua, ndrc] = await Promise.all([
+    fetchOfficialNews('xinhua', read)
+      .then(items => items.map(item => ({ ...item, publisher: '新华社' as const })))
+      .catch(() => []),
+    read(officialLists.ndrcTrade)
+      .then(html => parseOfficialLinks(html, officialLists.ndrcTrade)
+        .filter(item => item.publishedAt)
+        .map(item => ({ ...item, publisher: '国家发展改革委' as const })))
+      .catch(() => []),
+  ]);
+  const articles = [...xinhua, ...ndrc].filter(item => /进出口|外贸|出口|进口|三驾马车/.test(item.title))
+    .sort((a, b) => b.publishedAt!.localeCompare(a.publishedAt!))
+    .filter((item, index, all) => all.findIndex(candidate => candidate.url === item.url) === index);
+  for (const article of articles.slice(0, 16)) {
+    try {
+      const text = officialText(await read(article.url));
+      const year = article.publishedAt!.slice(0, 4);
+      const monthMatch = text.match(/(?:前|1[—–~～-])(\d{1,2})(?:个)?月/);
+      const month = monthMatch?.[1];
+      const cumulativeStart = monthMatch?.index ?? 0;
+      const monthlyMarker = month ? text.indexOf(`${Number(month)}月当月`, cumulativeStart + monthMatch![0].length) : -1;
+      const cumulativeText = text.slice(cumulativeStart, monthlyMarker > cumulativeStart ? monthlyMarker : cumulativeStart + 1000);
+      const match = cumulativeText.match(/(?:^|[，。；;])(?:其中[，,]?)?(?:我国)?出口(?:总值)?(?:为)?([\d.]+)万亿元(?:人民币)?[，,；;]?(?:同比)?(?:为)?(增长|下降)([\d.]+)%/);
+      if (!month || !match) continue;
+      const value = signed(match[2], match[3]);
+      return { id: 'exports', label: '出口累计同比（人民币）', value, display: pct(value), period: `${year}-01—${month.padStart(2, '0')}`, source: `海关总署 / ${article.publisher}`, sourceUrl: article.url, releasedAt: article.publishedAt!.slice(0, 10), status: 'delayed', note: `${article.publisher}转引海关数据；人民币计价，累计出口${match[1]}万亿元`, freshness: 'checked' };
+    } catch {
+      // Continue to the next official article/source if one page is unavailable.
+    }
   }
-  throw new Error('新华社列表未取得可核验的最新累计出口字段');
+  throw new Error('官方发布渠道未取得可核验的最新累计出口字段');
 }

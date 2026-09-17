@@ -1,16 +1,19 @@
 :root {
   --china-bg: #030706;
-  --china-panel: #07100f;
-  --china-panel-2: #0a1513;
-  --china-card: rgba(13, 28, 25, 0.92);
-  --china-border: rgba(116, 177, 158, 0.2);
+  --china-panel: #09110f;
+  --china-panel-2: #0c1614;
+  --china-card: rgba(13, 23, 20, 0.96);
+  --china-border: rgba(159, 184, 175, 0.2);
   --china-border-strong: rgba(102, 220, 183, 0.44);
   --china-green: #66dfb7;
   --china-red: #ed6978;
-  --china-gold: #d6ad63;
+  --china-gold: #dfb96f;
   --china-blue: #7bb2c7;
-  --china-text: #e3ece9;
-  --china-muted: #7d9690;
+  --china-text: #edf4f1;
+  --china-muted: #a1b0aa;
+  --china-font-sans: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --china-font-display: "Segoe UI Variable Display", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  --china-font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
 }
 
 .china-command-shell {
@@ -27,8 +30,13 @@
     radial-gradient(circle at 50% 42%, rgba(34, 106, 84, 0.08), transparent 38%),
     var(--china-bg);
   background-size: 46px 46px, 46px 46px, auto, auto;
-  font-family: "IBM Plex Sans", "Microsoft YaHei UI", sans-serif;
+  font-family: var(--china-font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
+
+.china-command-shell :is(button, input, select, textarea) { font-family: inherit; }
 
 .china-command-ticker {
   display: grid;
@@ -57,7 +65,7 @@
 .china-command-clock button:hover { color: var(--china-green); background: rgba(102, 223, 183, 0.08); }
 .china-command-brand { display: grid; min-width: 0; flex: 1; align-content: center; padding: 0 18px; }
 .china-command-brand span { display: flex; align-items: center; gap: 7px; color: var(--china-green); font: 600 9px/1.2 "JetBrains Mono", monospace; letter-spacing: 0.16em; }
-.china-command-brand strong { margin-top: 5px; font-size: 18px; letter-spacing: 0; }
+.china-command-brand strong { margin-top: 5px; font-family: var(--china-font-display); font-size: 19px; font-weight: 680; letter-spacing: -0.02em; }
 .china-index-tape { min-width: 0; overflow: hidden; background: rgba(4, 11, 10, 0.98); mask-image: linear-gradient(90deg, transparent, #000 22px, #000 calc(100% - 22px), transparent); }
 .china-index-track { display: flex; width: max-content; height: 100%; animation: china-index-scroll 58s linear infinite; will-change: transform; }
 .china-index-tape:hover .china-index-track { animation-play-state: paused; }
@@ -104,7 +112,7 @@
 
 .china-command-left,
 .china-command-right,
-.china-map-stage { min-width: 0; min-height: 0; background: rgba(5, 13, 12, 0.98); }
+.china-map-stage { min-width: 0; min-height: 0; background: rgba(7, 12, 11, 0.99); }
 .china-command-left,
 .china-command-right { overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(103, 219, 194, 0.25) transparent; }
 .china-command-left { padding: 16px 14px 24px; }
@@ -113,8 +121,8 @@
 
 .china-section-heading { display: flex; align-items: center; gap: 8px; min-height: 24px; margin-bottom: 10px; color: var(--china-green); }
 .china-section-heading::after { content: ""; height: 1px; flex: 1; background: linear-gradient(90deg, var(--china-border-strong), transparent); }
-.china-section-heading span { color: #90a6a0; font: 600 10px "JetBrains Mono", monospace; letter-spacing: 0.08em; white-space: nowrap; }
-.china-section-heading b { color: var(--china-muted); font: 500 8px "JetBrains Mono", monospace; letter-spacing: 0.12em; }
+.china-section-heading span { color: #b6c5bf; font-family: var(--china-font-sans); font-size: 11px; font-weight: 650; letter-spacing: 0.04em; white-space: nowrap; }
+.china-section-heading b { color: #9fafa9; font-family: var(--china-font-sans); font-size: 10px; font-weight: 520; letter-spacing: 0.04em; }
 
 .china-anchor-list { display: grid; gap: 9px; }
 .china-anchor-card,
@@ -122,87 +130,112 @@
 .china-quadrant-board,
 .china-news-board,
 .china-province-inspector { border: 1px solid var(--china-border); border-radius: 6px; background: linear-gradient(145deg, rgba(15, 31, 27, 0.96), rgba(7, 18, 16, 0.98)); box-shadow: inset 0 1px 0 rgba(220, 255, 242, 0.025); }
-.china-anchor-card { position: relative; overflow: hidden; isolation: isolate; }
+.china-anchor-card { position: relative; overflow: hidden; border-radius: 8px; isolation: isolate; }
 .china-anchor-card::after { position: absolute; z-index: -1; inset: 0; pointer-events: none; content: ""; opacity: 0.35; }
 .china-anchor-card > header { display: flex; align-items: center; gap: 9px; min-height: 49px; padding: 9px 10px 8px; border-bottom: 1px solid rgba(116, 177, 158, 0.12); color: var(--china-green); }
 .china-anchor-card > header div { display: grid; gap: 2px; }
 .china-anchor-card > header small { color: var(--china-muted); font: 500 8px "JetBrains Mono", monospace; letter-spacing: 0.13em; }
 .china-anchor-card > header strong { color: var(--china-text); font-size: 13px; }
 .china-anchor-verdict { min-width: 0; margin-left: auto; border: 1px solid currentColor; border-radius: 2px; padding: 3px 5px; color: #7fd8bb; background: rgba(8, 30, 25, 0.7); font: 600 7px "JetBrains Mono", monospace; letter-spacing: 0.02em; text-align: center; white-space: nowrap; }
-.china-anchor-card.is-credit { border-left: 2px solid #5be1c1; border-radius: 2px 10px 2px 2px; }
+.china-anchor-card.is-credit { border-color: rgba(102, 223, 183, 0.24); border-radius: 8px; }
+.china-anchor-card.is-credit > header small { font-size: 9px; }
+.china-anchor-card.is-credit > header strong { font-size: 14px; }
+.china-anchor-card.is-credit .china-anchor-verdict { padding: 4px 7px; color: #9be7cf; font-family: var(--china-font-sans); font-size: 10px; font-weight: 600; }
 .china-anchor-card.is-credit::after { background: linear-gradient(115deg, rgba(45, 206, 174, 0.1), transparent 52%), repeating-linear-gradient(90deg, transparent 0 26px, rgba(81, 194, 169, 0.035) 27px); }
-.china-anchor-card.is-growth { border-radius: 2px; border-color: rgba(137, 182, 152, 0.3); }
+.china-anchor-card.is-growth { border-radius: 8px; border-color: rgba(137, 182, 152, 0.3); }
+.china-anchor-card.is-growth > header small,
+.china-anchor-card.is-inflation > header small { font-size: 9px; }
+.china-anchor-card.is-growth > header strong,
+.china-anchor-card.is-inflation > header strong { font-size: 14px; }
+.china-anchor-card.is-growth .china-anchor-verdict,
+.china-anchor-card.is-inflation .china-anchor-verdict { padding: 4px 7px; font-family: var(--china-font-sans); font-size: 9px; font-weight: 600; }
 .china-anchor-card.is-growth::after { background: linear-gradient(rgba(85, 137, 120, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(85, 137, 120, 0.045) 1px, transparent 1px); background-size: 16px 16px; }
-.china-anchor-card.is-inflation { border-color: rgba(229, 159, 101, 0.25); border-radius: 9px 2px 9px 2px; }
+.china-anchor-card.is-inflation { border-color: rgba(229, 159, 101, 0.25); border-radius: 8px; }
 .china-anchor-card.is-inflation > header { color: #f0a76b; }
 .china-anchor-card.is-inflation .china-anchor-verdict { color: #e9a06b; background: rgba(47, 23, 15, 0.62); }
 .china-anchor-card.is-inflation::after { background: radial-gradient(circle at 50% 112%, rgba(239, 136, 73, 0.16), transparent 52%); }
-.china-anchor-card.is-policy { border-top: 2px solid rgba(99, 170, 231, 0.68); border-radius: 2px 2px 7px 7px; }
+.china-anchor-card.is-policy { border-color: rgba(99, 170, 231, 0.34); border-radius: 8px; }
 .china-anchor-card.is-policy > header { color: #78b9ef; }
-.china-anchor-card.is-policy .china-anchor-verdict { color: #86c4f3; background: rgba(9, 25, 42, 0.72); }
+.china-anchor-card.is-policy > header small { font-size: 9px; }
+.china-anchor-card.is-policy > header strong { font-size: 14px; }
+.china-anchor-card.is-policy .china-anchor-verdict { padding: 4px 7px; color: #9bd2f7; background: rgba(9, 25, 42, 0.72); font-family: var(--china-font-sans); font-size: 9px; font-weight: 600; }
 .china-anchor-card.is-policy::after { background: linear-gradient(180deg, rgba(47, 120, 179, 0.08), transparent 70%); }
 
-.china-credit-pulse { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.china-credit-metric { display: grid; min-width: 0; min-height: 112px; align-content: space-between; gap: 5px; padding: 10px 11px; border-right: 1px solid rgba(105, 202, 178, 0.12); color: var(--china-text); text-decoration: none; }
-.china-credit-metric:last-child { border-right: 0; }
+.china-credit-pulse { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding: 11px 11px 13px; }
+.china-credit-metric { display: grid; min-width: 0; min-height: 130px; align-content: space-between; gap: 8px; padding: 12px; border: 1px solid rgba(105, 202, 178, 0.2); border-radius: 7px; color: var(--china-text); background: rgba(8, 22, 18, 0.72); text-decoration: none; }
 .china-credit-metric:hover { background: rgba(74, 205, 174, 0.055); }
 .china-credit-metric > span { display: flex; min-width: 0; align-items: center; gap: 6px; }
-.china-credit-metric > span b { min-width: 0; overflow: hidden; color: #a9bbb6; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.china-credit-metric > span b { min-width: 0; overflow: visible; color: #cbd9d4; font-size: 12px; font-weight: 600; line-height: 1.35; text-overflow: clip; white-space: normal; }
 .china-credit-metric > span em { width: 5px; height: 5px; margin-left: auto; border-radius: 50%; background: var(--china-gold); }
 .china-credit-metric > span em.is-live { background: var(--china-green); box-shadow: 0 0 7px rgba(102, 223, 183, 0.5); }
-.china-credit-metric > strong { color: #f2f8f5; font: 650 20px/1 "JetBrains Mono", monospace; letter-spacing: -0.045em; }
-.china-credit-metric > small { overflow: hidden; color: #79cdb5; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.china-credit-metric > i { position: relative; display: block; height: 5px; overflow: hidden; background: repeating-linear-gradient(90deg, rgba(75, 131, 116, 0.24) 0 7px, transparent 7px 10px); }
+.china-credit-metric > strong { color: #f2f8f5; font: 650 22px/1 var(--china-font-mono); letter-spacing: -0.035em; }
+.china-credit-metric > small { overflow: hidden; color: #8ad8c1; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.china-credit-metric > i { position: relative; display: block; height: 7px; overflow: hidden; border-radius: 2px; background: repeating-linear-gradient(90deg, rgba(75, 131, 116, 0.24) 0 7px, transparent 7px 10px); }
 .china-credit-metric > i::after { position: absolute; top: 2px; left: 0; width: 100%; height: 1px; background: rgba(75, 131, 116, 0.35); content: ""; }
 .china-credit-metric > i u { position: absolute; z-index: 1; top: 0; left: 0; width: var(--signal-fill); height: 100%; background: linear-gradient(90deg, #2c8e78, #6ce3c3); box-shadow: 0 0 9px rgba(77, 224, 188, 0.25); text-decoration: none; }
 
-.china-pmi-board { position: relative; display: grid; gap: 7px; padding: 8px 10px 10px; }
-.china-pmi-axis { display: flex; align-items: center; justify-content: space-between; color: #526b64; font: 7px "JetBrains Mono", monospace; }
+.china-pmi-board { position: relative; display: grid; gap: 10px; padding: 11px 11px 13px; }
+.china-pmi-axis { display: flex; align-items: center; justify-content: space-between; color: #82968f; font: 8px var(--china-font-mono); }
 .china-pmi-axis b { color: #c6a267; font-weight: 600; }
-.china-pmi-row { display: grid; gap: 5px; min-width: 0; border: 1px solid rgba(102, 161, 143, 0.11); border-radius: 3px; padding: 7px 8px 6px; color: var(--china-text); background: rgba(8, 22, 18, 0.72); text-decoration: none; }
+.china-pmi-row { display: grid; min-width: 0; min-height: 88px; align-content: space-between; gap: 8px; border: 1px solid rgba(102, 161, 143, 0.16); border-radius: 7px; padding: 10px; color: var(--china-text); background: rgba(8, 22, 18, 0.72); text-decoration: none; }
 .china-pmi-row:hover { border-color: rgba(102, 223, 183, 0.28); background: rgba(14, 35, 29, 0.82); }
 .china-pmi-row-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.china-pmi-row-head > b { overflow: hidden; color: #a7bab4; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.china-pmi-row-head > em { border: 1px solid currentColor; border-radius: 2px; padding: 2px 4px; font: 700 7px "JetBrains Mono", monospace; font-style: normal; }
+.china-pmi-row-head > b { overflow: hidden; color: #cbd9d4; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.china-pmi-row-head > em { border: 1px solid currentColor; border-radius: 3px; padding: 2px 5px; font: 700 9px var(--china-font-sans); font-style: normal; }
 .china-pmi-row-head > em.is-expansion { color: #67dcbc; background: rgba(63, 174, 144, 0.08); }
 .china-pmi-row-head > em.is-contraction { color: #e1a15f; background: rgba(176, 101, 45, 0.08); }
-.china-pmi-row-head > strong { margin-left: auto; color: #edf5f2; font: 650 18px "JetBrains Mono", monospace; }
-.china-pmi-track { position: relative; height: 9px; overflow: hidden; border: 1px solid rgba(100, 157, 139, 0.16); border-radius: 1px; background: linear-gradient(90deg, rgba(188, 112, 61, 0.16) 0 50%, rgba(55, 151, 125, 0.15) 50%); }
+.china-pmi-row-head > strong { margin-left: auto; color: #f1f7f4; font: 650 20px var(--china-font-mono); }
+.china-pmi-track { position: relative; height: 12px; overflow: hidden; border: 1px solid rgba(100, 157, 139, 0.2); border-radius: 3px; background: linear-gradient(90deg, rgba(188, 112, 61, 0.16) 0 50%, rgba(55, 151, 125, 0.15) 50%); }
 .china-pmi-track::after { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(222, 180, 108, 0.82); content: ""; }
-.china-pmi-track > i { position: absolute; z-index: 2; top: -2px; left: var(--pmi-position); width: 2px; height: 13px; background: #e8fff7; box-shadow: 0 0 7px rgba(105, 226, 193, 0.72); transform: translateX(-50%); }
-.china-pmi-track > em { position: absolute; top: 2px; left: var(--pmi-band-start); width: max(var(--pmi-band-width), 1%); height: 3px; background: #61dabb; box-shadow: 0 0 7px rgba(97, 218, 187, 0.45); }
+.china-pmi-track > i { position: absolute; z-index: 2; top: -1px; left: var(--pmi-position); width: 2px; height: 14px; background: #e8fff7; box-shadow: 0 0 7px rgba(105, 226, 193, 0.72); transform: translateX(-50%); }
+.china-pmi-track > em { position: absolute; top: 3px; left: var(--pmi-band-start); width: max(var(--pmi-band-width), 1%); height: 5px; background: #61dabb; box-shadow: 0 0 7px rgba(97, 218, 187, 0.45); }
 .china-pmi-row-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
-.china-pmi-row-foot > b { color: #d8ad6f; font-size: 7px; font-weight: 600; }
+.china-pmi-row-foot > b { color: #e3bb79; font-size: 10px; font-weight: 600; }
 .china-pmi-row.is-expansion .china-pmi-row-foot > b { color: #6fd4b8; }
 .china-pmi-row-foot > small { min-width: 0; overflow: hidden; color: #5e766f; font: 6px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
 
-.china-inflation-radar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px 7px 11px; }
-.china-inflation-metric { display: grid; grid-template-columns: 57px minmax(0, 1fr); align-items: center; gap: 7px; min-width: 0; padding: 2px 7px; color: var(--china-text); text-decoration: none; }
-.china-inflation-metric:first-child { border-right: 1px solid rgba(229, 159, 101, 0.14); }
-.china-inflation-ring { display: grid; width: 55px; height: 55px; place-items: center; border-radius: 50%; background: conic-gradient(#eaa069 0 var(--inflation-pressure), rgba(173, 96, 60, 0.12) var(--inflation-pressure)); box-shadow: 0 0 16px rgba(207, 106, 65, 0.08); }
-.china-inflation-metric.is-cpi .china-inflation-ring { background: conic-gradient(#61d9b9 0 var(--inflation-pressure), rgba(58, 142, 120, 0.12) var(--inflation-pressure)); }
-.china-inflation-ring > i { display: grid; width: 45px; height: 45px; place-content: center; border-radius: 50%; background: #0a1714; font-style: normal; text-align: center; }
-.china-inflation-ring strong { font: 650 12px "JetBrains Mono", monospace; }
-.china-inflation-ring small { color: #657c76; font: 6px "JetBrains Mono", monospace; }
-.china-inflation-copy { display: grid; gap: 3px; min-width: 0; }
-.china-inflation-copy > b { color: #e6a06d; font: 700 8px "JetBrains Mono", monospace; letter-spacing: 0.12em; }
-.china-inflation-metric.is-cpi .china-inflation-copy > b { color: #68d9ba; }
-.china-inflation-copy > strong { color: #b9c7c2; font-size: 8px; line-height: 1.25; }
-.china-inflation-copy > small { overflow: hidden; color: #617771; font: 6px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.china-inflation-board { display: grid; gap: 10px; padding: 12px 11px 14px; }
+.china-inflation-axis { display: grid; grid-template-columns: repeat(3, 1fr); color: #8b9c96; font: 500 9px var(--china-font-mono); }
+.china-inflation-axis b { color: #c9b181; font-weight: 650; text-align: center; }
+.china-inflation-axis span:last-child { text-align: right; }
+.china-inflation-metric { display: grid; min-width: 0; min-height: 94px; align-content: space-between; gap: 8px; padding: 10px; border: 1px solid rgba(229, 159, 101, 0.17); border-radius: 8px; color: var(--china-text); background: rgba(13, 24, 21, 0.7); text-decoration: none; }
+.china-inflation-metric:hover { border-color: rgba(229, 159, 101, 0.3); background: rgba(30, 25, 18, 0.68); }
+.china-inflation-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.china-inflation-head > b { color: #d0ddd8; font-family: var(--china-font-sans); font-size: 12px; font-weight: 650; }
+.china-inflation-head > strong { color: #f2f7f5; font: 680 21px/1 var(--china-font-mono); letter-spacing: -0.04em; }
+.china-inflation-metric.is-cpi .china-inflation-head > strong { color: #79e0c1; }
+.china-inflation-metric.is-ppi .china-inflation-head > strong { color: #f0aa70; }
+.china-inflation-track { position: relative; display: block; height: 13px; overflow: hidden; border: 1px solid rgba(158, 184, 175, 0.2); border-radius: 999px; background: linear-gradient(90deg, rgba(91, 143, 128, 0.08), rgba(222, 172, 97, 0.08)); }
+.china-inflation-track::after { position: absolute; z-index: 2; top: -1px; bottom: -1px; left: 50%; width: 1px; background: rgba(237, 222, 183, 0.72); content: ""; }
+.china-inflation-track > i { position: absolute; top: 3px; left: var(--inflation-start); width: max(var(--inflation-width), 1px); height: 6px; border-radius: 999px; background: linear-gradient(90deg, #4db696, #76dfbd); box-shadow: 0 0 8px rgba(102, 223, 183, 0.24); }
+.china-inflation-metric.is-ppi .china-inflation-track > i { background: linear-gradient(90deg, #b36a46, #efa76d); box-shadow: 0 0 8px rgba(239, 167, 109, 0.22); }
+.china-inflation-track > u { position: absolute; z-index: 3; top: 0; left: var(--inflation-position); width: 2px; height: 11px; border-radius: 2px; background: #eafff8; box-shadow: 0 0 6px rgba(230, 255, 247, 0.48); text-decoration: none; transform: translateX(-50%); }
+.china-inflation-copy { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.china-inflation-copy > strong { color: #c3d1cc; font-size: 11px; font-weight: 580; line-height: 1.4; }
+.china-inflation-copy > small { max-width: 48%; overflow: visible; color: #9baca6; font: 500 9px/1.35 var(--china-font-sans); text-align: right; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
 
-.china-rate-curve { padding: 7px 9px 10px; }
-.china-rate-chart { position: relative; height: 60px; overflow: hidden; border-bottom: 1px solid rgba(94, 160, 209, 0.15); background: linear-gradient(180deg, rgba(31, 91, 134, 0.09), transparent); }
-.china-rate-chart svg { width: 100%; height: 58px; overflow: visible; }
-.china-rate-chart line { stroke: rgba(99, 155, 197, 0.12); stroke-width: 1; }
-.china-rate-chart polyline { fill: none; stroke: #68b8ee; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.china-rate-chart circle { fill: #93d4ff; stroke: #0b1c27; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.china-rate-chart > span { position: absolute; top: 4px; left: 5px; color: #5f7c8d; font: 7px "JetBrains Mono", monospace; letter-spacing: 0.08em; }
+.china-rate-curve { padding: 11px 11px 13px; }
+.china-rate-chart { position: relative; min-height: 174px; overflow: hidden; border: 1px solid rgba(94, 160, 209, 0.18); border-radius: 8px; background: linear-gradient(180deg, rgba(31, 91, 134, 0.14), rgba(7, 19, 24, 0.5)); }
+.china-rate-chart-title { display: flex; align-items: center; justify-content: space-between; padding: 10px 11px 0; color: #b9cbd3; font-family: var(--china-font-sans); font-size: 10px; font-weight: 560; }
+.china-rate-chart-title b { color: #8ba2ad; font-size: 9px; font-weight: 520; }
+.china-rate-chart svg { display: block; width: 100%; height: 128px; overflow: visible; }
+.china-rate-chart line { stroke: rgba(117, 163, 191, 0.15); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.china-rate-chart path { fill: none; stroke-width: 1.7; vector-effect: non-scaling-stroke; }
+.china-rate-chart circle { stroke: #0a171b; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.china-rate-chart text { fill: #91a8b3; font: 8px var(--china-font-mono); }
+.china-rate-chart .china-rate-date { fill: #8198a3; font-size: 7px; }
+.china-rate-legend { position: absolute; right: 10px; bottom: 8px; left: 43px; display: flex; align-items: center; gap: 11px; color: #a8bbc4; font-size: 8px; }
+.china-rate-legend > span { display: flex; align-items: center; gap: 4px; }
+.china-rate-legend i { width: 10px; height: 2px; border-radius: 2px; background: #7dbcf2; }
+.china-rate-legend .is-dr007 i { background: #72ddb9; }
+.china-rate-legend small { margin-left: auto; color: #8297a1; font-size: 7px; }
+.china-rate-empty { position: absolute; inset: 48px 0 auto; color: #718892; font-size: 9px; text-align: center; }
 .china-rate-points { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.china-rate-point { display: grid; min-width: 0; gap: 3px; padding: 7px 5px 2px; border-right: 1px solid rgba(94, 160, 209, 0.12); color: var(--china-text); text-decoration: none; }
+.china-rate-point { display: grid; min-width: 0; gap: 6px; padding: 11px 7px 4px; border-right: 1px solid rgba(94, 160, 209, 0.12); color: var(--china-text); text-decoration: none; }
 .china-rate-point:last-child { border-right: 0; }
-.china-rate-point > span { color: #6d8da0; font: 7px "JetBrains Mono", monospace; }
-.china-rate-point > strong { overflow: hidden; color: #eaf3f8; font: 650 10px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
-.china-rate-point > small { overflow: hidden; color: #75afd1; font-size: 6px; text-overflow: ellipsis; white-space: nowrap; }
+.china-rate-point > span { color: #91adbc; font: 600 9px var(--china-font-sans); }
+.china-rate-point > strong { overflow: hidden; color: #f0f6f9; font: 650 13px var(--china-font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.china-rate-point > small { min-height: 26px; overflow: visible; color: #9ac1d5; font-family: var(--china-font-sans); font-size: 9px; font-weight: 520; line-height: 1.4; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
 
 .china-metric-cell { position: relative; display: grid; min-width: 0; min-height: 94px; align-content: space-between; gap: 7px; padding: 10px 11px 9px; border-right: 1px solid rgba(116, 177, 158, 0.1); color: var(--china-text); text-decoration: none; overflow: hidden; isolation: isolate; }
 .china-metric-cell::before { position: absolute; z-index: -1; right: -24px; bottom: -32px; width: 72px; height: 72px; border: 1px solid rgba(102, 223, 183, 0.07); border-radius: 50%; content: ""; transition: border-color 160ms ease, transform 160ms ease; }
@@ -211,7 +244,7 @@
 .china-metric-cell:hover::before { border-color: rgba(102, 223, 183, 0.16); transform: scale(1.08); }
 .china-metric-head { display: flex; min-width: 0; align-items: center; gap: 7px; }
 .china-metric-head > i { display: grid; width: 23px; height: 23px; flex: 0 0 23px; place-items: center; border: 1px solid rgba(102, 223, 183, 0.25); border-radius: 4px; color: var(--china-green); background: rgba(102, 223, 183, 0.055); font-style: normal; }
-.china-metric-name { min-width: 0; flex: 1; overflow: hidden; color: #9eb3ad; font-size: 10px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.china-metric-name { min-width: 0; flex: 1; overflow: hidden; color: #b8c9c3; font-size: 11px; font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .china-metric-head > em { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: #5c716c; }
 .china-metric-head > em.is-live { background: var(--china-green); box-shadow: 0 0 7px rgba(102, 223, 183, 0.52); }
 .china-metric-head > em.is-delayed { background: var(--china-gold); }
@@ -219,7 +252,7 @@
 .china-metric-value > strong { min-width: 0; overflow: hidden; color: #edf5f2; font: 650 17px/1.05 "JetBrains Mono", monospace; letter-spacing: -0.035em; text-overflow: ellipsis; white-space: nowrap; }
 .china-metric-value > svg { flex: 0 0 auto; color: rgba(102, 223, 183, 0.34); }
 .china-metric-foot { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 7px; border-top: 1px solid rgba(116, 177, 158, 0.1); padding-top: 6px; }
-.china-metric-foot > b { min-width: 0; overflow: hidden; font: 600 8px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.china-metric-foot > b { min-width: 0; overflow: visible; color: inherit; font-family: var(--china-font-sans); font-size: 10px; font-weight: 650; line-height: 1.4; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
 .china-metric-foot > small { min-width: 0; overflow: hidden; color: #526963; font: 500 7px "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
 .china-metric-cell.is-empty { color: var(--china-muted); }
 .is-up { color: var(--china-red) !important; }
@@ -230,12 +263,31 @@
 .is-impact-watch { color: #dcb06b !important; }
 .is-impact-neutral { color: #79a9c4 !important; }
 .china-tier-block { margin-top: 18px; }
-.china-compact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--china-border); border-radius: 6px; background: var(--china-card); }
-.china-compact-grid .china-metric-cell { border-bottom: 1px solid rgba(116, 177, 158, 0.1); }
+.china-compact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; overflow: visible; border: 0; background: transparent; }
+.china-compact-grid .china-metric-cell { min-height: 122px; align-content: stretch; grid-template-rows: minmax(31px, auto) 1fr auto; border: 1px solid var(--china-border); border-radius: 7px; background: var(--china-card); }
+.china-compact-grid .china-metric-head { align-items: flex-start; }
+.china-compact-grid .china-metric-name { display: -webkit-box; overflow: hidden; padding-top: 2px; color: #c1d0cb; font-size: 11px; line-height: 1.4; text-overflow: clip; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.china-compact-grid .china-metric-head > em { margin-top: 7px; }
 .china-compact-grid .china-metric-cell:nth-child(odd):last-child { grid-column: 1 / -1; }
-.china-compact-grid .china-metric-cell:nth-last-child(-n + 2) { border-bottom: 0; }
-.china-compact-grid .china-metric-value > strong { font-size: 15px; }
+.china-compact-grid .china-metric-value { align-items: center; justify-content: center; text-align: center; }
+.china-compact-grid .china-metric-value > strong { width: 100%; overflow: visible; font-family: var(--china-font-display); font-size: 16px; font-weight: 650; line-height: 1.2; letter-spacing: -0.02em; text-align: center; text-overflow: clip; white-space: normal; font-variant-numeric: tabular-nums; }
 .china-compact-grid .china-metric-value > svg { display: none; }
+.china-compact-grid .china-metric-foot { min-height: 30px; align-items: center; justify-content: center; padding-top: 7px; text-align: center; }
+.china-compact-grid .china-metric-foot > b {
+  width: 100%;
+  color: #c9d8d3;
+  font-family: var(--china-font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: center;
+  text-wrap: balance;
+}
+.china-compact-grid .china-metric-foot > b.is-impact-support { color: #83dfc3 !important; }
+.china-compact-grid .china-metric-foot > b.is-impact-risk { color: #f09280 !important; }
+.china-compact-grid .china-metric-foot > b.is-impact-watch { color: #e7bd72 !important; }
+.china-compact-grid .china-metric-foot > b.is-impact-neutral { color: #8fb9cf !important; }
 .china-compact-grid .china-metric-household-loans .china-metric-head > i,
 .china-compact-grid .china-metric-corporate-loans .china-metric-head > i { color: #74b9f0; border-color: rgba(92, 163, 219, 0.35); background: rgba(50, 112, 159, 0.09); }
 .china-compact-grid .china-metric-fiscal .china-metric-head > i,
@@ -249,7 +301,7 @@
 .china-map-stage::-webkit-scrollbar { display: none; }
 .china-map-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .china-map-title-row span { color: var(--china-green); font: 600 9px "JetBrains Mono", monospace; letter-spacing: 0.18em; }
-.china-map-title-row h2 { margin: 5px 0 0; color: #edf5f2; font-size: 25px; font-weight: 600; letter-spacing: 0; }
+.china-map-title-row h2 { margin: 5px 0 0; color: #edf5f2; font-family: var(--china-font-display); font-size: 26px; font-weight: 680; letter-spacing: -0.025em; }
 .china-map-modes { display: flex; border: 1px solid var(--china-border); border-radius: 5px; overflow: hidden; }
 .china-map-modes button { height: 34px; border: 0; border-right: 1px solid var(--china-border); padding: 0 13px; color: var(--china-muted); background: rgba(7, 19, 17, 0.86); font-size: 11px; cursor: pointer; }
 .china-map-modes button:last-child { border-right: 0; }
@@ -312,9 +364,9 @@
 .china-province-panel { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 94px; margin-top: 8px; border-top: 1px solid var(--china-border); border-bottom: 1px solid var(--china-border); }
 .china-province-panel > div { display: grid; align-content: center; gap: 4px; min-width: 0; padding: 9px 10px; border-right: 1px solid var(--china-border); }
 .china-province-panel > div:last-of-type { border-right: 0; }
-.china-province-panel span { color: var(--china-muted); font-size: 8px; }
-.china-province-panel strong { overflow: hidden; color: var(--china-text); font-size: 11px; line-height: 1.35; text-overflow: ellipsis; }
-.china-province-panel small { display: -webkit-box; overflow: hidden; color: #526963; font-size: 8px; line-height: 1.35; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.china-province-panel span { color: #9aafa7; font-size: 10px; }
+.china-province-panel strong { overflow: hidden; color: #e4efeb; font-size: 13px; font-weight: 620; line-height: 1.4; text-overflow: ellipsis; }
+.china-province-panel small { display: -webkit-box; overflow: hidden; color: #adbbb6; font-size: 10px; line-height: 1.55; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .china-province-panel > a { align-self: center; margin: 0 10px; color: var(--china-green); font-size: 9px; text-decoration: none; }
 .china-region-data-empty { display: flex; align-items: center; gap: 10px; min-height: 64px; margin-top: 8px; border: 1px dashed rgba(113, 174, 153, 0.22); border-radius: 4px; padding: 10px 12px; color: var(--china-muted); background: rgba(4, 14, 12, 0.42); }
 .china-region-data-empty > svg { flex: 0 0 auto; color: #547b6f; }
@@ -326,28 +378,28 @@
 .china-local-intel > section:first-child { border-right: 1px solid rgba(102, 223, 183, .12); padding-right: 12px; }
 .china-local-intel > section:last-child { padding-left: 12px; }
 .china-local-intel header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; padding: 10px 14px; border-bottom: 1px solid rgba(102, 223, 183, .1); color: var(--china-green); }
-.china-local-intel header strong { color: var(--china-text); font-size: 12px; }
-.china-local-intel header span { margin-left: auto; color: var(--china-muted); font: 10px "JetBrains Mono", monospace; }
+.china-local-intel header strong { color: #e2ede9; font-size: 13px; font-weight: 650; }
+.china-local-intel header span { margin-left: auto; color: #b0beb9; font-family: var(--china-font-sans); font-size: 10px; font-weight: 520; }
 .china-local-intel-list { display: grid; flex: 1; gap: 10px; padding: 10px 0; max-height: none; overflow: visible; }
 .china-local-intel-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(min-content, 1fr)); grid-auto-flow: column; gap: 8px; }
 .china-local-intel-group > a { display: flex; align-items: flex-start; gap: 8px; min-width: 0; min-height: 84px; padding: 12px 10px; border: 1px solid rgba(116, 177, 158, .13); border-radius: 11px; color: #c3d4ce; background: linear-gradient(135deg, rgba(38, 76, 62, .13), rgba(5, 17, 14, .6)); text-decoration: none; transition: border-color 160ms ease, background 160ms ease; }
 .china-local-intel-group > a:hover, .china-local-intel-group > a:focus-visible { border-color: rgba(102, 223, 183, .55); background: rgba(102, 223, 183, .065); outline: 2px solid transparent; }
 .china-local-intel-copy { display: grid; align-content: space-between; gap: 10px; min-width: 0; flex: 1; }
-.china-local-intel-copy > strong { display: block; overflow: visible; color: inherit; font-size: 11px; font-weight: 500; line-height: 1.7; white-space: normal; overflow-wrap: anywhere; }
-.china-local-intel-copy > small { display: flex; flex-wrap: wrap; gap: 4px 10px; color: #86a198; font-size: 9px; line-height: 1.55; }
-.china-local-intel-copy time { font-family: "JetBrains Mono", monospace; }
+.china-local-intel-copy > strong { display: block; overflow: visible; color: #cedbd6; font-size: 13px; font-weight: 520; line-height: 1.65; white-space: normal; overflow-wrap: anywhere; }
+.china-local-intel-copy > small { display: flex; flex-wrap: wrap; gap: 4px 10px; color: #aebcb7; font-size: 10px; line-height: 1.55; }
+.china-local-intel-copy time { font-family: var(--china-font-sans); font-variant-numeric: tabular-nums; }
 .china-local-intel-group > a > svg { flex: 0 0 auto; margin-top: 3px; color: var(--china-green); opacity: .65; }
-.china-local-intel-rank { display: grid; flex: 0 0 auto; place-items: center; width: 22px; height: 22px; border: 1px solid rgba(214, 173, 99, .2); border-radius: 7px; color: var(--china-gold); background: rgba(214, 173, 99, .05); font: 600 9px "JetBrains Mono", monospace; }
+.china-local-intel-rank { display: grid; flex: 0 0 auto; place-items: center; width: 22px; height: 22px; border: 1px solid rgba(112, 203, 175, .24); border-radius: 7px; color: #8fd6bf; background: rgba(102, 223, 183, .06); font-family: var(--china-font-sans); font-size: 9px; font-weight: 650; }
 .china-local-intel mark { padding: 0 1px; border-radius: 3px; color: #b5ebd7; background: rgba(102, 223, 183, .08); }
 .china-local-intel-empty { margin: 0; padding: 10px 6px; color: var(--china-muted); font-size: 11px; line-height: 1.7; }
 .china-local-intel-more { display: flex; justify-content: center; align-items: center; gap: 12px; width: 100%; margin: auto 0 0; padding: 10px; border: 1px solid rgba(102, 223, 183, .15); border-radius: 9px; color: #94b8aa; background: rgba(102, 223, 183, .025); cursor: pointer; font: inherit; font-size: 10px; }
 .china-local-intel-topic { color: #92d5bd; font-style: normal; }
-.china-local-intel-summary { margin: 0; min-height: 29px; padding: 8px 0 0; color: var(--china-muted); font-size: 9px; line-height: 1.6; }
+.china-local-intel-summary { margin: 0; min-height: 29px; padding: 8px 0 0; color: #b2c0bb; font-size: 11px; line-height: 1.65; }
 .china-local-intel-more:focus-visible, .china-local-intel-status button:focus-visible { outline: 2px solid var(--china-green); outline-offset: 2px; }
 .china-local-intel-skeleton { display: grid; align-content: center; gap: 10px; min-height: 84px; padding: 14px; border: 1px solid var(--china-border); border-radius: 11px; animation: china-local-pulse 1.6s ease-in-out infinite alternate; }
 .china-local-intel-skeleton i { display: block; height: 6px; border-radius: 5px; background: rgba(102, 223, 183, .14); }
 .china-local-intel-skeleton i:last-child { width: 55%; }
-.china-local-intel-status { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 10px; color: var(--china-muted); font-size: 10px; line-height: 1.6; }
+.china-local-intel-status { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 10px; color: #aab9b3; font-size: 10px; line-height: 1.6; }
 .china-local-intel-status > span { flex: 1; }
 .china-local-intel-status a, .china-local-intel-status button { display: inline-flex; align-items: center; gap: 5px; color: #9dbbad; text-decoration: none; }
 .china-local-intel-status button { padding: 6px 9px; border: 1px solid var(--china-border); border-radius: 7px; background: transparent; font: inherit; cursor: pointer; }
@@ -365,7 +417,7 @@
 .china-policy-state { border-left: 3px solid var(--china-gold); padding: 6px 10px 8px; }
 .china-policy-state small { color: var(--china-muted); font-size: 9px; }
 .china-policy-state > strong { display: block; margin-top: 4px; color: #efdca8; font-size: 17px; }
-.china-policy-state p { margin: 5px 0 10px; color: #92a7a1; font-size: 10px; line-height: 1.5; }
+.china-policy-state p { margin: 5px 0 10px; color: #aebfb9; font-size: 11px; line-height: 1.6; }
 .china-policy-state > div { display: flex; justify-content: space-between; border-top: 1px solid var(--china-border); padding-top: 8px; font-size: 10px; }
 .china-policy-state b { color: var(--china-green); }
 .china-next-data { display: flex; align-items: center; gap: 9px; margin-top: 10px; border: 1px solid rgba(214, 173, 99, 0.22); border-radius: 5px; padding: 9px; color: var(--china-gold); text-decoration: none; background: rgba(214, 173, 99, 0.045); }
@@ -402,7 +454,6 @@
 .china-metric-foot > small,
 .china-credit-metric > small,
 .china-pmi-row-foot > small,
-.china-inflation-copy > small,
 .china-rate-point > small:last-child { display: none; }
 .china-news-list > a { position: relative; display: grid; grid-template-columns: 27px minmax(0, 1fr) 14px; align-items: start; gap: 8px; min-height: 59px; padding: 10px; overflow: hidden; border: 1px solid rgba(116, 177, 158, 0.13); border-radius: 10px; color: var(--china-text); text-decoration: none; background: linear-gradient(135deg, rgba(102, 223, 183, 0.035), rgba(2, 10, 9, 0.62)); transition: border-color 160ms ease, background 160ms ease, transform 160ms ease; }
 .china-news-list > a::before { position: absolute; inset: 8px auto 8px 0; width: 2px; border-radius: 0 999px 999px 0; background: var(--china-blue); content: ""; opacity: 0.7; }
@@ -412,11 +463,11 @@
 .china-news-list > a:focus-visible { border-color: rgba(102, 223, 183, 0.34); background: linear-gradient(135deg, rgba(102, 223, 183, 0.075), rgba(3, 14, 12, 0.82)); transform: translateY(-1px); outline: none; }
 .china-news-list > a:hover strong,
 .china-news-list > a:focus-visible strong { color: #dffff4; }
-.china-news-list em { display: grid; place-items: center; width: 25px; height: 20px; border: 1px solid rgba(214, 173, 99, 0.23); border-radius: 999px; color: var(--china-gold); background: rgba(214, 173, 99, 0.065); font: normal 8px "JetBrains Mono", monospace; }
+.china-news-list em { display: grid; place-items: center; width: 25px; height: 20px; border: 1px solid rgba(112, 203, 175, .24); border-radius: 999px; color: #8fd6bf; background: rgba(102, 223, 183, .06); font-family: var(--china-font-sans); font-size: 9px; font-style: normal; font-weight: 650; }
 .china-news-list div { display: grid; gap: 5px; }
-.china-news-list strong { display: -webkit-box; overflow: hidden; font-size: 11px; line-height: 1.45; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.china-news-list strong { display: -webkit-box; overflow: hidden; color: #cbd9d4; font-size: 12px; font-weight: 560; line-height: 1.55; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .china-news-list strong mark { border-radius: 3px; padding: 0 2px; color: #a8ffe2; background: rgba(102, 223, 183, 0.16); font-weight: 800; }
-.china-news-list span { color: var(--china-muted); font-size: 8px; }
+.china-news-list span { color: #91a8a0; font-size: 10px; }
 .china-news-list span i { display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: var(--china-blue); }
 .china-news-list span i.is-critical { background: var(--china-red); box-shadow: 0 0 7px var(--china-red); }
 .china-news-list span i.is-high { background: var(--china-gold); }

@@ -51,6 +51,7 @@ type ChinaMetric = {
   sourceUrl: string;
   status: 'live' | 'delayed' | 'unavailable';
   note?: string;
+  history?: Array<{ time: string; value: number }>;
   releasedAt?: string;
   checkedAt?: string;
   freshness?: 'checked' | 'cached' | 'unverified';
@@ -677,14 +678,25 @@ function MacroAnchorVisual({ anchor, items }: { anchor: MacroAnchor; items: Chin
   }
 
   if (anchor.id === 'inflation') {
+    const scale = Math.max(5, Math.ceil(Math.max(...items.map((item) => Math.abs(metricValue(item))), 0)));
     return (
-      <div className="china-inflation-radar">
+      <div className="china-inflation-board">
+        <div className="china-inflation-axis" aria-hidden="true"><span>-{scale}%</span><b>0</b><span>+{scale}%</span></div>
         {items.map((item) => {
-          const pressure = clamp(Math.abs(metricValue(item)) / 5 * 100, 6, 100);
+          const value = metricValue(item);
+          const position = clamp((value + scale) / (scale * 2) * 100, 0, 100);
+          const start = Math.min(50, position);
+          const width = Math.abs(position - 50);
           return (
-            <MacroMetricLink key={item.id} item={item} className={`china-inflation-metric is-${item.id}`} style={{ '--inflation-pressure': `${pressure * 3.6}deg` } as CSSProperties}>
-              <span className="china-inflation-ring"><i><strong>{item.display}</strong><small>同比</small></i></span>
-              <span className="china-inflation-copy"><b>{item.id.toUpperCase()}</b><strong>{metricPhenomenon(item)}</strong><small>{metricSignal(item)} · {metricPeriodLabel(item.period)}</small></span>
+            <MacroMetricLink
+              key={item.id}
+              item={item}
+              className={`china-inflation-metric is-${item.id} ${value >= 0 ? 'is-positive' : 'is-negative'}`}
+              style={{ '--inflation-position': `${position}%`, '--inflation-start': `${start}%`, '--inflation-width': `${width}%` } as CSSProperties}
+            >
+              <span className="china-inflation-head"><b>{item.id.toUpperCase()} 同比</b><strong>{item.display}</strong></span>
+              <span className="china-inflation-track"><i /><u /></span>
+              <span className="china-inflation-copy"><strong>{metricPhenomenon(item)}</strong><small>{metricSignal(item)} · {metricPeriodLabel(item.period)}</small></span>
             </MacroMetricLink>
           );
         })}
@@ -693,15 +705,47 @@ function MacroAnchorVisual({ anchor, items }: { anchor: MacroAnchor; items: Chin
   }
 
   const rateItems = items.filter((item) => ['dr007', 'cn10y', 'lpr'].includes(item.id));
+  const rateSeries = rateItems.flatMap((item) => {
+    const points = (item.history || []).filter((point) => Number.isFinite(point.value) && Number.isFinite(Date.parse(point.time)))
+      .sort((left, right) => left.time.localeCompare(right.time));
+    return points.length > 1 ? [{ item, points }] : [];
+  });
+  const allRatePoints = rateSeries.flatMap((series) => series.points);
+  const rateMinTime = Math.min(...allRatePoints.map((point) => Date.parse(point.time)));
+  const rateMaxTime = Math.max(...allRatePoints.map((point) => Date.parse(point.time)));
+  const rateMinValue = Math.min(...allRatePoints.map((point) => point.value));
+  const rateMaxValue = Math.max(...allRatePoints.map((point) => point.value));
+  const rateRange = Math.max(0.1, rateMaxValue - rateMinValue);
+  const rateFloor = Math.max(0, rateMinValue - rateRange * 0.18);
+  const rateCeiling = rateMaxValue + rateRange * 0.18;
+  const rateX = (time: string) => 38 + (Date.parse(time) - rateMinTime) / Math.max(1, rateMaxTime - rateMinTime) * 232;
+  const rateY = (value: number) => 82 - (value - rateFloor) / Math.max(0.01, rateCeiling - rateFloor) * 66;
+  const rateColor = (id: string) => id === 'dr007' ? '#72ddb9' : '#7dbcf2';
+  const rateTicks = [rateCeiling, (rateCeiling + rateFloor) / 2, rateFloor];
   return (
     <div className="china-rate-curve">
-      <div className="china-rate-chart" aria-label="当期资金价格横截面">
-        <svg viewBox="0 0 200 66" preserveAspectRatio="none" aria-hidden="true">
-          <line x1="0" y1="57" x2="200" y2="57" />
-          <line x1="0" y1="28" x2="200" y2="28" />
-          {rateItems.map((item, index) => item.value !== null && <circle key={item.id} cx={18 + index * 82} cy={57 - clamp(metricValue(item), 0, 4) / 4 * 38} r="3" />)}
-        </svg>
-        <span>资金报价横截面（不同工具）</span>
+      <div className={`china-rate-chart${rateSeries.length ? '' : ' is-empty'}`} aria-label="近三个月资金与长端利率走势">
+        <div className="china-rate-chart-title"><span>近 60 个交易日</span><b>单位：%</b></div>
+        {rateSeries.length ? <svg viewBox="0 0 280 100" preserveAspectRatio="none" role="img" aria-label="FDR007 与中国十年期国债收益率历史走势">
+          {rateTicks.map((tick, index) => <g key={index}>
+            <line x1="38" y1={16 + index * 33} x2="270" y2={16 + index * 33} />
+            <text x="2" y={19 + index * 33}>{tick.toFixed(2)}</text>
+          </g>)}
+          {rateSeries.map(({ item, points }) => {
+            const path = points.map((point, index) => `${index ? 'L' : 'M'}${rateX(point.time).toFixed(1)},${rateY(point.value).toFixed(1)}`).join(' ');
+            const last = points[points.length - 1];
+            return <g key={item.id} className={`china-rate-series is-${item.id}`}>
+              <path d={path} style={{ stroke: rateColor(item.id) }} />
+              <circle cx={rateX(last.time)} cy={rateY(last.value)} r="2.8" style={{ fill: rateColor(item.id) }} />
+            </g>;
+          })}
+          <text className="china-rate-date" x="38" y="97">{new Date(rateMinTime).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}</text>
+          <text className="china-rate-date" x="270" y="97" textAnchor="end">{new Date(rateMaxTime).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}</text>
+        </svg> : <span className="china-rate-empty">历史序列正在更新</span>}
+        <div className="china-rate-legend">
+          {rateSeries.map(({ item }) => <span key={item.id} className={`is-${item.id}`}><i />{item.id === 'dr007' ? 'FDR007' : '10Y 国债'}</span>)}
+          <small>日终值 · 非 OHLC</small>
+        </div>
       </div>
       <div className="china-rate-points">
         {rateItems.map((item) => (
