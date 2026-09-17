@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { AlertTriangle, Check, CircleCheck, Clock3, ReceiptText, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Check, CircleCheck, Clock3, Info, ReceiptText, RefreshCw, X } from 'lucide-react';
 import { paperFilledQuantity, paperOrderErrorMessage, paperReceiptStatus, type PaperReceipt } from '../../lib/ibkr/paperReceipt';
 import './PaperOrderReceipt.css';
 
@@ -14,6 +14,9 @@ export function PaperOrderReceipt({ receipt, refreshing, onRefresh, onClose, onV
   const warning = ['warning', 'error'].includes(status.kind);
   const Icon = warning ? AlertTriangle : ['filled', 'accepted', 'sent'].includes(status.kind) ? CircleCheck : Clock3;
   const orderId = receipt.row?.orderId ?? receipt.row?.brokerOrderId;
+  const diagnostic = receipt.error || paperOrderErrorMessage(receipt.row?.lastError);
+  const informationalDiagnostic = !receipt.error && receipt.row?.lastError === 'IBKR_399'
+    && ['accepted', 'sent', 'partial', 'filled'].includes(status.kind);
   useEffect(() => {
     const previous = document.activeElement;
     dialog.current?.focus();
@@ -42,7 +45,9 @@ export function PaperOrderReceipt({ receipt, refreshing, onRefresh, onClose, onV
       <div><dt>成交均价</dt><dd>{money(receipt.row?.averageFillPrice)}{receipt.row?.averageFillPrice != null && ` ${receipt.currency}`}</dd></div>
       <div><dt>本地更新时间</dt><dd>{new Date(receipt.updatedAt).toLocaleString('zh-CN', { hour12: false })}</dd></div>
     </dl>
-    {(receipt.error || receipt.row?.lastError) && <p className="pt-receipt-error" role="status"><AlertTriangle size={16}/><span>{receipt.error || paperOrderErrorMessage(receipt.row?.lastError)}</span></p>}
+    {diagnostic && <p className={`pt-receipt-error${informationalDiagnostic ? ' is-info' : ''}`} role="status">
+      {informationalDiagnostic ? <Info size={16}/> : <AlertTriangle size={16}/>}<span>{diagnostic}</span>
+    </p>}
     <p className="pt-receipt-followup">{receipt.pending ? '请等待发送结果。' : '状态随券商回报自动更新，关闭后仍可在订单列表查看回执。'}</p>
     <footer className="pt-receipt-actions"><button disabled={receipt.pending || refreshing} onClick={onRefresh}><RefreshCw size={15} className={refreshing ? 'pt-spin' : ''}/>{refreshing ? '正在刷新…' : '刷新回执'}</button><button className="primary" disabled={receipt.pending} onClick={onViewOrders}><Check size={16}/>查看订单记录</button></footer>
   </section></div>;

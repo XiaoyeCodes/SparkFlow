@@ -5,7 +5,7 @@ import { emptySnapshot } from '../../src/lib/ibkr/store';
 const stock = { conId: 265598, symbol: 'AAPL', currency: 'USD', exchange: 'NASDAQ', name: 'Apple · 工程测试' };
 const order = (changes: Record<string, unknown> = {}) => ({
   bodyHash: 'a'.repeat(64), submission: 'ACKNOWLEDGED', execution: 'OPEN', orderId: 123,
-  filledQuantity: '0', averageFillPrice: null, dispatchState: 'SENT',
+  filledQuantity: '0', averageFillPrice: null, dispatchState: 'SENT', createdAt: new Date().toISOString(),
   intent: { accountKey: 'paper:receipt-test', clientIntentId: 'order:receipt-test', conId: stock.conId, side: 'BUY', quantity: '10', limitPrice: '323', orderType: 'LMT', tif: 'DAY' }, ...changes,
 });
 
@@ -124,6 +124,16 @@ test('a lost confirmation response shows an uncertain receipt without retrying t
   await expect(receipt).toContainText('请勿重复发送');
   await receipt.getByRole('button', { name: '刷新回执', exact: true }).click();
   expect(fixture.count()).toBe(1);
+});
+
+test('an accepted order shows IBKR 399 as an informational broker notice', async ({ page }) => {
+  await setup(page, order({ lastError: 'IBKR_399', reconciliationRequired: true, brokerFilled: '0', brokerRemaining: '10' }));
+  const receipt = await submit(page);
+  await expect(receipt.getByRole('heading', { name: '订单发送成功' })).toBeVisible();
+  await expect(receipt).toContainText('券商已受理');
+  const notice = receipt.locator('.pt-receipt-error.is-info');
+  await expect(notice).toContainText('通用订单提示（399）');
+  await expect(notice).toContainText('不代表拒单');
 });
 
 test('receipt fits a narrow viewport and missing fill prices are not invented', async ({ page }) => {

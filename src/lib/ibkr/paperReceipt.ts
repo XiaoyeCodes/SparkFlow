@@ -2,6 +2,7 @@ import type { PaperOrderRecord } from './workbenchTypes';
 
 const orderErrorMessages: Record<string, string> = {
   IBKR_201: 'IBKR 已拒绝这笔订单。201 是通用拒单代码，请在 IB Gateway 或 TWS 的订单日志中查看券商给出的具体原因。夜盘常见原因包括标的不支持夜盘、限价偏离参考价，以及交易权限或风控限制。',
+  IBKR_399: 'IBKR 返回了一条通用订单提示（399）。当前订单已获券商受理，399 本身不代表拒单；委托会继续等待成交。具体提示内容可在 IB Gateway 或 TWS 的订单日志中查看。',
 };
 
 export function paperOrderErrorMessage(code: string | null | undefined) {
