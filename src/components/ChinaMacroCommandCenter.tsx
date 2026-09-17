@@ -1153,11 +1153,11 @@ export function ChinaMacroCommandCenter({ onBack }: { onBack: () => void }) {
         <div className="china-index-tape" aria-label="中国主要市场指数">
           <div className="china-index-track">
             {[...(data?.indices || []), ...(data?.indices || [])].map((item, index) => (
-              <a key={`${item.id}-${index}`} href={item.sourceUrl} target="_blank" rel="noreferrer" className="china-index-item">
+              <div key={`${item.id}-${index}`} className="china-index-item">
                 <small>{item.name}</small>
                 <strong>{formatNumber(item.price, item.price > 10_000 ? 0 : 2)}</strong>
                 <b className={item.changePercent >= 0 ? 'is-up' : 'is-down'}>{item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%</b>
-              </a>
+              </div>
             ))}
           </div>
         </div>

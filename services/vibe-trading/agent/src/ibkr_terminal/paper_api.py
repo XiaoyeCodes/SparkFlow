@@ -2,6 +2,7 @@
 import asyncio
 from datetime import datetime,timedelta,timezone
 import hashlib
+import logging
 from typing import Literal
 from uuid import uuid4
 from pydantic import AwareDatetime,Field,model_validator
@@ -20,6 +21,7 @@ from .paper_account import PaperAccountReconciliation,account_checkpoint_stale
 PREFIX='/api/ibkr-terminal/paper/'
 READ_PATHS={PREFIX+'status',PREFIX+'contract',PREFIX+'quote',PREFIX+'reconcile'}
 WRITE_PATHS={PREFIX+p for p in ('configure','preview','confirm','cancel','stop')}
+logger=logging.getLogger(__name__)
 
 
 class PaperPolicyRequest(Contract):
@@ -90,7 +92,12 @@ def install_paper_routes(app,ledger,clock=lambda:datetime.now(timezone.utc)):
             raise RiskDenied('PAPER_EXECUTION_DISABLED')
         return current
     def error(exc):
+        expected=isinstance(exc,(RiskDenied,ReviewBlocked,TimeoutError))
         code=exc.code if isinstance(exc,(RiskDenied,ReviewBlocked)) else 'BROKER_READ_TIMEOUT' if isinstance(exc,TimeoutError) else 'PAPER_OPERATION_FAILED'
+        if not expected:
+            # Never expose exception text (it may contain broker/account data),
+            # but retain the traceback locally so a generic receipt is diagnosable.
+            logger.exception('Unexpected paper operation failure (%s)',type(exc).__name__)
         return JSONResponse({'detail':code},status_code=409)
 
     @app.get(PREFIX+'status')

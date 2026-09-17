@@ -29,6 +29,10 @@ test('wheel zoom anchors right-side whitespace to the first valid data point and
   assert.equal(zoomTicketRange(range,100,0,lastData,-100).from,0);
   const expanded=zoomTicketRange(range,340,0,lastData,100);
   assert.equal(expanded.from,0);assert.ok(expanded.to>range.to);
+  const filled=zoomTicketRange({from:0,to:230},180,0,lastData,-100);
+  assert.equal(filled.from,0);assert.ok(filled.to<230);
+  const cursorAnchored=zoomTicketRange({from:0,to:lastData},180,0,lastData,-100);
+  assert.ok(cursorAnchored.from>0);assert.ok(cursorAnchored.to<lastData);
   const noWhitespace=zoomTicketRange({from:50,to:200},100,0,lastData,-100);
   assert.ok(noWhitespace.from>50);
 });

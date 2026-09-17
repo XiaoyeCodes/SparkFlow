@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { paperFilledQuantity, paperOrderNeedsStatusCheck, paperReceiptStatus } from '../../src/lib/ibkr/paperReceipt.ts';
+import { paperFilledQuantity, paperOrderErrorMessage, paperOrderNeedsStatusCheck, paperReceiptStatus } from '../../src/lib/ibkr/paperReceipt.ts';
 
 const record = { submission: 'SUBMITTING', execution: 'NONE', filledQuantity: '0' };
 test('local persistence and a successful API response alone do not claim a sent or filled order', () => {
@@ -23,6 +23,12 @@ test('ambiguous and rejected responses never show a success receipt', () => {
   assert.equal(paperReceiptStatus({ ...record, submission: 'UNKNOWN', lastError: 'IBKR_201' }).kind, 'error');
   assert.equal(paperReceiptStatus({ ...record, submission: 'UNKNOWN', execution: 'INACTIVE' }).kind, 'error');
   assert.equal(paperReceiptStatus({ ...record, submission: 'ACKNOWLEDGED', execution: 'OPEN', lastError: 'IBKR_201' }).kind, 'accepted');
+});
+
+test('generic paper failures explain that no broker order id was obtained', () => {
+  const message = paperOrderErrorMessage('PAPER_OPERATION_FAILED');
+  assert.match(message, /未取得券商订单号/);
+  assert.doesNotMatch(message, /PAPER_OPERATION_FAILED/);
 });
 test('late accounting or commission reconciliation does not hide a confirmed full execution', () => {
   const status = paperReceiptStatus({ ...record, submission: 'ACKNOWLEDGED', execution: 'FILLED', filledQuantity: '10', reconciliationRequired: true });

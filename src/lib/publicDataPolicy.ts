@@ -52,7 +52,9 @@ for (const market of international) {
   add(`/api/international-market-overview?market=${market}`, 3, 180);
 }
 for (const market of ['australia', 'euro', 'saudi']) add(`/api/global-market-heatmap?market=${market}`, 3, 180);
-for (const market of ['china', 'hongkong', 'us', ...international]) add(`/api/valuation-temperature?market=${market}`, 900, 3600);
+for (const market of ['china', 'hongkong', 'us', ...international]) {
+  add(`/api/valuation-temperature?market=${market}&v=2`, 900, 3600);
+}
 for (const market of ['hongkong', 'us']) add(`/api/regional-market-content?market=${market}`, 300, 1800);
 add('/api/bitcoin-cycle-history', 21600, 43200);
 add('/api/us-market-system-status', 60, 180);

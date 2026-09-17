@@ -11,6 +11,6 @@ export function zoomTicketRange(range:TicketLogicalRange,cursor:number,firstData
   const normalized=Math.max(-1,Math.min(1,wheelDelta/100));
   const nextSpan=Math.max(minSpan,span*Math.exp(normalized*.18));
   let from=anchor-anchorRatio*nextSpan,to=from+nextSpan;
-  if(from<0){to-=from;from=0;}
+  if(from<firstData){to+=firstData-from;from=firstData;}
   return {from,to};
 }

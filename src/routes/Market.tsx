@@ -583,7 +583,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
     const controller = new AbortController();
     let cancelled = false;
     const request = () => requestJson<AShareValuationSnapshot>(
-      `/api/valuation-temperature?market=${activeMarket}${['china', 'hongkong', 'us'].includes(activeMarket) ? '&fresh=1' : ''}`,
+      `/api/valuation-temperature?market=${activeMarket}&v=2${['china', 'hongkong', 'us'].includes(activeMarket) ? '&fresh=1' : ''}`,
       ['china', 'hongkong', 'us'].includes(activeMarket)
         ? { cache: 'no-store' }
         : { signal: controller.signal },
@@ -1716,7 +1716,7 @@ function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
         const changeColor = indexChangeColor(item.changePercent);
         const directionClass = item.changePercent > 0 ? 'is-up' : item.changePercent < 0 ? 'is-down' : 'is-flat';
         return (
-          <a key={item.id} href={item.sourceUrl} target="_blank" rel="noreferrer" className="market-index-card min-w-0 px-4 py-3.5 transition">
+          <div key={item.id} className="market-index-card min-w-0 px-4 py-3.5 transition">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="truncate text-xs font-semibold text-white/72">{item.name}</p>
@@ -1734,7 +1734,7 @@ function IndexStrip({ indices }: { indices: MarketIndexSnapshot[] }) {
                 {item.changePercent > 0 ? '▲ +' : item.changePercent < 0 ? '▼ ' : '— '}{item.changePercent.toFixed(2)}%
               </p>
             </div>
-          </a>
+          </div>
         );
       })}
     </div>

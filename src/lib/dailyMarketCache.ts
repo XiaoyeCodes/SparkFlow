@@ -48,8 +48,9 @@ export function getBeijingDate(now = new Date()) {
 }
 
 function cacheKey(date: string, market: CoreMarketMode, resource: DailyMarketResource) {
-  // Bump only the Hong Kong valuation payload after expanding its market coverage.
-  const revision = market === 'hongkong' && resource === 'valuation' ? ':r2' : '';
+  // Keep valuation payload revisions explicit so a browser reload cannot reuse
+  // an older same-day industry calculation after the server methodology changes.
+  const revision = resource === 'valuation' && (market === 'hongkong' || market === 'us') ? ':r3' : '';
   return `${date}:${market}:${resource}${revision}`;
 }
 

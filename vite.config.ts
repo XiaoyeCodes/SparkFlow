@@ -1068,6 +1068,22 @@ function percentileRank(values: number[], current: number) {
   return (lower + equal * 0.5) / clean.length * 100;
 }
 
+function interpolatedPercentileRank(values: number[], current: number) {
+  const sorted = values.filter((value) => Number.isFinite(value) && value > 0).sort((left, right) => left - right);
+  if (!sorted.length || !Number.isFinite(current) || current <= 0) return 50;
+  if (sorted.length === 1) return 50;
+  const midpointRank = (index: number) => (index + 0.5) / sorted.length * 100;
+  if (current <= sorted[0]) return midpointRank(0);
+  if (current >= sorted.at(-1)!) return midpointRank(sorted.length - 1);
+  const upperIndex = sorted.findIndex((value) => value >= current);
+  const lowerIndex = Math.max(0, upperIndex - 1);
+  const lower = sorted[lowerIndex];
+  const upper = sorted[upperIndex];
+  if (upper === lower) return midpointRank(upperIndex);
+  const ratio = (current - lower) / (upper - lower);
+  return midpointRank(lowerIndex) + (midpointRank(upperIndex) - midpointRank(lowerIndex)) * ratio;
+}
+
 function temperatureZone(temperature: number) {
   if (temperature < 20) return { zone: 'cold' as const, zoneLabel: '极冷 · 短期低位' };
   if (temperature < 40) return { zone: 'low' as const, zoneLabel: '偏冷 · 短期较低' };
@@ -1702,6 +1718,8 @@ function yahooSymbolForStock(mode: RegionalValuationMode, stock: ChinaHeatmapSto
 
 const yahooFundamentalCache = new Map<string, { storedAt: number; data: Awaited<ReturnType<typeof getYahooFundamentalHistory>> }>();
 const yahooFundamentalInFlight = new Map<string, Promise<Awaited<ReturnType<typeof getYahooFundamentalHistory>>>>();
+const yahooShortPriceCache = new Map<string, { storedAt: number; data: YahooPricePoint[] }>();
+const yahooShortPriceInFlight = new Map<string, Promise<YahooPricePoint[]>>();
 
 async function getYahooFundamentalHistory(symbol: string) {
   const encoded = encodeURIComponent(symbol);
@@ -1781,33 +1799,95 @@ async function getCachedYahooFundamentalHistory(symbol: string) {
   return request;
 }
 
-function buildRegionalIndustryTemperatures(stocks: ChinaHeatmapStock[], updatedAt: string) {
+async function getCachedYahooShortPriceHistory(symbol: string) {
+  const fundamental = yahooFundamentalCache.get(symbol);
+  if (fundamental && Date.now() - fundamental.storedAt < 6 * 60 * 60 * 1000 && fundamental.data.prices.length >= 21) {
+    return fundamental.data.prices;
+  }
+  const cached = yahooShortPriceCache.get(symbol);
+  if (cached && Date.now() - cached.storedAt < 30 * 60_000) return cached.data;
+  const running = yahooShortPriceInFlight.get(symbol);
+  if (running) return running;
+  const encoded = encodeURIComponent(symbol);
+  const request = fetchYahooFinanceJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=3mo&interval=1d&events=history`)
+    .then((payload) => {
+      const chart = payload?.chart?.result?.[0];
+      const timestamps = Array.isArray(chart?.timestamp) ? chart.timestamp as number[] : [];
+      const closes = Array.isArray(chart?.indicators?.quote?.[0]?.close)
+        ? chart.indicators.quote[0].close as Array<number | null>
+        : [];
+      const prices = timestamps.flatMap((timestamp, index) => {
+        const close = asFiniteNumber(closes[index]);
+        if (!timestamp || close === undefined || close <= 0) return [];
+        return [{ time: new Date(timestamp * 1000).toISOString().slice(0, 10), close }];
+      });
+      if (prices.length < 21) throw new Error(`${symbol} 近20个交易日行情不足`);
+      yahooShortPriceCache.set(symbol, { storedAt: Date.now(), data: prices });
+      return prices;
+    })
+    .finally(() => yahooShortPriceInFlight.delete(symbol));
+  yahooShortPriceInFlight.set(symbol, request);
+  return request;
+}
+
+function regionalIndustryMetrics(stocks: ChinaHeatmapStock[]) {
   const grouped = new Map<string, ChinaHeatmapStock[]>();
   stocks.forEach((stock) => {
     const peers = grouped.get(stock.industry) || [];
     peers.push(stock);
     grouped.set(stock.industry, peers);
   });
-  const metrics = [...grouped.entries()].flatMap(([name, peers]) => {
+  return [...grouped.entries()].flatMap(([name, peers]) => {
     const eligible = peers.filter((stock) => stock.marketCap > 0 && stock.pe && stock.pe > 0 && stock.pe < 500 && stock.pb && stock.pb > 0 && stock.pb < 80);
     if (eligible.length < 2) return [];
     const marketCap = eligible.reduce((sum, stock) => sum + stock.marketCap, 0);
     const earnings = eligible.reduce((sum, stock) => sum + stock.marketCap / stock.pe!, 0);
     const book = eligible.reduce((sum, stock) => sum + stock.marketCap / stock.pb!, 0);
     if (earnings <= 0 || book <= 0) return [];
-    return [{ name, marketCap, pe: marketCap / earnings, pb: marketCap / book, sampleSize: eligible.length }];
+    return [{ name, marketCap, pe: marketCap / earnings, pb: marketCap / book, sampleSize: eligible.length, stocks: eligible }];
   }).sort((left, right) => right.marketCap - left.marketCap).slice(0, 10);
+}
+
+async function getRegionalIndustryTwentyDayFactors(mode: RegionalValuationMode, stocks: ChinaHeatmapStock[]) {
+  const metrics = regionalIndustryMetrics(stocks);
+  const entries = await Promise.all(metrics.map(async (metric) => {
+    const representatives = [...metric.stocks].sort((left, right) => right.marketCap - left.marketCap).slice(0, 3);
+    const settled = await Promise.allSettled(representatives.map(async (stock) => {
+      const prices = await getCachedYahooShortPriceHistory(yahooSymbolForStock(mode, stock));
+      const comparison = prices[Math.max(0, prices.length - 21)];
+      if (!comparison?.close || comparison.close <= 0 || stock.price <= 0) throw new Error('20日价格不可用');
+      return { factor: stock.price / comparison.close, weight: stock.marketCap };
+    }));
+    const available = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+    const totalWeight = available.reduce((sum, item) => sum + item.weight, 0);
+    if (!available.length || totalWeight <= 0) return undefined;
+    const factor = available.reduce((sum, item) => sum + item.factor * item.weight, 0) / totalWeight;
+    return Number.isFinite(factor) && factor > 0 ? [metric.name, factor] as const : undefined;
+  }));
+  return new Map(entries.filter((entry): entry is readonly [string, number] => Boolean(entry)));
+}
+
+function buildRegionalIndustryTemperatures(
+  stocks: ChinaHeatmapStock[],
+  updatedAt: string,
+  twentyDayFactors = new Map<string, number>(),
+) {
+  const metrics = regionalIndustryMetrics(stocks);
   const peValues = metrics.map((item) => item.pe);
   const pbValues = metrics.map((item) => item.pb);
   return metrics.map((item, index) => {
     const temperature = percentileRank(peValues, item.pe) * 0.6 + percentileRank(pbValues, item.pb) * 0.4;
+    const factor = twentyDayFactors.get(item.name);
+    const previousTemperature = factor
+      ? interpolatedPercentileRank(peValues, item.pe / factor) * 0.6 + interpolatedPercentileRank(pbValues, item.pb / factor) * 0.4
+      : temperature;
     return {
       id: `regional-industry-${index}`,
       name: item.name,
       code: `REGION-${index}`,
       category: 'industry' as const,
       temperature: round(temperature, 1),
-      temperatureDelta: 0,
+      temperatureDelta: round(temperature - previousTemperature, 1),
       ...temperatureZone(temperature),
       currentPe: round(item.pe, 2),
       currentPb: round(item.pb, 2),
@@ -2058,14 +2138,17 @@ async function getRegionalValuationDashboard(mode: RegionalValuationMode) {
     ...indexResults.slice(1).map((result) => result.chart),
   ];
   const bookValueAnchors = indexResults.map((result) => result.anchor);
-  const industries = buildRegionalIndustryTemperatures(valuationStocks, primary.latestTime);
+  const industryTwentyDayFactors = mode === 'hongkong' || mode === 'us'
+    ? await getRegionalIndustryTwentyDayFactors(mode, valuationStocks)
+    : new Map<string, number>();
+  const industries = buildRegionalIndustryTemperatures(valuationStocks, primary.latestTime, industryTwentyDayFactors);
   const sources = [...new Map(bookValueAnchors.flatMap((anchor) => anchor.sources)
     .map((source) => [source.url, source])).values()];
   return {
     market: mode,
     marketLabel: config.label,
     generatedAt: new Date().toISOString(),
-    methodology: `近500个交易日估值热度按指数分别采用代表性成份股加权PE 60% + PB 40%的历史分位；历史形态来自公开年报与指数行情，最新截面以${mode === 'hongkong' || mode === 'us' ? '东方财富' : 'Yahoo Finance'}个股PE/PB校准；行业卡片为当前横截面相对温度。覆盖 ${indexResults.length} 个主要指数，属于公开样本代理，不是交易所授权指数估值。`,
+    methodology: `近500个交易日估值热度按指数分别采用代表性成份股加权PE 60% + PB 40%的历史分位；历史形态来自公开年报与指数行情，最新截面以${mode === 'hongkong' || mode === 'us' ? '东方财富' : 'Yahoo Finance'}个股PE/PB校准；行业卡片为当前横截面相对温度，20日变化按各行业前三大有效样本的市值加权价格变化回推同口径PE/PB后计算。覆盖 ${indexResults.length} 个主要指数，属于公开样本代理，不是交易所授权指数估值。`,
     periodLabel: '近 500 个交易日',
     sources,
     overall: { ...overallWithHistory, history: undefined },

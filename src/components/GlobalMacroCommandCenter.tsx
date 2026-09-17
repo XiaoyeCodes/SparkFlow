@@ -647,11 +647,8 @@ function IndexTickerTape({ items }: { items: TickerIndex[] }) {
   const renderGroup = (copy: number, hidden = false) => (
     <div className="macro-index-group" aria-hidden={hidden || undefined}>
       {items.map((item) => (
-        <a
+        <div
           className="macro-index-quote"
-          href={item.sourceUrl}
-          target="_blank"
-          rel="noreferrer"
           key={`${copy}-${item.id}`}
           title={`${item.name} ${formatNumber(item.price)} ${signed(item.changePercent)}`}
         >
@@ -661,7 +658,7 @@ function IndexTickerTape({ items }: { items: TickerIndex[] }) {
             <strong>{formatNumber(item.price)}</strong>
           </div>
           <b className={trendClass(item.changePercent)}>{signed(item.changePercent)}</b>
-        </a>
+        </div>
       ))}
     </div>
   );

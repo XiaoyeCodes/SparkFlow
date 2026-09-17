@@ -282,9 +282,15 @@ class OrderLedger:
                 raise IntentConflict('same intent id with a different body')
             return previous
         grant, reserved, day = self._validate(intent, context, now)
+        # Broker-managed paper market orders deliberately do not require a
+        # local quote.  Keep their estimate empty instead of trying to turn a
+        # missing referencePrice into Decimal(None); IBKR remains responsible
+        # for the final buying-power and position checks.
+        estimate = (reservation_price(intent, context)
+            if intent.orderType == 'MKT' and context.referencePrice is not None else None)
         record = OrderRecord(intent=intent, bodyHash=body_hash, createdAt=now, source=grant.source, submission='PERSISTED', execution='PENDING',
             reservedCash=reserved['cash'], reservedNotional=reserved['notional'], reservedQuantity=reserved['quantity'],
-            reservationPrice=format(reservation_price(intent, context), 'f') if intent.orderType == 'MKT' else None)
+            reservationPrice=format(estimate, 'f') if estimate is not None else None)
         self._db.execute('INSERT INTO order_intents VALUES(?,?,?,?,?,?,?)', (intent.mode, intent.accountKey, intent.clientIntentId, record.model_dump_json(), canonical(context), day, now.timestamp()))
         append_event(self._db, intent.accountKey, 'INTENT_RESERVED', now.isoformat(), {'clientIntentId': intent.clientIntentId,
             'bodyHash': body_hash, 'contextHash': hashlib.sha256(canonical(context).encode()).hexdigest(), 'reservation': reserved})
@@ -367,9 +373,10 @@ class OrderLedger:
                 return record, False
             now = self.clock()
             _, reserved, _ = self._validate(record.intent, context, now, exclude=intent_id)
-            if record.intent.orderType == 'MKT':
+            if record.intent.orderType == 'MKT' and context.referencePrice is not None:
+                previous_price = Decimal(record.reservationPrice) if record.reservationPrice is not None else Decimal(0)
                 record = record.model_copy(update={
-                    'reservationPrice': format(max(Decimal(record.reservationPrice), reservation_price(record.intent, context)), 'f'),
+                    'reservationPrice': format(max(previous_price, reservation_price(record.intent, context)), 'f'),
                     **{field: format(max(Decimal(getattr(record, field)), Decimal(reserved[key])), 'f')
                        for field, key in [('reservedCash','cash'), ('reservedNotional','notional'), ('reservedQuantity','quantity')]}})
             identity = self._allocate_identity(record, channel)

@@ -5,6 +5,7 @@ import {
   LineStyle,
   LineSeries,
   createChart,
+  type IChartApi,
   type LineData,
   type Time,
 } from 'lightweight-charts';
@@ -19,6 +20,7 @@ import {
   Thermometer,
 } from 'lucide-react';
 import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
+import { zoomTicketRange } from '../lib/ibkr/ticketChartRange';
 import { ValuationGuideWhitepaperLauncher } from './ValuationGuideWhitepaper';
 
 type TemperatureZone = 'cold' | 'low' | 'fair' | 'warm' | 'hot';
@@ -87,6 +89,8 @@ type BookValueHoverPoint = {
   marketValue: number;
   netAssetBaseline: number;
   fairValue: number;
+  left: number;
+  top: number;
 };
 
 type ValuationDashboard = {
@@ -149,14 +153,42 @@ function formatMarketCap(value?: number) {
   return `${(value / 100_000_000_000).toFixed(1)} 千亿`;
 }
 
+function enableCursorCenteredWheelZoom(
+  container: HTMLDivElement,
+  chart: IChartApi,
+  dataLength: number,
+  minSpan = 8,
+) {
+  const handleWheel = (event: WheelEvent) => {
+    if (event.deltaY === 0 || dataLength < 2) return;
+    const scale = chart.timeScale();
+    const range = scale.getVisibleLogicalRange();
+    if (!range) return;
+    const bounds = container.getBoundingClientRect();
+    const plotX = event.clientX - bounds.left - chart.priceScale('left').width();
+    const cursor = scale.coordinateToLogical(plotX);
+    if (cursor === null) return;
+    event.preventDefault();
+    scale.setVisibleLogicalRange(zoomTicketRange(
+      range,
+      Number(cursor),
+      0,
+      dataLength - 1,
+      event.deltaY,
+      minSpan,
+    ));
+  };
+
+  container.addEventListener('wheel', handleWheel, { passive: false });
+  return () => container.removeEventListener('wheel', handleWheel);
+}
+
 function BookValueAnchorChart({
   data,
   marketLabel,
-  selectedMarketId,
 }: {
   data: BookValueAnchor[];
   marketLabel: string;
-  selectedMarketId?: string;
 }) {
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -166,9 +198,10 @@ function BookValueAnchorChart({
   const activeData = data.find((item) => item.id === selectedId) || data[0];
 
   useEffect(() => {
-    const requestedId = selectedMarketId === 'all-market' ? data[0]?.id : selectedMarketId;
-    if (requestedId && data.some((item) => item.id === requestedId)) setSelectedId(requestedId);
-  }, [data, selectedMarketId]);
+    setSelectedId((current) => (
+      data.some((item) => item.id === current) ? current : data[0]?.id || 'csi-all-share'
+    ));
+  }, [data]);
   const visiblePoints = useMemo(() => {
     if (range === 'all') return activeData.points;
     const latestPoint = activeData.points[activeData.points.length - 1];
@@ -240,8 +273,8 @@ function BookValueAnchorChart({
 
   useEffect(() => {
     if (!containerRef.current || !returnDecomposition?.points.length) return;
-    const latestPoint = returnDecomposition.points[returnDecomposition.points.length - 1];
-    setHoverPoint(latestPoint);
+    const container = containerRef.current;
+    setHoverPoint(null);
     const chart = createChart(containerRef.current, {
       autoSize: true,
       height: 480,
@@ -276,16 +309,17 @@ function BookValueAnchorChart({
         rightOffset: 4,
         barSpacing: range === '1y' ? 7 : range === '3y' ? 4 : 2.5,
         minBarSpacing: 0.35,
+        fixLeftEdge: true,
       },
       handleScroll: {
-        mouseWheel: true,
+        mouseWheel: false,
         pressedMouseMove: true,
         horzTouchDrag: true,
         vertTouchDrag: false,
       },
       handleScale: {
         axisPressedMouseMove: true,
-        mouseWheel: true,
+        mouseWheel: false,
         pinch: true,
       },
     });
@@ -334,19 +368,47 @@ function BookValueAnchorChart({
     })) as LineData<Time>[]);
 
     chart.subscribeCrosshairMove((param) => {
-      if (param.logical === undefined) {
-        setHoverPoint(latestPoint);
+      if (param.logical === undefined || !param.point) {
+        setHoverPoint(null);
         return;
       }
       const index = Math.max(0, Math.min(
         returnDecomposition.points.length - 1,
         Math.round(Number(param.logical)),
       ));
-      setHoverPoint(returnDecomposition.points[index] || latestPoint);
+      const point = returnDecomposition.points[index];
+      if (!point) {
+        setHoverPoint(null);
+        return;
+      }
+      const tooltipWidth = 176;
+      const tooltipHeight = 112;
+      const tooltipGap = 18;
+      const edgePadding = 10;
+      const containerBounds = container.getBoundingClientRect();
+      const pointerX = param.sourceEvent
+        ? Number(param.sourceEvent.clientX) - containerBounds.left
+        : param.point.x;
+      const pointerY = param.sourceEvent
+        ? Number(param.sourceEvent.clientY) - containerBounds.top
+        : param.point.y;
+      const hasRoomOnRight = pointerX + tooltipGap + tooltipWidth <= container.clientWidth - edgePadding;
+      const hasRoomBelow = pointerY + tooltipGap + tooltipHeight <= container.clientHeight - edgePadding;
+      const left = hasRoomOnRight
+        ? pointerX + tooltipGap
+        : Math.max(edgePadding, pointerX - tooltipGap - tooltipWidth);
+      const top = hasRoomBelow
+        ? pointerY + tooltipGap
+        : Math.max(edgePadding, pointerY - tooltipGap - tooltipHeight);
+      setHoverPoint({ ...point, left, top });
     });
 
     chart.timeScale().fitContent();
-    return () => chart.remove();
+    const disableWheelZoom = enableCursorCenteredWheelZoom(container, chart, visiblePoints.length, 12);
+    return () => {
+      disableWheelZoom();
+      chart.remove();
+    };
   }, [range, returnDecomposition, visiblePoints]);
 
   if (!returnDecomposition) return null;
@@ -565,7 +627,10 @@ function BookValueAnchorChart({
           {hoverPoint ? (
             <div
               data-testid="book-value-hover-readout"
-              className="market-valuation-readout pointer-events-none absolute right-3 top-3 z-10 w-44 border border-white/12 bg-transparent px-3 py-2.5"
+              role="tooltip"
+              aria-label="图表数据详情"
+              className="market-valuation-readout pointer-events-none absolute z-10 w-44 border border-white/12 px-3 py-2.5"
+              style={{ left: hoverPoint.left, top: hoverPoint.top }}
             >
               <p className="border-b border-white/8 pb-2 font-mono text-[10px] text-white/42">
                 {hoverPoint.time}
@@ -620,8 +685,9 @@ function TemperatureChart({ series }: { series: MarketChartSeries }) {
 
   useEffect(() => {
     if (!containerRef.current || !series.temperature.length) return;
+    const container = containerRef.current;
 
-    const chart = createChart(containerRef.current, {
+    const chart = createChart(container, {
       autoSize: true,
       height: 420,
       layout: {
@@ -652,16 +718,17 @@ function TemperatureChart({ series }: { series: MarketChartSeries }) {
         rightOffset: 8,
         barSpacing: 3,
         minBarSpacing: 0.8,
+        fixLeftEdge: true,
       },
       handleScroll: {
-        mouseWheel: true,
+        mouseWheel: false,
         pressedMouseMove: true,
         horzTouchDrag: true,
         vertTouchDrag: false,
       },
       handleScale: {
         axisPressedMouseMove: true,
-        mouseWheel: true,
+        mouseWheel: false,
         pinch: true,
       },
     });
@@ -703,7 +770,11 @@ function TemperatureChart({ series }: { series: MarketChartSeries }) {
     });
 
     chart.timeScale().fitContent();
-    return () => chart.remove();
+    const disableWheelZoom = enableCursorCenteredWheelZoom(container, chart, series.temperature.length, 12);
+    return () => {
+      disableWheelZoom();
+      chart.remove();
+    };
   }, [series]);
 
   return (
@@ -765,7 +836,8 @@ const valuationMarketLabels: Record<ValuationMarketMode, string> = {
 export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMarketMode }) {
   const marketLabel = valuationMarketLabels[mode];
   const [data, setData] = useState<ValuationDashboard | null>(null);
-  const [selectedId, setSelectedId] = useState('all-market');
+  const [selectedHeatId, setSelectedHeatId] = useState('all-market');
+  const [selectedHistoryId, setSelectedHistoryId] = useState('all-market');
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState('');
   const consumedReloadKeyRef = useRef(0);
@@ -778,7 +850,7 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
     setData(null);
     setError('');
     const coreMarket = ['china', 'hongkong', 'us'].includes(mode);
-    const request = () => fetch(`/api/valuation-temperature?market=${mode}${coreMarket ? '&fresh=1' : ''}`, {
+    const request = () => fetch(`/api/valuation-temperature?market=${mode}&v=2${coreMarket ? '&fresh=1' : ''}`, {
       signal: coreMarket ? undefined : controller.signal,
       cache: 'no-store',
     })
@@ -799,9 +871,13 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
       .then((payload) => {
         if (cancelled) return;
         setData(payload);
-        if (!payload.charts.some((item) => item.id === selectedId)) {
-          setSelectedId(payload.charts[0]?.id || 'all-market');
-        }
+        const heatItems = [payload.overall, ...payload.markets, ...payload.industries];
+        setSelectedHeatId((current) => (
+          heatItems.some((item) => item.id === current) ? current : payload.overall.id
+        ));
+        setSelectedHistoryId((current) => (
+          payload.charts.some((item) => item.id === current) ? current : payload.charts[0]?.id || 'all-market'
+        ));
       })
       .catch((reason) => {
         if (cancelled) return;
@@ -814,13 +890,19 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
     };
   }, [mode, reloadKey]);
 
-  const selectedMarket = useMemo(
-    () => data?.markets.find((item) => item.id === selectedId) || data?.overall,
-    [data, selectedId],
+  const selectedTemperature = useMemo(
+    () => data
+      ? [data.overall, ...data.markets, ...data.industries].find((item) => item.id === selectedHeatId) || data.overall
+      : undefined,
+    [data, selectedHeatId],
   );
   const selectedSeries = useMemo(
-    () => data?.charts.find((item) => item.id === selectedId),
-    [data, selectedId],
+    () => data?.charts.find((item) => item.id === selectedHistoryId),
+    [data, selectedHistoryId],
+  );
+  const selectedHistoryMarket = useMemo(
+    () => data?.markets.find((item) => item.id === selectedHistoryId) || data?.overall,
+    [data, selectedHistoryId],
   );
 
   if (!data && !error) return <LoadingState marketLabel={marketLabel} />;
@@ -843,17 +925,17 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
     );
   }
 
-  const activeTemperature = selectedMarket || data.overall;
+  const activeTemperature = selectedTemperature || data.overall;
   const activeStyle = zoneStyles[activeTemperature.zone];
   const displayMarketLabel = data.marketLabel || marketLabel;
-  const activeAnchor = selectedId === 'all-market'
+  const activeAnchor = selectedHeatId === data.overall.id
     ? data.bookValueAnchors?.[0] || data.bookValueAnchor
-    : data.bookValueAnchors?.find((item) => item.id === selectedId) || data.bookValueAnchor;
+    : data.bookValueAnchors?.find((item) => item.id === selectedHeatId);
   const longTermPbLabel = activeAnchor?.pbLabel || (mode === 'china' ? '全A长期PB' : `${displayMarketLabel}成份股样本PB`);
   const markerPosition = Math.max(1.5, Math.min(98.5, activeTemperature.temperature));
   const pbPercentile = activeAnchor?.current.pbPercentile;
   const medianPbGap = activeAnchor?.current.premiumPercent;
-  const valuationConclusion = selectedId === 'all-market'
+  const valuationConclusion = selectedHeatId === data.overall.id
     ? data.overall.temperature >= 80 && (pbPercentile ?? 50) >= 60
       ? {
           title: '短中长期估值均偏高',
@@ -880,13 +962,13 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
     : activeTemperature.temperature >= 80
       ? {
           title: `${activeTemperature.name}短期估值过热`,
-          detail: `该市场PE/PB热度处于近500日高位；${longTermPbLabel}仅作为背景，不能替代${activeTemperature.name}自身的长期估值判断。`,
+          detail: 'PE/PB热度处于近500日高位，需要结合盈利变化、资金面与风险偏好判断估值回归风险。',
           tone: 'text-[#ed8e99]',
         }
       : activeTemperature.temperature >= 60
         ? {
             title: `${activeTemperature.name}短期估值偏热`,
-            detail: `该市场PE/PB热度高于近500日多数交易日，需结合盈利变化与下方历史曲线判断拥挤程度。`,
+            detail: 'PE/PB热度高于近500日多数交易日，需结合盈利变化、资金面与风险偏好判断拥挤程度。',
             tone: 'text-[#e4aa7d]',
           }
         : activeTemperature.temperature < 20
@@ -1046,19 +1128,19 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-white/48">主要市场</p>
-              <p className="mt-1 text-xs text-white/30">点击切换下方历史图表</p>
+              <p className="mt-1 text-xs text-white/30">点击同步左侧热度</p>
             </div>
             <span className="font-mono text-[10px] text-white/30">{data.periodLabel}</span>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
             {data.markets.map((item) => {
               const style = zoneStyles[item.zone];
-              const selected = item.id === selectedId;
+              const selected = item.id === selectedHeatId;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setSelectedId(item.id)}
+                  onClick={() => setSelectedHeatId(item.id)}
                   className={`market-temperature-market-card min-h-24 border p-3 text-left transition ${
                     selected
                       ? 'border-[#d6b566]/65 bg-[#d6b566]/[0.07]'
@@ -1083,8 +1165,19 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
           <div className="market-temperature-industry-grid mt-3 grid grid-cols-2 gap-px overflow-hidden border border-white/10 bg-white/10 sm:grid-cols-5">
             {data.industries.map((item) => {
               const style = zoneStyles[item.zone];
+              const selected = item.id === selectedHeatId;
               return (
-                <div key={item.id} className="market-temperature-industry-card min-h-[92px] bg-[#090b0d] p-3">
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSelectedHeatId(item.id)}
+                  className={`market-temperature-industry-card min-h-[92px] p-3 text-left transition ${
+                    selected
+                      ? 'bg-[#d6b566]/[0.07] ring-1 ring-inset ring-[#d6b566]/65'
+                      : 'bg-[#090b0d] hover:bg-white/[0.035]'
+                  }`}
+                  aria-pressed={selected}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <span className="truncate text-xs font-semibold text-white/70" title={item.name}>{item.name}</span>
                     <span className={`font-mono text-sm font-semibold ${style.text}`}>{item.temperature.toFixed(0)}°</span>
@@ -1093,7 +1186,7 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
                     PE {item.currentPe} {item.currentPb ? `· PB ${item.currentPb}` : ''}
                   </p>
                   <p className="mt-1 truncate text-[10px] text-white/28">市值 {formatMarketCap(item.marketCap)}</p>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -1101,12 +1194,12 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
       </div>
 
       {data.bookValueAnchors?.length ? (
-        <BookValueAnchorChart data={data.bookValueAnchors} marketLabel={displayMarketLabel} selectedMarketId={selectedId} />
+        <BookValueAnchorChart data={data.bookValueAnchors} marketLabel={displayMarketLabel} />
       ) : data.bookValueAnchor ? (
-        <BookValueAnchorChart data={[data.bookValueAnchor]} marketLabel={displayMarketLabel} selectedMarketId={selectedId} />
+        <BookValueAnchorChart data={[data.bookValueAnchor]} marketLabel={displayMarketLabel} />
       ) : null}
 
-      {selectedSeries && selectedMarket ? (
+      {selectedSeries && selectedHistoryMarket ? (
         <div className="border-t border-white/10 pt-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -1116,10 +1209,29 @@ export function MarketTemperaturePanel({ mode = 'china' }: { mode?: ValuationMar
               <h3 className="mt-1 text-lg font-bold text-white">{selectedSeries.name}</h3>
               <p className="mt-1 text-xs text-white/38">PE 60% + PB 40% · 近500个交易日相对分位</p>
             </div>
-            <span className="flex items-center gap-2 font-mono text-xs text-[#e6cd8e]">
-              <span className="h-0.5 w-4 bg-[#d6b566]" />
-              当前 {selectedMarket.temperature.toFixed(0)}°
-            </span>
+            <div className="flex flex-col items-start gap-2 sm:items-end">
+              <div className="market-chip-control flex max-w-full flex-wrap items-center gap-px border border-white/10 bg-white/10 p-px">
+                {data.charts.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setSelectedHistoryId(item.id)}
+                    className={`h-9 px-3 text-xs font-semibold transition ${
+                      selectedHistoryId === item.id
+                        ? 'bg-white/12 text-white'
+                        : 'bg-[#090b0d] text-white/38 hover:text-white/70'
+                    }`}
+                    aria-pressed={selectedHistoryId === item.id}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+              <span className="flex items-center gap-2 font-mono text-xs text-[#e6cd8e]">
+                <span className="h-0.5 w-4 bg-[#d6b566]" />
+                当前 {selectedHistoryMarket.temperature.toFixed(0)}°
+              </span>
+            </div>
           </div>
           <div className="market-temperature-history-chart overflow-hidden border border-white/10 bg-[#06090c]">
             <TemperatureChart key={selectedSeries.id} series={selectedSeries} />

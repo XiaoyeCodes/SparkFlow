@@ -14,7 +14,7 @@ export function PaperOrderReceipt({ receipt, refreshing, onRefresh, onClose, onV
   const warning = ['warning', 'error'].includes(status.kind);
   const Icon = warning ? AlertTriangle : ['filled', 'accepted', 'sent'].includes(status.kind) ? CircleCheck : Clock3;
   const orderId = receipt.row?.orderId ?? receipt.row?.brokerOrderId;
-  const diagnostic = receipt.error || paperOrderErrorMessage(receipt.row?.lastError);
+  const diagnostic = paperOrderErrorMessage(receipt.error || receipt.row?.lastError);
   const informationalDiagnostic = !receipt.error && receipt.row?.lastError === 'IBKR_399'
     && ['accepted', 'sent', 'partial', 'filled'].includes(status.kind);
   useEffect(() => {

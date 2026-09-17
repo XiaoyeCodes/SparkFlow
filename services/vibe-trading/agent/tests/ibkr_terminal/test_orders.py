@@ -6,6 +6,7 @@ import json
 import pytest
 
 from src.ibkr_terminal.orders import OrderLedger, IntentConflict
+from src.ibkr_terminal.identity import BrokerSession
 from src.ibkr_terminal.risk import OrderIntent, Authorization, RiskContext, RiskDenied, intent_hash, legacy_intent_hash
 
 
@@ -184,6 +185,27 @@ def test_user_manual_paper_order_delegates_financial_risk_to_broker(tmp_path):
         row = db.reserve(order,state)
         assert row.submission == 'PERSISTED'
         assert (row.reservedCash,row.reservedNotional,row.reservedQuantity) == ('0','0','0')
+
+
+@pytest.mark.parametrize('side', ['BUY', 'SELL'])
+def test_broker_managed_market_order_without_quote_can_be_claimed(tmp_path, side):
+    order = intent(f'broker-market-{side.lower()}',side=side,quantity='200',orderType='MKT',limitPrice=None,
+        authorizationId=f'user-market-{side.lower()}')
+    grant = authorization(authorizationId=order.authorizationId,kind='manual',source='user',
+        confirmedIntentHash=intent_hash(order))
+    state = context(source='ibkr',brokerManagedRisk=True,reconciled=False,quoteState='missing',
+        referenceKind='order-input',referencePrice=None,settledCash=None,totalCash=None,
+        netLiquidation=None,dailyLoss=None,holdings=[],openOrdersComplete=False)
+    channel = BrokerSession(channelKey='paper-gateway:test',source='ibkr',accountKey=order.accountKey,
+        mode='paper',sessionRevision=1,clientId=78,nextValidId=71,ready=True)
+    with OrderLedger(tmp_path/'orders.db',clock=lambda:NOW) as db:
+        db.record_authorization(grant)
+        reserved = db.reserve(order,state)
+        assert reserved.reservationPrice is None
+        assert (reserved.reservedCash,reserved.reservedNotional,reserved.reservedQuantity) == ('0','0','0')
+        claimed,created = db.claim_submission(order.accountKey,'paper',order.clientIntentId,state,channel=channel)
+        assert created is True and claimed.submission == 'SUBMITTING'
+        assert claimed.reservationPrice is None and claimed.orderId == 71
 
 
 def test_manual_paper_order_can_follow_unresolved_order_using_remaining_cash(tmp_path):
