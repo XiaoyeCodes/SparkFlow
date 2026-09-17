@@ -461,7 +461,8 @@
 .risk-timeline-mode button { padding: 6px 10px; border: 0; border-radius: 5px; background: transparent; color: #83998e; font-size: 10px; cursor: pointer; }
 .risk-timeline-mode button[aria-pressed="true"] { background: rgba(96, 211, 175, .16); color: #80e2c3; }
 .risk-timeline-legend { display: flex; align-items: center; gap: 6px; }
-.risk-timeline-legend button { display: grid; grid-template-columns: 18px auto auto; align-items: center; gap: 7px; min-width: 112px; padding: 7px 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #aebeb6; font: 650 11px/1.3 "Segoe UI Variable Text", "Segoe UI", sans-serif; text-align: left; cursor: pointer; transition: border-color 150ms ease, background-color 150ms ease, opacity 150ms ease; }
+.risk-timeline-legend button { display: flex; align-items: stretch; flex-direction: column; gap: 4px; min-width: 112px; padding: 7px 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #aebeb6; font: 650 11px/1.3 "Segoe UI Variable Text", "Segoe UI", sans-serif; text-align: left; cursor: pointer; transition: border-color 150ms ease, background-color 150ms ease, opacity 150ms ease; }
+.risk-timeline-legend-primary { display: grid; grid-template-columns: 18px minmax(0, auto) auto; align-items: center; gap: 7px; }
 .risk-timeline-legend button:hover { border-color: rgba(118, 190, 162, .22); background: rgba(96, 211, 175, .06); }
 .risk-timeline-legend button[aria-pressed="true"] { border-color: rgba(118, 190, 162, .18); background: rgba(96, 211, 175, .08); }
 .risk-timeline-legend button[aria-pressed="false"] { opacity: .48; }
@@ -471,7 +472,7 @@
 .risk-timeline-legend i, .risk-timeline-tooltip i { display: inline-block; width: 17px; height: 2px; background: #67e0bc; box-shadow: 0 0 10px rgba(103, 224, 188, .3); }
 .risk-timeline-legend .qqq i, .risk-timeline-tooltip .qqq i { background: #89aef6; box-shadow: 0 0 10px rgba(137, 174, 246, .28); }
 .risk-timeline-legend b { color: #ecf4ef; font-variant-numeric: tabular-nums; }
-.risk-timeline-legend small { grid-column: 2 / 4; color: #657a70; font: 500 8px/1.2 "SFMono-Regular", Consolas, monospace; }
+.risk-timeline-legend small { padding-left: 25px; color: #657a70; font: 500 8px/1.2 "SFMono-Regular", Consolas, monospace; }
 .risk-timeline-frame { position: relative; width: 100%; padding: 12px 18px 0 8px; touch-action: pan-y; }
 .risk-timeline-frame svg { display: block; width: 100%; height: auto; min-height: 310px; overflow: visible; }
 .risk-timeline-band.low { fill: rgba(35, 146, 105, .075); }
@@ -505,6 +506,15 @@
 .risk-timeline-notes a:hover { color: #d1ae6b; }
 .risk-timeline-state { display: flex; min-height: 310px; align-items: center; justify-content: center; gap: 10px; color: #8da297; font-size: 12px; }
 .risk-timeline-state.is-error { color: #d49a72; }
+
+@media (max-width: 1080px) {
+  .risk-timeline-heading { align-items: flex-start; flex-direction: column; }
+  .risk-timeline-tools { width: 100%; align-items: flex-start; }
+  .risk-timeline-mode { width: 100%; }
+  .risk-timeline-mode button { flex: 1; }
+  .risk-timeline-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .risk-timeline-legend button { width: 100%; min-width: 0; }
+}
 
 @media (max-width: 720px) {
   .risk-layer-summary { grid-template-columns: 1fr; }

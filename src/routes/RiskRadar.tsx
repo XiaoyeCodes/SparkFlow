@@ -509,7 +509,7 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
         const latest = series.points[series.points.length - 1];
         const visible = visibleTickers.includes(series.ticker);
         const isLastVisible = visible && visibleTickers.length === 1;
-        return <button type="button" key={series.ticker} className={series.ticker.toLowerCase()} aria-pressed={visible} disabled={isLastVisible} title={isLastVisible ? '至少保留一个指数' : `${visible ? '隐藏' : '显示'} ${series.ticker} · 截至 ${formatDate(latest.date)}`} onClick={() => toggleTicker(series.ticker)}><i />{series.ticker}<b>{latest.score.toFixed(1)}</b><small>{latest.date.slice(0, 7).replace('-', '/')}</small></button>;
+        return <button type="button" key={series.ticker} className={series.ticker.toLowerCase()} aria-pressed={visible} disabled={isLastVisible} title={isLastVisible ? '至少保留一个指数' : `${visible ? '隐藏' : '显示'} ${series.ticker} · 截至 ${formatDate(latest.date)}`} onClick={() => toggleTicker(series.ticker)}><span className="risk-timeline-legend-primary"><i /><span>{series.ticker}</span><b>{latest.score.toFixed(1)}</b></span><small>{latest.date.slice(0, 7).replace('-', '/')}</small></button>;
       })}</div> : null}</div>
     </header>
     {loading && !model ? <div className="risk-timeline-state"><RefreshCw className="is-spinning" size={18}/>正在重建历史月度得分…</div> : error && !model ? <div className="risk-timeline-state is-error"><AlertTriangle size={18}/>{error}</div> : model ? <>

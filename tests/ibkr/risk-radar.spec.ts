@@ -94,7 +94,7 @@ async function mockRiskHistory(page: Page) {
   await page.route('**/api/risk-radar/timeline**', route => route.fulfill({ json: timeline }));
 }
 
-for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844 }]) {
+for (const viewport of [{ width: 1920, height: 1080 }, { width: 1024, height: 1366 }, { width: 390, height: 844 }]) {
   test(`risk radar follows the command-center layout at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.route('**/api/equity-report-chart?**', route => route.fulfill({ json: {
@@ -137,6 +137,11 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
     const qqqToggle = indexSelector.getByRole('button', { name: /QQQ/ });
     await expect(vooToggle).toHaveAttribute('aria-pressed', 'true');
     await expect(qqqToggle).toHaveAttribute('aria-pressed', 'true');
+    const vooBox = await vooToggle.boundingBox();
+    const vooDateBox = await vooToggle.locator('small').boundingBox();
+    expect(vooBox).not.toBeNull();
+    expect(vooDateBox).not.toBeNull();
+    expect(vooDateBox!.y).toBeGreaterThan(vooBox!.y + 8);
     await qqqToggle.click();
     await expect(qqqToggle).toHaveAttribute('aria-pressed', 'false');
     await expect(timelineChart.locator('[data-series="QQQ"]')).toHaveCount(0);
