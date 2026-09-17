@@ -70,7 +70,9 @@ test('service coalesces simultaneous horizon and snapshot requests into one load
   assert.equal(a.score.value, 50);
   assert.equal(b.score.value, null);
   assert.equal(b.lookbackYears, 5);
-  assert.deepEqual(Object.keys(compact), ['fetchedAt', 'treasury', 'sentiment', 'riskRadar', 'complete', 'cache']);
+  assert.deepEqual(Object.keys(compact), ['fetchedAt', 'treasury', 'sentiment', 'riskRadar', 'valuations', 'complete', 'cache']);
+  assert.equal(compact.valuations.VOO.id, 'pe');
+  assert.equal(compact.valuations.QQQ.id, 'qqqPe');
   assert.equal(compact.complete, true);
   assert.equal('audit' in compact, false);
   assert.equal('metrics' in compact, false);

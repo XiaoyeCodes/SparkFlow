@@ -49,6 +49,7 @@ import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from '
 import { dailyHotPlugin } from './server/dailyhotPlugin';
 import { ibkrWorkbenchPlugin } from './server/ibkrWorkbench';
 import { ibkrValuationPlugin } from './server/ibkrValuation';
+import { getRiskRadarTimeline } from './server/riskRadarTimeline';
 import { rankChinaMacroNews } from './src/lib/chinaMacroNews';
 import { parseEastmoneyRow } from './server/ibkrMarket';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
@@ -4344,7 +4345,10 @@ const yahooMacroQuoteCache = new Map<string, Awaited<ReturnType<typeof readYahoo
 const yahooMacroQuoteCachedAt = new Map<string, number>();
 
 async function readYahooMacroQuote(symbol: string, range = '1mo') {
-  const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d&events=history`;
+  const historyWindow = range === 'max'
+    ? `period1=${Math.floor(Date.UTC(1990, 0, 1) / 1000)}&period2=${Math.floor(Date.now() / 1000) + 86400}`
+    : `range=${range}`;
+  const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${historyWindow}&interval=1d&events=history`;
   const text = await fetchExternalText(requestUrl, 13000, 'application/json,text/plain,*/*');
   const payload = JSON.parse(text) as Record<string, any>;
   const result = payload?.chart?.result?.[0];
@@ -4363,9 +4367,10 @@ async function readYahooMacroQuote(symbol: string, range = '1mo') {
 async function getYahooMacroQuote(symbol: string, range = '1mo') {
   const cacheKey = `${symbol}:${range}`;
   const cached = yahooMacroQuoteCache.get(cacheKey);
-  // The one/two-year series feed slow-moving charts such as the risk radar.
-  // Reuse them for six hours so public page views never fan out into one Yahoo request each.
-  if ((range === '1y' || range === '2y') && cached && Date.now() - (yahooMacroQuoteCachedAt.get(cacheKey) || 0) < 21_600_000) return cached;
+  // Long series feed slow-moving charts and historical risk comparisons.
+  // Reuse max history for a day; its event-window peaks are immutable.
+  const reusableFor = range === 'max' ? 24 * 3_600_000 : (range === '1y' || range === '2y') ? 3_600_000 : 0;
+  if (reusableFor && cached && Date.now() - (yahooMacroQuoteCachedAt.get(cacheKey) || 0) < reusableFor) return cached;
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -4380,6 +4385,62 @@ async function getYahooMacroQuote(symbol: string, range = '1mo') {
   }
   if (cached && !isPublicSourceRefresh()) return cached;
   throw lastError instanceof Error ? lastError : new Error(`${symbol} 行情暂时不可用`);
+}
+
+type RiskRadarHistoryTicker = 'VOO' | 'QQQ';
+
+const RISK_RADAR_HISTORY_EVENTS = {
+  VOO: [
+    { id: 'dotcom', label: '2000 互联网泡沫', start: '1999-07-01', end: '2000-12-31', pe: 28.31, marketCapRatio: 145, cape: 44.2, tenYear: 6.2, twoYear: 6.6, fear: 90 },
+    { id: 'gfc', label: '2008 次贷危机前', start: '2007-01-01', end: '2008-06-30', pe: 20.68, marketCapRatio: 110, cape: 27.5, tenYear: 4.6, twoYear: 4.2, fear: 75 },
+    { id: 'rates', label: '2022 加息熊市前', start: '2021-09-01', end: '2022-06-30', pe: 23.11, marketCapRatio: 195, cape: 38.3, tenYear: 1.6, twoYear: .8, fear: 75 },
+  ],
+  QQQ: [
+    { id: 'dotcom', label: '2000 互联网泡沫', start: '1999-07-01', end: '2000-12-31', pe: 175, marketCapRatio: 145, cape: 44.2, tenYear: 6.2, twoYear: 6.6, fear: 90 },
+    { id: 'gfc', label: '2008 次贷危机前', start: '2007-01-01', end: '2008-06-30', pe: 28.9, marketCapRatio: 110, cape: 27.5, tenYear: 4.6, twoYear: 4.2, fear: 75 },
+    { id: 'rates', label: '2022 加息熊市前', start: '2021-09-01', end: '2022-06-30', pe: 32.07, marketCapRatio: 195, cape: 38.3, tenYear: 1.6, twoYear: .8, fear: 75 },
+  ],
+} as const;
+
+async function buildRiskRadarHistory(ticker: RiskRadarHistoryTicker) {
+  const proxySymbol = ticker === 'VOO' ? 'SPY' : 'QQQ';
+  const [proxyQuote, vooQuote] = await Promise.all([
+    getYahooMacroQuote(proxySymbol, 'max'),
+    ticker === 'VOO' ? getYahooMacroQuote('VOO', 'max') : Promise.resolve(null),
+  ]);
+  const events = RISK_RADAR_HISTORY_EVENTS[ticker].map((event) => {
+    const quote = ticker === 'VOO' && event.id === 'rates' && vooQuote ? vooQuote : proxyQuote;
+    const points = quote.history.map((point) => ({ time: point.time.slice(0, 10), close: point.value }));
+    const candidates = points
+      .map((point, index) => ({ ...point, index }))
+      .filter((point) => point.time >= event.start && point.time <= event.end);
+    const peak = candidates.reduce((best, point) => point.close > best.close ? point : best, candidates[0]);
+    if (!peak || peak.index < 60) throw new Error(`${ticker} 的 ${event.label} 历史行情不足`);
+    const smaWindow = points.slice(Math.max(0, peak.index - 199), peak.index + 1);
+    const sma = smaWindow.length === 200
+      ? smaWindow.reduce((sum, point) => sum + point.close, 0) / smaWindow.length
+      : null;
+    const volatilityWindow = points.slice(Math.max(0, peak.index - 60), peak.index + 1);
+    const returns = volatilityWindow.slice(1).map((point, index) => Math.log(point.close / volatilityWindow[index].close));
+    const mean = returns.reduce((sum, value) => sum + value, 0) / Math.max(1, returns.length);
+    const variance = returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, returns.length - 1);
+    const volatility = Math.sqrt(variance) * Math.sqrt(252) * 100;
+    const trailingYear = points.slice(Math.max(0, peak.index - 251), peak.index + 1);
+    const trailingPeak = Math.max(...trailingYear.map((point) => point.close));
+    const drawdown = trailingPeak > 0 ? (peak.close / trailingPeak - 1) * 100 : null;
+    return { ...event, priceSymbol: ticker === 'VOO' && event.id === 'rates' ? 'VOO' : proxySymbol, date: peak.time, price: peak.close, sma, volatility, drawdown };
+  });
+  return {
+    ticker,
+    proxySymbol,
+    proxyLabel: ticker === 'VOO' ? 'VOO（2000 / 2008 使用 SPY 代理）' : 'QQQ',
+    generatedAt: new Date().toISOString(),
+    source: { label: ticker === 'VOO' ? 'Yahoo Finance · VOO / SPY 历史日线' : 'Yahoo Finance · QQQ 历史日线', url: ticker === 'VOO' && vooQuote ? vooQuote.sourceUrl : proxyQuote.sourceUrl },
+    valuationSource: ticker === 'VOO'
+      ? { label: 'S&P 500 历史市盈率', url: 'https://www.multpl.com/s-p-500-pe-ratio/table/by-month' }
+      : { label: 'Nasdaq-100 历史市盈率', url: 'https://trendonify.com/united-states/stock-market/nasdaq-100/pe-ratio' },
+    events,
+  };
 }
 
 async function getYahooMacroSnapshot(symbol: string) {
@@ -12066,6 +12127,12 @@ function allWeatherApiPlugin() {
       void getPpiMarketContext(false).catch(() => undefined);
       void getNonfarmMarketContext(false).catch(() => undefined);
       void getUnemploymentMarketContext(false).catch(() => undefined);
+      // Restore the last successful risk timeline immediately, then refresh it
+      // hourly even when no Risk Radar tab is open.
+      void getRiskRadarTimeline().catch(() => undefined);
+      const riskTimelineTimer = setInterval(() => { void getRiskRadarTimeline(true).catch(() => undefined); }, 60 * 60_000);
+      riskTimelineTimer.unref();
+      server.httpServer?.once('close', () => clearInterval(riskTimelineTimer));
       server.middlewares.use(async (req, res, next) => {
         try {
           const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -12247,7 +12314,7 @@ function allWeatherApiPlugin() {
             };
             const closes = quote.history.map((point) => point.value);
             res.setHeader('Cache-Control', (range === '1y' || range === '2y') && ['VOO', 'QQQ'].includes(symbol)
-              ? 'public, max-age=300, s-maxage=21600, stale-while-revalidate=86400'
+              ? 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400'
               : 'private, max-age=300');
             sendJson(res, 200, {
               symbol,
@@ -12260,6 +12327,27 @@ function allWeatherApiPlugin() {
                 sma60: movingAverage(closes, 60, index),
               })),
             });
+            return;
+          }
+
+          if (url.pathname === '/api/risk-radar/history') {
+            const ticker = String(url.searchParams.get('ticker') || '').trim().toUpperCase();
+            if (ticker !== 'VOO' && ticker !== 'QQQ') {
+              sendJson(res, 400, { error: '仅支持 VOO 或 QQQ' });
+              return;
+            }
+            const history = await buildRiskRadarHistory(ticker);
+            res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800');
+            sendJson(res, 200, history);
+            return;
+          }
+
+          if (url.pathname === '/api/risk-radar/timeline') {
+            const force = url.searchParams.get('refresh') === '1';
+            const timeline = await getRiskRadarTimeline(force);
+            res.setHeader('Cache-Control', force ? 'no-store' : 'public, max-age=300, s-maxage=3600, stale-while-revalidate=604800');
+            res.setHeader('X-SparkFlow-Refresh-Mode', force ? 'forced' : timeline.cache?.refreshing ? 'stale-while-revalidate' : 'scheduled-cache');
+            sendJson(res, 200, timeline);
             return;
           }
 

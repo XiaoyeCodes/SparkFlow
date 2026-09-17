@@ -10,7 +10,7 @@ import { allowedLocalRequest, allowedPublicReadRequest } from './localRequest.ts
 
 const horizons: ValuationLookback[] = [1, 3, 5, 10];
 export const VALUATION_REFRESH_MS = 3600_000;
-export const VALUATION_PUBLIC_CACHE_SECONDS = 21_600;
+export const VALUATION_PUBLIC_CACHE_SECONDS = 3_600;
 const RISK_RADAR_REPAIR_MS = 60_000;
 interface StoredSnapshot {
   schemaVersion: 1;
@@ -166,8 +166,8 @@ export function createValuationService(options: {
       if (!horizons.includes(years)) throw new Error('VALUATION_LOOKBACK_INVALID');
       return dashboard(await current(force), years);
     },
-    riskRadar: async () => {
-      let snapshot = await current();
+    riskRadar: async (force = false) => {
+      let snapshot = await current(force);
       let view = snapshot.windows[5];
       // A transient source failure used to leave a fresh-looking empty snapshot
       // in memory for an hour. Repair it synchronously, while throttling repair
@@ -179,8 +179,10 @@ export function createValuationService(options: {
           view = snapshot.windows[5];
         } catch { /* Return the partial snapshot without allowing it into long-lived caches. */ }
       }
+      const metric = (id: 'pe' | 'qqqPe') => view.metrics.find(item => item.id === id);
       return structuredClone({ fetchedAt: view.fetchedAt, treasury: view.treasury, sentiment: view.sentiment,
-        riskRadar: view.riskRadar, complete: riskRadarComplete(view), cache: cacheMeta() });
+        riskRadar: view.riskRadar, valuations: { VOO: metric('pe'), QQQ: metric('qqqPe') },
+        complete: riskRadarComplete(view), cache: cacheMeta() });
     },
     snapshot: async () => bundle(await current()), history, audit,
     refresh: async () => { await restore(); return current(true); },
@@ -210,9 +212,10 @@ export function ibkrValuationPlugin(): Plugin {
       if (req.method !== 'GET') return send(405, { error: '只读行情接口仅接受 GET' });
       void (async () => {
         if (url.pathname === '/api/ibkr-valuation/risk-radar') {
-          res.setHeader('X-SparkFlow-Refresh-Mode', 'scheduled-cache');
-          const payload = await service.riskRadar();
-          const cacheControl = payload.complete
+          const force = url.searchParams.get('fresh') === '1' && allowedLocalRequest(req.headers, req.socket.localPort ?? 0);
+          res.setHeader('X-SparkFlow-Refresh-Mode', force ? 'forced-local' : 'scheduled-cache');
+          const payload = await service.riskRadar(force);
+          const cacheControl = force ? 'no-store' : payload.complete
             ? `public, max-age=300, s-maxage=${VALUATION_PUBLIC_CACHE_SECONDS}, stale-while-revalidate=86400`
             : 'no-store';
           return send(200, payload, cacheControl);
