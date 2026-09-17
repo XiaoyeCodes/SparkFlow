@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
 import { emptySnapshot } from '../../src/lib/ibkr/store';
 import type { AccountSnapshot, PortfolioPerformance } from '../../src/lib/ibkr/workbenchTypes';
 import { donutArcPath, holdingsAllocation, holdingsReturnSeries, returnGeometry } from '../../src/lib/ibkr/holdingsAnalytics';
@@ -109,6 +110,14 @@ test('holdings charts respond to range changes and export the same range', async
       const footer = card.querySelector('.ha-pdf-footer')!.getBoundingClientRect();
       const charts = card.querySelector('.holdings-analytics')!.getBoundingClientRect();
       (window as any).__printCharts = { text: card.textContent, count: card.querySelectorAll('svg,img[data-account-chart]').length, fits: charts.bottom < footer.top };
+      const holdingsPage = document.querySelector('[data-account-pdf-page="2"]');
+      const holdingRow = holdingsPage?.querySelector('.holding-row');
+      const holdingFooter = holdingsPage?.querySelector('.disclosure');
+      if (holdingRow && holdingFooter) {
+        const style = getComputedStyle(holdingRow);
+        const finalRow = holdingsPage!.querySelector('.holding-row:last-child')!.getBoundingClientRect();
+        (window as any).__printHoldings = { radius: style.borderRadius, border: style.borderTopWidth, overflow: style.overflow, gap: getComputedStyle(holdingsPage!.querySelector('.portfolio-grid')!).gap, fits: finalRow.bottom < holdingFooter.getBoundingClientRect().top };
+      }
     });
     observer.observe(document.body, { childList: true, subtree: true });
   });
@@ -116,13 +125,44 @@ test('holdings charts respond to range changes and export the same range', async
   await page.getByRole('button', { name: '导出 PDF', exact: true }).click();
   const download = await downloaded;
   expect(await download.failure()).toBeNull();
+  await mkdir('output/pdf', { recursive: true });
+  await download.saveAs('output/pdf/SparkFlow-Portfolio-Statement-rounded.pdf');
   const printed = await page.evaluate(() => (window as any).__printCharts);
   expect(printed.text).toContain('+9.09%'); expect(printed.text).toContain('最近 30 天');
   expect(printed.count).toBe(3); expect(printed.fits).toBe(true);
+  const printedHoldings = await page.evaluate(() => (window as any).__printHoldings);
+  expect(printedHoldings).toEqual({ radius: '9px', border: '1px', overflow: 'hidden', gap: '6px', fits: true });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const mobile = await page.locator('.ha-card').evaluateAll(cards => cards.map(card => card.getBoundingClientRect().top));
   expect(mobile[0]).toBeLessThan(mobile[1]); expect(mobile[1]).toBeLessThan(mobile[2]);
+});
+
+test('full holdings use card rows and keep reference quotes free of source metadata', async ({ page }) => {
+  const quote = { conId: 1, symbol: 'AAPL', price: 212, changePercent: 1.2, asOf: '2026-09-04T20:00:00Z', fetchedAt: '2026-09-08T05:00:00Z', source: '东方财富', status: 'delayed', currency: 'USD', sourceUrl: 'https://example.com' } as const;
+  const state = { source: 'mcp', snapshot: snapshot(), performance: history(), connection: { state: 'connected', detail: 'fixture', tools: [], accounts: [] }, quotes: [quote], evidence: [], alerts: [], reports: [], jobs: [], preferences: { horizon: 'both', targetWeight: null, cashFloor: null, maxDrawdown: null, daily: false, eventAnalysis: false, maxAutomatic: 0, cooldownMinutes: 60, maxAiCalls: 12 }, ai: { configured: false, enabled: false, fields: [], usedToday: 0 }, nextSyncAt: null, calendarSupported: true };
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: state }));
+  await page.route('**/api/ibkr-workbench/quotes', route => route.fulfill({ json: [quote] }));
+  await page.route('**/api/ibkr-workbench/logo?*', route => route.fulfill({ json: {} }));
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto('http://127.0.0.1:5187/ibkr?tab=holdings');
+
+  const holdings = page.locator('.awb-holdings:not(.awb-holdings-summary)');
+  const table = holdings.locator('.awb-table-scroll table');
+  const firstRow = holdings.locator('tbody tr').first();
+  await expect(table).toHaveCSS('border-collapse', 'separate');
+  await expect(table).toHaveCSS('border-spacing', '0px 10px');
+  await expect(firstRow.locator('td').first()).toHaveCSS('border-radius', '12px 0px 0px 12px');
+  await expect(firstRow.locator('td').last()).toHaveCSS('border-radius', '0px 12px 12px 0px');
+  await expect(firstRow.locator('.awb-company-icon')).toHaveCSS('width', '38px');
+  await expect(firstRow.locator('.awb-company-icon')).toHaveCSS('border-radius', '10px');
+
+  const referenceQuote = firstRow.locator('td').last();
+  await expect(referenceQuote).toHaveText('212.00');
+  await expect(referenceQuote).not.toContainText('延迟');
+  await expect(referenceQuote).not.toContainText('东方财富');
+  await expect(referenceQuote.locator('small')).toHaveCount(0);
+  await holdings.screenshot({ path: 'output/ibkr/holdings-card-rows.png' });
 });
 
 

@@ -362,6 +362,10 @@
   font-size:13px;
   font-weight:500;
 }
+.awb-holdings:not(.awb-holdings-summary) .awb-table-scroll table{
+  border-collapse:separate;
+  border-spacing:0 10px;
+}
 .awb-holdings:not(.awb-holdings-summary) .awb-table-scroll th{
   padding:10px 12px;
   color:#afc4b8;
@@ -371,11 +375,26 @@
   letter-spacing:.015em;
 }
 .awb-holdings:not(.awb-holdings-summary) .awb-table-scroll td{
-  padding:12px;
+  padding:16px 14px;
   color:#dbe7e0;
   font-size:13.5px;
   font-weight:570;
   line-height:1.45;
+  background:#141918;
+  border-top:1px solid #29312e;
+  border-bottom:1px solid #29312e;
+  transition:background .15s;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-table-scroll tbody td:first-child{
+  border-left:1px solid #29312e;
+  border-radius:12px 0 0 12px;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-table-scroll tbody td:last-child{
+  border-right:1px solid #29312e;
+  border-radius:0 12px 12px 0;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-table-scroll tbody tr:hover td{
+  background:#1c2320;
 }
 .awb-holdings:not(.awb-holdings-summary) .awb-table-scroll td small{
   margin-top:4px;
@@ -401,10 +420,15 @@
   line-height:1.45;
 }
 .awb-holdings:not(.awb-holdings-summary) .awb-company-icon{
-  width:34px;
-  height:34px;
-  flex:0 0 34px;
+  width:38px;
+  height:38px;
+  flex:0 0 38px;
+  border:1px solid #343e39;
+  border-radius:10px;
+  overflow:hidden;
+  background:#202724;
 }
+.awb-holdings:not(.awb-holdings-summary) .awb-company-icon img{padding:0;border-radius:inherit}
 .awb-holdings:not(.awb-holdings-summary) .awb-weight{height:4px;margin-top:7px}
 .awb-secondary-metrics{
   color:#b6c9be;

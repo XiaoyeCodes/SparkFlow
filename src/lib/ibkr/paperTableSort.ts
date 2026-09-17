@@ -1,4 +1,4 @@
-import type { Holding } from './workbenchTypes';
+import type { Holding, PaperOrderRecord } from './workbenchTypes';
 
 export type PaperTableSort = { key: string; direction: 'default' | 'asc' | 'desc' };
 type SortValue = string | number | null | undefined;
@@ -32,4 +32,19 @@ export function paperOrderTime(value?: string | null): string {
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
   }).format(new Date(value));
+}
+
+export function beijingDateKey(value: string | number | Date): string | null {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  return parts.year && parts.month && parts.day ? `${parts.year}-${parts.month}-${parts.day}` : null;
+}
+
+export function paperOrdersForBeijingDay(orders: PaperOrderRecord[], now: string | number | Date = Date.now()): PaperOrderRecord[] {
+  const today = beijingDateKey(now);
+  if (!today) return [];
+  return orders.filter(order => beijingDateKey(order.createdAt || '') === today);
 }

@@ -1,11 +1,20 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { emptySnapshot } from '../../src/lib/ibkr/store';
+import { paperOrdersForBeijingDay } from '../../src/lib/ibkr/paperTableSort';
 
+test('today order filter follows Beijing midnight and excludes missing timestamps', () => {
+  const row = (id: string, createdAt?: string) => ({ bodyHash: 'a'.repeat(64), createdAt, submission: 'ACKNOWLEDGED', execution: 'FILLED', intent: { clientIntentId: id, conId: 1, side: 'BUY' as const, quantity: '1', limitPrice: '10', orderType: 'LMT' as const, tif: 'DAY' as const } });
+  const orders = [row('yesterday', '2026-09-17T15:59:59Z'), row('today', '2026-09-17T16:00:00Z'), row('missing')];
+  expect(paperOrdersForBeijingDay(orders, '2026-09-18T03:00:00Z').map(order => order.intent.clientIntentId)).toEqual(['today']);
+});
 
 test('orders and holdings sort all records before paging and retain independent settings', async ({ page }) => {
   const positions = Array.from({ length: 21 }, (_, i) => ({ accountKey: 'paper:table-test', conId: i + 1, symbol: `STK${i + 1}`, currency: 'USD', quantity: String(i + 1), averageCost: String(100 - i), marketValue: String((i + 1) * 100) }));
-  const orders = positions.map((p, i) => ({ bodyHash: 'a'.repeat(64), createdAt: `2026-09-${String(i + 1).padStart(2, '0')}T01:02:03Z`, submission: 'ACKNOWLEDGED', execution: 'FILLED', orderId: i + 1, filledQuantity: p.quantity, averageFillPrice: p.averageCost, intent: { clientIntentId: `test-${i}`, conId: p.conId, side: i % 2 ? 'SELL' : 'BUY', quantity: p.quantity, limitPrice: p.averageCost, orderType: 'LMT', tif: 'DAY' } }));
+  const todayParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  const todayBase = Date.UTC(Number(todayParts.year), Number(todayParts.month) - 1, Number(todayParts.day), 1, 2, 3);
+  const orders = positions.map((p, i) => ({ bodyHash: 'a'.repeat(64), createdAt: new Date(todayBase + i * 1000).toISOString(), submission: 'ACKNOWLEDGED', execution: 'FILLED', orderId: i + 1, filledQuantity: p.quantity, averageFillPrice: p.averageCost, reconciliationRequired: i === 20, intent: { clientIntentId: `test-${i}`, conId: p.conId, side: i % 2 ? 'SELL' : 'BUY', quantity: p.quantity, limitPrice: p.averageCost, orderType: 'LMT', tif: 'DAY' } }));
+  orders.push({ ...orders[0], createdAt: new Date(todayBase - 86400_000).toISOString(), orderId: 999, intent: { ...orders[0].intent, clientIntentId: 'previous-day' } });
   const snapshot = { ...emptySnapshot('paper'), accountKey: 'paper:table-test', state: 'ready', connection: 'connected', snapshotId: 'fixture', testData: true, asOf: new Date().toISOString(), positions, baseCurrency: 'USD', cash: [{ currency: 'USD', amount: '100000' }], metrics: { netLiquidation: '100000' } };
   const data = { source: 'gateway', gatewayMode: 'paper', snapshot, connection: { state: 'connected', detail: '测试', tools: [], accounts: [] }, quotes: [], evidence: [], alerts: [], reports: [], jobs: [], preferences: { maxAiCalls: 12 }, ai: { configured: false, enabled: false, fields: [] } };
   await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data }));
@@ -25,8 +34,11 @@ test('orders and holdings sort all records before paging and retain independent 
   await expect(rows).toHaveCount(10);
   await expect(activity.locator('table')).toHaveCSS('border-collapse', 'separate');
   await expect(activity.locator('table')).toHaveCSS('border-spacing', '0px 10px');
+  await expect(activity.getByRole('tab', { name: '今日订单 21' })).toBeVisible();
   await expect(rows.first()).toContainText('STK21');
-  await expect(rows.first()).toContainText('2026/09/21 09:02:03');
+  await expect(rows.first()).toContainText('09:02:23');
+  await expect(activity).not.toContainText('#999');
+  await expect(activity).not.toContainText('正在自动核对');
   await activity.getByRole('button', { name: '下一页', exact: true }).click();
   await expect(rows.first()).toContainText('STK11');
   await activity.getByLabel('页码', { exact: true }).selectOption('3');
