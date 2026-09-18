@@ -256,6 +256,16 @@ npm run test:ibkr:e2e
 
 欢迎通过 Issue 描述问题、数据口径或改进建议。提交代码前请运行与改动相关的验证脚本和生产构建，并确认 `git status` 中没有本地密钥、账户快照、日志或研究记录。
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=XiaoyeCodes%2FSparkFlow&type=date&legend=bottom-right">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=XiaoyeCodes/SparkFlow&type=date&theme=dark&legend=bottom-right" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=XiaoyeCodes/SparkFlow&type=date&legend=bottom-right" />
+    <img alt="SparkFlow Star History Chart" src="https://api.star-history.com/chart?repos=XiaoyeCodes/SparkFlow&type=date&legend=bottom-right" />
+  </picture>
+</a>
+
 ## License
 
 根项目使用 [MIT License](./LICENSE)。`services/vibe-trading` 基于 [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading) 的指定版本集成，相关版权、许可证与修改说明见该目录下的 `LICENSE` 和 `NOTICE`。
