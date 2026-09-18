@@ -9,13 +9,16 @@ export function createNewsPageCache(options: {
   load: (force: boolean) => Promise<NewsFeed>;
   store: SnapshotStore;
   now?: () => number;
+  version?: string;
 }) {
   const now = options.now ?? Date.now;
   let current: { key: string; cache: ReturnType<typeof createPublicDataCache>; lastManualRefresh: number; manual?: Promise<void> } | undefined;
   let stopped = false;
   let resolving: Promise<NonNullable<typeof current>> | undefined;
   const resolve = () => resolving ??= (async () => {
-    const key = createHash('sha256').update(JSON.stringify(await options.subscriptions())).digest('hex');
+    const key = createHash('sha256').update(JSON.stringify({
+      subscriptions: await options.subscriptions(), version: options.version || ''
+    })).digest('hex');
     if (stopped) throw new Error('News cache stopped');
     if (current?.key === key) return current;
     current?.cache.stop();

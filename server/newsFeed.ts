@@ -27,7 +27,7 @@ export type NewsSource = {
 type Candidate = Partial<NewsItem> & Pick<NewsItem, 'title' | 'url'>;
 type Transport = (source: NewsSource) => Promise<{ text: string; route: 'direct' | 'proxy' }>;
 
-export const NEWS_RANKING_VERSION = 'signals-v4';
+export const NEWS_RANKING_VERSION = 'signals-v6';
 export const NEWS_CATEGORY_LABELS: Record<NewsCategory, string> = {
   tech: '科技 / AI', finance: '金融 / 商业', society: '社会', livelihood: '民生 / 政策', world: '国际'
 };
@@ -144,6 +144,7 @@ function categoryFor(title: string, fallback: NewsCategory): NewsCategory {
   if (/医保|社保|住房|养老|教育|学校|就业|薪酬|裁员|减员|应届生|发改委|国务院|气象|台风|地震|洪水|灾害|救援/.test(title)) return 'livelihood';
   if (/美联储|央行|利率|财政|股市|IPO|财报|融资|并购|收购|营收|利润|证券|退市|汇率|金融|比特币/i.test(title)) return 'finance';
   if (/人工智能|大模型|芯片|半导体|机器人|软件|开源|科技|苹果|手机|阿里|腾讯|字节|\bAI\b|LLM|GPT|Claude|Gemini|DeepSeek|OpenAI|Anthropic|NVIDIA|GitHub/i.test(title)) return 'tech';
+  if (/慰安妇|受害者|幸存者|犯罪|案件|警方|法院|老人|儿童|女性|婚姻|家庭|人物特写|人物故事|口述|回忆录|历史回顾|往事/.test(title)) return 'society';
   if (/战争|制裁|外交|总统|首相|联合国|欧盟|军事/.test(title)) return 'world';
   return fallback;
 }
@@ -158,11 +159,14 @@ export function scoreNews(candidate: Candidate, source: NewsSource, now = Date.n
   const observedAt = validNewsDate(candidate.observedAt, now) || new Date(now).toISOString();
   const sourceRank = Number.isInteger(candidate.sourceRank) && candidate.sourceRank! > 0 ? candidate.sourceRank : undefined;
   const reasons = ['来源基准 ' + source.sourceWeight];
+  const hasConcreteEvent = /发布|实施|通过|批准|公布|财报|并购|收购|开源|上线|破获|预警|\b(launch|release|acquir|announc|approv|enact|merger|earnings)\w*/i.test(title);
+  const isEditorialFeature = !hasConcreteEvent
+    && /慰安妇|受害者后代|幸存者|人物特写|人物故事|口述|回忆录|历史回顾|往事/.test(text);
   let impact = 35;
-  if (/降息|加息|央行|美联储|财政|监管|制裁|战争|通胀|GDP|CPI|医保|社保|就业|地震|台风|洪水|救援|\b(inflation|central bank|earthquake|federal reserve|interest rates?|rate cuts?|rate hikes?|sanctions?|war|ceasefire|tariffs?|elections?|unemployment|floods?|hurricanes?|regulation)\b/i.test(text)) {
+  if (!isEditorialFeature && /降息|加息|央行|美联储|财政|监管|制裁|战争|通胀|GDP|CPI|医保|社保|就业|地震|台风|洪水|救援|\b(inflation|central bank|earthquake|federal reserve|interest rates?|rate cuts?|rate hikes?|sanctions?|war|ceasefire|tariffs?|elections?|unemployment|floods?|hurricanes?|regulation)\b/i.test(text)) {
     impact += 35; reasons.push('涉及宏观政策或公共影响');
   }
-  if (/发布|实施|通过|批准|公布|财报|并购|收购|开源|上线|破获|预警|\b(launch|release|acquir|announc|approv|enact|merger|earnings)\w*/i.test(title)) {
+  if (hasConcreteEvent) {
     impact += 18; reasons.push('标题包含具体事件或发布');
   }
   if (/大模型|芯片|半导体|算力|机器人|人工智能|\b(AI|LLM|agent|model|paper|research)\b/i.test(text)) {
@@ -178,14 +182,31 @@ export function scoreNews(candidate: Candidate, source: NewsSource, now = Date.n
   if (/综艺|明星|演唱会|粉丝|恋情|景甜|王俊凯|票房|电影|电视剧|娱乐|文娱|八卦/.test(title)) {
     importance = Math.min(importance, 42); reasons.push('娱乐话题，重要程度上限 42');
   }
+  if (isEditorialFeature) {
+    importance = Math.min(importance, 46); reasons.push('人物特写或历史回顾，重要程度上限 46');
+  }
   if (['weibo', 'v2ex', 'zhihu', 'reddit'].includes(source.id) || source.kind === 'x-trends') reasons.push('社区线索需核验，热度不代表可信度');
   const heat = sourceRank ? score(100 * Math.exp(-(sourceRank - 1) / 20)) : score(candidate.heat || 0);
-  const recency = publishedAt ? score(100 * Math.exp(-Math.max(0, now - Date.parse(publishedAt)) / 36e5 / 36)) : 0;
   const hasHeat = Boolean(sourceRank || candidate.sourceHeat);
-  // No invented publication time or popularity: renormalize only the available dimensions.
-  const denominator = 0.55 + (publishedAt ? 0.25 : 0) + (hasHeat ? 0.2 : 0);
-  let weight = score((importance * 0.55 + (publishedAt ? recency * 0.25 : 0) + (hasHeat ? heat * 0.2 : 0)) / denominator);
-  if (!publishedAt) { weight = Math.max(0, weight - 8); reasons.push('缺少发布时间，综合权重扣 8 分'); }
+  // Verified list heat may update later, but it only nudges importance by ±4 points.
+  // It cannot turn popularity into factual credibility or dominate the time curve.
+  const heatAdjustment = hasHeat ? (heat - 50) * 0.08 : 0;
+  const adjustedImportance = Math.max(0, Math.min(100, importance + heatAdjustment));
+  const ageHours = publishedAt ? Math.max(0, now - Date.parse(publishedAt)) / 36e5 : undefined;
+  const halfLifeHours = 3 + importance * 0.2;
+  const decay = ageHours === undefined ? 0 : Math.pow(0.5, ageHours / halfLifeHours);
+  // After one day, move old stories out of the main flow quickly even when important.
+  const afterDayPenalty = ageHours === undefined || ageHours <= 24 ? 1 : Math.exp(-(ageHours - 24) / 6);
+  const recency = ageHours === undefined ? 0 : score(100 * decay * afterDayPenalty);
+  const freshnessBonus = ageHours === undefined ? 0 : 8 * Math.exp(-ageHours / 0.75);
+  let weight = ageHours === undefined
+    ? score(adjustedImportance - 8)
+    : score(adjustedImportance * decay * afterDayPenalty + freshnessBonus);
+  if (hasHeat) reasons.push(`可核验榜单热度修正 ${heatAdjustment >= 0 ? '+' : ''}${heatAdjustment.toFixed(1)}`);
+  if (isEditorialFeature && !hasHeat) {
+    weight = Math.min(weight, 57); reasons.push('无榜单热度的特写或回顾，综合权重上限 57');
+  }
+  if (!publishedAt) reasons.push('缺少发布时间，无法获得新稿加成并扣 8 分');
   if (candidate.stale) weight = Math.max(0, weight - 10);
   return {
     ...candidate,
@@ -199,8 +220,10 @@ export function scoreNews(candidate: Candidate, source: NewsSource, now = Date.n
     weightLabel: weight >= 78 ? '高优先' : weight >= 58 ? '值得看' : weight >= 38 ? '观察' : '低噪',
     ranking: {
       version: NEWS_RANKING_VERSION, importanceReasons: reasons,
-      heatBasis: sourceRank ? '原榜名次归一化；原始名次保留' : hasHeat ? '来源内热度归一化' : '来源未提供热度，不计入综合权重',
-      recencyBasis: publishedAt ? '使用来源提供的发布时间' : '发布时间待核验，不以抓取时间替代'
+      heatBasis: sourceRank ? '原榜名次归一化；仅对重要程度作 ±4 分以内微调' : hasHeat ? '来源内热度归一化；仅对重要程度作 ±4 分以内微调' : '来源未提供热度，不作热度修正',
+      recencyBasis: publishedAt
+        ? `重要程度半衰期 ${halfLifeHours.toFixed(1)} 小时；当前保留 ${recency}%；新稿加成 ${freshnessBonus.toFixed(1)}`
+        : '发布时间待核验，不以抓取时间替代；无新稿加成'
     }
   };
 }

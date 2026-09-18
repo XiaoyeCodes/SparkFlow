@@ -66,12 +66,43 @@ const policy = scoreNews({ title: '央行公布降息政策并实施', url: 'htt
 const entertainment = scoreNews({ title: '明星演唱会登上文娱热搜第一', url: 'https://example.com/entertainment', sourceRank: 1 }, source('weibo'), now);
 const rumor = scoreNews({ title: '据悉央行可能降息', url: 'https://example.com/rumor', sourceRank: 1 }, source('readhub'), now);
 const researchPrediction = scoreNews({ title: '研究机构称央行将达成新协议', url: 'https://example.com/prediction' }, source('readhub'), now);
+const huxiuMixed = { id: 'huxiu', label: '虎嗅', category: 'tech', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://rss.huxiu.com/', kind: 'rss', mixed: true };
+const historicalFeature = scoreNews({
+  title: '“慰安妇”受害者后代：我常常觉得奶奶是枉死的',
+  summary: '本文来自微信公众号，作者回顾受害者与战争历史。',
+  url: 'https://example.com/history-feature', publishedAt: '2026-08-28T11:52:00Z'
+}, huxiuMixed, now);
+const huxiuTech = scoreNews({
+  title: '开源大模型发布并上线', url: 'https://example.com/model-release', publishedAt: '2026-08-28T11:52:00Z'
+}, huxiuMixed, now);
+const morningMajor = scoreNews({
+  title: '央行公布重大降息政策并实施', url: 'https://example.com/morning-major', publishedAt: '2026-08-28T04:00:00Z'
+}, official, now);
+const afternoonOrdinary = scoreNews({
+  title: '公司举行日常交流活动', url: 'https://example.com/afternoon-ordinary', publishedAt: '2026-08-28T11:45:00Z'
+}, source('readhub'), now);
+const afternoonMajor = scoreNews({
+  title: '央行公布另一项重大降息政策并实施', url: 'https://example.com/afternoon-major', publishedAt: '2026-08-28T11:45:00Z'
+}, official, now);
+const previousDayMajor = scoreNews({
+  title: '央行公布前一日重大降息政策并实施', url: 'https://example.com/previous-day-major', publishedAt: '2026-08-27T06:00:00Z'
+}, official, now);
 assert.ok(policy.importance > entertainment.importance);
 assert.ok(policy.weight > entertainment.weight, 'Entertainment heat must not overtake a major verified-time policy event');
 assert.ok(entertainment.importance <= 42);
 assert.equal(entertainment.category, 'society');
 assert.ok(rumor.importance <= 58);
 assert.ok(researchPrediction.importance <= 58);
+assert.equal(historicalFeature.category, 'society');
+assert.equal(historicalFeature.heat, 0);
+assert.ok(historicalFeature.importance <= 46);
+assert.ok(historicalFeature.weight <= 57);
+assert.equal(huxiuTech.category, 'tech');
+assert.ok(huxiuTech.weight > historicalFeature.weight);
+assert.ok(morningMajor.weight > afternoonOrdinary.weight, 'A morning major story must stay ahead of a fresh routine story');
+assert.ok(afternoonMajor.weight > morningMajor.weight, 'A fresh story of equal importance may overtake the morning story');
+assert.ok(previousDayMajor.weight < morningMajor.weight, 'Stories older than 24h must leave the main ranking quickly');
+assert.match(morningMajor.ranking.recencyBasis, /半衰期/);
 assert.equal(entertainment.publishedAt, undefined);
 assert.equal(entertainment.recency, 0);
 assert.equal(validNewsDate('bad', now), undefined);

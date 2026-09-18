@@ -383,9 +383,9 @@ export function Signals() {
                   <summary>排序规则 <ChevronDown size={12} /></summary>
                   <div>
                     <p><b>原榜顺序</b>：选择来源后保留其原始名次；全部来源按来源分组。RSS、每日论文与早报只保留原始条目顺序，不虚构热榜名次。</p>
-                    <p><b>综合权重</b>：重要程度 55% + 时效 25% + 热度 20%；缺少的维度不参与加权。无发布时间扣 8 分，缓存内容扣 10 分。全部来源混排时，同一来源从第 3 条起会逐级降低排序优先级，避免高频源刷屏。</p>
+                    <p><b>综合权重</b>：重要程度随发布时间连续衰减，公式为“热度微调后的重要程度 × 0.5^(经过小时 ÷ 半衰期) + 新稿加成”。半衰期为 3 + 重要程度 × 0.2 小时；越重要衰减越慢。新稿加成最高 8 分，约 45 分钟快速消退；超过 24 小时会加速退场。无发布时间扣 8 分，缓存内容扣 10 分。</p>
                     <p><b>重要程度</b>：来源基准 35% + 事件影响 65%，由规则估算；预测、观点及娱乐话题限制得分，不把热搜名次当作事实可信度。</p>
-                    <p><b>热度优先</b>：原榜名次按 100 × exp(−(名次−1)/20) 归一化；无榜单但有热度时按来源内指标归一化。原始热度另行保留，不直接比较 Stars、点赞数与搜索量。</p>
+                    <p><b>热度优先</b>：原榜名次按 100 × exp(−(名次−1)/20) 归一化；无榜单但有热度时按来源内指标归一化。综合权重中，热度只对重要程度作 ±4 分以内的动态修正，不会取代内容重要性。原始热度另行保留，不直接比较 Stars、点赞数与搜索量。</p>
                     <p>无发布时间显示“时间待核验”。刷新共享缓存 2 分钟，手动刷新最短间隔 15 秒；失败缓存最多保留 30 分钟。</p>
                   </div>
                 </details>
@@ -734,8 +734,8 @@ function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsIte
         <summary aria-label={`${metricLabel} ${metric}，查看评分详情`}><span>{metricLabel}</span><strong>{metric}</strong><ChevronDown size={10} /></summary>
         <div className="signals-score-popover">
           <p>{item.weightLabel}</p>
-          <dl><div><dt>综合权重</dt><dd>{item.weight}</dd></div><div><dt>时效</dt><dd>{item.publishedAt ? item.recency : '待核验'}</dd></div><div><dt>重要程度（估算）</dt><dd>{item.importance}</dd></div><div><dt>热度（归一化）</dt><dd>{item.sourceRank || item.sourceHeat ? item.heat : '未提供'}</dd></div></dl>
-          {item.ranking ? <ul>{item.ranking.importanceReasons.map((reason) => <li key={reason}>{reason}</li>)}<li>{item.ranking.heatBasis}</li></ul> : null}
+          <dl><div><dt>综合权重</dt><dd>{item.weight}</dd></div><div><dt>时效保留</dt><dd>{item.publishedAt ? `${item.recency}%` : '待核验'}</dd></div><div><dt>重要程度（估算）</dt><dd>{item.importance}</dd></div><div><dt>热度（归一化）</dt><dd>{item.sourceRank || item.sourceHeat ? item.heat : '未提供'}</dd></div></dl>
+          {item.ranking ? <ul>{item.ranking.importanceReasons.map((reason) => <li key={reason}>{reason}</li>)}<li>{item.ranking.heatBasis}</li><li>{item.ranking.recencyBasis}</li></ul> : null}
           <small>各项得分满分 100</small>
         </div>
       </details>

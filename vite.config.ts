@@ -44,7 +44,7 @@ import {
 } from './src/data/chinaProvinceEconomy';
 import { CozeReportTaskService } from './server/cozeReportTasks';
 import { fetchOfficialMetrics, fetchOfficialNews, fetchExportMetric, createVerifiedMetricMerger, officialPeriod, alignChinaUsTenYearSpread, type OfficialMetric } from './server/chinaOfficialSources';
-import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, parseSyndication, type NewsSource } from './server/newsFeed';
+import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, NEWS_RANKING_VERSION, parseSyndication, type NewsSource } from './server/newsFeed';
 import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from './server/newsSubscriptions';
 import { dailyHotPlugin } from './server/dailyhotPlugin';
 import { ibkrWorkbenchPlugin } from './server/ibkrWorkbench';
@@ -251,6 +251,7 @@ type NewsSourceConfig = {
   route: FetchRoute;
   url: string;
   kind: 'rss';
+  mixed?: boolean;
 };
 
 type MarketIndexSnapshot = {
@@ -647,7 +648,7 @@ const impactKeywords = [
 const newsSources: NewsSourceConfig[] = [
   { id: 'ithome', label: 'IT之家', category: 'tech', sourceWeight: 66, origin: 'domestic', route: 'direct', url: 'https://www.ithome.com/rss/', kind: 'rss' },
   { id: '36kr', label: '36氪', category: 'finance', sourceWeight: 68, origin: 'domestic', route: 'direct', url: 'https://36kr.com/feed', kind: 'rss' },
-  { id: 'huxiu', label: '虎嗅', category: 'tech', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://rss.huxiu.com/', kind: 'rss' },
+  { id: 'huxiu', label: '虎嗅', category: 'tech', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://rss.huxiu.com/', kind: 'rss', mixed: true },
   { id: 'wallstreetcn', label: '华尔街见闻', category: 'finance', sourceWeight: 72, origin: 'domestic', route: 'direct', url: 'https://dedicated.wallstreetcn.com/rss.xml', kind: 'rss' },
   { id: 'chinanews-finance', label: '中新财经', category: 'finance', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/finance.xml', kind: 'rss' },
   { id: 'gov-cn', label: '中国政府网', category: 'livelihood', sourceWeight: 86, origin: 'domestic', route: 'direct', url: 'https://www.gov.cn/pushinfo/v150203/rss.xml', kind: 'rss' },
@@ -12245,6 +12246,7 @@ function allWeatherApiPlugin() {
       const newsPageCache = createNewsPageCache({
         subscriptions: () => newsSubscriptions.list(), load: getNewsFeed,
         store: createPublicSnapshotStore(path.join(sparkflowStateDir, 'news-page-cache'), 8 * 1024 * 1024),
+        version: NEWS_RANKING_VERSION,
       });
       const stopNewsPreload = newsPageCache.start();
       server.httpServer?.once('close', stopNewsPreload);

@@ -3,6 +3,7 @@ import { createNewsPageCache } from '../server/newsPageCache.ts';
 
 let now = Date.parse('2026-09-14T04:00:00Z');
 let subscriptions = [];
+let version = 'signals-v1';
 let calls = 0;
 let data;
 const store = { read: async () => data ?? null, write: async (_, value) => { data = value; } };
@@ -12,7 +13,7 @@ const feed = () => ({ generatedAt: new Date(now).toISOString(), proxy: 'secret-p
 let loader = async () => { calls++; return feed(); };
 const stops = [];
 function create() {
-  const cache = createNewsPageCache({ now: () => now, subscriptions: async () => subscriptions, load: force => {
+  const cache = createNewsPageCache({ now: () => now, version, subscriptions: async () => subscriptions, load: force => {
     assert.equal(force, true); return loader();
   }, store });
   stops.push(cache.start());
@@ -52,11 +53,17 @@ try {
   assert.equal((await cache.get()).items[0].title, 'snapshot-4', 'changed subscriptions cannot restore old snapshot');
   assert.equal(calls, 4);
 
+  stops.pop()();
+  version = 'signals-v2';
+  cache = create();
+  assert.equal((await cache.get()).items[0].title, 'snapshot-5', 'changed ranking version cannot restore an old snapshot');
+  assert.equal(calls, 5);
+
   now += 121_000;
   loader = async () => { calls++; return { ...feed(), sources: [{ ok: false }] }; };
   const retained = await cache.get();
   await assert.rejects(cache.get(true));
-  assert.equal(retained.items[0].title, 'snapshot-4');
+  assert.equal(retained.items[0].title, 'snapshot-5');
   now += 1800_000;
   await assert.rejects(cache.get(), 'all-source failure cannot renew a snapshot beyond its hard deadline');
 
