@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Zap } from 'lucide-react';
+import { ArrowUp, LocateFixed, Zap } from 'lucide-react';
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { CyberPortalCard } from '../components/CyberPortalCard';
 import { Hyperspeed, type HyperspeedOptions } from '../components/Hyperspeed';
@@ -35,6 +35,8 @@ export function HyperspeedRoute() {
   const [tunnelMounted, setTunnelMounted] = useState(!prefersReducedMotion);
   const [prepared, setPrepared] = useState(prefersReducedMotion);
   const [settled, setSettled] = useState(prefersReducedMotion);
+  const [activeGroup, setActiveGroup] = useState(cyberPortalGroups[0]?.id ?? '');
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const directoryVisible = prefersReducedMotion || prepared;
   const phase = directoryVisible ? 'directory' : sequenceComplete ? 'preparing' : 'transit';
 
@@ -82,15 +84,66 @@ export function HyperspeedRoute() {
     };
   }, [directoryVisible, prefersReducedMotion]);
 
+  useEffect(() => {
+    if (!directoryVisible) return;
+
+    let frame = 0;
+    const updateNavigation = () => {
+      frame = 0;
+      const directoryHeading = document.getElementById('portal-directory-heading');
+      const navHeight = Number.parseFloat(
+        window.getComputedStyle(document.documentElement).getPropertyValue('--nav-height')
+      ) || 72;
+      setShowBackToTop(Boolean(
+        directoryHeading && directoryHeading.getBoundingClientRect().bottom <= navHeight + 8
+      ));
+
+      const marker = Math.min(window.innerHeight * 0.3, 280);
+      let nextGroup = cyberPortalGroups[0]?.id ?? '';
+      for (const group of cyberPortalGroups) {
+        const element = document.getElementById(`portal-group-${group.id}`);
+        if (element && element.getBoundingClientRect().top <= marker) nextGroup = group.id;
+      }
+      setActiveGroup((current) => current === nextGroup ? current : nextGroup);
+    };
+    const handleScroll = () => {
+      if (!frame) frame = window.requestAnimationFrame(updateNavigation);
+    };
+
+    updateNavigation();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('scroll', handleScroll, { passive: true, capture: true });
+    window.addEventListener('resize', handleScroll);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll, { capture: true });
+      window.removeEventListener('resize', handleScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [directoryVisible]);
+
+  const scrollToGroup = (groupId: string) => {
+    setActiveGroup(groupId);
+    document.getElementById(`portal-group-${groupId}`)?.scrollIntoView({
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      block: 'start'
+    });
+  };
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+  };
+
   return (
-    <motion.div
-      className="page-enter min-h-screen pt-[var(--nav-height)]"
-      initial={prefersReducedMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.35 }}
-    >
-      <section className="cyber-corridor" data-phase={phase} data-settled={settled}>
+    <>
+      <motion.div
+        className="page-enter min-h-screen pt-[var(--nav-height)]"
+        initial={prefersReducedMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.35 }}
+      >
+        <section className="cyber-corridor" data-phase={phase} data-settled={settled}>
           {tunnelMounted ? (
             <motion.div
               className="cyber-corridor__tunnel"
@@ -123,20 +176,56 @@ export function HyperspeedRoute() {
             }}
             transition={revealTransition}
           >
-            <p className="cyber-corridor__eyebrow">
-              <Zap size={14} strokeWidth={1.7} />
-              HYPERSPEED / EXTERNAL SIGNAL NETWORK
-            </p>
-            <h1>极速通道</h1>
-            <motion.p
-              className="cyber-corridor__subtitle"
-              animate={{ opacity: directoryVisible ? 1 : 0.64 }}
-              transition={{ duration: 0.5 }}
-            >
-              {directoryVisible
-                ? `共 ${portalCount} 个网站入口，按用途分类，在新标签页打开。`
-                : '正在提升链路速度，穿越边界后将接入外部实时信号网络。'}
-            </motion.p>
+            <div className="cyber-corridor__hero-copy">
+              <p className="cyber-corridor__eyebrow">
+                <Zap size={14} strokeWidth={1.7} />
+                HYPERSPEED / EXTERNAL SIGNAL NETWORK
+              </p>
+              <h1>极速通道</h1>
+              <motion.p
+                className="cyber-corridor__subtitle"
+                animate={{ opacity: directoryVisible ? 1 : 0.64 }}
+                transition={{ duration: 0.5 }}
+              >
+                {directoryVisible
+                  ? `共 ${portalCount} 个网站入口，按用途分类，在新标签页打开。`
+                  : '正在提升链路速度，穿越边界后将接入外部实时信号网络。'}
+              </motion.p>
+            </div>
+
+            <AnimatePresence>
+              {directoryVisible ? (
+                <motion.nav
+                  className="cyber-corridor__jump-nav"
+                  aria-label="极速通道分组目录"
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.55, delay: 0.12, ease: [0.19, 1, 0.22, 1] }}
+                >
+                  <div className="cyber-corridor__jump-nav-heading">
+                    <span><LocateFixed size={13} /> SECTOR DIRECTORY</span>
+                    <small>{String(cyberPortalGroups.length).padStart(2, '0')} SECTORS</small>
+                  </div>
+                  <div className="cyber-corridor__jump-nav-grid">
+                    {cyberPortalGroups.map((group) => (
+                      <button
+                        key={group.id}
+                        type="button"
+                        className="cyber-corridor__jump-link"
+                        data-active={activeGroup === group.id}
+                        style={{ '--group-accent': group.accent } as CSSProperties}
+                        onClick={() => scrollToGroup(group.id)}
+                        aria-current={activeGroup === group.id ? 'location' : undefined}
+                      >
+                        <span>{group.index}</span>
+                        <strong>{group.title}</strong>
+                      </button>
+                    ))}
+                  </div>
+                </motion.nav>
+              ) : null}
+            </AnimatePresence>
           </motion.header>
 
           <AnimatePresence>
@@ -162,7 +251,7 @@ export function HyperspeedRoute() {
               aria-hidden={!directoryVisible}
               ref={(node) => { if (node) node.inert = !directoryVisible; }}
             >
-              <div className="cyber-corridor__directory-heading">
+              <div className="cyber-corridor__directory-heading" id="portal-directory-heading">
                 <div>
                   <p>ACCESS DIRECTORY / {String(portalCount).padStart(2, '0')} NODES</p>
                   <h2>选择你的情报入口</h2>
@@ -174,6 +263,7 @@ export function HyperspeedRoute() {
                 <section
                   className="cyber-corridor__group"
                   key={group.id}
+                  id={`portal-group-${group.id}`}
                   style={{ '--group-accent': group.accent } as CSSProperties}
                   aria-labelledby={`${group.id}-title`}
                 >
@@ -207,7 +297,22 @@ export function HyperspeedRoute() {
               ))}
             </div>
         </div>
-      </section>
-    </motion.div>
+
+        </section>
+      </motion.div>
+
+      <button
+        type="button"
+        className="cyber-corridor__back-top"
+        data-visible={showBackToTop}
+        onClick={scrollToTop}
+        aria-label="返回极速通道顶部"
+        aria-hidden={!showBackToTop}
+        tabIndex={showBackToTop ? 0 : -1}
+      >
+        <ArrowUp size={19} strokeWidth={1.7} />
+        <span>TOP</span>
+      </button>
+    </>
   );
 }

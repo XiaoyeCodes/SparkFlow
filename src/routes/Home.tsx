@@ -50,9 +50,9 @@ export function Home() {
 
   return (
     <PageTransition>
-      <section ref={sceneRef} className="orbital-home relative min-h-[220vh] overflow-clip bg-black">
+      <section ref={sceneRef} className="orbital-home relative min-h-[220vh] overflow-clip">
         <div className="sticky top-0 h-screen overflow-hidden">
-          <div className="absolute inset-0 z-[1] bg-[radial-gradient(circle_at_50%_48%,rgba(102,188,255,0.18),transparent_24%),radial-gradient(circle_at_82%_40%,rgba(255,255,255,0.05),transparent_24%),linear-gradient(180deg,rgba(0,0,0,0.03),rgba(0,0,0,0.22)_64%,rgba(0,0,0,0.08)_96%)]" />
+          <div className="home-scene-tint absolute inset-0 z-[1]" />
           <EarthScene />
 
           <motion.div

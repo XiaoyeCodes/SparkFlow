@@ -73,8 +73,8 @@ export const realtimeWindows: InfiniteMenuItem[] = [
   {
     title: '今日新闻',
     description: '今日热榜入口，用最短时间扫过中文互联网高热议题。',
-    link: 'https://tophub.today/',
-    image: makeCover('NEWS', 'TOPHUB', '#f97316', 'news')
+    link: 'https://newsnow.busiyi.world/c/hottest',
+    image: makeCover('NEWS', 'NEWSNOW', '#f97316', 'news')
   },
   {
     title: 'AI 新闻',

@@ -268,7 +268,8 @@ button {
 
 .orbital-home {
   background:
-    linear-gradient(180deg, #000 0%, #030406 42%, #000 100%);
+    linear-gradient(180deg, rgba(10, 24, 24, 0.96), rgba(4, 13, 13, 0.97)),
+    rgba(4, 13, 13, 0.95);
   isolation: isolate;
 }
 

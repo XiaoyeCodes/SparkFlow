@@ -12,6 +12,7 @@ import {
   Plane,
   Radar,
   Scale,
+  Ship,
   Thermometer,
   type LucideIcon
 } from 'lucide-react';
@@ -27,6 +28,7 @@ const portalIcons: Record<CyberPortalIcon, LucideIcon> = {
   brief: Newspaper,
   trends: Orbit,
   flight: Plane,
+  ship: Ship,
   hot: Flame,
   temperature: Thermometer,
   valuation: Scale,

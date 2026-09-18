@@ -1,3 +1,10 @@
+.home-scene-tint {
+  background:
+    radial-gradient(circle at 50% 48%, rgba(102, 188, 255, .16), transparent 24%),
+    radial-gradient(circle at 82% 40%, rgba(150, 212, 208, .07), transparent 27%),
+    linear-gradient(180deg, rgba(2, 15, 16, .02), rgba(1, 10, 12, .16) 64%, rgba(1, 12, 13, .06) 96%);
+}
+
 .home-product-panel {
   position: absolute;
   z-index: 20;
