@@ -703,6 +703,9 @@ def register_sessions_routes(app: FastAPI) -> None:
             replay_all = attempt_status == "running"
 
         async def event_generator():
+            # Emit a frame immediately so reverse proxies and browser EventSource
+            # clients can finish the handshake before the first research event.
+            yield "retry: 3000\n: connected\n\n"
             async for event in svc.event_bus.subscribe(
                 session_id,
                 last_event_id=event_id,

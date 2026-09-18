@@ -792,7 +792,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
             source.close();
             reject(new Error('Vibe-Trading 研究事件流连接超时'));
           }
-        }, 10000);
+        }, 30_000);
 
         const withEventId = (event: Event, updater: (current: ResearchState, payload: Record<string, unknown>) => ResearchState) => {
           const payload = parseEvent(event);

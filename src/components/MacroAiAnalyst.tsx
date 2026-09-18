@@ -826,7 +826,7 @@ export function MacroAiAnalyst({
       if (opened) return;
       source.close();
       reject(new Error('AI 分析事件流连接超时'));
-    }, 12_000);
+    }, 30_000);
     source.onopen = () => {
       opened = true;
       window.clearTimeout(timeout);

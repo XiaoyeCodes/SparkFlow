@@ -11023,7 +11023,8 @@ async function prepareVibeResearchSession(body: any, requireExisting = false) {
 async function proxyVibeEventStream(req: any, res: any, sessionId: string, resumeEventId?: string) {
   const baseUrl = await ensureVibeTradingServer();
   const controller = new AbortController();
-  req.once('close', () => controller.abort());
+  const abortUpstream = () => controller.abort();
+  res.once('close', abortUpstream);
   const headerEventId = Array.isArray(req.headers['last-event-id'])
     ? req.headers['last-event-id'][0]
     : req.headers['last-event-id'];
@@ -11043,6 +11044,11 @@ async function proxyVibeEventStream(req: any, res: any, sessionId: string, resum
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
+  res.write('retry: 3000\n: connected\n\n');
+  const heartbeat = setInterval(() => {
+    if (!res.destroyed && !res.writableEnded) res.write(': heartbeat\n\n');
+  }, 15_000);
+  heartbeat.unref();
   try {
     for await (const chunk of upstream.body as any) {
       if (res.destroyed) break;
@@ -11051,6 +11057,9 @@ async function proxyVibeEventStream(req: any, res: any, sessionId: string, resum
   } catch (error) {
     if (!controller.signal.aborted) throw error;
   } finally {
+    clearInterval(heartbeat);
+    res.off('close', abortUpstream);
+    controller.abort();
     if (!res.writableEnded) res.end();
   }
 }

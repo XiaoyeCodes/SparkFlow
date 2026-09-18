@@ -677,7 +677,7 @@ export function Assistant() {
           closeSource();
           reject(new Error('研究事件流连接超时'));
         }
-      }, 10000);
+      }, 30_000);
       const onAbort = () => { closeSource(); reject(signal?.reason); };
       signal?.addEventListener('abort', onAbort, { once: true });
 
