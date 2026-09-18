@@ -1,5 +1,5 @@
 .risk-radar-page {
-  --risk-bg: #050c09;
+  --risk-bg: #020606;
   --risk-panel: #0b1510;
   --risk-panel-2: #0e1a14;
   --risk-border: rgba(113, 194, 159, .2);
@@ -10,8 +10,8 @@
   --risk-gold: #e6b35e;
   min-height: calc(100vh - var(--nav-height));
   background:
-    radial-gradient(circle at 85% 0%, rgba(65, 152, 119, .12), transparent 28%),
-    linear-gradient(180deg, #06100c, #030705 64%);
+    radial-gradient(circle at 85% 0%, rgba(65, 152, 119, .04), transparent 28%),
+    linear-gradient(180deg, rgba(5, 12, 12, .98), rgba(2, 6, 6, .99) 64%);
   color: var(--risk-text);
   font-family: Inter, "SF Pro Display", "Segoe UI", "Microsoft YaHei", sans-serif;
 }
