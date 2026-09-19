@@ -132,6 +132,23 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1024, height: 13
     await expect(timelineChart.locator('[data-series="VOO"]')).toHaveAttribute('d', /L/);
     await expect(timelineChart.locator('[data-series="QQQ"]')).toHaveAttribute('d', /L/);
     await expect(timelineChart.locator('.risk-timeline-legend .voo small')).toHaveText(/^\d{4}\/\d{2}$/);
+    const timelineSvg = timelineChart.locator('.risk-timeline-frame svg');
+    await timelineSvg.scrollIntoViewIfNeeded();
+    for (const fraction of [.05, .5, .95]) {
+      const pointer = await timelineSvg.evaluate((svg, position) => {
+        const matrix = svg.getScreenCTM();
+        if (!matrix) throw new Error('Timeline SVG is not rendered');
+        const point = new DOMPoint(94 + position * 1072, 200).matrixTransform(matrix);
+        return { x: point.x, y: point.y };
+      }, fraction);
+      await page.mouse.move(pointer.x, pointer.y);
+      const cursorX = await timelineChart.locator('.risk-timeline-cursor').evaluate(line => {
+        const matrix = line.getScreenCTM();
+        if (!matrix) throw new Error('Timeline cursor is not rendered');
+        return new DOMPoint(Number(line.getAttribute('x1')), 200).matrixTransform(matrix).x;
+      });
+      expect(Math.abs(cursorX - pointer.x)).toBeLessThan(1.5);
+    }
     const indexSelector = timelineChart.getByRole('group', { name: '选择显示的指数' });
     const vooToggle = indexSelector.getByRole('button', { name: /VOO/ });
     const qqqToggle = indexSelector.getByRole('button', { name: /QQQ/ });

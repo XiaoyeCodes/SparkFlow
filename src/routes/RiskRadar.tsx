@@ -429,7 +429,7 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
   cacheStoredAt: string | null;
   current: { ticker: Ticker; date: string; overall: number | null; vulnerability: number | null; stress: number | null } | null;
 }) {
-  const [cursor, setCursor] = useState<number | null>(null);
+  const [cursor, setCursor] = useState<{ fraction: number; frameX: number; frameWidth: number } | null>(null);
   const [mode, setMode] = useState<'overall' | 'vulnerability' | 'stress'>('overall');
   const [visibleTickers, setVisibleTickers] = useState<Ticker[]>(['VOO', 'QQQ']);
   const model = useMemo(() => {
@@ -486,7 +486,7 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
 
   const hovered = useMemo(() => {
     if (!model || cursor === null) return null;
-    const time = model.minTime + cursor * (model.maxTime - model.minTime);
+    const time = model.minTime + cursor.fraction * (model.maxTime - model.minTime);
     const entries = model.paths.map(series => {
       let best = series.points[0];
       let distance = Math.abs(Date.parse(best.date) - time);
@@ -513,13 +513,19 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
       })}</div> : null}</div>
     </header>
     {loading && !model ? <div className="risk-timeline-state"><RefreshCw className="is-spinning" size={18}/>正在重建历史月度得分…</div> : error && !model ? <div className="risk-timeline-state is-error"><AlertTriangle size={18}/>{error}</div> : model ? <>
-      <div className="risk-timeline-frame" onMouseLeave={() => setCursor(null)} onMouseMove={event => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        const plotLeft = rect.width * model.left / model.width;
-        const plotRight = rect.width * (model.width - model.right) / model.width;
-        setCursor(Math.max(0, Math.min(1, (event.clientX - rect.left - plotLeft) / Math.max(plotRight - plotLeft, 1))));
-      }}>
-        <svg viewBox={`0 0 ${model.width} ${model.height}`} role="img" aria-labelledby="risk-timeline-title risk-timeline-desc">
+      <div className="risk-timeline-frame" onMouseLeave={() => setCursor(null)}>
+        <svg viewBox={`0 0 ${model.width} ${model.height}`} role="img" aria-labelledby="risk-timeline-title risk-timeline-desc" onMouseMove={event => {
+          const matrix = event.currentTarget.getScreenCTM();
+          const frame = event.currentTarget.parentElement;
+          if (!matrix || !frame) return;
+          const svgX = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse()).x;
+          const frameRect = frame.getBoundingClientRect();
+          setCursor({
+            fraction: Math.max(0, Math.min(1, (svgX - model.left) / model.plotWidth)),
+            frameX: event.clientX - frameRect.left,
+            frameWidth: frameRect.width,
+          });
+        }}>
           <title id="risk-timeline-title">{model.paths.map(series => series.ticker).join(' 与 ')} 近30年{mode === 'overall' ? '综合风险' : mode === 'vulnerability' ? '潜在脆弱性' : '即时压力'}走势</title>
           <desc id="risk-timeline-desc">纵轴从零到一百分，绿色为正常区，黄色为警戒区，红色为高风险区。</desc>
           <rect className="risk-timeline-band high" x={model.left} y={model.y(100)} width={model.plotWidth} height={model.y(70) - model.y(100)} />
@@ -531,9 +537,9 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
           <text className="risk-timeline-zone-label low" x={18} y={(model.y(40) + model.y(0)) / 2}>正常</text>
           {model.years.map(year => { const date = `${year}-01-01`; return <g key={year} className="risk-timeline-year"><line x1={model.x(date)} x2={model.x(date)} y1={model.top} y2={model.height - model.bottom} /><text x={model.x(date)} y={model.height - 22} textAnchor="middle">{year}</text></g>; })}
           {model.paths.map(series => <path key={series.ticker} data-series={series.ticker} className={`risk-timeline-line ${series.ticker.toLowerCase()}`} d={series.path} />)}
-          {cursor !== null ? <line className="risk-timeline-cursor" x1={model.left + cursor * model.plotWidth} x2={model.left + cursor * model.plotWidth} y1={model.top} y2={model.height - model.bottom} /> : null}
+          {cursor !== null ? <line className="risk-timeline-cursor" x1={model.left + cursor.fraction * model.plotWidth} x2={model.left + cursor.fraction * model.plotWidth} y1={model.top} y2={model.height - model.bottom} /> : null}
         </svg>
-        {hovered ? <div className="risk-timeline-tooltip" style={{ left: `${Math.max(8, Math.min(84, (cursor ?? 0) * 100))}%` }}><time>{formatDate(new Date(hovered.time).toISOString())}</time>{hovered.entries.map(entry => <span key={entry.ticker} className={entry.ticker.toLowerCase()}><i />{entry.ticker}<b>{entry.point.score.toFixed(1)}</b></span>)}</div> : null}
+        {hovered && cursor ? <div className="risk-timeline-tooltip" style={{ left: Math.max(90, Math.min(cursor.frameWidth - 90, cursor.frameX)) }}><time>{formatDate(new Date(hovered.time).toISOString())}</time>{hovered.entries.map(entry => <span key={entry.ticker} className={entry.ticker.toLowerCase()}><i />{entry.ticker}<b>{entry.point.score.toFixed(1)}</b></span>)}</div> : null}
       </div>
       <div className="risk-timeline-meta"><div><b>0–39</b> 正常区 <b>40–69</b> 警戒区 <b>70–100</b> 高风险区</div><span>{mode === 'overall' ? '综合状态取两层较高值' : mode === 'vulnerability' ? '观察危机前累积的估值与杠杆脆弱性' : '观察信用、融资、波动与市场损伤'} · {model.paths.map(series => `${series.proxyLabel} ${series.firstDate.slice(0, 4)}–${series.lastDate.slice(0, 4)}`).join(' · ')}</span></div>
       <div className="risk-timeline-notes"><p>{payload?.methodology.join(' ')}</p><div>{payload?.sources.map(source => <a key={source.label} href={source.url} target="_blank" rel="noopener noreferrer">{source.label}<ExternalLink size={10}/></a>)}</div></div>
