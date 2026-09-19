@@ -86,6 +86,7 @@ type RegionalHeatmapConfig = {
   defaultCoverage: string;
   industryDisplayPriority: string[];
   logoPath?: (stock: ChinaHeatmapStock) => string;
+  preloadLogos?: boolean;
   formatPrice?: (value: number) => string;
   formatMarketCap?: (value: number) => string;
   marketCapLabel?: string;
@@ -162,6 +163,7 @@ const CRYPTO_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   defaultCoverage: '主流加密资产市值前 120 项',
   industryDisplayPriority: ['公链与基础层', 'DeFi', 'Layer 2', '交易平台', 'AI 与算力', 'Meme'],
   logoPath: (stock) => stock.logoUrl || '',
+  preloadLogos: false,
   formatPrice: formatCryptoPrice,
   formatMarketCap: formatUsdMarketCap,
   searchEntityLabel: '资产',
@@ -310,7 +312,7 @@ function readRegionalHeatmapCache(config: RegionalHeatmapConfig) {
 }
 
 function preloadRegionalHeatmapLogos(config: RegionalHeatmapConfig, payload: ChinaHeatmapResponse) {
-  if (typeof Image === 'undefined' || !config.logoPath) return;
+  if (typeof Image === 'undefined' || !config.logoPath || config.preloadLogos === false) return;
   payload.stocks.forEach((stock) => {
     const logoUrl = config.logoPath?.(stock);
     if (!logoUrl || regionalHeatmapPreloadedLogoUrls.has(logoUrl)) return;

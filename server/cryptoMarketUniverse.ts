@@ -89,6 +89,7 @@ export function parseCoinPaprikaMarketUniverse(payload: unknown): CryptoMarketUn
       id,
       symbol,
       name,
+      image: `https://static.coinpaprika.com/coin/${encodeURIComponent(id)}/logo.png`,
       current_price: currentPrice,
       market_cap: marketCap,
       market_cap_rank: finiteNumber(row.rank),

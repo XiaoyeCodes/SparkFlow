@@ -26,6 +26,7 @@ const paprika = parseCoinPaprikaMarketUniverse([{
 }]);
 assert.equal(paprika.length, 1, 'invalid fallback rows are rejected');
 assert.equal(paprika[0].symbol, 'BTC');
+assert.equal(paprika[0].image, 'https://static.coinpaprika.com/coin/btc-bitcoin/logo.png');
 assert.equal(paprika[0].market_cap, 1_201_000_000_000);
 assert.equal(paprika[0].price_change_percentage_24h, 1.3);
 assert.equal(paprika[0].sourceUrl, 'https://coinpaprika.com/coin/btc-bitcoin/');
