@@ -1180,6 +1180,8 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
     ? config.sessionMarket === 'korea'
       ? `抓取 ${updatedAt}`
       : sourceDelayLabel ? `收盘快照 · ${sourceDelayLabel}` : '常规盘已收盘'
+    : config.sessionMarket === 'korea' && data?.generatedAt
+      ? `${sourceDelayLabel || (data.quoteStatus === 'live' ? '实时行情' : '行情快照')} · 抓取 ${updatedAt}`
     : isPublicSnapshotMarket
       ? `公开行情快照 ${updatedAt}`
       : sourceDelayLabel || (data?.quoteStatus === 'live' ? '实时行情' : `抓取 ${updatedAt}`);
