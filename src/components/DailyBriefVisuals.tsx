@@ -164,6 +164,5 @@ export function DailyBriefVisualDashboard({ data, analysis, summary, btc }: { da
       <VizCard index="03 / PLAYBOOK" title="今日市场体质" source="规则化映射" className="is-radar"><RadarChart analysis={analysis} data={data} summary={summary} /></VizCard>
       <VizCard index="02B / FUTURES" title="BTC 合约多空情绪" source="Binance · 5m" className="is-futures"><BinanceLongShortPie data={data} /></VizCard>
     </div>
-    <div className="brief-viz-method"><span>DATA MAP</span> 图表优先使用实时接口；CNN 情绪卡展示其公开的七项底层指标，缺失指标不以简报文本替代。</div>
   </div>;
 }
