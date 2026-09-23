@@ -17,6 +17,7 @@ import concurrent.futures
 import copy
 import json
 import logging
+import os
 import queue
 import sys
 import threading
@@ -48,8 +49,9 @@ from src.config.accessor import get_env_config
 from src.tools.background_tools import get_background_manager
 from src.tools.redaction import redact_payload
 
-RUNS_DIR = Path(__file__).resolve().parents[2] / "runs"
-SESSIONS_DIR = Path(__file__).resolve().parents[2] / "sessions"
+_USER_DATA_DIR = Path(os.environ["SPARKFLOW_USER_DATA_DIR"]).expanduser().resolve() if os.environ.get("SPARKFLOW_USER_DATA_DIR") else None
+RUNS_DIR = (_USER_DATA_DIR / "assistant" / "runs") if _USER_DATA_DIR else (Path(__file__).resolve().parents[2] / "runs")
+SESSIONS_DIR = (_USER_DATA_DIR / "assistant" / "conversations") if _USER_DATA_DIR else (Path(__file__).resolve().parents[2] / "sessions")
 KEEP_RECENT = 3
 TOOL_RESULT_LIMIT = 10_000
 LLM_USAGE_ARTIFACT = "llm_usage.json"

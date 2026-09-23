@@ -86,6 +86,25 @@ test('paper Gateway selection is immediate and reads the account only after an e
     await service.close();
   }
 });
+test('corrupted account state automatically recovers from the newest valid backup', async () => {
+  await mkdir('tmp/workbench-state-recovery', { recursive: true });
+  const root = await mkdtemp(path.resolve('tmp/workbench-state-recovery/root-'));
+  const dir = path.join(root, 'state');
+  await mkdir(dir, { recursive: true });
+  const snapshot = normalizeMcpSnapshot('RECOVERY_ACCOUNT', [], { baseCurrency: 'USD', netLiquidation: 1000, cash: [{ currency: 'USD', amount: 1000 }] });
+  const saved = { version: 1, source: 'gateway', gatewayMode: 'paper', selectedKey: snapshot.accountKey, records: { [snapshot.accountKey]: { snapshot, preferences: { ...defaults }, alerts: [], reports: [], jobs: [], usage: [] } } };
+  await writeFile(path.join(dir, 'state.json'), Buffer.alloc(4096));
+  await writeFile(path.join(dir, 'state.json.bak'), JSON.stringify(saved));
+  const service = new IbkrWorkbenchService(root, dir, async () => ({}), async () => ({}));
+  try {
+    await service.start(); clearTimeout(service.timer);
+    const current = await service.state();
+    assert.ok(!current.storageError);
+    assert.equal(service.saved.selectedKey, snapshot.accountKey);
+    assert.equal(service.saved.gatewayMode, 'paper');
+    assert.equal(JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8')).selectedKey, snapshot.accountKey);
+  } finally { await service.close(); }
+});
 test('paper order proxy injects the selected paper scope and never exposes the bridge token', async () => {
   await mkdir('tmp/workbench-paper-orders', { recursive: true });
   const root = await mkdtemp(path.resolve('tmp/workbench-paper-orders/root-'));

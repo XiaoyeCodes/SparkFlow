@@ -182,7 +182,15 @@ export async function exportAccountCommandDeckPdf({ snapshot, metrics, quotes = 
       if (index > 0) pdf.addPage();
       pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
     });
-    pdf.save(`SparkFlow-Portfolio-Statement-${new Date().toISOString().slice(0, 10)}.pdf`);
+    const filename = `SparkFlow-Portfolio-Statement-${new Date().toISOString().slice(0, 10)}.pdf`;
+    const blob = pdf.output('blob');
+    const archived = await fetch('/api/user-data/exports/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/pdf', 'X-SparkFlow-Filename': filename },
+      body: blob,
+    });
+    if (!archived.ok) throw new Error((await archived.json().catch(() => ({})))?.detail || 'PDF 无法保存到 UserData。');
+    pdf.save(filename);
   } finally {
     pages.forEach(page => page.remove());
   }

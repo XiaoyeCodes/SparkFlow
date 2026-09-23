@@ -6,6 +6,7 @@ Mounted by ``agent/api_server.py`` via ``register_swarm_routes(app, ...)``.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -29,7 +30,8 @@ def _get_swarm_runtime():
     from src.swarm.runtime import SwarmRuntime
 
     # Adjust path: this file is at agent/src/api/, so parent.parent.parent = agent/
-    swarm_dir = Path(__file__).resolve().parent.parent.parent / ".swarm" / "runs"
+    root = os.environ.get("SPARKFLOW_USER_DATA_DIR")
+    swarm_dir = (Path(root).expanduser().resolve() / "assistant" / "runs" / "swarm") if root else (Path(__file__).resolve().parent.parent.parent / ".swarm" / "runs")
     store = SwarmStore(base_dir=swarm_dir)
     # Boot-time / operator-trusted: REST API callers cannot influence the
     # config path. See docs/2026-05-25_swarm_mcp_tools_roadmap.md.

@@ -20,12 +20,13 @@ from src.api._compat import host_attr as _host_attr
 
 # helpers.py lives at agent/src/api/helpers.py — 4 levels up to Vibe-Trading/.
 _AGENT_DIR = Path(__file__).resolve().parent.parent.parent  # agent/
+_USER_DATA_DIR = Path(os.environ["SPARKFLOW_USER_DATA_DIR"]).expanduser().resolve() if os.environ.get("SPARKFLOW_USER_DATA_DIR") else None
 
-RUNS_DIR = _AGENT_DIR / "runs"
-SESSIONS_DIR = _AGENT_DIR / "sessions"
-UPLOADS_DIR = _AGENT_DIR / "uploads"
+RUNS_DIR = (_USER_DATA_DIR / "assistant" / "runs") if _USER_DATA_DIR else (_AGENT_DIR / "runs")
+SESSIONS_DIR = (_USER_DATA_DIR / "assistant" / "conversations") if _USER_DATA_DIR else (_AGENT_DIR / "sessions")
+UPLOADS_DIR = (_USER_DATA_DIR / "assistant" / "uploads") if _USER_DATA_DIR else (_AGENT_DIR / "uploads")
 AGENT_DIR = _AGENT_DIR
-ENV_PATH = AGENT_DIR / ".env"
+ENV_PATH = Path(os.environ["SPARKFLOW_VIBE_ENV_FILE"]).expanduser().resolve() if os.environ.get("SPARKFLOW_VIBE_ENV_FILE") else (AGENT_DIR / ".env")
 ENV_EXAMPLE_PATH = AGENT_DIR / ".env.example"
 
 

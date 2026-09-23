@@ -269,9 +269,11 @@ class TraceWriter:
             Directory containing ``trace.jsonl``, or ``None`` when absent.
         """
         if sessions_dir is None:
-            sessions_dir = Path(__file__).resolve().parents[2] / "sessions"
+            root = os.environ.get("SPARKFLOW_USER_DATA_DIR")
+            sessions_dir = (Path(root).expanduser().resolve() / "assistant" / "conversations") if root else (Path(__file__).resolve().parents[2] / "sessions")
         if runs_dir is None:
-            runs_dir = Path(__file__).resolve().parents[2] / "runs"
+            root = os.environ.get("SPARKFLOW_USER_DATA_DIR")
+            runs_dir = (Path(root).expanduser().resolve() / "assistant" / "runs") if root else (Path(__file__).resolve().parents[2] / "runs")
 
         session_dir = sessions_dir / run_id
         if (session_dir / "trace.jsonl").exists():

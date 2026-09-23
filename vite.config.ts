@@ -1,4 +1,5 @@
 import { createRegionalEconomyService } from './server/chinaRegionalEconomy';
+import { initializeUserData, safeExportName } from './server/userData';
 import { createAssistantResearch } from './server/ibkrAssistantResearch';
 import regionalVerifiedSeed from './src/data/chinaRegionalVerified.json';
 import regionalSources from './src/data/chinaRegionalSources.json';
@@ -31,7 +32,6 @@ import { closeSync, existsSync, openSync, readFileSync, readdirSync } from 'node
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { get as httpsGet } from 'node:https';
 import { createServer as createNetServer } from 'node:net';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { Agent, ProxyAgent, fetch as undiciFetch } from 'undici';
 import { defineConfig, loadEnv, type ViteDevServer } from 'vite';
@@ -97,10 +97,11 @@ async function fetchMacroSourceText(url: string, route: 'direct' | 'proxy', time
 }
 const vibeTradingRoot = process.env.VIBE_TRADING_ROOT || path.join(rootDir, 'services', 'vibe-trading');
 const sparkflowStateDir = path.join(rootDir, '.sparkflow');
+const userData = initializeUserData(rootDir);
 const financialConditionsService = createFinancialConditionsService({ stateDir: sparkflowStateDir, getSeries: getFredSeries });
 const legacyIntegrationSettingsFile = path.join(sparkflowStateDir, 'integration-settings.json');
-const integrationSettingsDir = path.join(homedir(), '.SparkFlow', 'apikey');
-const integrationSettingsFile = path.join(integrationSettingsDir, 'integration-settings.json');
+const integrationSettingsDir = userData.settingsDir;
+const integrationSettingsFile = userData.integrationSettingsFile;
 const vibePortFile = path.join(sparkflowStateDir, 'vibe.port');
 const vibePidFile = path.join(sparkflowStateDir, 'vibe.pid');
 const vibePortRange = Array.from({ length: 101 }, (_, index) => 8899 + index);
@@ -418,6 +419,20 @@ function getRequestBody(req: ViteDevServer['middlewares'] extends infer _ ? any 
       body += chunk.toString('utf8');
     });
     req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
+function getRequestBuffer(req: ViteDevServer['middlewares'] extends infer _ ? any : never, maxBytes: number) {
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBytes) { reject(new Error('导出文件超过 40 MB 限制')); req.destroy(); return; }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -10753,6 +10768,8 @@ async function startVibeTradingServer() {
       stdio: ['ignore', stdoutFd, stderrFd],
       env: {
         ...process.env,
+        SPARKFLOW_USER_DATA_DIR: userData.root,
+        SPARKFLOW_VIBE_ENV_FILE: userData.vibeEnvFile,
         HTTP_PROXY: process.env.HTTP_PROXY || foreignProxyUrl,
         HTTPS_PROXY: process.env.HTTPS_PROXY || foreignProxyUrl,
         ALL_PROXY: process.env.ALL_PROXY || foreignProxyUrl,
@@ -10929,7 +10946,7 @@ function readVibeTradingTeamSnapshots(resultsDir: string, sessionId: string): Ar
 }
 
 function readVibeTradingTeamReport(sessionIdValue: unknown, queryValue?: unknown) {
-  const sessionsRoot = path.join(vibeTradingRoot, 'agent', 'sessions');
+  const sessionsRoot = userData.assistantSessionsDir;
   const requestedSessionId = String(sessionIdValue || '').trim();
   const query = String(queryValue || '').trim();
   if (query.length > 80) throw new Error('V2 研究对象过长');
@@ -11340,7 +11357,7 @@ async function requestCozeEquityResearch(query: string) {
 
 const cozeReportTasks = new CozeReportTaskService({
   rootDir,
-  stateDir: sparkflowStateDir,
+  stateDir: userData.reportsDir,
   maxBytes: cozeReportMaxBytes,
   getConfig: getCozeReportConfig,
 });
@@ -12367,6 +12384,19 @@ function allWeatherApiPlugin() {
             return;
           }
 
+          if (url.pathname === '/api/user-data/exports/pdf' && req.method === 'POST') {
+            if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) { sendJson(res, 403, { detail: '请从本项目页面导出文件' }); return; }
+            if (!String(req.headers['content-type'] || '').startsWith('application/pdf')) { sendJson(res, 415, { detail: '只接受 PDF 文件' }); return; }
+            const requested = safeExportName(String(req.headers['x-sparkflow-filename'] || ''));
+            const parsed = path.parse(requested);
+            const filename = `${parsed.name}-${new Date().toISOString().replace(/[:.]/g, '-')}${parsed.ext || '.pdf'}`;
+            const payload = await getRequestBuffer(req, 40 * 1024 * 1024);
+            if (payload.length < 5 || payload.subarray(0, 5).toString('ascii') !== '%PDF-') throw new Error('PDF 文件内容无效');
+            await writeFile(path.join(userData.pdfExportsDir, filename), payload, { mode: 0o600 });
+            sendJson(res, 201, { saved: true, filename, directory: 'UserData/exports/pdf' });
+            return;
+          }
+
           if (url.pathname === '/api/integration-settings/test' && req.method === 'POST') {
             const body = JSON.parse(await getRequestBody(req));
             const ai = getAiRequestBody(body.ai || body);
@@ -13076,6 +13106,7 @@ export default defineConfig({
     react(),
     ibkrValuationPlugin(),
     ibkrWorkbenchPlugin({
+      stateDir: userData.ibkrWorkbenchDir,
       assistantResearch: createAssistantResearch(
         sessionId => prepareVibeResearchSession({ prompt: '分析一下我的当前持仓情况', sessionId }, Boolean(sessionId)),
         requestVibeJson,

@@ -1,7 +1,8 @@
 param([string]$BindingFile, [int]$Port = 0)
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$terminalDir = Join-Path $projectRoot '.sparkflow/ibkr-terminal'
+$userDataRoot = if ($env:SPARKFLOW_USER_DATA_DIR) { [IO.Path]::GetFullPath($env:SPARKFLOW_USER_DATA_DIR) } else { Join-Path $projectRoot 'UserData' }
+$terminalDir = Join-Path $userDataRoot 'accounts/ibkr-terminal'
 New-Item -ItemType Directory -Force -Path $terminalDir | Out-Null
 # Restrict local session token, database, and future reports to this Windows user.
 $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User

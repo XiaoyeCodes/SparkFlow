@@ -10,7 +10,8 @@ import { CompanyLogos, CompanyLogoImages } from './ibkrCompanyLogos.ts';
 import { reportMarkdown } from '../src/lib/ibkr/workbenchReport.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
-import { readFile, open, unlink, access, readdir, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { readFile, open, unlink, access, readdir, rename, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -26,6 +27,7 @@ import { createResearch, runResearch, researchFailure, type ResearchCheckpoint }
 import { portfolioMetrics, localPerformance, gatewayPerformance, comparePerformance, normalizePerformance, simulatePlan, planSchema } from './ibkrPortfolio.ts';
 import type { AdjustmentPlan, PortfolioPerformance, PerformancePoint } from '../src/lib/ibkr/workbenchTypes.ts';
 import { emptySnapshot } from '../src/lib/ibkr/store.ts';
+import { createUserDataPaths } from './userData.ts';
 import { validSnapshot } from '../src/lib/ibkr/events.ts';
 import { allowedLocalRequest } from './localRequest.ts';
 import { startSparkFlowBridge, discoverSparkFlowGateway, disconnectSparkFlowGateway } from './ibkrGatewayBridge.ts';
@@ -158,10 +160,16 @@ export class IbkrWorkbenchService {
   private gatewayHealthFlight?: Promise<void>;
   private nextGatewayHealth = 0;
   private gatewayHealthFailures = 0;
+  private backupSlot = 0;
   readonly mcp: IbkrMcp; readonly market: IbkrMarket; readonly profiles: IbkrProfiles;
   private ticketQuotes = new EastmoneyTicketQuotes(url => this.fetchJson(url));
   private ticketHistories = new TicketHistories(url=>this.fetchJson(url));
   constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] }), private gatewayBridgeStarter: GatewayBridgeStarter = startSparkFlowBridge, private gatewayDiscoverer = discoverSparkFlowGateway, private gatewayDisconnector: GatewayDisconnector = disconnectSparkFlowGateway) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
+  private gatewayRuntimeDir() {
+    const preferred = createUserDataPaths(this.root).ibkrTerminalDir;
+    const legacy = path.join(this.root, '.sparkflow', 'ibkr-terminal');
+    return existsSync(preferred) || !existsSync(legacy) ? preferred : legacy;
+  }
   async start() {
     this.scheduleStartedAt = new Date().toISOString();
     await this.mcp.load();
@@ -174,10 +182,43 @@ export class IbkrWorkbenchService {
       } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
       const handle = await open(lock, 'wx', 0o600); await handle.writeFile(String(process.pid)); await handle.close(); this.ownsLease = true;
     } catch { this.storageError = '另一个服务持有账户后台锁，或锁文件不可用；本实例不会同步或调用 AI。'; return; }
-    try { const data = JSON.parse(await readFile(path.join(this.directory, 'state.json'), 'utf8')); if (data.version !== 1 || !['mcp', 'gateway'].includes(data.source) || (data.gatewayMode !== undefined && !['live', 'paper'].includes(data.gatewayMode)) || !data.records || typeof data.records !== 'object' || Array.isArray(data.records)) throw new Error('STATE_SCHEMA'); this.saved = { ...data, gatewayMode: data.gatewayMode === 'paper' ? 'paper' : 'live' };
-      for (const [key, record] of Object.entries(this.saved.records)) { if (!validSnapshot(record.snapshot) || record.snapshot.accountKey !== key || !Array.isArray(record.alerts) || !Array.isArray(record.reports) || !Array.isArray(record.jobs) || !Array.isArray(record.usage)) throw new Error('STATE_SCHEMA'); record.preferences = preferencesSchema.parse(record.preferences); if (record.briefAttempt?.state === 'running') { record.briefAttempt.state = 'failed'; record.briefAttempt.error = '服务已重启；本期不会重复自动调用，可手动重试。'; } record.jobs.forEach(j => { if (j.state === 'running') { j.state = 'interrupted'; j.error = '服务已重启；已保留资料，可继续研究。'; } }); record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: '服务刚恢复，等待重新同步。' }; }
-    } catch (e: any) { if (e.code !== 'ENOENT') { this.saved = { version: 1, source: 'mcp', records: {} }; this.storageError = '账户状态文件无法读取，已暂停写入；请检查本地状态文件。'; } }
+    const stateFile = path.join(this.directory, 'state.json');
+    let primaryError: any;
+    try { this.saved = await this.readSavedState(stateFile); }
+    catch (error) { primaryError = error; }
+    if (primaryError) {
+      const backups = await Promise.all([`${stateFile}.bak`, `${stateFile}.bak.2`].map(async file => {
+        try { return { file, modified: (await stat(file)).mtimeMs }; } catch { return null; }
+      }));
+      for (const candidate of backups.filter((value): value is { file: string; modified: number } => Boolean(value)).sort((a, b) => b.modified - a.modified)) {
+        try {
+          this.saved = await this.readSavedState(candidate.file);
+          await rename(stateFile, `${stateFile}.corrupt-${Date.now()}`).catch(error => { if (error?.code !== 'ENOENT') throw error; });
+          await atomicJson(stateFile, this.saved);
+          this.connectionDetail = '本地账户状态已从有效备份自动恢复，等待重新同步。';
+          primaryError = null;
+          break;
+        } catch { /* Try the next verified generation. */ }
+      }
+      if (primaryError && primaryError.code !== 'ENOENT') {
+        this.saved = { version: 1, source: 'mcp', records: {} };
+        this.storageError = '账户状态文件及备份均无法读取，已暂停写入；请检查本地状态文件。';
+      }
+    }
     this.schedule();
+  }
+  private async readSavedState(filename: string): Promise<Saved> {
+    const data = JSON.parse(await readFile(filename, 'utf8'));
+    if (data.version !== 1 || !['mcp', 'gateway'].includes(data.source) || (data.gatewayMode !== undefined && !['live', 'paper'].includes(data.gatewayMode)) || !data.records || typeof data.records !== 'object' || Array.isArray(data.records)) throw new Error('STATE_SCHEMA');
+    const saved: Saved = { ...data, gatewayMode: data.gatewayMode === 'paper' ? 'paper' : 'live' };
+    for (const [key, record] of Object.entries(saved.records)) {
+      if (!validSnapshot(record.snapshot) || record.snapshot.accountKey !== key || !Array.isArray(record.alerts) || !Array.isArray(record.reports) || !Array.isArray(record.jobs) || !Array.isArray(record.usage)) throw new Error('STATE_SCHEMA');
+      record.preferences = preferencesSchema.parse(record.preferences);
+      if (record.briefAttempt?.state === 'running') { record.briefAttempt.state = 'failed'; record.briefAttempt.error = '服务已重启；本期不会重复自动调用，可手动重试。'; }
+      record.jobs.forEach(job => { if (job.state === 'running') { job.state = 'interrupted'; job.error = '服务已重启；已保留资料，可继续研究。'; } });
+      record.snapshot = { ...record.snapshot, state: 'stale', connection: 'disconnected', detail: '服务刚恢复，等待重新同步。' };
+    }
+    return saved;
   }
   private schedule() { if (this.disposed) return; this.timer = setTimeout(async () => { try { await this.tick(); } catch { /* A failed task remains visible in status. */ } finally { this.schedule(); } }, 15000); this.timer.unref(); }
   private record() { return this.saved.selectedKey ? this.saved.records[this.saved.selectedKey] : undefined; }
@@ -195,7 +236,7 @@ export class IbkrWorkbenchService {
       let detail = '', transientFailure = false;
       try {
         const port = await this.gatewayBridgePort();
-        const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
+        const token = (await readFile(path.join(this.gatewayRuntimeDir(), 'session.token'), 'utf8')).trim();
         const response = await fetch(`http://127.0.0.1:${port}/api/ibkr-terminal/snapshot?mode=${mode}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2000) });
         if (!response.ok) throw new Error('BRIDGE_UNAVAILABLE');
         const value = await response.json();
@@ -222,12 +263,17 @@ export class IbkrWorkbenchService {
   private persist() {
     if (this.storageError) return Promise.reject(new Error(this.storageError));
     const value = structuredClone(this.saved);
-    const pending = this.writeQueue.then(() => atomicJson(path.join(this.directory, 'state.json'), value));
+    const pending = this.writeQueue.then(async () => {
+      const stateFile = path.join(this.directory, 'state.json');
+      await atomicJson(stateFile, value);
+      const backup = `${stateFile}.${this.backupSlot++ % 2 === 0 ? 'bak' : 'bak.2'}`;
+      await atomicJson(backup, value);
+    });
     this.writeQueue = pending.catch(() => {}); return pending;
   }
   private async gatewayBridgePort() {
     let raw = '';
-    try { raw = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/bridge.port'), 'utf8')).trim(); }
+    try { raw = (await readFile(path.join(this.gatewayRuntimeDir(), 'bridge.port'), 'utf8')).trim(); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     if (!raw) raw = process.env.SPARKFLOW_IBKR_BRIDGE_PORT ?? '';
     if (!raw) return this.activeGatewayBridgePort ?? 8765;
@@ -322,7 +368,7 @@ export class IbkrWorkbenchService {
           gatewayPort = await this.gatewayBridgePort();
           const gatewayBase = `http://127.0.0.1:${gatewayPort}`;
           let token = '';
-          try { token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim(); }
+          try { token = (await readFile(path.join(this.gatewayRuntimeDir(), 'session.token'), 'utf8')).trim(); }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
             try {
@@ -481,7 +527,7 @@ export class IbkrWorkbenchService {
     else if (endpoint === 'cancel') bodyValue = paperCancelSchema.parse(payload);
     const target = endpoint === 'transport' ? '/api/ibkr-terminal/gateway/paper-orders' : `/api/ibkr-terminal/paper/${suffix}`;
     const request = async (port: number, requestTarget=target, requestMethod=method, requestBody:unknown=bodyValue) => {
-      const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
+      const token = (await readFile(path.join(this.gatewayRuntimeDir(), 'session.token'), 'utf8')).trim();
       if (!token) throw new Error('本地桥接会话令牌不存在，请重新启动智能连接。');
       const response = await fetch(`http://127.0.0.1:${port}${requestTarget}`, {
         method:requestMethod, headers: { Authorization: `Bearer ${token}`, ...(requestMethod === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
@@ -517,7 +563,7 @@ export class IbkrWorkbenchService {
     this.assertAvailable();
     const preferred = await this.gatewayBridgePort();
     const bridge = await this.gatewayBridgeStarter(this.root, preferred);
-    const token = (await readFile(path.join(this.root, '.sparkflow/ibkr-terminal/session.token'), 'utf8')).trim();
+    const token = (await readFile(path.join(this.gatewayRuntimeDir(), 'session.token'), 'utf8')).trim();
     if (!token) throw new Error('本地回测服务会话不存在，请重新启动 SparkFlow。');
     let method: 'GET'|'POST' = 'GET', target = '', bodyValue: unknown;
     if (endpoint === 'strategies') target = '/api/ibkr-terminal/strategies';
@@ -895,12 +941,19 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
     const root = server.config.root;
     const logoImages = new CompanyLogoImages(options.fetchLogoImage ?? (async () => { throw new Error('Logo download unavailable'); }));
     const logos = new CompanyLogos(options.fetchLogoScan ?? (async () => ({ data: [] })), file => access(path.join(root, 'public/stock-logos', file)).then(() => true, () => false));
-    service = new IbkrWorkbenchService(root, options.stateDir ?? path.join(root, '.sparkflow/ibkr-workbench'), options.fetchJson, async pathname => {
+    const directory = options.stateDir ?? path.join(root, '.sparkflow/ibkr-workbench');
+    const registry = globalThis as typeof globalThis & { __sparkFlowIbkrWorkbenches?: Map<string, IbkrWorkbenchService> };
+    registry.__sparkFlowIbkrWorkbenches ??= new Map();
+    const serviceKey = path.resolve(directory).toLowerCase();
+    const previous = registry.__sparkFlowIbkrWorkbenches.get(serviceKey);
+    service = new IbkrWorkbenchService(root, directory, options.fetchJson, async pathname => {
       const response = await fetch(`http://127.0.0.1:${port()}${pathname}`, { signal: AbortSignal.timeout(30000) }); if (!response.ok) throw new Error('背景数据暂不可用'); return response.json();
     }, options.fetchProfileScan);
     service.assistantResearch = options.assistantResearch;
-    const instance = service; const ready = instance.start();
-    server.httpServer?.once('close', () => void instance.close());
+    const instance = service;
+    registry.__sparkFlowIbkrWorkbenches.set(serviceKey, instance);
+    const ready = (async () => { if (previous && previous !== instance) await previous.close(); await instance.start(); })();
+    server.httpServer?.once('close', () => { if (registry.__sparkFlowIbkrWorkbenches?.get(serviceKey) === instance) registry.__sparkFlowIbkrWorkbenches.delete(serviceKey); void instance.close(); });
     server.middlewares.use(async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
       if (!req.url?.startsWith('/api/ibkr-workbench/')) return next();
       res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');

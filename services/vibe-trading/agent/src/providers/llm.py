@@ -287,6 +287,7 @@ AGENT_DIR = Path(__file__).resolve().parents[2]
 
 # .env search order: ~/.vibe-trading/.env → agent/.env → $CWD/.env
 _ENV_CANDIDATES = [
+    Path(os.environ["SPARKFLOW_VIBE_ENV_FILE"]).expanduser().resolve() if os.environ.get("SPARKFLOW_VIBE_ENV_FILE") else AGENT_DIR / ".env",
     Path.home() / ".vibe-trading" / ".env",
     AGENT_DIR / ".env",
     Path.cwd() / ".env",
@@ -296,7 +297,7 @@ _ENV_CANDIDATES = [
 # .env path (it leaks the OS username / home / CWD). The label names
 # which slot won - the entire P08 R1 signal - using compile-time
 # constants only.
-_ENV_LABELS = ("~/.vibe-trading/.env", "<AGENT_DIR>/.env", "<CWD>/.env")
+_ENV_LABELS = ("<SPARKFLOW_USER_DATA>/settings/vibe.env", "~/.vibe-trading/.env", "<AGENT_DIR>/.env", "<CWD>/.env")
 
 logger = logging.getLogger(__name__)
 

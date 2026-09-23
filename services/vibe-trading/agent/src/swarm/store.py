@@ -71,7 +71,8 @@ def swarm_runs_root() -> Path:
     run_dir outside the allow-list (P03-A). Deriving it here once keeps
     the store location and the allow-list from drifting again.
     """
-    return Path(__file__).resolve().parents[2] / ".swarm" / "runs"
+    root = os.environ.get("SPARKFLOW_USER_DATA_DIR")
+    return (Path(root).expanduser().resolve() / "assistant" / "runs" / "swarm") if root else (Path(__file__).resolve().parents[2] / ".swarm" / "runs")
 
 
 _TRANSIENT_WINERRORS = (5, 32)  # ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION

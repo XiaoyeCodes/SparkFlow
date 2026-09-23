@@ -764,7 +764,8 @@ class SwarmTool(BaseTool):
         from src.swarm.runtime import SwarmRuntime
         from src.swarm.store import SwarmStore
 
-        swarm_base_dir = Path(__file__).resolve().parents[2] / ".swarm" / "runs"
+        root = os.environ.get("SPARKFLOW_USER_DATA_DIR")
+        swarm_base_dir = (Path(root).expanduser().resolve() / "assistant" / "runs" / "swarm") if root else (Path(__file__).resolve().parents[2] / ".swarm" / "runs")
         swarm_base_dir.mkdir(parents=True, exist_ok=True)
         store = SwarmStore(base_dir=swarm_base_dir)
         # Boot-time / operator-trusted: even when reached via the in-process

@@ -41,8 +41,16 @@ export async function atomicReplace(source:string,target:string,replace=rename) 
 }
 export async function atomicJson(file: string, data: unknown) {
   const temporary = `${file}.${randomBytes(8).toString('hex')}.tmp`;
-  await writeFile(temporary, JSON.stringify(data), { mode: 0o600 });
-  await atomicReplace(temporary, file);
+  const serialized = Buffer.from(JSON.stringify(data));
+  try {
+    await writeFile(temporary, serialized, { mode: 0o600, flag: 'wx' });
+    const written = await readFile(temporary);
+    if (written.length !== serialized.length || !timingSafeEqual(written, serialized)) throw new Error('ATOMIC_JSON_VERIFY_FAILED');
+    await atomicReplace(temporary, file);
+  } catch (error) {
+    await unlink(temporary).catch(() => {});
+    throw error;
+  }
 }
 const unpack = (result: any): any => {
   if (result.isError) throw new Error('MCP_TOOL_READ_FAILED');

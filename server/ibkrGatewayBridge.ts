@@ -5,10 +5,16 @@ import { closeSync, existsSync, openSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { createUserDataPaths } from './userData.ts';
 
 const validPort = (port: number) => Number.isInteger(port) && port >= 1024 && port <= 65535;
 const runFile = promisify(execFile);
 const starts = new Map<string, Promise<{port: number; reused: boolean}>>();
+function bridgeRuntimeDir(root: string) {
+  const preferred = createUserDataPaths(root).ibkrTerminalDir;
+  const legacy = path.join(root, '.sparkflow', 'ibkr-terminal');
+  return existsSync(preferred) || !existsSync(legacy) ? preferred : legacy;
+}
 
 export async function bridgeCodeRevision(directory: string) {
   const files: string[] = [];
@@ -90,7 +96,7 @@ export function startSparkFlowBridge(root: string, preferredPort: number, refres
 }
 
 async function startBridge(root: string, preferredPort: number, refreshCode: boolean) {
-  const runtimeDir = path.join(root, '.sparkflow', 'ibkr-terminal');
+  const runtimeDir = bridgeRuntimeDir(root);
   const bindings = path.join(runtimeDir, 'bindings.json');
   const script = path.join(root, 'scripts', 'start-ibkr-terminal.ps1');
   if (!existsSync(script)) throw new Error('SparkFlow 本地桥接启动脚本不存在。');
@@ -140,7 +146,7 @@ async function startBridge(root: string, preferredPort: number, refreshCode: boo
 }
 
 export async function discoverSparkFlowGateway(root: string, port: number, mode: 'live' | 'paper') {
-  const token = await sessionToken(path.join(root, '.sparkflow', 'ibkr-terminal'));
+  const token = await sessionToken(bridgeRuntimeDir(root));
   const response = await fetch(`http://127.0.0.1:${port}/api/ibkr-terminal/gateway/connect`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode }), signal: AbortSignal.timeout(40000),
@@ -153,7 +159,7 @@ export async function discoverSparkFlowGateway(root: string, port: number, mode:
 }
 
 export async function disconnectSparkFlowGateway(root: string, port: number, mode: 'live' | 'paper') {
-  const token = await sessionToken(path.join(root, '.sparkflow', 'ibkr-terminal'));
+  const token = await sessionToken(bridgeRuntimeDir(root));
   if (!token) return;
   const response = await fetch(`http://127.0.0.1:${port}/api/ibkr-terminal/gateway/disconnect`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },

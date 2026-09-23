@@ -5,6 +5,7 @@ Mounted by ``agent/api_server.py`` via ``register_uploads_routes(app, ...)``.
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from pathlib import Path
@@ -17,7 +18,8 @@ from fastapi.responses import FileResponse
 # Constants
 # ---------------------------------------------------------------------------
 
-UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+_USER_DATA_DIR = Path(os.environ["SPARKFLOW_USER_DATA_DIR"]).expanduser().resolve() if os.environ.get("SPARKFLOW_USER_DATA_DIR") else None
+UPLOADS_DIR = (_USER_DATA_DIR / "assistant" / "uploads") if _USER_DATA_DIR else (Path(__file__).resolve().parent.parent.parent / "uploads")
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 _UPLOAD_CHUNK_SIZE = 1024 * 1024  # 1 MB
 
