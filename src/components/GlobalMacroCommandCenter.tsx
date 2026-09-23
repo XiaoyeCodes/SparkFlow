@@ -42,6 +42,7 @@ import { requestIsolatedJson } from '../lib/isolatedResource';
 import { publicDataFetch, peekPublicData } from '../lib/publicDataClient';
 import { startQuotePolling } from '../lib/realtimeQuotes';
 import { publicDataExpiresAt } from '../lib/publicDataPolicy';
+import { getMarketSessionStatus, getNextCoreMarketOpenAt } from '../lib/marketSessions';
 import { FinancialConditionsCard } from './FinancialConditionsCard';
 import type { FinancialConditionsPayload, FinancialConditionsSnapshot } from '../lib/financialConditionsTypes';
 import './GlobalMacroCommandCenter.css';
@@ -1872,25 +1873,37 @@ function MarketSessionSummary({
   if (!quote && mode !== 'crypto') return null;
   const crypto = !quote && mode === 'crypto';
   const session = quote?.session;
-  const isLive = crypto || session?.tone === 'live';
-  const isPreOpen = session?.tone === 'pre';
-  const localClock = crypto
+  const coreStockMarket = mode === 'china' || mode === 'hongkong' || mode === 'us';
+  const marketStatus = coreStockMarket ? getMarketSessionStatus(mode, new Date(now)) : null;
+  const coreOpenAt = coreStockMarket ? getNextCoreMarketOpenAt(mode, new Date(now)) : undefined;
+  const isLive = crypto || (marketStatus ? marketStatus.tone === 'live' : session?.tone === 'live');
+  const isPreOpen = marketStatus
+    ? marketStatus.tone === 'auction' || marketStatus.tone === 'extended' || marketStatus.tone === 'paused'
+    : session?.tone === 'pre';
+  const localClock = marketStatus?.localTime || (crypto
     ? formatSessionLocalClock(now, 'UTC')
-    : formatSessionLocalClock(now, session?.timezone, session?.localTime);
-  const countdown = !isLive && Number.isFinite(nextOpenMs)
-    ? formatSessionCountdown(nextOpenMs - now)
+    : formatSessionLocalClock(now, session?.timezone, session?.localTime));
+  const countdownTarget = coreStockMarket ? coreOpenAt?.getTime() : nextOpenMs;
+  const showCountdown = marketStatus
+    ? !['trading', 'auction', 'halted'].includes(marketStatus.state)
+    : !isLive;
+  const countdown = showCountdown && countdownTarget !== undefined && Number.isFinite(countdownTarget)
+    ? formatSessionCountdown(countdownTarget - now)
     : '';
-  const label = crypto ? '全天交易' : session?.label || '状态待确认';
-  const detail = crypto ? '数字资产市场 24/7' : session?.detail || '交易所状态';
+  const label = marketStatus?.label || (crypto ? '全天交易' : session?.label || '状态待确认');
+  const detail = marketStatus?.detail || (crypto ? '数字资产市场 24/7' : session?.detail || '交易所状态');
 
   return (
     <div
-      className={`macro-modal-session ${isLive ? 'live' : isPreOpen ? 'pre' : 'closed'}`}
+      className={`macro-modal-session ${isLive ? 'live' : isPreOpen ? 'pre' : 'closed'}${coreStockMarket ? ' core-stock-market' : ''}`}
       aria-label={`${label}${countdown ? `，距离下次开盘 ${countdown}` : ''}`}
     >
       <span className="macro-modal-session-state"><i />{label}</span>
-      <span className="macro-modal-session-detail">{detail}<b>{localClock ? `当地 ${localClock}` : ''}</b></span>
-      {!isLive && countdown ? (
+      {coreStockMarket && localClock ? <span className="macro-modal-session-clock">当地 {localClock}</span> : null}
+      <span className="macro-modal-session-detail">{detail}{!coreStockMarket ? <b>{localClock ? `当地 ${localClock}` : ''}</b> : null}</span>
+      {coreStockMarket && countdown ? (
+        <span className="macro-modal-session-event"><strong>距开盘 {countdown}</strong></span>
+      ) : !coreStockMarket && !isLive && countdown ? (
         <span className="macro-modal-session-next">
           <small>下次开盘 · {session?.nextOpenLabel}</small>
           <strong>{countdown}</strong>

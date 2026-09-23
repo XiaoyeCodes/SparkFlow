@@ -35,7 +35,7 @@ import { PageTransition } from '../components/PageTransition';
 import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
 import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
 import { mergeQuoteRows } from '../lib/realtimeQuotes';
-import { loadIntegrationSettings, type NewsItem } from '../lib/integrations';
+import { INTEGRATION_SETTINGS_CHANGED, loadIntegrationSettings, loadLocalIntegrationSettings, type IntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 import './Market.css';
 
@@ -474,11 +474,28 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
   const location = useLocation();
   const navigate = useNavigate();
   const [activeMarket, setActiveMarket] = useState<MarketChartMode>(() => initialMarketSelection() || 'china');
+  const [heatmapSources, setHeatmapSources] = useState<IntegrationSettings['heatmap']>(() => loadIntegrationSettings().heatmap);
   const [optionalMarketsOpen, setOptionalMarketsOpen] = useState(false);
   const [dashboardView, setDashboardView] = useState<MarketDashboardView>(() => {
     if (window.location.hash === '#china-macro') return 'china-macro';
     return initialDashboardView;
   });
+
+  useEffect(() => {
+    let active = true;
+    void loadLocalIntegrationSettings().then((settings) => {
+      if (active) setHeatmapSources(settings.heatmap);
+    });
+    const onSettingsChanged = (event: Event) => {
+      const settings = (event as CustomEvent<IntegrationSettings>).detail;
+      if (settings?.heatmap) setHeatmapSources(settings.heatmap);
+    };
+    window.addEventListener(INTEGRATION_SETTINGS_CHANGED, onSettingsChanged);
+    return () => {
+      active = false;
+      window.removeEventListener(INTEGRATION_SETTINGS_CHANGED, onSettingsChanged);
+    };
+  }, []);
 
   const openChinaMacro = useCallback(() => {
     setDashboardView('china-macro');
@@ -1246,7 +1263,9 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
                     <div className="shrink-0">
                       <div className="flex items-center gap-2 text-sm font-semibold">
                         <Activity size={16} className="market-terminal-signal" />
-                        {MARKET_META[activeMarket].chart} · {MARKET_HEATMAP_PROVIDERS[activeMarket]}
+                        {MARKET_META[activeMarket].chart} · {CORE_MARKET_MODES.includes(activeMarket)
+                          ? heatmapSources[activeMarket as keyof IntegrationSettings['heatmap']] === 'sina' ? '新浪财经' : '东方财富'
+                          : MARKET_HEATMAP_PROVIDERS[activeMarket]}
                       </div>
                       <p className="mt-1 text-xs text-white/38">{MARKET_META[activeMarket].description}</p>
                     </div>

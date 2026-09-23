@@ -33,7 +33,10 @@ add('/api/china-fisher?mode=loan', 60, 300);
 add('/api/china-fisher?mode=deposit', 60, 300, true);
 add('/api/china-gdp', 3600, 3600, true);
 add('/api/china-income', 60, 900, true);
-for (const market of ['china', 'hong-kong', 'us']) add(`/api/${market}-market-heatmap`, 3, 180);
+for (const market of ['china', 'hong-kong', 'us']) {
+  add(`/api/${market}-market-heatmap`, 3, 180);
+  add(`/api/${market}-market-heatmap?source=sina`, 3, 15);
+}
 // The browser applies Binance's live mini-ticker stream every three seconds.
 // This REST snapshot is the resilient bootstrap/fallback, while its internally
 // cached market-cap universe remains on a slower cadence.

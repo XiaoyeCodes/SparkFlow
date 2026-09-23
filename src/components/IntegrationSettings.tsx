@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, KeyRound, PlugZap, Save } from 'lucide-react';
+import { BarChart3, Check, KeyRound, PlugZap, Save } from 'lucide-react';
 import {
   aiProviders,
   defaultIntegrationSettings,
@@ -7,6 +7,8 @@ import {
   loadLocalIntegrationSettings,
   saveIntegrationSettings,
   type AiProviderId,
+  type HeatmapMarketId,
+  type HeatmapQuoteSource,
   type IntegrationSettings
 } from '../lib/integrations';
 
@@ -177,6 +179,32 @@ export function IntegrationSettingsPanel({ compact = false, onChange }: Integrat
             />
             这个 AI 请求走 VPN 7890
           </label>
+        </div>
+
+        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+          <div className="mb-3 flex items-center gap-2 text-xs font-semibold tracking-[0.12em] text-[#8ad7ff]/72">
+            <BarChart3 size={14} />
+            热力图股票数据源
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {([['china', 'A 股'], ['hongkong', '港股'], ['us', '美股']] as const).map(([market, label]) => (
+              <label key={market} className="block text-xs text-white/54">
+                {label}
+                <select
+                  value={settings.heatmap[market]}
+                  onChange={(event) => updateSettings({
+                    ...settings,
+                    heatmap: { ...settings.heatmap, [market as HeatmapMarketId]: event.target.value as HeatmapQuoteSource },
+                  })}
+                  className="mt-2 h-10 w-full rounded-md border border-white/10 bg-black/60 px-3 text-sm text-white outline-none focus:border-[#8ad7ff]/50"
+                >
+                  <option value="eastmoney">东方财富</option>
+                  <option value="sina">新浪财经</option>
+                </select>
+              </label>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-white/42">默认东方财富。新浪财经行情实测约滞后十余秒；切换后以个股报价时间为准。</p>
         </div>
 
       </div>

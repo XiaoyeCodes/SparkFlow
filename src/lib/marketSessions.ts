@@ -5,6 +5,7 @@ import {
 } from '../data/marketCalendars';
 
 export type MarketSessionMarket = 'china' | 'hongkong' | 'us' | 'crypto' | 'japan' | 'korea' | 'india' | 'germany' | 'france' | 'uk';
+export type CoreStockMarket = 'china' | 'hongkong' | 'us';
 
 export type MarketSessionTone = 'live' | 'auction' | 'extended' | 'paused' | 'closed' | 'halted';
 
@@ -193,6 +194,40 @@ function nextTradingDate(market: Exclude<MarketSessionMarket, 'crypto'>, date: s
   return candidate;
 }
 
+function zonedMarketTimeToUtc(date: string, minutes: number, timeZone: string) {
+  const [year, month, day] = date.split('-').map(Number);
+  const desiredLocalEpoch = Date.UTC(year, month - 1, day, Math.floor(minutes / 60), minutes % 60);
+  let candidateEpoch = desiredLocalEpoch;
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const actual = getZonedParts(new Date(candidateEpoch), timeZone);
+    const [actualYear, actualMonth, actualDay] = actual.date.split('-').map(Number);
+    const actualLocalEpoch = Date.UTC(actualYear, actualMonth - 1, actualDay, Math.floor(actual.minutes / 60), actual.minutes % 60);
+    const correction = desiredLocalEpoch - actualLocalEpoch;
+    candidateEpoch += correction;
+    if (correction === 0) break;
+  }
+  return new Date(candidateEpoch);
+}
+
+export function getNextCoreMarketOpenAt(market: CoreStockMarket, now = new Date()) {
+  const timeZone = MARKET_TIME_ZONES[market];
+  const localDate = getZonedParts(now, timeZone).date;
+  for (let dayOffset = 0; dayOffset < 15; dayOffset += 1) {
+    const date = shiftDate(localDate, dayOffset);
+    if (!isTradingDay(market, date)) continue;
+    const opens = market === 'china'
+      ? [9 * 60 + 15, 9 * 60 + 30, 13 * 60]
+      : market === 'hongkong'
+        ? HALF_DAYS.hongkong?.has(date) ? [9 * 60, 9 * 60 + 30] : [9 * 60, 9 * 60 + 30, 13 * 60]
+        : [9 * 60 + 30];
+    for (const minutes of opens) {
+      const opensAt = zonedMarketTimeToUtc(date, minutes, timeZone);
+      if (opensAt.getTime() > now.getTime()) return opensAt;
+    }
+  }
+  return undefined;
+}
+
 function datePrefix(targetDate: string, currentDate: string) {
   if (targetDate === currentDate) return '今日';
   if (targetDate === shiftDate(currentDate, 1)) return '明日';
@@ -251,7 +286,7 @@ function chinaStatus(parts: ZonedParts): MarketSessionStatus {
     return { ...base, state: 'preopen', label: '未开盘', detail: '等待开盘集合竞价', nextLabel: nextOpenLabel('china', parts.date, '09:15', '集合竞价'), tone: 'closed' };
   }
   if (parts.minutes < 9 * 60 + 25) {
-    return { ...base, state: 'auction', label: '集合竞价', detail: '开盘集合竞价', nextLabel: '今日 09:25 竞价结束', tone: 'auction' };
+    return { ...base, state: 'auction', label: '开盘竞价', detail: '开盘集合竞价', nextLabel: '今日 09:25 竞价结束', tone: 'auction' };
   }
   if (parts.minutes < 9 * 60 + 30) {
     return { ...base, state: 'preopen', label: '等待开盘', detail: '集合竞价撮合完成', nextLabel: '今日 09:30 连续竞价', tone: 'auction' };
@@ -266,16 +301,17 @@ function chinaStatus(parts: ZonedParts): MarketSessionStatus {
     return { ...base, state: 'trading', label: '交易中', detail: '下午连续竞价', nextLabel: '今日 14:57 收盘集合竞价', tone: 'live' };
   }
   if (parts.minutes < 15 * 60) {
-    return { ...base, state: 'auction', label: '集合竞价', detail: '收盘集合竞价', nextLabel: '今日 15:00 收盘', tone: 'auction' };
+    return { ...base, state: 'auction', label: '收盘竞价', detail: '收盘集合竞价', nextLabel: '今日 15:00 收盘', tone: 'auction' };
   }
   const nextDate = nextTradingDate('china', parts.date);
+  const fixedPriceSession = parts.minutes < 15 * 60 + 30;
   return {
     ...base,
     state: 'after-hours',
-    label: '盘后',
-    detail: parts.minutes < 15 * 60 + 30 ? '部分品种固定价格交易' : '当日交易已结束',
+    label: fixedPriceSession ? '盘后交易' : '已收盘',
+    detail: fixedPriceSession ? '部分品种固定价格交易' : '当日交易已结束',
     nextLabel: `${datePrefix(nextDate, parts.date)} 09:15 集合竞价`,
-    tone: 'extended',
+    tone: fixedPriceSession ? 'extended' : 'closed',
   };
 }
 
@@ -292,17 +328,17 @@ function hongKongStatus(parts: ZonedParts): MarketSessionStatus {
     return { ...base, state: 'preopen', label: '未开盘', detail: '等待开市前时段', nextLabel: '今日 09:00 开市前时段', tone: 'closed' };
   }
   if (parts.minutes < 9 * 60 + 30) {
-    return { ...base, state: 'auction', label: '集合竞价', detail: '开市前时段', nextLabel: '今日 09:30 持续交易', tone: 'auction' };
+    return { ...base, state: 'auction', label: '开市前竞价', detail: '开市前时段', nextLabel: '今日 09:30 持续交易', tone: 'auction' };
   }
   if (parts.minutes < 12 * 60) {
     return { ...base, state: 'trading', label: '交易中', detail: '早市持续交易', nextLabel: halfDay ? '今日 12:00 收市竞价' : '今日 12:00 午间休市', tone: 'live' };
   }
   if (halfDay && parts.minutes < 12 * 60 + 10) {
-    return { ...base, state: 'auction', label: '集合竞价', detail: '半日市收市竞价', nextLabel: '随机于 12:08–12:10 收市', tone: 'auction' };
+    return { ...base, state: 'auction', label: '收市竞价', detail: '半日市收市竞价', nextLabel: '随机于 12:08–12:10 收市', tone: 'auction' };
   }
   if (halfDay) {
     const nextDate = nextTradingDate('hongkong', parts.date);
-    return { ...base, state: 'after-hours', label: '盘后', detail: '半日市已收市', nextLabel: `${datePrefix(nextDate, parts.date)} 09:00 开市前时段`, tone: 'extended' };
+    return { ...base, state: 'after-hours', label: '已收盘', detail: '半日市已收市', nextLabel: `${datePrefix(nextDate, parts.date)} 09:00 开市前时段`, tone: 'closed' };
   }
   if (parts.minutes < 13 * 60) {
     return { ...base, state: 'break', label: '午间休市', detail: '证券市场午休', nextLabel: '今日 13:00 下午开盘', tone: 'paused' };
@@ -311,10 +347,10 @@ function hongKongStatus(parts: ZonedParts): MarketSessionStatus {
     return { ...base, state: 'trading', label: '交易中', detail: '午市持续交易', nextLabel: '今日 16:00 收市竞价', tone: 'live' };
   }
   if (parts.minutes < 16 * 60 + 10) {
-    return { ...base, state: 'auction', label: '集合竞价', detail: '收市竞价时段', nextLabel: '随机于 16:08–16:10 收市', tone: 'auction' };
+    return { ...base, state: 'auction', label: '收市竞价', detail: '收市竞价时段', nextLabel: '随机于 16:08–16:10 收市', tone: 'auction' };
   }
   const nextDate = nextTradingDate('hongkong', parts.date);
-  return { ...base, state: 'after-hours', label: '盘后', detail: '当日证券交易已结束', nextLabel: `${datePrefix(nextDate, parts.date)} 09:00 开市前时段`, tone: 'extended' };
+  return { ...base, state: 'after-hours', label: '已收盘', detail: '当日证券交易已结束', nextLabel: `${datePrefix(nextDate, parts.date)} 09:00 开市前时段`, tone: 'closed' };
 }
 
 function usStatus(parts: ZonedParts, systemState: 'normal' | 'halted' | 'unknown'): MarketSessionStatus {
@@ -337,7 +373,7 @@ function usStatus(parts: ZonedParts, systemState: 'normal' | 'halted' | 'unknown
     return { ...base, state: 'overnight', label: '夜盘', detail: '部分券商与标的可交易', nextLabel: '今日 04:00 盘前交易', tone: 'extended' };
   }
   if (parts.minutes < 9 * 60 + 30) {
-    return { ...base, state: 'preopen', label: '盘前', detail: 'Nasdaq 盘前交易', nextLabel: '今日 09:30 常规开盘', tone: 'auction' };
+    return { ...base, state: 'preopen', label: '盘前交易', detail: '部分美股盘前时段', nextLabel: '今日 09:30 常规开盘', tone: 'auction' };
   }
   if (parts.minutes < closeMinute) {
     if (systemState === 'halted') {
@@ -361,7 +397,7 @@ function usStatus(parts: ZonedParts, systemState: 'normal' | 'halted' | 'unknown
     };
   }
   if (parts.minutes < 20 * 60) {
-    return { ...base, state: 'after-hours', label: '盘后', detail: '延长时段交易', nextLabel: parts.minutes < 16 * 60 ? '今日 16:00 盘后交易' : '今日 20:00 夜盘', tone: 'extended' };
+    return { ...base, state: 'after-hours', label: '盘后交易', detail: '部分美股延长时段', nextLabel: parts.minutes < 16 * 60 ? '今日 16:00 盘后交易' : '今日 20:00 夜盘', tone: 'extended' };
   }
   if (isTradingDay('us', tomorrow)) {
     return { ...base, state: 'overnight', label: '夜盘', detail: '部分券商与标的可交易', nextLabel: '明日 04:00 盘前交易', tone: 'extended' };

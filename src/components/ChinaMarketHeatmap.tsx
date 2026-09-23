@@ -14,6 +14,14 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { getMarketSessionStatus, type MarketSessionMarket } from '../lib/marketSessions';
+import {
+  INTEGRATION_SETTINGS_CHANGED,
+  loadLocalIntegrationSettings,
+  saveHeatmapQuoteSource,
+  type HeatmapMarketId,
+  type HeatmapQuoteSource,
+  type IntegrationSettings,
+} from '../lib/integrations';
 import { mergeCryptoMiniTickers, parseCryptoMiniTickerMessage, type CryptoMiniTicker } from '../lib/cryptoHeatmapStream';
 import { publicDataFetch } from '../lib/publicDataClient';
 import { publicDataExpiresAt } from '../lib/publicDataPolicy';
@@ -291,8 +299,9 @@ function regionalHeatmapStorageKey(endpoint: string) {
 }
 
 function readRegionalHeatmapCache(config: RegionalHeatmapConfig) {
+  const maxAgeMs = config.endpoint.includes('source=sina') ? 20_000 : REGIONAL_HEATMAP_SESSION_MAX_AGE_MS;
   const memoryCached = regionalHeatmapClientCache.get(config.endpoint);
-  if (memoryCached && Date.now() < publicDataExpiresAt(memoryCached.data) && Date.now() - memoryCached.storedAt <= REGIONAL_HEATMAP_SESSION_MAX_AGE_MS) return memoryCached;
+  if (memoryCached && Date.now() < publicDataExpiresAt(memoryCached.data) && Date.now() - memoryCached.storedAt <= maxAgeMs) return memoryCached;
   regionalHeatmapClientCache.delete(config.endpoint);
   if (typeof window === 'undefined') return undefined;
 
@@ -300,7 +309,7 @@ function readRegionalHeatmapCache(config: RegionalHeatmapConfig) {
     const raw = window.sessionStorage.getItem(regionalHeatmapStorageKey(config.endpoint));
     if (!raw) return undefined;
     const cached = JSON.parse(raw) as RegionalHeatmapCacheEntry;
-    if (!cached?.storedAt || !cached.data?.stocks?.length || Date.now() >= publicDataExpiresAt(cached.data) || Date.now() - cached.storedAt > REGIONAL_HEATMAP_SESSION_MAX_AGE_MS) {
+    if (!cached?.storedAt || !cached.data?.stocks?.length || Date.now() >= publicDataExpiresAt(cached.data) || Date.now() - cached.storedAt > maxAgeMs) {
       window.sessionStorage.removeItem(regionalHeatmapStorageKey(config.endpoint));
       return undefined;
     }
@@ -798,7 +807,15 @@ function MapControl({
 function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { config: RegionalHeatmapConfig; compact?: boolean; onStockSelect?: (stock: HeatmapStockSelection) => void }) {
   const mapShellRef = useRef<HTMLDivElement | null>(null);
   const { ref, size } = useContainerSize();
-  const initialCacheRef = useRef(readRegionalHeatmapCache(config));
+  const heatmapMarket: HeatmapMarketId | null = config.sessionMarket === 'china' || config.sessionMarket === 'hongkong' || config.sessionMarket === 'us'
+    ? config.sessionMarket : null;
+  const [quoteSource, setQuoteSource] = useState<HeatmapQuoteSource>('eastmoney');
+  const [sourceReady, setSourceReady] = useState(!heatmapMarket);
+  const [switchingSource, setSwitchingSource] = useState(false);
+  const requestConfig = useMemo(() => heatmapMarket && quoteSource === 'sina'
+    ? { ...config, endpoint: `${config.endpoint}?source=sina` }
+    : config, [config, heatmapMarket, quoteSource]);
+  const initialCacheRef = useRef(heatmapMarket ? undefined : readRegionalHeatmapCache(config));
   const [data, setData] = useState<ChinaHeatmapResponse | undefined>(() => initialCacheRef.current?.data);
   const [loading, setLoading] = useState(() => !initialCacheRef.current);
   const [refreshing, setRefreshing] = useState(false);
@@ -834,6 +851,38 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
   const [sessionNow, setSessionNow] = useState(() => new Date());
 
   useEffect(() => {
+    if (!heatmapMarket) return;
+    let active = true;
+    void loadLocalIntegrationSettings().then((settings) => {
+      if (active) {
+        setQuoteSource(settings.heatmap[heatmapMarket]);
+        setSourceReady(true);
+      }
+    });
+    const onSettingsChanged = (event: Event) => {
+      const settings = (event as CustomEvent<IntegrationSettings>).detail;
+      if (settings?.heatmap) {
+        setQuoteSource(settings.heatmap[heatmapMarket]);
+        setSourceReady(true);
+      }
+    };
+    window.addEventListener(INTEGRATION_SETTINGS_CHANGED, onSettingsChanged);
+    return () => {
+      active = false;
+      window.removeEventListener(INTEGRATION_SETTINGS_CHANGED, onSettingsChanged);
+    };
+  }, [heatmapMarket]);
+
+  useEffect(() => {
+    if (!sourceReady) return;
+    const cached = readRegionalHeatmapCache(requestConfig);
+    setData(cached?.data);
+    setLoading(!cached);
+    setError('');
+    setSelectedCode('');
+  }, [requestConfig, sourceReady]);
+
+  useEffect(() => {
     setSearchPortal(document.getElementById(config.searchSlotId));
   }, [config.searchSlotId]);
 
@@ -845,7 +894,7 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
   const load = useCallback(async (signal?: AbortSignal, manual = false) => {
     if (manual) setRefreshing(true);
     try {
-      const payload = await loadRegionalHeatmap(config, manual ? 0 : REGIONAL_HEATMAP_CLIENT_CACHE_MS);
+      const payload = await loadRegionalHeatmap(requestConfig, manual ? 0 : REGIONAL_HEATMAP_CLIENT_CACHE_MS);
       if (!mountedRef.current || signal?.aborted) return;
       setData(payload);
       setError('');
@@ -858,9 +907,24 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
       setLoading(false);
       setRefreshing(false);
     }
-  }, [config]);
+  }, [config.errorFallback, requestConfig]);
+
+  const switchQuoteSource = useCallback(async () => {
+    if (!heatmapMarket || switchingSource) return;
+    setSwitchingSource(true);
+    const next = quoteSource === 'eastmoney' ? 'sina' : 'eastmoney';
+    try {
+      const saved = await saveHeatmapQuoteSource(heatmapMarket, next);
+      setQuoteSource(saved.heatmap[heatmapMarket]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '切换数据源失败');
+    } finally {
+      setSwitchingSource(false);
+    }
+  }, [heatmapMarket, quoteSource, switchingSource]);
 
   useEffect(() => {
+    if (!sourceReady) return;
     mountedRef.current = true;
     const controller = new AbortController();
     void load(controller.signal);
@@ -874,7 +938,7 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [config.sessionMarket, load]);
+  }, [config.sessionMarket, load, sourceReady]);
 
   useEffect(() => {
     if (config.sessionMarket !== 'crypto') return;
@@ -1169,22 +1233,27 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
         second: '2-digit',
       }).format(new Date(data.generatedAt))
     : '--:--:--';
-  const sourceDelayLabel = data?.sourceDelaySeconds && data.sourceDelaySeconds >= 60
-    ? `授权延迟约 ${Math.ceil(data.sourceDelaySeconds / 60)} 分钟`
+  const sourceDelayLabel = data?.sourceDelaySeconds && data.sourceDelaySeconds > 0
+    ? data.sourceDelaySeconds >= 60
+      ? `报价约晚 ${Math.ceil(data.sourceDelaySeconds / 60)} 分钟`
+      : `报价约晚 ${Math.round(data.sourceDelaySeconds)} 秒`
     : '';
   const publicSnapshotExchange = config.sessionMarket === 'india'
     ? 'NSE'
     : config.sessionMarket === 'uk' ? 'LSE' : '';
   const isPublicSnapshotMarket = Boolean(publicSnapshotExchange);
+  const isCoreStockMarket = heatmapMarket !== null;
   const quoteFreshnessLabel = data?.quoteStatus === 'closed'
     ? config.sessionMarket === 'korea'
       ? `抓取 ${updatedAt}`
-      : sourceDelayLabel ? `收盘快照 · ${sourceDelayLabel}` : '常规盘已收盘'
+      : sourceDelayLabel ? `收盘快照 · ${isCoreStockMarket ? `抓取 ${updatedAt} · ` : ''}${sourceDelayLabel}` : '常规盘已收盘'
     : config.sessionMarket === 'korea' && data?.generatedAt
       ? `${sourceDelayLabel || (data.quoteStatus === 'live' ? '实时行情' : '行情快照')} · 抓取 ${updatedAt}`
     : isPublicSnapshotMarket
       ? `公开行情快照 ${updatedAt}`
-      : sourceDelayLabel || (data?.quoteStatus === 'live' ? '实时行情' : `抓取 ${updatedAt}`);
+      : sourceDelayLabel
+        ? `${isCoreStockMarket ? `抓取 ${updatedAt} · ` : ''}${sourceDelayLabel}`
+        : data?.quoteStatus === 'live' ? '实时行情' : `抓取 ${updatedAt}`;
   const refreshSeconds = Math.max(1, Math.round((data?.refreshIntervalMs ?? REFRESH_INTERVAL_MS) / 1000));
   const sessionStatus = getMarketSessionStatus(config.sessionMarket, sessionNow);
   const sessionToneClass = sessionStatus.tone === 'live'
@@ -1485,7 +1554,7 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
         </div>}
         <div className="flex items-center gap-2.5">
           {compact && activeIndustry ? <><i className={`h-2 w-2 shrink-0 rounded-full ${sessionToneClass}`} /><span>{sessionStatus.label}</span></> : null}
-          {!compact ? <><span className="hidden lg:inline">下次：{sessionStatus.nextLabel}</span><span className="text-white/28">·</span></> : null}
+          {!compact && !isCoreStockMarket ? <><span className="hidden lg:inline">下次：{sessionStatus.nextLabel}</span><span className="text-white/28">·</span></> : null}
           <span>{compact ? quoteFreshnessLabel : `${quoteFreshnessLabel} · 每 ${refreshSeconds} 秒检查`}</span>
           <a
             href={sessionStatus.sourceUrl}
@@ -1739,6 +1808,16 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
                 <RefreshCw size={14} />
                 重试
               </button>
+              {heatmapMarket ? (
+                <button
+                  type="button"
+                  onClick={() => void switchQuoteSource()}
+                  disabled={switchingSource}
+                  className="mx-auto mt-3 flex h-9 items-center justify-center gap-2 border border-[#8ad7ff]/35 bg-[#8ad7ff]/[0.06] px-4 text-xs font-semibold text-[#b9e9ff] transition hover:border-[#8ad7ff]/65 hover:text-white disabled:opacity-50"
+                >
+                  {switchingSource ? '切换中…' : `切换到${quoteSource === 'eastmoney' ? '新浪财经' : '东方财富'}`}
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -1746,7 +1825,7 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
 
       <div className={`flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-white/10 bg-[#090a0c] px-3 text-white/48 ${compact ? 'min-h-8 py-1 text-[9px]' : 'min-h-11 py-2 text-[11px]'}`}>
         <div className="flex items-center gap-3">
-          <span className="font-semibold text-white/64">{data?.source ?? '东方财富'}</span>
+          <span className="font-semibold text-white/64">{data?.source ?? (heatmapMarket ? quoteSource === 'sina' ? '新浪财经' : '东方财富' : '—')}</span>
           {!compact ? <span>{activeIndustry ? `${activeIndustry} · 点击个股查看详情` : data?.coverage ?? config.defaultCoverage}</span> : null}
           {!compact ? <span>{quoteFreshnessLabel} · 每 {refreshSeconds} 秒检查</span> : null}
           {!compact && isPublicSnapshotMarket && data?.quotePolicy ? (

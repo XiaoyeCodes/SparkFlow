@@ -16,6 +16,8 @@ import {
   type CryptoMarketUniverseRow,
 } from './server/cryptoMarketUniverse';
 import { createChinaRegionalFeedService } from './server/chinaRegionalFeed';
+import { getSinaMarketHeatmap } from './server/sinaHeatmap';
+import type { SinaHeatmapMarket } from './server/sinaHeatmapUniverse';
 import { SINA_CURRENCY_CODES, SINA_US10Y_CODE, currencyQuoteTime, parseSinaCurrencyQuotes, parseSinaUs10yQuote } from './server/macroCurrencyQuotes';
 import { SINA_CORE_INDEX_CONFIGS, parseSinaCoreIndexQuotes, coreIndexHistoryQuote } from './server/macroCoreIndexQuotes';
 import { isPublicSourceRefresh, withPublicSourceRefresh } from './server/publicSourceContext';
@@ -118,10 +120,12 @@ type LocalAiIntegrationSettings = {
     baseUrl: string;
     useProxy: boolean;
   };
+  heatmap: Record<'china' | 'hongkong' | 'us', 'eastmoney' | 'sina'>;
 };
 
 const localAiDefaults: LocalAiIntegrationSettings = {
   ai: { provider: 'openai', apiKey: '', model: '', baseUrl: 'https://api.openai.com/v1', useProxy: true },
+  heatmap: { china: 'eastmoney', hongkong: 'eastmoney', us: 'eastmoney' },
 };
 
 const localAiProviderDefaults: Record<LocalAiIntegrationSettings['ai']['provider'], { baseUrl: string; useProxy: boolean }> = {
@@ -137,7 +141,8 @@ function boundedText(value: unknown, limit: number) {
 }
 
 function normalizeLocalIntegrationSettings(value: unknown): LocalAiIntegrationSettings {
-  const candidate = value && typeof value === 'object' ? (value as { ai?: Record<string, unknown> }).ai : undefined;
+  const record = value && typeof value === 'object' ? value as { ai?: Record<string, unknown>; heatmap?: Record<string, unknown> } : {};
+  const candidate = record.ai;
   const requestedProvider = boundedText(candidate?.provider, 20);
   const provider = requestedProvider in localAiProviderDefaults ? requestedProvider as LocalAiIntegrationSettings['ai']['provider'] : localAiDefaults.ai.provider;
   const fallback = localAiProviderDefaults[provider];
@@ -160,6 +165,9 @@ function normalizeLocalIntegrationSettings(value: unknown): LocalAiIntegrationSe
       baseUrl,
       useProxy: typeof candidate?.useProxy === 'boolean' ? candidate.useProxy : fallback.useProxy,
     },
+    heatmap: Object.fromEntries((['china', 'hongkong', 'us'] as const).map((market) => [
+      market, record.heatmap?.[market] === 'sina' ? 'sina' : 'eastmoney',
+    ])) as LocalAiIntegrationSettings['heatmap'],
   };
 }
 
@@ -3343,6 +3351,8 @@ let hongKongHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof ge
 let hongKongHeatmapInFlight: Promise<Awaited<ReturnType<typeof getHongKongMarketHeatmap>>> | undefined;
 let usHeatmapCache: { storedAt: number; data: Awaited<ReturnType<typeof getUsMarketHeatmap>> } | undefined;
 let usHeatmapInFlight: Promise<Awaited<ReturnType<typeof getUsMarketHeatmap>>> | undefined;
+const sinaHeatmapCache = new Map<SinaHeatmapMarket, { storedAt: number; data: Awaited<ReturnType<typeof getSinaMarketHeatmap>> }>();
+const sinaHeatmapInFlight = new Map<SinaHeatmapMarket, Promise<Awaited<ReturnType<typeof getSinaMarketHeatmap>>>>();
 let chinaValuationCache: { storedAt: number; data: Awaited<ReturnType<typeof getChinaValuationDashboard>> } | undefined;
 let chinaValuationInFlight: Promise<Awaited<ReturnType<typeof getChinaValuationDashboard>>> | undefined;
 const regionalValuationCache = new Map<RegionalValuationMode, { storedAt: number; data: Awaited<ReturnType<typeof getRegionalValuationDashboard>> }>();
@@ -8994,6 +9004,29 @@ async function getCachedUsMarketHeatmap() {
   return usHeatmapInFlight;
 }
 
+async function getCachedSinaMarketHeatmap(market: SinaHeatmapMarket) {
+  const cached = sinaHeatmapCache.get(market);
+  if (cached && Date.now() - cached.storedAt < 2_500) return cached.data;
+  const running = sinaHeatmapInFlight.get(market);
+  if (running) return running;
+  const request = getSinaMarketHeatmap(market, (url) => fetchText(url, 5_000))
+    .then((data) => {
+      sinaHeatmapCache.set(market, { storedAt: Date.now(), data });
+      return data;
+    })
+    .finally(() => sinaHeatmapInFlight.delete(market));
+  sinaHeatmapInFlight.set(market, request);
+  return request;
+}
+
+function getSelectedMarketHeatmap(market: SinaHeatmapMarket, source: string | null) {
+  if (source === 'sina') return getCachedSinaMarketHeatmap(market);
+  if (source && source !== 'eastmoney') throw new Error('不支持的热力图数据源');
+  if (market === 'china') return getCachedChinaMarketHeatmap();
+  if (market === 'hongkong') return getCachedHongKongMarketHeatmap();
+  return getCachedUsMarketHeatmap();
+}
+
 function getAgeDays(dateString?: string) {
   if (!dateString) return undefined;
   const time = new Date(dateString).getTime();
@@ -12197,9 +12230,9 @@ async function loadPublicDashboardResource(key: string): Promise<unknown> {
     case '/api/china-fisher': return getChinaFisherSnapshot(url.searchParams.get('mode') as 'loan' | 'deposit');
     case '/api/china-gdp': return getChinaGdpSnapshot();
     case '/api/china-income': return getChinaIncomeSnapshot();
-    case '/api/china-market-heatmap': return getCachedChinaMarketHeatmap();
-    case '/api/hong-kong-market-heatmap': return getCachedHongKongMarketHeatmap();
-    case '/api/us-market-heatmap': return getCachedUsMarketHeatmap();
+    case '/api/china-market-heatmap': return getSelectedMarketHeatmap('china', url.searchParams.get('source'));
+    case '/api/hong-kong-market-heatmap': return getSelectedMarketHeatmap('hongkong', url.searchParams.get('source'));
+    case '/api/us-market-heatmap': return getSelectedMarketHeatmap('us', url.searchParams.get('source'));
     case '/api/crypto-market-heatmap': return getCachedCryptoMarketHeatmap();
     case '/api/global-market-heatmap': return getGlobalMarketHeatmap(market);
     case '/api/international-market-overview': return getInternationalMarketOverview(market as InternationalMarketMode);
@@ -12323,7 +12356,11 @@ function allWeatherApiPlugin() {
             }
             if (req.method === 'PUT') {
               const body = JSON.parse(await getRequestBody(req));
-              sendJson(res, 200, await writeLocalIntegrationSettings(body));
+              const current = await readLocalIntegrationSettings();
+              sendJson(res, 200, await writeLocalIntegrationSettings({
+                ai: { ...current.ai, ...(body.ai || {}) },
+                heatmap: { ...current.heatmap, ...(body.heatmap || {}) },
+              }));
               return;
             }
             sendJson(res, 405, { detail: '仅支持 GET 或 PUT' });
@@ -12753,7 +12790,7 @@ function allWeatherApiPlugin() {
           }
 
           if (url.pathname === '/api/china-market-heatmap') {
-            sendJson(res, 200, await getCachedChinaMarketHeatmap());
+            sendJson(res, 200, await getSelectedMarketHeatmap('china', url.searchParams.get('source')));
             return;
           }
 
@@ -12809,12 +12846,12 @@ function allWeatherApiPlugin() {
           }
 
           if (url.pathname === '/api/hong-kong-market-heatmap') {
-            sendJson(res, 200, await getCachedHongKongMarketHeatmap());
+            sendJson(res, 200, await getSelectedMarketHeatmap('hongkong', url.searchParams.get('source')));
             return;
           }
 
           if (url.pathname === '/api/us-market-heatmap') {
-            sendJson(res, 200, await getCachedUsMarketHeatmap());
+            sendJson(res, 200, await getSelectedMarketHeatmap('us', url.searchParams.get('source')));
             return;
           }
 

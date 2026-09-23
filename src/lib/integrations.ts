@@ -1,6 +1,9 @@
 import type { NewsItem } from './newsTypes';
 
 export type AiProviderId = 'openai' | 'zhipu' | 'deepseek' | 'qwen' | 'custom';
+export type HeatmapMarketId = 'china' | 'hongkong' | 'us';
+export type HeatmapQuoteSource = 'eastmoney' | 'sina';
+export const INTEGRATION_SETTINGS_CHANGED = 'sparkflow:integration-settings-changed';
 
 export type AiProviderConfig = {
   id: AiProviderId;
@@ -22,6 +25,7 @@ export type IntegrationSettings = {
     vaultPath: string;
     folder: string;
   };
+  heatmap: Record<HeatmapMarketId, HeatmapQuoteSource>;
 };
 
 export type { NewsCategory, NewsItem, NewsFeed } from './newsTypes';
@@ -75,7 +79,8 @@ export const defaultIntegrationSettings: IntegrationSettings = {
   obsidian: {
     vaultPath: '',
     folder: 'SparkFlow/星图情报'
-  }
+  },
+  heatmap: { china: 'eastmoney', hongkong: 'eastmoney', us: 'eastmoney' },
 };
 
 export function getProviderConfig(provider: AiProviderId) {
@@ -95,6 +100,7 @@ export async function loadLocalIntegrationSettings(): Promise<IntegrationSetting
     const settings: IntegrationSettings = {
       ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
       obsidian: { ...defaultIntegrationSettings.obsidian, ...(payload.obsidian || {}) },
+      heatmap: { ...defaultIntegrationSettings.heatmap, ...(payload.heatmap || {}) },
     };
     return settings;
   } catch {
@@ -106,7 +112,7 @@ export async function saveIntegrationSettings(settings: IntegrationSettings): Pr
   const response = await fetch('/api/integration-settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ ai: settings.ai }),
+    body: JSON.stringify({ ai: settings.ai, heatmap: settings.heatmap }),
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { detail?: string };
@@ -116,7 +122,29 @@ export async function saveIntegrationSettings(settings: IntegrationSettings): Pr
   const saved: IntegrationSettings = {
     ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
     obsidian: defaultIntegrationSettings.obsidian,
+    heatmap: { ...defaultIntegrationSettings.heatmap, ...(payload.heatmap || {}) },
   };
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(INTEGRATION_SETTINGS_CHANGED, { detail: saved }));
+  return saved;
+}
+
+export async function saveHeatmapQuoteSource(market: HeatmapMarketId, source: HeatmapQuoteSource) {
+  const response = await fetch('/api/integration-settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ heatmap: { [market]: source } }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as { detail?: string };
+    throw new Error(payload.detail || `切换热力图数据源失败（${response.status}）`);
+  }
+  const payload = await response.json() as Partial<IntegrationSettings>;
+  const saved: IntegrationSettings = {
+    ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
+    obsidian: defaultIntegrationSettings.obsidian,
+    heatmap: { ...defaultIntegrationSettings.heatmap, ...(payload.heatmap || {}) },
+  };
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(INTEGRATION_SETTINGS_CHANGED, { detail: saved }));
   return saved;
 }
 
