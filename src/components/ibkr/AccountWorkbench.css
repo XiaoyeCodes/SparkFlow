@@ -385,6 +385,12 @@
   border-bottom:1px solid #29312e;
   transition:background .15s;
 }
+.awb-holdings:not(.awb-holdings-summary) .awb-table-scroll td.negative{
+  color:#e79084;
+}
+.awb-holdings:not(.awb-holdings-summary) .awb-table-scroll td.positive{
+  color:#70dcba;
+}
 .awb-holdings:not(.awb-holdings-summary) .awb-table-scroll tbody td:first-child{
   border-left:1px solid #29312e;
   border-radius:12px 0 0 12px;
