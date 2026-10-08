@@ -193,10 +193,14 @@ export function ibkrValuationPlugin(): Plugin {
   const service = createValuationService();
   const install = (server: { httpServer?: { once: (event: string, callback: () => void) => unknown } | null; middlewares: { use: (handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => unknown } }) => {
     // The app service maintains the hourly cache even when this page is closed.
-    void service.get(5).catch(() => undefined);
+    void service.riskRadar().catch(() => undefined);
     const timer = setInterval(() => { void service.refresh().catch(() => undefined); }, VALUATION_REFRESH_MS);
     timer.unref();
-    server.httpServer?.once('close', () => clearInterval(timer));
+    // Retry incomplete risk inputs in the background instead of leaving that
+    // first repair to a visitor arriving later in the hour.
+    const repairTimer = setInterval(() => { void service.riskRadar().catch(() => undefined); }, RISK_RADAR_REPAIR_MS);
+    repairTimer.unref();
+    server.httpServer?.once('close', () => { clearInterval(timer); clearInterval(repairTimer); });
     server.middlewares.use((req, res, next) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (url.pathname !== '/api/ibkr-valuation' && !url.pathname.startsWith('/api/ibkr-valuation/')) return next();

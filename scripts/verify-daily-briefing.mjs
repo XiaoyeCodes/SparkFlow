@@ -1,176 +1,87 @@
-import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import {
-  createDailyBriefService,
-  getDailyBriefWindow,
-  getNextDailyBriefRun,
-} from "../server/dailyBriefService.ts";
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createDailyBriefService, getDailyBriefWindow, getNextDailyBriefRun } from '../server/dailyBriefService.ts';
 
-function snapshot(window, index) {
-  const generatedAt =
-    window.slot === "morning"
-      ? `${window.date}T01:00:00.000Z`
-      : window.slot === "midday"
-        ? `${window.date}T04:00:00.000Z`
-        : `${window.date}T09:00:00.000Z`;
-  return {
-    version: 18,
-    date: window.date,
-    slot: window.slot,
-    generatedAt,
-    updatedAt: generatedAt,
-    summaryMode: "rules",
-    summary: {
-      headline: `snapshot-${index}`,
-      regime: "test",
-      tone: "balanced",
-      highlights: [],
-      risks: [],
-      watchlist: [],
-      portfolioNotes: [],
-    },
-    markets: [],
-    macro: [],
-    news: [],
-    portfolio: { connected: false, positions: [] },
-    sources: [],
-    errors: [],
-  };
-}
-
-assert.deepEqual(getDailyBriefWindow(new Date("2026-08-30T00:59:59Z")), {
-  date: "2026-08-29",
-  slot: "morning",
-});
-assert.deepEqual(getDailyBriefWindow(new Date("2026-08-30T01:00:00Z")), {
-  date: "2026-08-30",
-  slot: "morning",
-});
-assert.deepEqual(getDailyBriefWindow(new Date("2026-08-30T09:00:00Z")), {
-  date: "2026-08-30",
-  slot: "morning",
-});
-assert.equal(
-  getNextDailyBriefRun(new Date("2026-08-30T00:01:00Z")).toISOString(),
-  "2026-08-30T01:00:00.000Z",
-);
-assert.equal(
-  getNextDailyBriefRun(new Date("2026-08-30T01:01:00Z")).toISOString(),
-  "2026-08-31T01:00:00.000Z",
-);
-
-const root = await mkdtemp(path.join(tmpdir(), "sparkflow-daily-brief-"));
+let now = Date.parse('2026-10-08T02:10:00Z');
 let calls = 0;
-const window = { date: "2026-08-30", slot: "morning" };
-const service = createDailyBriefService({
-  stateDir: root,
-  now: () => new Date("2026-08-30T01:30:00Z"),
-  generate: async (target) => {
-    calls += 1;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    return snapshot(target, calls);
+let fail = false;
+let release;
+let gated = false;
+const snapshot = (window, index) => ({ version: 18, date: window.date, slot: window.slot,
+  generatedAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(), summaryMode: 'rules',
+  summary: { headline: `snapshot-${index}`, regime: 'test', tone: 'balanced', highlights: [], risks: [], watchlist: [], portfolioNotes: [] },
+  markets: [], macro: [], news: [], sources: [], errors: [], portfolio: { connected: false, positions: [] } });
+const until = async predicate => {
+  for (let i = 0; i < 200; i++) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)); }
+  throw new Error('timed out');
+};
+assert.deepEqual(getDailyBriefWindow(new Date('2026-10-08T00:00:00Z')), { date: '2026-10-08', slot: 'morning' });
+assert.deepEqual(getDailyBriefWindow(new Date('2026-10-08T16:00:00Z')), { date: '2026-10-09', slot: 'morning' });
+assert.equal(getNextDailyBriefRun(new Date('2026-10-08T02:01:00Z')).toISOString(), '2026-10-08T03:00:00.000Z');
+assert.equal(getNextDailyBriefRun(new Date('2026-10-08T15:59:59Z')).toISOString(), '2026-10-08T16:00:00.000Z');
+assert.equal(getNextDailyBriefRun(new Date('2026-10-08T03:00:00Z')).toISOString(), '2026-10-08T04:00:00.000Z');
+const root = await mkdtemp(path.join(tmpdir(), 'sparkflow-hourly-brief-'));
+const warmed = [];
+const service = createDailyBriefService({ stateDir: root, now: () => new Date(now),
+  onSnapshot: async value => { warmed.push(value.generatedAt); },
+  generate: async window => {
+    calls++;
+    if (gated) await new Promise(resolve => { release = resolve; });
+    if (fail) throw Error('offline');
+    return snapshot(window, calls);
   },
 });
-
 try {
-  const [first, duplicate] = await Promise.all([
-    service.get(window),
-    service.get(window),
-  ]);
-  assert.equal(calls, 1, "concurrent requests must share one generation");
-  assert.equal(
-    first.snapshot.summary.headline,
-    duplicate.snapshot.summary.headline,
-  );
-  const cached = await service.get(window);
-  assert.equal(cached.cache.hit, true);
-  assert.equal(calls, 1, "same date/slot must read disk cache");
-  const forced = await service.get(window, true);
-  assert.equal(
-    forced.cache.generated,
-    true,
-    "explicit refresh must regenerate the current edition",
-  );
+  const visitors = await Promise.all(Array.from({ length: 20 }, () => service.getForPage()));
+  assert.equal(calls, 1, 'cold readers and scheduler share one generation');
+  assert.equal(visitors[0]._pageCache.state, 'fresh');
+  assert.equal(visitors[0]._pageCache.expiresAt, '2026-10-09T02:10:00.000Z');
+  await until(() => warmed.length === 1);
+  await service.refreshIfDue();
+  assert.equal(calls, 1, 'recovery/cron in the same hour never regenerate a complete snapshot');
+  now = Date.parse('2026-10-08T03:00:00Z'); gated = true;
+  const refresh = service.refreshIfDue(); await until(() => Boolean(release));
+  const old = await Promise.all(Array.from({ length: 30 }, () => service.getForPage()));
   assert.equal(calls, 2);
-  const stored = JSON.parse(
-    await readFile(
-      path.join(root, "daily-brief", "2026-08-30", "morning.json"),
-      "utf8",
-    ),
-  );
-  assert.equal(stored.date, "2026-08-30");
-  assert.equal(stored.slot, "morning");
-  const fallbackService = createDailyBriefService({
-    stateDir: root,
-    now: () => new Date("2026-08-30T04:30:00Z"),
-    generate: async () => {
-      throw new Error("upstream unavailable");
-    },
-  });
-  const fallback = await fallbackService.get({
-    date: "2026-08-30",
-    slot: "midday",
-  });
-  assert.equal(
-    fallback.cache.stale,
-    true,
-    "failed scheduled fetch must retain the last successful snapshot",
-  );
-  assert.equal(fallback.snapshot.summary.headline, "snapshot-2");
-  // A valid daily edition stays frozen even if optional source analysis failed.
-  let retries = 0;
-  const restored = createDailyBriefService({
-    stateDir: root,
-    now: () => new Date('2026-08-30T04:30:00Z'),
-    generate: async target => {
-      retries++;
-      return { ...snapshot(target, 3), summaryMode: 'ai' };
-    },
-  });
-  const page = await restored.getForPage(window);
-  assert.equal(page.snapshot.summary.headline, 'snapshot-2');
-  assert.equal(page._pageCache.state, 'fresh');
-  assert.equal(page._pageCache.expiresAt, '2026-08-31T01:00:00.000Z');
-  await restored.getForPage(window);
-  await restored.getForPage(window);
-  assert.equal(retries, 0, 'missing optional analysis must not regenerate daily prices on visits');
-  await restored.get(window, true);
-  assert.equal(retries, 1, 'explicit manual refresh remains supported');
-  assert.equal((await restored.getForPage(window))._pageCache.state, 'fresh');
-  let restartCalls = 0;
-  const restart = createDailyBriefService({ stateDir: root, now: () => new Date('2026-08-30T04:30:00Z'),
-    generate: async () => { restartCalls++; throw new Error('complete edition must not regenerate during warmup'); } });
-  const errors = [];
-  const stop = restart.schedule(error => errors.push(error));
-  assert.equal((await restart.getForPage(window)).snapshot.summary.headline, 'snapshot-3');
-  stop();
-  assert.equal(restartCalls, 0);
-  assert.deepEqual(errors, []);
-  const startup = createDailyBriefService({ stateDir: root, now: () => new Date('2026-08-31T04:30:00Z'),
-    generate: async target => { restartCalls++; return { ...snapshot(target, 4), summaryMode: 'ai' }; } });
-  const stopStartup = startup.schedule(error => errors.push(error));
-  assert.equal((await startup.getForPage()).snapshot.date, '2026-08-31');
-  stopStartup();
-  assert.equal(restartCalls, 1, 'startup catches up a missed morning edition once');
-  let earlyCalls = 0;
-  const early = createDailyBriefService({ stateDir: root, now: () => new Date('2026-09-01T00:00:00Z'),
-    generate: async target => { earlyCalls++; return snapshot(target, 5); } });
-  assert.equal((await early.getForPage()).snapshot.date, '2026-08-31', 'before 09:00 yesterday remains the current edition');
-  const stopEarly = early.schedule(error => errors.push(error));
-  stopEarly();
-  assert.equal(earlyCalls, 0, 'pre-publication startup waits for 09:00 without regenerating yesterday');
-  const offlineToday = createDailyBriefService({ stateDir: root, now: () => new Date('2026-09-01T02:00:00Z'),
-    generate: async () => { throw new Error('network unavailable'); } });
-  await assert.rejects(offlineToday.getForPage(), /往日数据/, 'failed current edition must not expose the historical fallback on the daily page');
-  assert.equal((await offlineToday.latest()).date, '2026-08-31', 'historical snapshot stays recoverable on disk');
-  const badDate = createDailyBriefService({ stateDir: root, now: () => new Date('2026-09-01T02:00:00Z'),
-    generate: async target => ({ ...snapshot(target, 6), generatedAt: '2026-08-31T01:00:00Z' }) });
-  await assert.rejects(badDate.getForPage(), /往日数据/, 'relabeling an old snapshot with today is not accepted');
-  console.log(
-    "[daily-brief] cache, lock, schedule-window and persistence checks passed.",
-  );
+  assert.equal(old[0].snapshot.summary.headline, 'snapshot-1', 'readers get the last success during a slow hourly update');
+  assert.equal(old[0]._pageCache.state, 'stale');
+  assert.equal(service.status().refreshing, true);
+  release(); gated = false; await refresh;
+  assert.equal((await service.getForPage()).snapshot.summary.headline, 'snapshot-2');
+  await until(() => warmed.length === 2);
+  const file = path.join(root, 'daily-brief', '2026-10-08', 'morning.json');
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).summary.headline, 'snapshot-2');
+  const restart = createDailyBriefService({ stateDir: root, now: () => new Date(now), generate: async () => { throw Error('must restore'); } });
+  const stop = restart.schedule();
+  assert.equal((await restart.getForPage()).snapshot.summary.headline, 'snapshot-2');
+  await restart.refreshIfDue(); stop();
+  now = Date.parse('2026-10-08T04:00:00Z'); fail = true;
+  const failed = await service.refreshIfDue();
+  assert.equal(failed.snapshot.summary.headline, 'snapshot-2');
+  assert.equal(failed._pageCache.state, 'stale');
+  const failedCalls = calls;
+  await Promise.all(Array.from({ length: 30 }, () => service.getForPage()));
+  await service.refreshIfDue();
+  assert.equal(calls, failedCalls, 'visitors cannot bypass failed generation backoff');
+  now += 60_000; fail = false; await service.refreshIfDue();
+  assert.equal(calls, failedCalls + 1);
+  now = Date.parse('2026-10-08T16:00:00Z'); gated = true; release = undefined;
+  const midnight = service.refreshIfDue(); await until(() => Boolean(release));
+  assert.equal((await service.getForPage()).snapshot.date, '2026-10-08', 'midnight preserves the real date of the previous cache');
+  release(); gated = false; await midnight;
+  assert.equal((await service.getForPage()).snapshot.date, '2026-10-09');
+  await service.get(getDailyBriefWindow(new Date(now)), true);
+  assert.equal((await service.getForPage())._pageCache.state, 'fresh', 'manual refresh remains supported');
+  now += 25 * 3600_000; fail = true;
+  await assert.rejects(service.getForPage(), /过期/, 'snapshots cannot stay usable forever');
+  assert.equal((await service.latest()).date, '2026-10-09');
+  console.log('Hourly briefing: background generation, immediate stale reads, coalescing, disk recovery, hourly/midnight updates, model prewarm and backoff passed.');
 } finally {
-  await rm(root, { recursive: true, force: true });
+  const cleanupTarget = path.resolve(root);
+  const cleanupParent = path.resolve(tmpdir());
+  assert.equal(path.dirname(cleanupTarget), cleanupParent);
+  assert.ok(path.basename(cleanupTarget).startsWith('sparkflow-hourly-brief-'));
+  await rm(cleanupTarget, { recursive: true, force: true });
 }

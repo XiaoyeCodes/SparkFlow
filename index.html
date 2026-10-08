@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#000000" />
+    <script>
+      window.__sparkflowTerminalBootstrap = fetch('/api/global-macro/bootstrap', {
+        cache: 'no-store', signal: AbortSignal.timeout(2500)
+      }).then(response => response.ok ? response.json() : null).catch(() => null);
+    </script>
+    <link rel="preload" href="/textures/earth-day.jpg" as="image" />
+    <link rel="preload" href="/data/world-countries-50m.json" as="fetch" crossorigin />
     <link rel="icon" type="image/png" href="/brand/lumenary-mark-v2-transparent.png" />
     <link rel="apple-touch-icon" href="/brand/lumenary-mark-v2-transparent.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

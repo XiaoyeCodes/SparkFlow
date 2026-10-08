@@ -9,7 +9,7 @@ import { createDailyBriefService } from '../server/dailyBriefService.ts';
 import { dailyBriefEditionDate, isCurrentDailyBrief } from '../src/lib/dailyBriefFreshness.ts';
 
 const date = '2026-09-14';
-let now = Date.parse(`${date}T02:00:00Z`);
+let now = Date.parse(`${date}T01:10:00Z`);
 const metric = value => ({ value, display: value == null ? '暂无数据' : String(value), status: value == null ? 'unavailable' : 'delayed', source: 'fixture', sourceUrl: 'https://example.com' });
 const base = () => ({ version: 18, date, slot: 'morning', generatedAt: `${date}T01:00:00Z`, updatedAt: `${date}T01:00:00Z`,
   summaryMode: 'rules', summary: { headline: 'frozen', regime: 'test', tone: 'balanced', highlights: [], risks: [], watchlist: [], portfolioNotes: [] },
@@ -18,7 +18,7 @@ const base = () => ({ version: 18, date, slot: 'morning', generatedAt: `${date}T
     sentiment: { vix: metric(15), cryptoFearGreed: metric(50), stockFearGreed: metric(50), mvrvZScore: metric(null), lthSupplyRatio: metric(null), sopr: metric(null), stockComponents: [], cryptoHistory: [] },
     onchain: { sopr: metric(null), lthSopr: metric(null), wma200Multiple: metric(null), puellMultiple: metric(null), fundingRate: metric(null), openInterest: metric(null), dominance: metric(null) },
     signals: { top: null, bottom: null, coverage: 25, methodology: 'fixture' } } });
-assert.equal(dailyBriefEditionDate(Date.parse('2026-09-15T00:59:59Z')), date);
+assert.equal(dailyBriefEditionDate(Date.parse('2026-09-14T15:59:59Z')), date);
 assert.equal(dailyBriefEditionDate(Date.parse('2026-09-15T01:00:00Z')), '2026-09-15');
 assert.ok(isCurrentDailyBrief(base(), Date.parse('2026-09-15T00:59:59Z')));
 assert.equal(isCurrentDailyBrief(base(), Date.parse('2026-09-15T01:00:00Z')), false);
@@ -106,7 +106,7 @@ try {
   const restart = createDailyBriefService({ stateDir: root, now: () => new Date(now), generate: async () => { throw new Error('must use cache'); }, repairTasks: () => [task] });
   assert.equal((await restart.getForPage()).snapshot.news[0].title, 'repaired'); assert.equal(loads, 1);
 
-  // An in-flight yesterday repair cannot write after the 09:00 edition boundary.
+  // An obsolete repair cannot write after its hourly edition expires.
   release = undefined;
   const late = createDailyBriefService({ stateDir: root, now: () => new Date(now), generate: async () => base(),
     repairTasks: () => [{ ...task, id: 'late', needed: s => !s.macro.length, load: async () => {
@@ -117,4 +117,4 @@ try {
   await new Promise(r => setTimeout(r, 50));
   assert.equal(JSON.parse(await readFile(file, 'utf8')).macro.length, 0);
 } finally { await rm(root, { recursive: true, force: true }); }
-console.log('Daily brief repair: 09:00 boundary, field isolation, bounded concurrency, failure backoff, blocked configuration, disk persistence, cross-visitor deduplication and obsolete-write protection passed.');
+console.log('Daily brief repair: hourly boundaries, field isolation, concurrency, backoff, disk persistence, deduplication and obsolete-write protection passed.');

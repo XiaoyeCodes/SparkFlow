@@ -34,13 +34,14 @@ import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper
 import { PageTransition } from '../components/PageTransition';
 import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
 import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
+import { preloadGlobalMacroTerminal } from '../lib/globalMacroTerminalPreload';
 import { mergeQuoteRows } from '../lib/realtimeQuotes';
 import { INTEGRATION_SETTINGS_CHANGED, loadIntegrationSettings, loadLocalIntegrationSettings, type IntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
 import './Market.css';
 
 const GlobalMacroCommandCenter = lazy(async () => {
-  const module = await import('../components/GlobalMacroCommandCenter');
+  const module = await preloadGlobalMacroTerminal();
   return { default: module.GlobalMacroCommandCenter };
 });
 
@@ -953,9 +954,9 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
     const controller = new AbortController();
     const international = ['japan', 'korea', 'india', 'germany', 'france', 'uk'].includes(activeMarket);
     const endpoint = activeMarket === 'hongkong'
-      ? '/api/hong-kong-market-heatmap'
+      ? `/api/hong-kong-market-heatmap?source=${heatmapSources.hongkong}`
       : activeMarket === 'us'
-        ? '/api/us-market-heatmap'
+        ? `/api/us-market-heatmap?source=${heatmapSources.us}`
         : `/api/global-market-heatmap?market=${activeMarket}`;
     const internationalCurrencies: Partial<Record<MarketChartMode, MarketRotation['currency']>> = {
       japan: 'JPY',
@@ -979,7 +980,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
       });
 
     return () => controller.abort();
-  }, [activeMarket, dashboardView]);
+  }, [activeMarket, dashboardView, heatmapSources.hongkong, heatmapSources.us]);
 
   const runVibeResearch = async (target: ResearchTarget) => {
     if (!data || activeResearch.running || activeResearch.connecting) return;
@@ -1143,7 +1144,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
 
   if (dashboardView === 'global') {
     return (
-      <PageTransition>
+      <PageTransition instant>
       <section className="h-[calc(100dvh-var(--nav-height))] min-h-0 overflow-hidden bg-[#030405] text-white">
           <Suspense fallback={<DashboardViewFallback label="全球宏观经济终端" />}>
             <GlobalMacroCommandCenter onOpenMarket={(mode) => navigate(`/market?market=${encodeURIComponent(mode)}`)} />

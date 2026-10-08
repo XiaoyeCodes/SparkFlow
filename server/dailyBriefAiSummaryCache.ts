@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DailyBriefAiSummaryResponse, DailyBriefSnapshot, DailyBriefSummary } from '../src/lib/dailyBriefTypes.ts';
 import type { SnapshotStore } from './publicDataCache.ts';
+import { dailyBriefExpiresAt, isCurrentDailyBrief } from '../src/lib/dailyBriefFreshness.ts';
 
 export type BriefAiConfig = {
   provider: string;
@@ -13,7 +14,6 @@ export type BriefAiConfig = {
 
 type RecordEntry = { version: 1; key: string; expiresAt: number; result: Omit<DailyBriefAiSummaryResponse, 'cache'> };
 const MAX_BYTES = 256 * 1024;
-const DAY_MS = 86_400_000;
 
 export function isDailyBriefAiSummary(value: unknown): value is DailyBriefSummary {
   const summary = value as DailyBriefSummary | null;
@@ -58,10 +58,8 @@ export function createDailyBriefAiSummaryCache(options: {
   return {
     async get(snapshot: DailyBriefSnapshot, config: BriefAiConfig): Promise<DailyBriefAiSummaryResponse> {
       if (snapshot.portfolio.connected || snapshot.portfolio.positions.length) throw new Error('含个人持仓的简报不进入跨访客摘要缓存');
-      const editionStart = Date.parse(`${snapshot.date}T09:00:00+08:00`);
-      const expiresAt = editionStart + DAY_MS;
-      if (!Number.isFinite(editionStart) || editionStart > now() || expiresAt <= now()
-        || !Number.isFinite(Date.parse(snapshot.generatedAt)) || Date.parse(snapshot.generatedAt) > now()) {
+      const expiresAt = dailyBriefExpiresAt(snapshot);
+      if (!isCurrentDailyBrief(snapshot, now())) {
         throw new Error('当前简报版次已过期或尚未就绪，请更新简报后重试');
       }
       if (!config.apiKey.trim() || !config.model.trim() || !config.baseUrl.trim()) throw new Error('请先配置 AI 服务');

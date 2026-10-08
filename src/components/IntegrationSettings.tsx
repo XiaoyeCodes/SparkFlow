@@ -198,13 +198,13 @@ export function IntegrationSettingsPanel({ compact = false, onChange }: Integrat
                   })}
                   className="mt-2 h-10 w-full rounded-md border border-white/10 bg-black/60 px-3 text-sm text-white outline-none focus:border-[#8ad7ff]/50"
                 >
-                  <option value="eastmoney">东方财富</option>
                   <option value="sina">新浪财经</option>
+                  <option value="eastmoney">东方财富</option>
                 </select>
               </label>
             ))}
           </div>
-          <p className="mt-3 text-xs leading-5 text-white/42">默认东方财富。新浪财经行情实测约滞后十余秒；切换后以个股报价时间为准。</p>
+          <p className="mt-3 text-xs leading-5 text-white/42">默认新浪财经。行情时效以个股报价时间为准，可分别切换各市场的数据源。</p>
         </div>
 
       </div>

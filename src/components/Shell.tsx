@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { PillNav } from './PillNav';
 import { UserMenu } from './UserMenu';
 import { primaryNavigation } from '../data/navigation';
+import { prepareGlobalMacroData } from '../lib/globalMacroTerminalPreload';
 
 export function Shell({ children }: { children: ReactNode }) {
   const { hash, pathname } = useLocation();
@@ -13,6 +14,15 @@ export function Shell({ children }: { children: ReactNode }) {
   });
   const [touchNavigationVisible, setTouchNavigationVisible] = useState(false);
   const touchNavigationTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (pathname === '/terminal') return;
+    const prepare = () => { if (!document.hidden) void prepareGlobalMacroData(); };
+    prepare();
+    const timer = window.setInterval(prepare, 30_000);
+    document.addEventListener('visibilitychange', prepare);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', prepare); };
+  }, [pathname]);
 
   const clearTouchNavigationTimer = useCallback(() => {
     if (touchNavigationTimerRef.current === null) return;

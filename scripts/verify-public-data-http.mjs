@@ -4,6 +4,17 @@ import { once } from 'node:events';
 import { createPublicDataCache } from '../server/publicDataCache.ts';
 import { createPublicDataHandler } from '../server/publicDataHttp.ts';
 import { PUBLIC_DATA_POLICIES, resolvePublicDataPolicy, isUsablePublicPayload, validatePublicResource } from '../src/lib/publicDataPolicy.ts';
+import { normalizeHeatmapSources } from '../src/lib/heatmapSources.ts';
+assert.deepEqual(normalizeHeatmapSources(undefined), {china:'sina',hongkong:'sina',us:'sina'});
+assert.deepEqual(normalizeHeatmapSources({china:'eastmoney',hongkong:'unknown'}), {china:'eastmoney',hongkong:'sina',us:'sina'});
+for (const market of ['china','hong-kong','us']) {
+  const endpoint = `/api/${market}-market-heatmap`;
+  assert.equal(resolvePublicDataPolicy(endpoint).key, `${endpoint}?source=sina`);
+  assert.notEqual(resolvePublicDataPolicy(`${endpoint}?source=eastmoney`).key, resolvePublicDataPolicy(endpoint).key);
+  const eastmoney = {source:'东方财富',stocks:[{price:100}]};
+  assert.equal(validatePublicResource(`${endpoint}?source=sina`,eastmoney),false,'Eastmoney snapshots cannot satisfy a Sina request');
+  assert.equal(validatePublicResource(`${endpoint}?source=eastmoney`,eastmoney),true);
+}
 assert.equal(new Set(PUBLIC_DATA_POLICIES.map(item => item.key)).size, PUBLIC_DATA_POLICIES.length);
 for (const url of ['/api/ibkr/status', '/api/ai-analysis', '/api/daily-brief', '/api/news-sources', '/api/news-feed', '/api/market-intelligence', '/api/integration-settings', '/api/vibe/research/sessions', '/api/global-macro-stream', '/api/market-quotes?token=private', '/api/china-fisher?mode=bad', '/api/china-fisher?mode=loan&mode=deposit']) assert.equal(resolvePublicDataPolicy(url), undefined, url);
 assert.equal(resolvePublicDataPolicy('/api/china-fisher?fresh=1&mode=loan').key, '/api/china-fisher?mode=loan');

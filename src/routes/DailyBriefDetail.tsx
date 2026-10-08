@@ -217,12 +217,21 @@ export function DailyBriefDetail() {
     setLoading(!cached); setError('');
     if (kind === 'judgement') setBrief((cached as DailyBriefResponse) ?? null);
     else setDetail((cached as DailyBriefFlowDetails | DailyBriefPerformanceDetails) ?? null);
-    const task = requestJson<DailyBriefResponse | DailyBriefFlowDetails | DailyBriefPerformanceDetails>(url, controller.signal);
-    task.then((payload) => {
-      if (!alive) return;
-      if (kind === 'judgement') setBrief(payload as DailyBriefResponse); else setDetail(payload as DailyBriefFlowDetails | DailyBriefPerformanceDetails);
-    }).catch((reason) => { if (alive) setError(reason instanceof Error ? reason.message : String(reason)); }).finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; controller.abort(); };
+    let pending = false;
+    const sync = () => {
+      if (pending || document.visibilityState !== 'visible') return;
+      pending = true;
+      void requestJson<DailyBriefResponse | DailyBriefFlowDetails | DailyBriefPerformanceDetails>(url, controller.signal).then(payload => {
+        if (!alive) return;
+        if (kind === 'judgement') setBrief(payload as DailyBriefResponse); else setDetail(payload as DailyBriefFlowDetails | DailyBriefPerformanceDetails);
+        setError('');
+      }).catch(reason => { if (alive) setError(reason instanceof Error ? reason.message : String(reason)); })
+        .finally(() => { pending = false; if (alive) setLoading(false); });
+    };
+    sync();
+    const timer = window.setInterval(sync, 60_000);
+    document.addEventListener('visibilitychange', sync);
+    return () => { alive = false; controller.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', sync); };
   }, [kind, meta]);
 
   if (!meta) return <Navigate to="/council" replace />;

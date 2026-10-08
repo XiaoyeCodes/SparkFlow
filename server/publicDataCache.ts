@@ -219,6 +219,14 @@ export function createPublicDataCache(options: {
     initialize,
     tick,
     has: (key: string) => resources.has(key),
+    // Bootstrap reads never start an upstream load or wait for a refresh.
+    async readPrepared(key: string) {
+      await initialize();
+      const resource = resources.get(key);
+      const entry = entries.get(key);
+      if (closed || !resource || !entry || entry.expiresAt <= now()) return undefined;
+      return result(entry, resource);
+    },
     async refresh(key: string) {
       await initialize();
       const resource = resources.get(key);

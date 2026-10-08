@@ -1,3 +1,5 @@
+import { DEFAULT_HEATMAP_QUOTE_SOURCE, HEATMAP_SOURCE_LABELS, resolveHeatmapQuoteSource } from './heatmapSources.ts';
+
 export type PublicDataPolicy = {
   key: string;
   refreshMs: number;
@@ -9,7 +11,7 @@ export type PublicDataPolicy = {
 const policies = new Map<string, PublicDataPolicy>();
 export const REALTIME_QUOTE_INTERVAL_MS = 3_000;
 const keyFor = (url: URL) => { url.searchParams.sort(); return url.pathname + url.search; };
-function add(key: string, seconds: number, maxAgeSeconds: number, warm = false) {
+function add(key: string, seconds: number, maxAgeSeconds: number, warm = true) {
   const canonical = keyFor(new URL(key, 'http://public.local'));
   policies.set(canonical, { key: canonical, refreshMs: seconds * 1000, maxAgeMs: maxAgeSeconds * 1000,
     clientMs: seconds === 3 ? 0 : Math.min(seconds * 1000, 15_000), warm, realtime: seconds === 3 });
@@ -34,7 +36,7 @@ add('/api/china-fisher?mode=deposit', 60, 300, true);
 add('/api/china-gdp', 3600, 3600, true);
 add('/api/china-income', 60, 900, true);
 for (const market of ['china', 'hong-kong', 'us']) {
-  add(`/api/${market}-market-heatmap`, 3, 180);
+  add(`/api/${market}-market-heatmap?source=eastmoney`, 3, 180);
   add(`/api/${market}-market-heatmap?source=sina`, 3, 15);
 }
 // The browser applies Binance's live mini-ticker stream every three seconds.
@@ -82,6 +84,9 @@ export function resolvePublicDataPolicy(input: string | URL): PublicDataPolicy |
     url.searchParams.set('region', url.searchParams.get('section') === 'news' ? region : 'global');
   }
   if (url.pathname === '/api/china-fisher' && !url.searchParams.has('mode')) url.searchParams.set('mode', 'loan');
+  if (/^\/api\/(china|hong-kong|us)-market-heatmap$/.test(url.pathname) && !url.searchParams.has('source')) {
+    url.searchParams.set('source', DEFAULT_HEATMAP_QUOTE_SOURCE);
+  }
   if (url.pathname === '/api/china-valuation-temperature') url.pathname = '/api/valuation-temperature';
   if (url.pathname === '/api/valuation-temperature' && !url.searchParams.has('market')) url.searchParams.set('market', 'china');
   return policies.get(keyFor(url));
@@ -112,6 +117,10 @@ export function validatePublicResource(key: string, data: unknown): boolean {
   if (!isUsablePublicPayload(data)) return false;
   const url = new URL(key, 'http://public.local');
   const row = data as Record<string, unknown>;
+  if (/^\/api\/(china|hong-kong|us)-market-heatmap$/.test(url.pathname)) {
+    const source = resolveHeatmapQuoteSource(url.searchParams.get('source'));
+    return row.source === HEATMAP_SOURCE_LABELS[source] && isUsablePublicPayload({ stocks: row.stocks });
+  }
   if (url.pathname === '/api/public-market-intelligence') return isUsablePublicPayload({ indices: row.indices });
   if (url.pathname === '/api/global-macro-quotes') return isUsablePublicPayload({ markets: row.markets, coreIndices: row.coreIndices, commodities: row.commodities, fxRates: row.fxRates });
   if (url.pathname === '/api/china-macro-dashboard') {

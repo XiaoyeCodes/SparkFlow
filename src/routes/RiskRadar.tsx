@@ -567,7 +567,7 @@ export function RiskRadar() {
   const [timelineRefreshing, setTimelineRefreshing] = useState(false);
   const [timelineError, setTimelineError] = useState('');
 
-  const load = useCallback(async (force = false) => {
+  const load = useCallback(async (force = false, revalidate = false) => {
     const saved = readRiskCache(ticker);
     if (!force && saved) {
       setPrices(saved.prices);
@@ -575,7 +575,7 @@ export function RiskRadar() {
       setHistory(saved.history);
       setCacheStoredAt(saved.storedAt);
       setLoading(false);
-      if (Date.now() - Date.parse(saved.storedAt) < RISK_CACHE_FRESH_MS) return;
+      if (!revalidate && Date.now() - Date.parse(saved.storedAt) < RISK_CACHE_FRESH_MS) return;
     }
     if (force || saved) setRefreshing(true);
     else { setPrices(null); setValuation(null); setHistory(null); setLoading(true); }
@@ -629,13 +629,13 @@ export function RiskRadar() {
     }
   }, [ticker]);
 
-  const loadTimeline = useCallback(async (force = false) => {
+  const loadTimeline = useCallback(async (force = false, revalidate = false) => {
     const saved = readTimelineCache();
     if (!force && saved) {
       setTimeline(saved.payload);
       setTimelineCacheStoredAt(saved.storedAt);
       setTimelineLoading(false);
-      if (Date.now() - Date.parse(saved.storedAt) < RISK_CACHE_FRESH_MS) return;
+      if (!revalidate && Date.now() - Date.parse(saved.storedAt) < RISK_CACHE_FRESH_MS) return;
     }
     setTimelineRefreshing(true);
     if (!saved) setTimelineLoading(true);
@@ -654,20 +654,24 @@ export function RiskRadar() {
   }, []);
 
   useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => { void load(); }, 60 * 60_000);
-    return () => window.clearInterval(timer);
+    const sync = () => { if (document.visibilityState === 'visible') void load(false, true); };
+    sync();
+    const timer = window.setInterval(sync, 60_000);
+    document.addEventListener('visibilitychange', sync);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', sync); };
   }, [load]);
 
   useEffect(() => {
-    void loadTimeline();
-    const timer = window.setInterval(() => { void loadTimeline(); }, RISK_CACHE_FRESH_MS);
-    return () => window.clearInterval(timer);
+    const sync = () => { if (document.visibilityState === 'visible') void loadTimeline(false, true); };
+    sync();
+    const timer = window.setInterval(sync, 60_000);
+    document.addEventListener('visibilitychange', sync);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', sync); };
   }, [loadTimeline]);
 
   useEffect(() => {
     if (!timeline?.cache?.refreshing) return;
-    const timer = window.setTimeout(() => { void loadTimeline(true); }, 20_000);
+    const timer = window.setTimeout(() => { void loadTimeline(false, true); }, 20_000);
     return () => window.clearTimeout(timer);
   }, [loadTimeline, timeline?.cache?.refreshing]);
 

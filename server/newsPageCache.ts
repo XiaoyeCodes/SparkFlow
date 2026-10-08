@@ -49,6 +49,7 @@ export function createNewsPageCache(options: {
   })().finally(() => { resolving = undefined; });
 
   return {
+    async status() { return (await resolve()).cache.status(); },
     async get(force = false): Promise<NewsFeed> {
       const entry = await resolve();
       if (force && !entry.manual && now() - entry.lastManualRefresh >= 15_000) {

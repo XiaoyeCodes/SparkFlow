@@ -1,8 +1,8 @@
 import type { NewsItem } from './newsTypes';
+import { normalizeHeatmapSources, type HeatmapMarketId, type HeatmapQuoteSource } from './heatmapSources';
+export type { HeatmapMarketId, HeatmapQuoteSource } from './heatmapSources';
 
 export type AiProviderId = 'openai' | 'zhipu' | 'deepseek' | 'qwen' | 'custom';
-export type HeatmapMarketId = 'china' | 'hongkong' | 'us';
-export type HeatmapQuoteSource = 'eastmoney' | 'sina';
 export const INTEGRATION_SETTINGS_CHANGED = 'sparkflow:integration-settings-changed';
 
 export type AiProviderConfig = {
@@ -80,7 +80,7 @@ export const defaultIntegrationSettings: IntegrationSettings = {
     vaultPath: '',
     folder: 'SparkFlow/星图情报'
   },
-  heatmap: { china: 'eastmoney', hongkong: 'eastmoney', us: 'eastmoney' },
+  heatmap: normalizeHeatmapSources(undefined),
 };
 
 export function getProviderConfig(provider: AiProviderId) {
@@ -100,7 +100,7 @@ export async function loadLocalIntegrationSettings(): Promise<IntegrationSetting
     const settings: IntegrationSettings = {
       ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
       obsidian: { ...defaultIntegrationSettings.obsidian, ...(payload.obsidian || {}) },
-      heatmap: { ...defaultIntegrationSettings.heatmap, ...(payload.heatmap || {}) },
+      heatmap: normalizeHeatmapSources(payload.heatmap),
     };
     return settings;
   } catch {
@@ -122,7 +122,7 @@ export async function saveIntegrationSettings(settings: IntegrationSettings): Pr
   const saved: IntegrationSettings = {
     ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
     obsidian: defaultIntegrationSettings.obsidian,
-    heatmap: { ...defaultIntegrationSettings.heatmap, ...(payload.heatmap || {}) },
+    heatmap: normalizeHeatmapSources(payload.heatmap),
   };
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(INTEGRATION_SETTINGS_CHANGED, { detail: saved }));
   return saved;
@@ -142,7 +142,7 @@ export async function saveHeatmapQuoteSource(market: HeatmapMarketId, source: He
   const saved: IntegrationSettings = {
     ai: { ...defaultIntegrationSettings.ai, ...(payload.ai || {}) },
     obsidian: defaultIntegrationSettings.obsidian,
-    heatmap: { ...defaultIntegrationSettings.heatmap, ...(payload.heatmap || {}) },
+    heatmap: normalizeHeatmapSources(payload.heatmap),
   };
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(INTEGRATION_SETTINGS_CHANGED, { detail: saved }));
   return saved;

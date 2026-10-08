@@ -1,4 +1,4 @@
-import { resolvePublicDataPolicy, isUsablePublicPayload } from './publicDataPolicy.ts';
+import { resolvePublicDataPolicy, isUsablePublicPayload, validatePublicResource } from './publicDataPolicy.ts';
 
 type CacheMeta = { state: string; storedAt?: string; refreshAt?: string; expiresAt?: string };
 type ClientEntry = { body: string; headers: [string, string][]; until: number; expiresAt: number; bytes: number };
@@ -45,6 +45,33 @@ export function peekPublicData<T>(url: string): T | undefined {
   const entry = policy && lookup(policy.key, true);
   // Components must never mutate the shared cached object.
   return entry ? JSON.parse(entry.body) as T : undefined;
+}
+
+// Prime first-paint data using the same bounded cache and original server expiry.
+export function rememberPreparedPublicData(url: string, data: unknown): boolean {
+  const origin = typeof location === 'undefined' ? 'http://public.local' : location.origin;
+  if (new URL(url, origin).origin !== origin) return false;
+  const policy = resolvePublicDataPolicy(url);
+  const meta = (data as { _publicCache?: CacheMeta } | null)?._publicCache;
+  if (!policy || !meta || !Number.isFinite(Date.parse(meta.storedAt || '')) || !['fresh', 'stale'].includes(meta.state)
+    || !validatePublicResource(policy.key, data)) return false;
+  const expiresAt = Math.min(Date.parse(meta.expiresAt || ''), Date.now() + policy.maxAgeMs,
+    typeof (data as { validUntil?: string }).validUntil === 'string' ? Date.parse((data as { validUntil: string }).validUntil) : Infinity);
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
+  // Do not let a delayed bootstrap replace a newer response already received.
+  const existing = lookup(policy.key, true);
+  const previousMeta = existing && (JSON.parse(existing.body)._publicCache as CacheMeta | undefined);
+  if (previousMeta?.storedAt && Date.parse(previousMeta.storedAt) > Date.parse(meta.storedAt || '')) return false;
+  const body = JSON.stringify(data);
+  const size = body.length * 2;
+  if (size > 2 * 1024 * 1024) return false;
+  remove(policy.key);
+  while (entries.size && (entries.size >= MAX_ENTRIES || bytes + size > MAX_BYTES)) remove(entries.keys().next().value!);
+  entries.set(policy.key, { body, headers: [['content-type', 'application/json']], bytes: size, expiresAt,
+    until: Math.min(Date.now() + policy.clientMs, expiresAt, Date.parse(meta.refreshAt || '') || Date.now()) });
+  bytes += size;
+  notify(policy.key, meta);
+  return true;
 }
 function independentWait(promise: Promise<Response>, signal?: AbortSignal | null): Promise<Response> {
   if (!signal) return promise.then(response => response.clone());

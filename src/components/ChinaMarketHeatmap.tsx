@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { getMarketSessionStatus, type MarketSessionMarket } from '../lib/marketSessions';
+import { DEFAULT_HEATMAP_QUOTE_SOURCE } from '../lib/heatmapSources';
 import {
   INTEGRATION_SETTINGS_CHANGED,
   loadLocalIntegrationSettings,
@@ -809,11 +810,11 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
   const { ref, size } = useContainerSize();
   const heatmapMarket: HeatmapMarketId | null = config.sessionMarket === 'china' || config.sessionMarket === 'hongkong' || config.sessionMarket === 'us'
     ? config.sessionMarket : null;
-  const [quoteSource, setQuoteSource] = useState<HeatmapQuoteSource>('eastmoney');
+  const [quoteSource, setQuoteSource] = useState<HeatmapQuoteSource>(DEFAULT_HEATMAP_QUOTE_SOURCE);
   const [sourceReady, setSourceReady] = useState(!heatmapMarket);
   const [switchingSource, setSwitchingSource] = useState(false);
-  const requestConfig = useMemo(() => heatmapMarket && quoteSource === 'sina'
-    ? { ...config, endpoint: `${config.endpoint}?source=sina` }
+  const requestConfig = useMemo(() => heatmapMarket
+    ? { ...config, endpoint: `${config.endpoint}?source=${quoteSource}` }
     : config, [config, heatmapMarket, quoteSource]);
   const initialCacheRef = useRef(heatmapMarket ? undefined : readRegionalHeatmapCache(config));
   const [data, setData] = useState<ChinaHeatmapResponse | undefined>(() => initialCacheRef.current?.data);

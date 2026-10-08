@@ -56,11 +56,11 @@ previous = calls;
 await assert.rejects(cache.get(snapshot({ portfolio: { connected: true, positions: [] } }), config));
 await assert.rejects(cache.get(snapshot({ portfolio: { connected: false, positions: [{ symbol: 'PRIVATE' }] } }), config));
 assert.equal(calls, previous, 'personal portfolio summaries are never shared');
-now = Date.parse('2026-09-15T01:00:00Z');
+now = Date.parse('2026-09-15T04:00:00Z');
 await assert.rejects(cache.get(refreshed, config), /版次/);
 assert.equal(calls, previous, 'expired edition neither returns cached data nor starts a model call');
 await cache.get(snapshot({ date: '2026-09-15', generatedAt: new Date(now).toISOString() }), config);
-assert.equal(calls, previous + 1, '09:00 rollover uses a new edition');
+assert.equal(calls, previous + 1, 'a new hourly snapshot has its own summary');
 
 // Failed/malformed outputs cannot become shared successes or trigger a retry storm.
 now = Date.parse('2026-09-14T04:00:00Z');
@@ -99,7 +99,7 @@ complete.get(snapshot().generatedAt)(); await old;
 assert.equal(JSON.parse(raceStore.files.get('current')).result.snapshot.generatedAt, refreshed.generatedAt);
 assert.equal((await create(raceStore, async () => { throw new Error('should restore'); }).get(refreshed, config)).cache.source, 'disk');
 
-// Midnight does not change the edition; the 09:00 boundary must apply even while generating.
+// The snapshot's maximum age also applies to a model call finishing late.
 now = Date.parse('2026-09-15T00:59:59Z');
 const expiryStore = createStore();
 cache = create(expiryStore, async () => { now += 1000; return summary(); });

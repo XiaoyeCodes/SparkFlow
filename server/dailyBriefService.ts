@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { dailyBriefDate, dailyBriefEditionDate, dailyBriefDayEnd, isCurrentDailyBrief } from '../src/lib/dailyBriefFreshness.ts';
+import { dailyBriefDate, dailyBriefExpiresAt, isCurrentDailyBrief, isFreshDailyBrief, nextDailyBriefUpdateAt } from '../src/lib/dailyBriefFreshness.ts';
 import { runDailyBriefRepairs, type DailyBriefRepairTask } from './dailyBriefRepair.ts';
 import type {
   DailyBriefResponse,
@@ -19,65 +19,19 @@ import type {
   DailyBriefSnapshot,
 } from "../src/lib/dailyBriefTypes";
 
-const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
 const LOCK_STALE_MS = 20 * 60_000;
 const HISTORY_DAYS = 90;
-const DAILY_BRIEF_HOUR = 9;
 
 type BriefWindow = { date: string; slot: DailyBriefSlot };
 type GenerateBrief = (window: BriefWindow) => Promise<DailyBriefSnapshot>;
 
-function shanghaiParts(now: Date) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: SHANGHAI_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(now);
-  const value = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === type)?.value || "";
-  return {
-    date: `${value("year")}-${value("month")}-${value("day")}`,
-    hour: Number(value("hour")),
-  };
-}
-
 export function getDailyBriefWindow(now = new Date()): BriefWindow {
-  const local = shanghaiParts(now);
-  if (local.hour >= DAILY_BRIEF_HOUR) return { date: local.date, slot: "morning" };
-  const [year, month, day] = local.date.split("-").map(Number);
-  const previous = new Date(Date.UTC(year, month - 1, day - 1));
-  return { date: previous.toISOString().slice(0, 10), slot: "morning" };
+  // Preserve the existing file slot; generatedAt identifies each hourly revision.
+  return { date: dailyBriefDate(now), slot: 'morning' };
 }
 
 export function getNextDailyBriefRun(now = new Date()) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: SHANGHAI_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  });
-  const parts = Object.fromEntries(
-    formatter.formatToParts(now).map((part) => [part.type, part.value]),
-  );
-  const hour = Number(parts.hour);
-  const targetHour = hour < DAILY_BRIEF_HOUR ? DAILY_BRIEF_HOUR : DAILY_BRIEF_HOUR + 24;
-  const shanghaiAsUtc = Date.UTC(
-    Number(parts.year),
-    Number(parts.month) - 1,
-    Number(parts.day),
-    targetHour,
-    0,
-    0,
-  );
-  // Shanghai is UTC+8 throughout the year.
-  return new Date(shanghaiAsUtc - 8 * 60 * 60_000);
+  return new Date(nextDailyBriefUpdateAt(now.getTime()));
 }
 
 async function exists(filePath: string) {
@@ -122,6 +76,7 @@ export function createDailyBriefService(options: {
   stateDir: string;
   generate: GenerateBrief;
   repairTasks?: () => DailyBriefRepairTask[];
+  onSnapshot?: (snapshot: DailyBriefSnapshot) => Promise<unknown>;
   now?: () => Date;
 }) {
   const root = path.join(options.stateDir, "daily-brief");
@@ -130,6 +85,31 @@ export function createDailyBriefService(options: {
   const memory = new Map<string, DailyBriefSnapshot>();
   const repairs = new Map<string, Promise<void>>();
   let writes: Promise<unknown> = Promise.resolve();
+  let currentSnapshot: DailyBriefSnapshot | null = null;
+  let restored: Promise<void> | undefined;
+  let scheduledFlight: Promise<DailyBriefResponse> | undefined;
+  let retryAt = 0;
+  let lastNotified = '';
+
+  async function restoreLatest() {
+    await (restored ??= (async () => {
+      currentSnapshot = await latest();
+      if (currentSnapshot) memory.set(locationsKey(currentSnapshot), currentSnapshot);
+    })());
+  }
+
+  function notifySnapshot(snapshot: DailyBriefSnapshot) {
+    if (!options.onSnapshot || !isFreshDailyBrief(snapshot, clock().getTime()) || lastNotified === snapshot.generatedAt) return;
+    lastNotified = snapshot.generatedAt;
+    startRepairs(snapshot);
+    // Warm the model summary after selective repairs so visitors reuse its final inputs.
+    void Promise.resolve(repairs.get(locationsKey(snapshot))).then(async () => {
+      const completed = memory.get(locationsKey(snapshot)) || snapshot;
+      if (completed.generatedAt === snapshot.generatedAt && isCurrentDailyBrief(completed, clock().getTime())) {
+        await options.onSnapshot!(completed);
+      }
+    }).catch(() => { if (lastNotified === snapshot.generatedAt) lastNotified = ''; });
+  }
 
   const pathsFor = ({ date, slot }: BriefWindow) => ({
     file: path.join(root, date, `${slot}.json`),
@@ -207,7 +187,7 @@ export function createDailyBriefService(options: {
         };
       }
     }
-    if (window.date !== dailyBriefDate(clock())) throw new Error('上期简报缓存未就绪，请等待今日09:00更新。');
+    if (window.date !== dailyBriefDate(clock())) throw new Error('历史简报缓存未就绪，请读取当前小时的简报。');
     const lockHandle = await acquireLock(locations.lock);
     if (!lockHandle) {
       const peer = await waitForPeer(locations.file);
@@ -239,6 +219,9 @@ export function createDailyBriefService(options: {
       await atomicJsonWrite(locations.file, snapshot);
       await atomicJsonWrite(path.join(root, "latest.json"), snapshot);
       memory.set(locations.key, snapshot);
+      currentSnapshot = snapshot;
+      for (const key of [...memory.keys()]) if (memory.size > 4 && key !== locations.key) memory.delete(key);
+      notifySnapshot(snapshot);
       void cleanupHistory();
       return {
         snapshot,
@@ -279,29 +262,66 @@ export function createDailyBriefService(options: {
   }
 
   async function getForPage(window = getDailyBriefWindow(clock())): Promise<DailyBriefResponse> {
-    if (window.date !== dailyBriefEditionDate(clock().getTime())) throw new Error('简报版次已过期，请刷新当前版次。');
-    const response = await get(window);
+    if (window.date !== dailyBriefDate(clock())) throw new Error('请读取当前简报，历史日期不会触发重新生成。');
+    await restoreLatest();
+    const cached = memory.get(pathsFor(window).key) || currentSnapshot;
+    if (cached && isCurrentDailyBrief(cached, clock().getTime())) {
+      if (!isFreshDailyBrief(cached, clock().getTime())) void refreshIfDue().catch(() => undefined);
+      startRepairs(cached);
+      notifySnapshot(cached);
+      return pageResponse({ snapshot: cached, cache: { hit: true, key: locationsKey(cached), generated: false } });
+    }
+    const response = await refreshIfDue();
     if (!isCurrentDailyBrief(response.snapshot, clock().getTime())) {
-      throw new Error('今日简报尚未就绪，暂不展示往日数据，请稍后重试。');
+      throw new Error('简报缓存正在准备，后台将自动重试。');
     }
     startRepairs(response.snapshot);
+    return pageResponse(response);
+  }
+
+  function pageResponse(response: DailyBriefResponse): DailyBriefResponse {
     return { ...response, _pageCache: {
-      state: response.cache.stale ? 'stale' : 'fresh',
+      state: isFreshDailyBrief(response.snapshot, clock().getTime()) ? 'fresh' : 'stale',
       storedAt: response.snapshot.generatedAt,
-      expiresAt: new Date(dailyBriefDayEnd(response.snapshot.date)).toISOString(),
+      expiresAt: new Date(dailyBriefExpiresAt(response.snapshot)).toISOString(),
     } };
   }
 
+  function refreshIfDue(): Promise<DailyBriefResponse> {
+    if (scheduledFlight) return scheduledFlight;
+    scheduledFlight = (async () => {
+      await restoreLatest();
+      if (currentSnapshot && isCurrentDailyBrief(currentSnapshot, clock().getTime())) {
+        if (isFreshDailyBrief(currentSnapshot, clock().getTime()) || retryAt > clock().getTime()) {
+          startRepairs(currentSnapshot);
+          notifySnapshot(currentSnapshot);
+          return pageResponse({ snapshot: currentSnapshot, cache: { hit: true, key: locationsKey(currentSnapshot), generated: false } });
+        }
+      } else if (retryAt > clock().getTime()) throw new Error('简报后台正在等待重试');
+      try {
+        const response = await get(getDailyBriefWindow(clock()), true);
+        retryAt = response.cache.stale ? clock().getTime() + 60_000 : 0;
+        if (!isCurrentDailyBrief(response.snapshot, clock().getTime())) throw new Error('简报缓存已过期');
+        startRepairs(response.snapshot);
+        return pageResponse(response);
+      } catch (error) {
+        retryAt = clock().getTime() + 60_000;
+        throw error;
+      }
+    })().finally(() => { scheduledFlight = undefined; });
+    return scheduledFlight;
+  }
+
   function startRepairs(snapshot: DailyBriefSnapshot) {
-    if (!options.repairTasks || !snapshot.editorial || !isCurrentDailyBrief(snapshot, clock().getTime())) return;
+    if (!options.repairTasks || !snapshot.editorial || !isFreshDailyBrief(snapshot, clock().getTime())) return;
     const locations = pathsFor(snapshot);
     if (repairs.has(locations.key)) return;
     const task = runDailyBriefRepairs({ tasks: options.repairTasks(), now: () => clock().getTime(),
-      active: () => isCurrentDailyBrief(snapshot, clock().getTime()) && (memory.get(locations.key)?.generatedAt ?? snapshot.generatedAt) === snapshot.generatedAt,
+      active: () => isFreshDailyBrief(snapshot, clock().getTime()) && (memory.get(locations.key)?.generatedAt ?? snapshot.generatedAt) === snapshot.generatedAt,
       get: () => memory.get(locations.key) || snapshot,
       commit: change => {
         const write = writes.then(async () => {
-          if (!isCurrentDailyBrief(snapshot, clock().getTime())) return;
+          if (!isFreshDailyBrief(snapshot, clock().getTime())) return;
           const lock = await acquireLock(locations.lock);
           if (!lock) return; // A full generation owns this edition; do not race it.
           try {
@@ -316,6 +336,7 @@ export function createDailyBriefService(options: {
             await atomicJsonWrite(locations.file, draft);
             await atomicJsonWrite(path.join(root, 'latest.json'), draft);
             memory.set(locations.key, draft);
+            currentSnapshot = draft;
           } finally {
             await lock.close().catch(() => undefined);
             await rm(locations.lock, { force: true });
@@ -337,16 +358,15 @@ export function createDailyBriefService(options: {
       const next = getNextDailyBriefRun(now);
       const delay = Math.max(1_000, next.getTime() - now.getTime());
       timer = setTimeout(() => {
-        void getForPage()
+        void refreshIfDue()
           .catch(onError)
           .finally(arm);
       }, delay);
       timer.unref?.();
     };
-    // Restore/generate the current edition at startup, including a missed 09:00
-    // run while the host was offline. Existing snapshots avoid model requests.
-    void getForPage().catch(onError);
-    const recovery = setInterval(() => { if (!stopped) void getForPage().catch(onError); }, 60_000);
+    // Catch up missed hours after startup/sleep; readers keep the last success.
+    void refreshIfDue().catch(onError);
+    const recovery = setInterval(() => { if (!stopped) void refreshIfDue().catch(onError); }, 60_000);
     recovery.unref?.();
     arm();
     return () => {
@@ -360,5 +380,7 @@ export function createDailyBriefService(options: {
     return `${snapshot.date}/${snapshot.slot}`;
   }
 
-  return { get, getForPage, latest, schedule, root };
+  return { get, getForPage, latest, refreshIfDue, schedule, root,
+    status: () => ({ generatedAt: currentSnapshot?.generatedAt || null, refreshing: running.size > 0,
+      nextUpdateAt: getNextDailyBriefRun(clock()).toISOString(), retryAt: retryAt ? new Date(retryAt).toISOString() : null }) };
 }

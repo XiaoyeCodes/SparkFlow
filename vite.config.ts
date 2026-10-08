@@ -7,6 +7,8 @@ import type { RegionalSnapshot } from './src/lib/chinaRegionalEconomy';
 import react from '@vitejs/plugin-react';
 import { createPublicDataCache, createPublicSnapshotStore } from './server/publicDataCache';
 import { createNewsPageCache } from './server/newsPageCache';
+import { createPagePreloadCache } from './server/pagePreloadCache';
+import { readGlobalMacroBootstrap } from './server/globalMacroBootstrap';
 import { createDailyBriefAiSummaryCache, isDailyBriefAiSummary } from './server/dailyBriefAiSummaryCache';
 import { createPublicDataHandler } from './server/publicDataHttp';
 import {
@@ -23,6 +25,7 @@ import { SINA_CURRENCY_CODES, SINA_US10Y_CODE, currencyQuoteTime, parseSinaCurre
 import { SINA_CORE_INDEX_CONFIGS, parseSinaCoreIndexQuotes, coreIndexHistoryQuote } from './server/macroCoreIndexQuotes';
 import { isPublicSourceRefresh, withPublicSourceRefresh } from './server/publicSourceContext';
 import { PUBLIC_DATA_POLICIES, validatePublicResource } from './src/lib/publicDataPolicy';
+import { DEFAULT_HEATMAP_QUOTE_SOURCE, normalizeHeatmapSources } from './src/lib/heatmapSources';
 import { createChinaFisherService } from './server/chinaFisher';
 import { createChinaGdpService } from './server/chinaGdp';
 import { createChinaIncomeService } from './server/chinaIncome';
@@ -126,7 +129,7 @@ type LocalAiIntegrationSettings = {
 
 const localAiDefaults: LocalAiIntegrationSettings = {
   ai: { provider: 'openai', apiKey: '', model: '', baseUrl: 'https://api.openai.com/v1', useProxy: true },
-  heatmap: { china: 'eastmoney', hongkong: 'eastmoney', us: 'eastmoney' },
+  heatmap: normalizeHeatmapSources(undefined),
 };
 
 const localAiProviderDefaults: Record<LocalAiIntegrationSettings['ai']['provider'], { baseUrl: string; useProxy: boolean }> = {
@@ -166,9 +169,7 @@ function normalizeLocalIntegrationSettings(value: unknown): LocalAiIntegrationSe
       baseUrl,
       useProxy: typeof candidate?.useProxy === 'boolean' ? candidate.useProxy : fallback.useProxy,
     },
-    heatmap: Object.fromEntries((['china', 'hongkong', 'us'] as const).map((market) => [
-      market, record.heatmap?.[market] === 'sina' ? 'sina' : 'eastmoney',
-    ])) as LocalAiIntegrationSettings['heatmap'],
+    heatmap: normalizeHeatmapSources(record.heatmap),
   };
 }
 
@@ -4549,6 +4550,21 @@ async function buildRiskRadarHistory(ticker: RiskRadarHistoryTicker) {
       ? { label: 'S&P 500 历史市盈率', url: 'https://www.multpl.com/s-p-500-pe-ratio/table/by-month' }
       : { label: 'Nasdaq-100 历史市盈率', url: 'https://trendonify.com/united-states/stock-market/nasdaq-100/pe-ratio' },
     events,
+  };
+}
+
+async function buildEquityReportChart(symbol: string, range: string) {
+  const quote = await getYahooMacroQuote(symbol, range);
+  const closes = quote.history.map(point => point.value);
+  const movingAverage = (period: number, index: number) => {
+    if (index + 1 < period) return undefined;
+    const values = closes.slice(index + 1 - period, index + 1);
+    return Number((values.reduce((sum, value) => sum + value, 0) / period).toFixed(4));
+  };
+  return { symbol, generatedAt: quote.updatedAt,
+    source: { label: 'Yahoo Finance · 日线收盘口径', url: quote.sourceUrl },
+    points: quote.history.map((point, index) => ({ time: point.time, close: point.value,
+      sma20: movingAverage(20, index), sma60: movingAverage(60, index) })),
   };
 }
 
@@ -9035,7 +9051,7 @@ async function getCachedSinaMarketHeatmap(market: SinaHeatmapMarket) {
 }
 
 function getSelectedMarketHeatmap(market: SinaHeatmapMarket, source: string | null) {
-  if (source === 'sina') return getCachedSinaMarketHeatmap(market);
+  if ((source || DEFAULT_HEATMAP_QUOTE_SOURCE) === 'sina') return getCachedSinaMarketHeatmap(market);
   if (source && source !== 'eastmoney') throw new Error('不支持的热力图数据源');
   if (market === 'china') return getCachedChinaMarketHeatmap();
   if (market === 'hongkong') return getCachedHongKongMarketHeatmap();
@@ -10443,6 +10459,10 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
 }
 
 const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot,
+  onSnapshot: async snapshot => {
+    const config = await getStoredAiRequestBody();
+    if (config.apiKey.trim() && config.model.trim()) await dailyBriefAiSummaryCache.get(snapshot, config);
+  },
   repairTasks: () => createDailyBriefRepairTasks({
     yahoo: (symbol, range) => withPublicSourceRefresh(() => readYahooMacroQuote(symbol, range)),
     yahooConfigs: [
@@ -10492,7 +10512,7 @@ const marketCloseService = createMarketCloseService({
 
 const dailyBriefDetailsCache = new Map<'flows' | 'performance', { storedAt: number; data: DailyBriefFlowDetails | DailyBriefPerformanceDetails }>();
 const dailyBriefDetailsInFlight = new Map<'flows' | 'performance', Promise<DailyBriefFlowDetails | DailyBriefPerformanceDetails>>();
-const dailyBriefDetailsTtlMs = 6 * 60 * 60_000;
+const dailyBriefDetailsTtlMs = 60 * 60_000;
 const dailyBriefWatchlistCache = { storedAt: 0, data: null as null | { generatedAt: string; items: Array<{ symbol: string; name: string; display: string; changePercent: number | null; updatedAt?: string }> } };
 let dailyBriefWatchlistInFlight: Promise<typeof dailyBriefWatchlistCache.data> | null = null;
 
@@ -12280,10 +12300,19 @@ async function loadPublicDashboardResource(key: string): Promise<unknown> {
   }
 }
 
+async function loadPagePreloadResource(key: string): Promise<unknown> {
+  const url = new URL(key, 'http://page.local');
+  switch (url.pathname) {
+    case '/api/daily-brief/details': return getDailyBriefDetails(url.searchParams.get('view') as 'flows' | 'performance');
+    case '/api/daily-brief/watchlist': return getDailyBriefWatchlist();
+    case '/api/risk-radar/history': return buildRiskRadarHistory(url.searchParams.get('ticker') as RiskRadarHistoryTicker);
+    case '/api/equity-report-chart': return buildEquityReportChart(url.searchParams.get('symbol')!, url.searchParams.get('range')!);
+    default: throw new Error('Unknown page dependency');
+  }
+}
+
 function allWeatherApiPlugin() {
-  return {
-    name: 'sparkflow-allweather-api',
-    configureServer(server: ViteDevServer) {
+  const install = (server: Pick<ViteDevServer, 'config' | 'httpServer' | 'middlewares'>) => {
       const regionalEconomy = createRegionalEconomyService({ root: rootDir,
         cacheFile: path.join(sparkflowStateDir, 'china-regional-economy.json'),
         seed: regionalVerifiedSeed as unknown as RegionalSnapshot, sources: regionalSources });
@@ -12302,6 +12331,12 @@ function allWeatherApiPlugin() {
       const servePublicData = publicCache ? createPublicDataHandler(publicCache) : undefined;
       publicCache?.start(250);
       server.httpServer?.once('close', () => publicCache?.stop());
+      const pagePreloadCache = createPagePreloadCache({
+        store: createPublicSnapshotStore(path.join(sparkflowStateDir, 'page-preload-cache'), 8 * 1024 * 1024),
+        load: key => withPublicSourceRefresh(() => loadPagePreloadResource(key)),
+      });
+      pagePreloadCache.start();
+      server.httpServer?.once('close', () => pagePreloadCache.stop());
       const newsPageCache = createNewsPageCache({
         subscriptions: () => newsSubscriptions.list(), load: getNewsFeed,
         store: createPublicSnapshotStore(path.join(sparkflowStateDir, 'news-page-cache'), 8 * 1024 * 1024),
@@ -12328,7 +12363,19 @@ function allWeatherApiPlugin() {
       server.middlewares.use(async (req, res, next) => {
         try {
           const url = new URL(req.url || '/', 'http://127.0.0.1');
+          if (url.pathname === '/api/global-macro/bootstrap' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await readGlobalMacroBootstrap(publicCache));
+            return;
+          }
+          if (url.pathname === '/api/page-preload/status' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, { public: publicCache?.status() || { enabled: false },
+              pages: pagePreloadCache.status(), news: await newsPageCache.status(), brief: dailyBriefService.status() });
+            return;
+          }
           if (servePublicData && await servePublicData(req, res)) return;
+          if (await pagePreloadCache.serve(req, res)) return;
           if (url.pathname === '/api/public-market-intelligence' && req.method === 'GET') {
             res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 200, await getMarketIntelligence(true));
@@ -12472,7 +12519,8 @@ function allWeatherApiPlugin() {
               return;
             }
             res.setHeader('Cache-Control', 'no-store');
-            sendJson(res, 200, await dailyBriefService.get(getDailyBriefWindow(), true));
+            sendJson(res, 200, url.searchParams.get('scheduled') === '1'
+              ? await dailyBriefService.refreshIfDue() : await dailyBriefService.get(getDailyBriefWindow(), true));
             return;
           }
 
@@ -12515,27 +12563,10 @@ function allWeatherApiPlugin() {
               sendJson(res, 400, { error: '证券代码格式无效' });
               return;
             }
-            const quote = await getYahooMacroQuote(symbol, range);
-            const movingAverage = (values: number[], period: number, index: number) => {
-              if (index + 1 < period) return undefined;
-              const window = values.slice(index + 1 - period, index + 1);
-              return Number((window.reduce((sum, value) => sum + value, 0) / period).toFixed(4));
-            };
-            const closes = quote.history.map((point) => point.value);
             res.setHeader('Cache-Control', (range === '1y' || range === '2y') && ['VOO', 'QQQ'].includes(symbol)
               ? 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400'
               : 'private, max-age=300');
-            sendJson(res, 200, {
-              symbol,
-              generatedAt: quote.updatedAt,
-              source: { label: 'Yahoo Finance · 日线收盘口径', url: quote.sourceUrl },
-              points: quote.history.map((point, index) => ({
-                time: point.time,
-                close: point.value,
-                sma20: movingAverage(closes, 20, index),
-                sma60: movingAverage(closes, 60, index),
-              })),
-            });
+            sendJson(res, 200, await buildEquityReportChart(symbol, range));
             return;
           }
 
@@ -13097,8 +13128,8 @@ function allWeatherApiPlugin() {
 
         next();
       });
-    },
   };
+  return { name: 'sparkflow-allweather-api', configureServer: install, configurePreviewServer: install };
 }
 
 export default defineConfig({

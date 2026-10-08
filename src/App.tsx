@@ -27,7 +27,7 @@ export default function App() {
     <StartupGate>
       <Shell>
         <RouteScrollReset />
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait" key={location.pathname === '/terminal' ? 'terminal' : 'pages'}>
           <Routes location={location} key={location.pathname}>
             <Route path="/" element={<Home />} />
             <Route path="/signals" element={<Signals />} />

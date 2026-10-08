@@ -46,11 +46,11 @@ try {
   now = Date.parse('2026-09-15T00:59:59Z');
   assert.ok(peekPageData('/api/daily-brief'));
   now += 1000;
-  assert.equal(peekPageData('/api/daily-brief'), undefined, 'Beijing 09:00 removes the previous edition from the daily page');
+  assert.equal(peekPageData('/api/daily-brief'), undefined, '24-hour hard deadline removes an obsolete snapshot');
   rememberPageData('/api/daily-brief', brief('2026-09-14'));
-  assert.equal(peekPageData('/api/daily-brief'), undefined, 'old server response cannot repopulate yesterday after 09:00');
+  assert.equal(peekPageData('/api/daily-brief'), undefined, 'expired server response cannot repopulate the cache');
   rememberPageData('/api/daily-brief', { ...brief('2026-09-15'), cache: { stale: true } });
-  assert.equal(peekPageData('/api/daily-brief'), undefined, 'fallback edition is not silently reused');
+  assert.ok(peekPageData('/api/daily-brief'), 'recent fallback renders while its hourly replacement loads');
   now = Date.parse('2026-09-15T15:59:59Z');
   rememberPageData('/api/news-feed', feed());
   now += 1000;

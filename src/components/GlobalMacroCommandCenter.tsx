@@ -261,6 +261,15 @@ type IsolatedCoreIndexPayload = { generatedAt: string; index: CoreIndex };
 type IsolatedFxRatePayload = { generatedAt: string; rate: Metric };
 type IsolatedMarketAssetPayload = { generatedAt: string; asset: Metric };
 type IsolatedFedRatePayload = { generatedAt: string; expectation: FedRateExpectation };
+
+function preparedRows<K extends string, T>(ids: readonly K[], endpoint: string, field: string): Partial<Record<K, T>> {
+  const rows: Partial<Record<K, T>> = {};
+  for (const id of ids) {
+    const payload = peekPublicData<Record<string, T>>(`${endpoint}?id=${id}`);
+    if (payload?.[field]) rows[id] = payload[field];
+  }
+  return rows;
+}
 type RiskSentimentId = 'vix' | 'vxn' | 'fear-greed';
 type RiskSentimentMetric = Omit<Metric, 'id'> & {
   id: RiskSentimentId;
@@ -2145,20 +2154,25 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       const part = peekPublicData<DashboardSectionPayload>(`/api/global-macro-dashboard?region=global&section=${section}`);
       if (part) prepared = mergeDashboardPayload(prepared, part, true);
     }
+    for (const endpoint of ['/api/global-macro-ppi-expectation', '/api/global-macro-quotes']) {
+      const part = peekPublicData<DashboardSectionPayload>(endpoint);
+      if (part) prepared = mergeDashboardPayload(prepared, part, true);
+    }
     return prepared;
   });
   const [selected, setSelected] = useState<Quote | null>(null);
   const [modalMode, setModalMode] = useState<GlobalMarketMode | null>(null);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(() => !peekPublicData('/api/global-macro-dashboard?region=global&section=markets'));
-  const [isolatedUsMacroCards, setIsolatedUsMacroCards] = useState<Partial<Record<IsolatedUsMacroCardId, Metric>>>({});
-  const [isolatedCoreIndices, setIsolatedCoreIndices] = useState<Partial<Record<CoreIndex['id'], CoreIndex>>>({});
-  const [isolatedFxRates, setIsolatedFxRates] = useState<Partial<Record<IsolatedFxRateId, Metric>>>({});
-  const [isolatedMarketAssets, setIsolatedMarketAssets] = useState<Partial<Record<IsolatedMarketAssetId, Metric>>>({});
-  const [isolatedFedRateExpectation, setIsolatedFedRateExpectation] = useState<FedRateExpectation | null>(null);
-  const [financialConditions, setFinancialConditions] = useState<FinancialConditionsSnapshot | null>(null);
+  const [loading, setLoading] = useState(() => !peekPublicData('/api/global-macro-dashboard?region=global&section=markets')
+    && !peekPublicData<FastQuotePayload>('/api/global-macro-quotes')?.markets?.length);
+  const [isolatedUsMacroCards, setIsolatedUsMacroCards] = useState(() => preparedRows<IsolatedUsMacroCardId, Metric>(ISOLATED_US_MACRO_CARD_IDS, '/api/us-macro-card', 'card'));
+  const [isolatedCoreIndices, setIsolatedCoreIndices] = useState(() => preparedRows<CoreIndex['id'], CoreIndex>(ISOLATED_CORE_INDEX_IDS, '/api/global-macro-core-index', 'index'));
+  const [isolatedFxRates, setIsolatedFxRates] = useState(() => preparedRows<IsolatedFxRateId, Metric>(ISOLATED_FX_RATE_IDS, '/api/global-macro-fx-rate', 'rate'));
+  const [isolatedMarketAssets, setIsolatedMarketAssets] = useState(() => preparedRows<IsolatedMarketAssetId, Metric>(ISOLATED_MARKET_ASSET_IDS, '/api/global-macro-asset', 'asset'));
+  const [isolatedFedRateExpectation, setIsolatedFedRateExpectation] = useState<FedRateExpectation | null>(() => peekPublicData<IsolatedFedRatePayload>('/api/global-macro-fed-rate')?.expectation || null);
+  const [financialConditions, setFinancialConditions] = useState<FinancialConditionsSnapshot | null>(() => peekPublicData<FinancialConditionsPayload>('/api/financial-conditions')?.conditions || null);
   const [financialConditionsFailed, setFinancialConditionsFailed] = useState(false);
-  const [riskSentiment, setRiskSentiment] = useState<RiskSentimentPayload['metrics'] | null>(null);
+  const [riskSentiment, setRiskSentiment] = useState<RiskSentimentPayload['metrics'] | null>(() => peekPublicData<RiskSentimentPayload>('/api/global-risk-sentiment')?.metrics || null);
   const lastFastQuoteFrameRef = useRef('');
   const worldHeatmapWarmupStartedRef = useRef(false);
   const phoneToggleHideTimerRef = useRef<number | null>(null);

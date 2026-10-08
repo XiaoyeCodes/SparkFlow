@@ -2,9 +2,8 @@ name: Refresh daily briefing
 
 on:
   schedule:
-    # Asia/Shanghai 08:00 and 18:00. GitHub may start scheduled jobs a few minutes late.
-    - cron: '0 0 * * *'
-    - cron: '0 10 * * *'
+    # Hourly fallback; the host's scheduler owns exact on-the-hour updates.
+    - cron: '5 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -27,4 +26,4 @@ jobs:
             --request POST \
             --header "Authorization: Bearer $CRON_SECRET" \
             --header "Accept: application/json" \
-            "${BRIEFING_URL%/}/api/daily-brief/refresh"
+            "${BRIEFING_URL%/}/api/daily-brief/refresh?scheduled=1"

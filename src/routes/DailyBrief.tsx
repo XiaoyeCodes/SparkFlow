@@ -17,7 +17,7 @@ import type {
 import { DailyBriefVisualDashboard } from "../components/DailyBriefVisuals";
 import "./DailyBrief.css";
 import { invalidatePageData, pageDataFetch, peekPageData, rememberPageData } from '../lib/pageDataClient';
-import { dailyBriefDate, dailyBriefEditionDate, dailyBriefDayEnd, isCurrentDailyBrief } from '../lib/dailyBriefFreshness';
+import { isCurrentDailyBrief, nextDailyBriefUpdateAt } from '../lib/dailyBriefFreshness';
 
 const money = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
@@ -345,7 +345,7 @@ export function DailyBrief() {
         invalidatePageData('/api/daily-brief');
         setBrief(null);
         setModelSummary(null);
-        throw new Error('今日简报尚未就绪，暂不展示往日数据；每日北京时间09:00更新。');
+        throw new Error('最近24小时内的简报缓存尚未就绪，后台正在准备。');
       }
       if (refresh) rememberPageData('/api/daily-brief', payload);
       setBrief(payload);
@@ -370,12 +370,10 @@ export function DailyBrief() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       invalidatePageData('/api/daily-brief');
-      setBrief(null);
-      setModelSummary(null);
       void load();
-    }, Math.max(1, dailyBriefDayEnd(dailyBriefEditionDate()) - Date.now()));
+    }, Math.max(1, nextDailyBriefUpdateAt() - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [brief?.snapshot.date, load]);
+  }, [brief?.snapshot.generatedAt, load]);
 
   const snapshot = brief?.snapshot;
   const data: DailyBriefEditorialSnapshot | undefined = snapshot?.editorial;
@@ -537,7 +535,7 @@ export function DailyBrief() {
           <div className="editorial-intelligence-foot"><span>{day1Analysis ? "新闻与 AI 摘要 · Day1 Global" : `来源 · ${snapshot?.sources.filter((item) => item.ok).length || 0} 组专业接口`}</span><span>生成 · {shanghaiTime(day1Analysis?.generatedAt || snapshot?.generatedAt)}</span></div>
         </MarketCloseReading>
         <div className="editorial-lead-foot"><AlertTriangle size={13} /><span>以上内容仅用于信息整理与风险检查，不构成任何投资建议。</span></div>
-        <p className="editorial-intelligence-foot editorial-edition-status" role="status">{snapshot ? `${snapshot.date} ${snapshot.date === dailyBriefDate() ? '当日简报' : '昨日简报（今日09:00更新）'} · 行情截至生成时，缺失项单独补齐；休市沿用最近交易日数据` : '今日简报待更新 · 每日北京时间09:00发布'}</p>
+        <p className="editorial-intelligence-foot editorial-edition-status" role="status">{snapshot ? `更新 ${shanghaiTime(snapshot.generatedAt)} · 每小时后台更新，页面自动同步；行情截至生成时，休市沿用最近交易日数据${brief?._pageCache?.state === 'stale' ? ' · 新版准备中，显示上次成功缓存' : ''}` : '简报缓存准备中 · 每小时后台更新'}</p>
         {Object.values(snapshot?.repair || {}).some(item => item.state !== 'ready') ? <details className="editorial-intelligence-foot editorial-repair-status"><summary>部分数据待补齐（自动重试，不影响已缓存数据）</summary>{Object.entries(snapshot?.repair || {}).filter(([, item]) => item.state !== 'ready').map(([id, item]) => <p key={id}>{item.label} · {item.detail}</p>)}</details> : null}
         <div className="editorial-chip-row">{(data?.events || []).slice(0, 5).map((event) => <a href={event.url} target="_blank" rel="noreferrer" key={event.id} title={`${event.date} ${event.title}`}><b>{event.date.slice(5).replace("-", "/")}</b><span>{eventChipLabel(event)}</span></a>)}<button className="editorial-refresh-all" type="button" onClick={() => void load(true)} disabled={loading} title="重新拉取行情、新闻、链上指标与 AI 摘要"><RefreshCw size={15} className={loading ? "is-spinning" : ""} /><span>{loading ? "正在刷新数据" : "刷新全部数据"}</span><small>LIVE</small></button></div>
       </section>
