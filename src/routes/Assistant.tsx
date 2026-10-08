@@ -26,6 +26,7 @@ import { ResearchHistoryItem } from '../components/ResearchHistoryItem';
 import { exportSparkFlowResearchPdf } from '../lib/exportResearchPdf';
 import { displayAssistantPrompt, portfolioAnalysisStarterPrompt } from '../lib/ibkr/assistantPrompt';
 import type { AnalysisJob } from '../lib/ibkr/workbenchTypes';
+import { invalidatePageData, pageDataFetch, peekPageData } from '../lib/pageDataClient';
 import './Assistant.css';
 
 type AssistantRouteState = {
@@ -147,9 +148,12 @@ function parseEvent(event: Event) {
 }
 
 async function requestJson<T>(url: string, init?: RequestInit) {
-  const response = await fetch(url, init);
+  const response = await pageDataFetch(url, init);
   const payload = (await response.json().catch(() => ({}))) as T & { detail?: string };
   if (!response.ok) throw new Error(payload.detail || `请求失败：HTTP ${response.status}`);
+  if ((init?.method || 'GET').toUpperCase() !== 'GET' && url.startsWith('/api/vibe/research/')) {
+    invalidatePageData('/api/vibe/research/sessions');
+  }
   return payload;
 }
 
@@ -343,8 +347,8 @@ export function Assistant() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [sessionId, setSessionId] = useState('');
-  const [sessions, setSessions] = useState<VibeSession[]>([]);
-  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessions, setSessions] = useState<VibeSession[]>(() => sortResearchSessions(peekPageData<VibeSession[]>('/api/vibe/research/sessions') || []));
+  const [sessionsLoading, setSessionsLoading] = useState(() => !peekPageData<VibeSession[]>('/api/vibe/research/sessions'));
   const sessionsLoadVersionRef = useRef(0);
   const deletedSessionsRef = useRef(new Set<string>());
   const [historyCollapsed, setHistoryCollapsed] = useState(() => window.localStorage.getItem(sidebarStorageKey) === 'true');

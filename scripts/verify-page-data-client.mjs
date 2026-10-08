@@ -8,7 +8,7 @@ Date.now = () => now;
 let calls = 0;
 const feed = (value = 'news') => ({ generatedAt: new Date(now).toISOString(), items: [{ title: value }], sources: [{ ok: true }] });
 const brief = date => ({ snapshot: { date, generatedAt: `${date}T01:00:00Z`, summary: { headline: 'brief' }, markets: [] }, cache: { stale: false } });
-const clear = () => ['/api/news-feed', '/api/daily-brief', '/api/daily-brief/details?view=flows', '/api/daily-brief/details?view=performance'].forEach(invalidatePageData);
+const clear = () => ['/api/news-feed', '/api/daily-brief', '/api/daily-brief/details?view=flows', '/api/daily-brief/details?view=performance', '/api/vibe/research/sessions', '/api/ibkr-workbench/state'].forEach(invalidatePageData);
 try {
   let finish;
   globalThis.fetch = async () => { calls++; await new Promise(resolve => { finish = resolve; }); return Response.json(feed()); };
@@ -65,8 +65,15 @@ try {
   rememberPageData('/api/daily-brief/details?view=flows', { kind: 'performance', generatedAt: new Date(now).toISOString(), series: [], sources: [], errors: [] });
   assert.equal(peekPageData('/api/daily-brief/details?view=flows'), undefined, 'mismatched detail kind cannot poison page cache');
 
+  const sessions = [{ session_id: 'prepared-session', title: '预加载研究记录' }];
+  rememberPageData('/api/vibe/research/sessions', sessions);
+  assert.deepEqual(peekPageData('/api/vibe/research/sessions'), sessions, 'assistant history is available before navigation');
+  const workbench = { connection: { state: 'connected' }, snapshot: { snapshotId: 'prepared-account' }, quotes: [], jobs: [] };
+  rememberPageData('/api/ibkr-workbench/state', workbench);
+  assert.deepEqual(peekPageData('/api/ibkr-workbench/state'), workbench, 'account workbench is available before navigation');
+
   globalThis.fetch = async () => { calls++; return Response.json(feed()); };
-  for (const url of ['/api/ibkr/status', '/api/news-sources', '/api/ai-chat', '/api/news-feed?user=a', 'https://example.com/api/news-feed']) {
+  for (const url of ['/api/ibkr/status', '/api/news-sources', '/api/ai-chat', '/api/news-feed?user=a', '/api/vibe/research/sessions?user=a', '/api/ibkr-workbench/state?user=a', 'https://example.com/api/news-feed']) {
     const before = calls; await pageDataFetch(url); await pageDataFetch(url);
     assert.equal(calls, before + 2, url);
   }

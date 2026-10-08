@@ -21,12 +21,22 @@ function resource(input: string) {
   if (url.pathname === '/api/daily-brief/details' && url.searchParams.size === 1 && ['flows', 'performance'].includes(url.searchParams.get('view') || '')) {
     return { key: url.pathname + url.search, reuseMs: 15_000, maxAgeMs: 6 * 3600_000 };
   }
+  if (url.pathname === '/api/vibe/research/sessions' && url.searchParams.size === 0) {
+    return { key: url.pathname, reuseMs: 15_000, maxAgeMs: 10 * 60_000 };
+  }
+  if (url.pathname === '/api/ibkr-workbench/state' && url.searchParams.size === 0) {
+    return { key: url.pathname, reuseMs: 5_000, maxAgeMs: 2 * 60_000 };
+  }
 }
 
 function deadline(key: string, data: any, now: number, maxAgeMs: number) {
   if (!data || typeof data !== 'object' || data.error) return 0;
   let expiry = now + maxAgeMs;
-  if (key === '/api/daily-brief') {
+  if (key === '/api/vibe/research/sessions') {
+    if (!Array.isArray(data) || data.some(item => !item || typeof item !== 'object' || typeof item.session_id !== 'string')) return 0;
+  } else if (key === '/api/ibkr-workbench/state') {
+    if (!data.snapshot || !data.connection || !Array.isArray(data.quotes) || !Array.isArray(data.jobs)) return 0;
+  } else if (key === '/api/daily-brief') {
     if (!data.snapshot?.summary || !Array.isArray(data.snapshot.markets)
       || !isCurrentDailyBrief(data.snapshot, now)) return 0;
     expiry = dailyBriefExpiresAt(data.snapshot);

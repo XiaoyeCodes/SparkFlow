@@ -22,7 +22,7 @@ import { RiskRadar } from './routes/RiskRadar';
 
 export default function App() {
   const location = useLocation();
-  const preparedPage = ['/terminal', '/market', '/signals'].includes(location.pathname);
+  const preparedPage = ['/terminal', '/market', '/signals', '/assistant', '/ibkr'].includes(location.pathname);
 
   return (
     <StartupGate>

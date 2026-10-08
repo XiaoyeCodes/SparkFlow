@@ -21,12 +21,13 @@ import { AnalysisWorkspace } from './AnalysisWorkspace';
 import { ValuationWorkspace } from './ValuationWorkspace';
 import { quantity as formatQuantity } from '../../lib/ibkr/workbenchFormat';
 import { holdingIndustryDetails, holdingIndustryLabel } from '../../lib/ibkr/industryLabels';
+import { pageDataFetch, peekPageData } from '../../lib/pageDataClient';
 import './AccountWorkbench.css';
 import './OverviewTypography.css';
 
 const api = '/api/ibkr-workbench/';
-async function request<T>(endpoint: string, value?: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(api + endpoint, { ...(value === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) }), signal });
+async function request<T>(endpoint: string, value?: unknown, signal?: AbortSignal, cache?: RequestCache): Promise<T> {
+  const response = await pageDataFetch(api + endpoint, { ...(value === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) }), signal, cache });
   const data = await response.json(); if (!response.ok) throw new Error(data.error || '账户服务暂不可用'); return data;
 }
 const number = (value: unknown) => value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
@@ -42,7 +43,7 @@ type SourceChoice = { source: 'mcp' | 'gateway'; gatewayMode: 'live' | 'paper' }
 const holdingSortLabels: Record<HoldingSortKey, string> = { quantity: '数量', marketValue: '市值', weight: '占比', unrealizedPnl: '券商盈亏' };
 
 export function AccountWorkbench() {
-  const [state, setState] = useState<WorkbenchState | null>(null);
+  const [state, setState] = useState<WorkbenchState | null>(() => peekPageData<WorkbenchState>('/api/ibkr-workbench/state') || null);
   const [searchParams, setSearchParams] = useSearchParams();
   type Tab = 'overview' | 'reports' | 'backtests' | 'valuation' | 'alerts' | 'holdings' | 'orders' | 'settings';
   const [tab, setTab] = useState<Tab>(() => { const value = searchParams.get('tab'); return ['overview','reports','backtests','valuation','alerts','holdings','orders','settings'].includes(value ?? '') ? value as Tab : 'overview'; });
@@ -56,7 +57,7 @@ export function AccountWorkbench() {
   const [pendingConnection, setPendingConnection] = useState<SourceChoice | null>(null);
   const [menu,setMenu]=useState(false); const [filter,setFilter]=useState('all'); const [chosenAlert,setChosenAlert]=useState<Alert>(); const [chosenPlan,setChosenPlan]=useState<AdjustmentPlan>(); const [reportId,setReportId]=useState<string>();const [riskFocus,setRiskFocus]=useState<{ reportId: string; text: string }>();const [planReportId,setPlanReportId]=useState<string>();const [selectedJobId,setSelectedJobId]=useState<string>();
   const revision = useRef(0);
-  const refresh = useCallback(async () => { const current = ++revision.current; const value = await request<WorkbenchState>('state'); if (current === revision.current) setState(value); }, []);
+  const refresh = useCallback(async () => { const current = ++revision.current; const value = await request<WorkbenchState>('state', undefined, undefined, 'reload'); if (current === revision.current) setState(value); }, []);
   useEffect(() => {
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>; let disposed = false;
     const poll = async () => { try { const current = ++revision.current; const value = await request<WorkbenchState>('state', undefined, controller.signal); if (!disposed && current === revision.current) setState(value); if (!document.hidden && value.snapshot.snapshotId) { void request<MarketQuote[]>('quotes', undefined, controller.signal).then(quotes => { if (!disposed && current === revision.current) setState(previous => previous?.snapshot.accountKey === value.snapshot.accountKey ? { ...previous, quotes } : previous); }).catch(() => { /* Quote latency must not delay connection-status polling. */ }); } } catch (e) { if (!disposed) setError(e instanceof Error ? e.message : '无法连接账户服务'); } finally { if (!disposed) timer = setTimeout(poll, document.hidden ? 15000 : 5000); } };

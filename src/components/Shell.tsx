@@ -4,7 +4,7 @@ import { PillNav } from './PillNav';
 import { UserMenu } from './UserMenu';
 import { primaryNavigation } from '../data/navigation';
 import { prepareGlobalMacroData } from '../lib/globalMacroTerminalPreload';
-import { prepareMarketData, prepareNewsData } from '../lib/pagePreparation';
+import { prepareAssistantData, prepareMarketData, prepareNewsData, prepareWorkbenchData } from '../lib/pagePreparation';
 
 export function Shell({ children }: { children: ReactNode }) {
   const { hash, pathname } = useLocation();
@@ -21,6 +21,8 @@ export function Shell({ children }: { children: ReactNode }) {
       if (document.hidden) return;
       if (pathname !== '/market') void prepareMarketData();
       if (pathname !== '/signals') void prepareNewsData();
+      if (pathname !== '/assistant') void prepareAssistantData();
+      if (pathname !== '/ibkr') void prepareWorkbenchData();
     };
     prepare();
     const timer = window.setInterval(prepare, 30_000);

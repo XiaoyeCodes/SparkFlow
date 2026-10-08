@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { emptySnapshot } from '../../src/lib/ibkr/store';
+import type { WorkbenchState } from '../../src/lib/ibkr/workbenchTypes';
 
 function fixtures() {
   const now = Date.now(), timestamp = new Date(now).toISOString();
@@ -21,7 +23,14 @@ function fixtures() {
     generatedAt: timestamp, coreIndices: [], markets: [{ id: 'shanghai', name: '上证指数', symbol: '000001.SS', price: 3835.54, changePercent: -0.17,
       sourceUrl: 'https://example.com', market: 'china', region: 'apac', latitude: 31.2, longitude: 121.5, session: { label: '交易中', tone: 'live' }, history: [] }], _publicCache: meta,
   } } };
-  return { now, intelligence, heatmap, news, global };
+  const sessions = [{ session_id: 'prepared-session', title: '提前准备的研究记录', status: 'ready', created_at: timestamp, updated_at: timestamp }];
+  const workbench: WorkbenchState = {
+    source: 'mcp', gatewayMode: 'live', connection: { state: 'connected', detail: '预加载账户', tools: [], accounts: [] },
+    snapshot: { ...emptySnapshot('live'), snapshotId: 'prepared-account', accountKey: 'live:prepared', connection: 'connected', state: 'ready', baseCurrency: 'USD', asOf: timestamp, metrics: { netLiquidation: '125000', unrealizedPnl: '8500', buyingPower: '40000', maintenanceMargin: '12000' }, cash: [{ currency: 'USD', amount: '18000' }] },
+    quotes: [], evidence: [], alerts: [], reports: [], jobs: [], preferences: { horizon: 'both', targetWeight: null, cashFloor: null, maxDrawdown: null, daily: false, eventAnalysis: false, maxAutomatic: 0, cooldownMinutes: 60, maxAiCalls: 12 },
+    ai: { provider: 'fixture', model: 'prepared', fingerprint: 'prepared', configured: true, enabled: false, fields: [], usedToday: 0 }, nextSyncAt: null, calendarSupported: true,
+  };
+  return { now, intelligence, heatmap, news, global, sessions, workbench };
 }
 
 async function installPreparedRoutes(page: Page) {
@@ -34,8 +43,29 @@ async function installPreparedRoutes(page: Page) {
     resources: { '/api/public-market-intelligence': data.intelligence, '/api/china-market-heatmap?source=sina': data.heatmap } } }));
   await page.route('**/api/news-feed/prepared*', route => route.fulfill({ json: data.news }));
   await page.route('**/api/global-macro/bootstrap', route => route.fulfill({ json: data.global }));
+  await page.route('**/api/vibe/research/sessions', route => route.fulfill({ json: data.sessions }));
+  await page.route('**/api/ibkr-workbench/state', route => route.fulfill({ json: data.workbench }));
   return { ...data, release, waitingRequests: () => waitingRequests };
 }
+
+test('assistant history and account state render from navigation-time preparation', async ({ page }) => {
+  const data = await installPreparedRoutes(page);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  try {
+    await page.goto('http://127.0.0.1:5187/logs');
+    await page.evaluate(async () => {
+      const path = '/src/lib/pagePreparation.ts';
+      const helpers = await import(path);
+      await Promise.all([helpers.prepareAssistantData(), helpers.prepareWorkbenchData()]);
+    });
+    await page.locator('.sf-pill-nav-desktop a[href="/assistant"]').click();
+    await expect(page.getByText('提前准备的研究记录', { exact: true })).toBeVisible();
+    await page.locator('.sf-pill-nav-desktop a[href="/ibkr"]').click();
+    await expect(page.getByText('正在载入账户工作台…', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('125,000.00', { exact: true }).first()).toBeVisible();
+    expect(data.waitingRequests()).toBeGreaterThan(0);
+  } finally { data.release(); }
+});
 
 test('first market and news clicks use prepared data even while normal reads wait', async ({ page }) => {
   const data = await installPreparedRoutes(page);

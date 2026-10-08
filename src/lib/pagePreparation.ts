@@ -1,7 +1,7 @@
 import { marketBootstrapKeys, MARKET_DATA_PREPARED, NEWS_DATA_PREPARED, type MarketBootstrap } from './marketPreload';
 import { rememberHeatmapSources } from './heatmapSources';
 import { rememberPreparedPublicData } from './publicDataClient';
-import { pageDataRevision, peekPageData, rememberPageData } from './pageDataClient';
+import { pageDataFetch, pageDataRevision, peekPageData, rememberPageData } from './pageDataClient';
 import type { NewsFeed } from './newsTypes';
 
 declare global {
@@ -14,6 +14,10 @@ let marketFlight: Promise<void> | undefined;
 let marketAt = 0;
 let newsFlight: Promise<void> | undefined;
 let newsAt = 0;
+let assistantFlight: Promise<void> | undefined;
+let assistantAt = 0;
+let workbenchFlight: Promise<void> | undefined;
+let workbenchAt = 0;
 
 async function fetchPrepared<T>(url: string): Promise<T | null> {
   const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
@@ -53,4 +57,31 @@ export function prepareNewsData() {
     }
   }).catch(() => { newsAt = 0; }).finally(() => { newsFlight = undefined; });
   return newsFlight;
+}
+
+function preparePrivateData(url: string) {
+  return pageDataFetch(url)
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    });
+}
+
+export function prepareAssistantData() {
+  if (assistantFlight) return assistantFlight;
+  if (assistantAt && Date.now() - assistantAt < 30_000) return Promise.resolve();
+  assistantAt = Date.now();
+  assistantFlight = preparePrivateData('/api/vibe/research/sessions')
+    .catch(() => { assistantAt = 0; })
+    .finally(() => { assistantFlight = undefined; });
+  return assistantFlight;
+}
+
+export function prepareWorkbenchData() {
+  if (workbenchFlight) return workbenchFlight;
+  if (workbenchAt && Date.now() - workbenchAt < 30_000) return Promise.resolve();
+  workbenchAt = Date.now();
+  workbenchFlight = preparePrivateData('/api/ibkr-workbench/state')
+    .catch(() => { workbenchAt = 0; })
+    .finally(() => { workbenchFlight = undefined; });
+  return workbenchFlight;
 }
