@@ -51,6 +51,11 @@ export function AccountWorkbench() {
   const [selected, setSelected] = useState<number | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(null);
   const [error, setError] = useState(''); const [busy, setBusy] = useState(''); const [exporting, setExporting] = useState(false); const [question, setQuestion] = useState(''); const [search, setSearch] = useState('');
+  useEffect(() => {
+    if (!state || /账户后台(?:锁|正在等待)/.test(state.connection.detail)) return;
+    // Clear a failed refresh's old lease notice once polling confirms recovery.
+    setError(current => /账户后台(?:锁|正在等待)/.test(current) ? '' : current);
+  }, [state?.connection.detail]);
   const [holdingSort, setHoldingSort] = useState<HoldingSort | null>(null);
   const [holdingsRange, setHoldingsRange] = useState<HoldingsRange>(90);
   const [sourceChoice, setSourceChoice] = useState<SourceChoice | null>(null);

@@ -11,7 +11,7 @@ import { reportMarkdown } from '../src/lib/ibkr/workbenchReport.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { existsSync } from 'node:fs';
-import { readFile, open, unlink, access, readdir, rename, stat } from 'node:fs/promises';
+import { readFile, access, readdir, rename, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -28,6 +28,7 @@ import { portfolioMetrics, localPerformance, gatewayPerformance, comparePerforma
 import type { AdjustmentPlan, PortfolioPerformance, PerformancePoint } from '../src/lib/ibkr/workbenchTypes.ts';
 import { emptySnapshot } from '../src/lib/ibkr/store.ts';
 import { createUserDataPaths } from './userData.ts';
+import { IbkrWorkerLease } from './ibkrWorkerLease.ts';
 import { validSnapshot } from '../src/lib/ibkr/events.ts';
 import { allowedLocalRequest } from './localRequest.ts';
 import { startSparkFlowBridge, discoverSparkFlowGateway, disconnectSparkFlowGateway } from './ibkrGatewayBridge.ts';
@@ -156,6 +157,11 @@ export class IbkrWorkbenchService {
   private scheduleFlight = false;
   private scheduleStartedAt = new Date().toISOString();
   private connectionDetail = ''; private storageError = ''; private ai; private ownsLease = false;
+  private lease: IbkrWorkerLease;
+  private leaseBlocked = false;
+  private nextLeaseAttempt = 0;
+  private startFlight?: Promise<void>;
+  private closeFlight?: Promise<void>;
   private nextGatewayAttempt = 0;
   private gatewayHealthFlight?: Promise<void>;
   private nextGatewayHealth = 0;
@@ -164,24 +170,34 @@ export class IbkrWorkbenchService {
   readonly mcp: IbkrMcp; readonly market: IbkrMarket; readonly profiles: IbkrProfiles;
   private ticketQuotes = new EastmoneyTicketQuotes(url => this.fetchJson(url));
   private ticketHistories = new TicketHistories(url=>this.fetchJson(url));
-  constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] }), private gatewayBridgeStarter: GatewayBridgeStarter = startSparkFlowBridge, private gatewayDiscoverer = discoverSparkFlowGateway, private gatewayDisconnector: GatewayDisconnector = disconnectSparkFlowGateway) { this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
+  constructor(private root: string, private directory: string, private fetchJson: JsonFetcher, private localGet: JsonFetcher, profileScan: ProfileBatchFetcher = async () => ({ data: [] }), private gatewayBridgeStarter: GatewayBridgeStarter = startSparkFlowBridge, private gatewayDiscoverer = discoverSparkFlowGateway, private gatewayDisconnector: GatewayDisconnector = disconnectSparkFlowGateway) { this.lease = new IbkrWorkerLease(directory); this.mcp = new IbkrMcp(directory); this.market = new IbkrMarket(fetchJson); this.ai = createIbkrAi(root); this.profiles = new IbkrProfiles(profileScan); }
   private gatewayRuntimeDir() {
     const preferred = createUserDataPaths(this.root).ibkrTerminalDir;
     const legacy = path.join(this.root, '.sparkflow', 'ibkr-terminal');
     return existsSync(preferred) || !existsSync(legacy) ? preferred : legacy;
   }
-  async start() {
+  start(): Promise<void> {
+    if (this.startFlight) return this.startFlight;
+    if (this.disposed || this.ownsLease) return Promise.resolve();
+    this.startFlight = this.initialize().finally(() => { this.startFlight = undefined; });
+    return this.startFlight;
+  }
+  private async initialize() {
     this.scheduleStartedAt = new Date().toISOString();
-    await this.mcp.load();
-    const lock = path.join(this.directory, 'worker.lock');
     try {
-      try { const holder = Number(await readFile(lock, 'utf8')); if (!Number.isSafeInteger(holder) || holder <= 0) throw new Error('WORKER_LOCK_INVALID');
-        let alive = true; try { process.kill(holder, 0); } catch (e: any) { if (e.code === 'ESRCH') alive = false; }
-        if (alive) throw new Error('另一个 SparkFlow 服务正在运行账户后台，请关闭重复实例。');
-        await unlink(lock);
-      } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
-      const handle = await open(lock, 'wx', 0o600); await handle.writeFile(String(process.pid)); await handle.close(); this.ownsLease = true;
-    } catch { this.storageError = '另一个服务持有账户后台锁，或锁文件不可用；本实例不会同步或调用 AI。'; return; }
+      this.ownsLease = await this.lease.acquire();
+      if (!this.ownsLease) {
+        this.storageError = '账户后台正在等待运行中的实例释放，后台会自动重试。';
+        this.leaseBlocked = true; this.nextLeaseAttempt = Date.now() + 5000; this.schedule(); return;
+      }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? 'UNKNOWN';
+      this.storageError = `账户后台锁暂时无法访问（${code}），后台会自动重试。`;
+      this.leaseBlocked = true; this.nextLeaseAttempt = Date.now() + 5000; this.schedule(); return;
+    }
+    if (this.disposed) { await this.lease.release(); this.ownsLease = false; return; }
+    this.leaseBlocked = false; this.storageError = '';
+    await this.mcp.load();
     const stateFile = path.join(this.directory, 'state.json');
     let primaryError: any;
     try { this.saved = await this.readSavedState(stateFile); }
@@ -220,7 +236,10 @@ export class IbkrWorkbenchService {
     }
     return saved;
   }
-  private schedule() { if (this.disposed) return; this.timer = setTimeout(async () => { try { await this.tick(); } catch { /* A failed task remains visible in status. */ } finally { this.schedule(); } }, 15000); this.timer.unref(); }
+  private schedule() { if (this.disposed || this.timer) return; this.timer = setTimeout(async () => { this.timer = undefined; try { await this.tick(); } catch { /* A failed task remains visible in status. */ } finally { this.schedule(); } }, 15000); this.timer.unref(); }
+  private async recoverLease() {
+    if (this.leaseBlocked && !this.disposed && Date.now() >= this.nextLeaseAttempt) await this.start();
+  }
   private record() { return this.saved.selectedKey ? this.saved.records[this.saved.selectedKey] : undefined; }
   private gatewayConnected() {
     const snapshot = this.record()?.snapshot;
@@ -312,6 +331,7 @@ export class IbkrWorkbenchService {
     return port;
   }
   async tick() {
+    await this.recoverLease();
     if (this.storageError || this.disposed) return;
     await this.checkGatewayHealth();
     // selectedKey is the durable connection intent. Explicit disconnect clears it.
@@ -463,6 +483,7 @@ export class IbkrWorkbenchService {
   async modelStatus() { try { this.model = await this.ai.status(); } catch { this.model = { provider: '', model: '', fingerprint: '', configured: false }; } return this.model; }
   async refreshQuotes() { const snapshot = this.record()?.snapshot; const revision = this.generation; if (!snapshot) return this.quotes; const quotes = await this.market.quotes(snapshot.positions); if (revision === this.generation) this.quotes = quotes; return revision === this.generation ? quotes : []; }
   async state(): Promise<WorkbenchState> {
+    await this.recoverLease();
     await this.checkGatewayHealth();
     await this.modelStatus(); const record = this.record(); const today = newYorkClock(new Date()).date;
     const gatewayMode = this.saved.gatewayMode ?? 'live';
@@ -924,7 +945,20 @@ export class IbkrWorkbenchService {
     await this.persist();
   }
   async report(id: string) { if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error('无效报告标识'); const report = JSON.parse(await readFile(path.join(this.directory, `${id}.report.json`), 'utf8')) as AnalysisReport; if (report.accountKey !== this.saved.selectedKey) throw new Error('报告不属于当前账户'); return report; }
-  async close() { this.disposed = true; this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation; if (this.timer) clearTimeout(this.timer); this.ai.close(); await this.syncFlight; await this.performanceFlight?.catch(()=>{}); await Promise.all([this.activeAnalysis, this.activeBrief]); await this.writeQueue; await this.mcp.close(); if (this.ownsLease) { this.ownsLease = false; await unlink(path.join(this.directory, 'worker.lock')).catch(() => {}); } }
+  close(): Promise<void> {
+    if (this.closeFlight) return this.closeFlight;
+    this.disposed = true; this.researchAbort?.abort(); this.briefAbort?.abort(); ++this.generation;
+    if (this.timer) clearTimeout(this.timer);
+    this.closeFlight = (async () => {
+      await this.startFlight?.catch(() => {});
+      this.ai.close();
+      try {
+        await this.syncFlight; await this.performanceFlight?.catch(()=>{});
+        await Promise.all([this.activeAnalysis, this.activeBrief]); await this.writeQueue; await this.mcp.close();
+      } finally { this.ownsLease = false; await this.lease.release(); }
+    })();
+    return this.closeFlight;
+  }
 }
 
 const htmlEscape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
