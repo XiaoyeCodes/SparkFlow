@@ -48,6 +48,117 @@ async function installPreparedRoutes(page: Page) {
   return { ...data, release, waitingRequests: () => waitingRequests };
 }
 
+test('all stock markets and crypto decode logos before opening a heatmap', async ({ page }) => {
+  const data = await installPreparedRoutes(page);
+  const resources: Record<string, unknown> = { '/api/public-market-intelligence': data.intelligence };
+  const primary = ['/stock-logos/600000.svg', '/stock-logos/hk-00700.svg', '/stock-logos/us-NVDA.svg', '/stock-logos/crypto-BTC.svg'];
+  const add = (key: string, code: string, logoUrl?: string, fallbackLogoUrl?: string) => {
+    resources[key] = { ...data.heatmap, stocks: [{ ...data.heatmap.stocks[0], code, logoUrl, fallbackLogoUrl }] };
+  };
+  add('/api/china-market-heatmap?source=sina', '600000');
+  add('/api/hong-kong-market-heatmap?source=sina', '00700');
+  add('/api/us-market-heatmap?source=sina', 'NVDA');
+  add('/api/crypto-market-heatmap', 'BTC', primary[3]);
+  for (const market of ['japan', 'korea', 'india', 'germany', 'france', 'uk']) {
+    primary.push(`/stock-logos/prepared-${market}.svg`);
+    add(`/api/global-market-heatmap?market=${market}`, market, primary.at(-1), market === 'japan' ? '/stock-logos/prepared-japan-fallback.svg' : undefined);
+  }
+  const requested = new Map<string, number>();
+  await page.route('**/stock-logos/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    requested.set(path, (requested.get(path) || 0) + 1);
+    return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="green"/></svg>' });
+  });
+  await page.route('**/api/market/bootstrap', route => route.fulfill({ json: { sources: { china: 'sina', hongkong: 'sina', us: 'sina' }, resources } }));
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  try {
+    await page.goto('http://127.0.0.1:5187/logs');
+    await expect.poll(() => primary.every(src => requested.has(src))).toBe(true);
+    expect(requested.has('/stock-logos/prepared-japan-fallback.svg')).toBe(true);
+    await page.evaluate(async resources => {
+      const path = '/src/lib/heatmapLogoPreload.ts';
+      await (await import(path)).prepareHeatmapLogoResources(resources);
+    }, resources);
+    expect([...requested.values()].every(count => count === 1)).toBe(true);
+    await page.locator('.sf-pill-nav-desktop a[href="/market"]').click();
+    for (const [label, src] of [['A 股', primary[0]], ['港股', primary[1]], ['美股', primary[2]], ['加密', primary[3]]]) {
+      const button = page.locator('.market-selector-tab').filter({ hasText: label }).first();
+      if (label !== 'A 股') await button.click();
+      const logo = page.locator(`.market-heatmap-tile img[src="${src}"]`).first();
+      await expect(logo).toBeVisible();
+      await expect(logo).toHaveAttribute('loading', 'eager');
+      expect(await logo.evaluate(img => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0)).toBe(true);
+    }
+    expect([...requested.values()].every(count => count === 1)).toBe(true);
+    const before = [...requested.entries()];
+    await page.evaluate(async resources => {
+      const path = '/src/lib/heatmapLogoPreload.ts';
+      await (await import(path)).prepareHeatmapLogoResources(resources);
+    }, resources);
+    expect([...requested.entries()]).toEqual(before);
+  } finally { data.release(); }
+});
+
+test('logo warmup limits concurrent image requests without delaying other markets', async ({ page }) => {
+  const data = await installPreparedRoutes(page);
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  const requested: string[] = [];
+  let active = 0, maximum = 0;
+  await page.route('**/stock-logos/concurrency-*', async route => {
+    requested.push(new URL(route.request().url()).pathname);
+    maximum = Math.max(maximum, ++active);
+    await waiting;
+    active--;
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"/>' });
+  });
+  const resources = Object.fromEntries(['crypto', 'japan', 'korea'].map(market => [
+    market === 'crypto' ? '/api/crypto-market-heatmap' : `/api/global-market-heatmap?market=${market}`,
+    { stocks: Array.from({ length: 8 }, (_, index) => ({ code: `${market}-${index}`, marketCap: 100 - index, logoUrl: `/stock-logos/concurrency-${market}-${index}.svg` })) },
+  ]));
+  try {
+    await page.goto('http://127.0.0.1:5187/logs');
+    await page.evaluate(async resources => {
+      const path = '/src/lib/heatmapLogoPreload.ts';
+      (window as any).__logoWarmup = (await import(path)).prepareHeatmapLogoResources(resources);
+    }, resources);
+    await expect.poll(() => requested.length).toBe(6);
+    expect(requested.slice(0, 3)).toEqual([
+      '/stock-logos/concurrency-crypto-0.svg', '/stock-logos/concurrency-japan-0.svg', '/stock-logos/concurrency-korea-0.svg',
+    ]);
+    release();
+    await page.evaluate(async () => { await (window as any).__logoWarmup; });
+    expect(maximum).toBeLessThanOrEqual(6);
+    expect(requested).toHaveLength(24);
+  } finally { release(); data.release(); }
+});
+
+test('failed heatmap logos use a decoded fallback and can retry after cooldown', async ({ page }) => {
+  const data = await installPreparedRoutes(page);
+  let primaryCalls = 0;
+  await page.route('**/stock-logos/retry-logo.svg', route => {
+    primaryCalls++;
+    return primaryCalls === 1 ? route.fulfill({ status: 404 }) : route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"/>' });
+  });
+  await page.route('**/stock-logos/retry-fallback.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"/>' }));
+  const resources = { '/api/crypto-market-heatmap': { stocks: [{ code: 'TEST', logoUrl: '/stock-logos/retry-logo.svg', fallbackLogoUrl: '/stock-logos/retry-fallback.svg' }] } };
+  try {
+    await page.goto('http://127.0.0.1:5187/logs');
+    const preferred = () => page.evaluate(async resources => {
+      const path = '/src/lib/heatmapLogoPreload.ts';
+      const helpers = await import(path);
+      await helpers.prepareHeatmapLogoResources(resources);
+      return helpers.preloadedHeatmapLogoSrc('/stock-logos/retry-logo.svg', '/stock-logos/retry-fallback.svg');
+    }, resources);
+    expect(await preferred()).toBe('/stock-logos/retry-fallback.svg');
+    expect(await preferred()).toBe('/stock-logos/retry-fallback.svg');
+    expect(primaryCalls).toBe(1);
+    await page.clock.setFixedTime(data.now + 65_000);
+    expect(await preferred()).toBe('/stock-logos/retry-logo.svg');
+    expect(primaryCalls).toBe(2);
+  } finally { data.release(); }
+});
+
 test('assistant history and account state render from navigation-time preparation', async ({ page }) => {
   const data = await installPreparedRoutes(page);
   await page.setViewportSize({ width: 1600, height: 1000 });

@@ -27,6 +27,7 @@ import { mergeCryptoMiniTickers, parseCryptoMiniTickerMessage, type CryptoMiniTi
 import { publicDataFetch, peekPublicData } from '../lib/publicDataClient';
 import { publicDataExpiresAt } from '../lib/publicDataPolicy';
 import { MARKET_DATA_PREPARED } from '../lib/marketPreload';
+import { heatmapLogoPath, preloadedHeatmapLogoSrc, prepareHeatmapLogoResources } from '../lib/heatmapLogoPreload';
 
 type ChinaHeatmapStock = {
   code: string;
@@ -96,7 +97,6 @@ type RegionalHeatmapConfig = {
   defaultCoverage: string;
   industryDisplayPriority: string[];
   logoPath?: (stock: ChinaHeatmapStock) => string;
-  preloadLogos?: boolean;
   formatPrice?: (value: number) => string;
   formatMarketCap?: (value: number) => string;
   marketCapLabel?: string;
@@ -130,7 +130,7 @@ const CHINA_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   errorFallback: 'A 股热力图加载失败',
   defaultCoverage: 'A 股总市值前 320 家公司',
   industryDisplayPriority: ['半导体', '银行Ⅱ'],
-  logoPath: (stock) => `/stock-logos/${stock.code}.svg`,
+  logoPath: (stock) => heatmapLogoPath('china', stock),
 };
 
 const HONG_KONG_HEATMAP_CONFIG: RegionalHeatmapConfig = {
@@ -144,7 +144,7 @@ const HONG_KONG_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   errorFallback: '港股热力图加载失败',
   defaultCoverage: '港股主板总市值前 320 家公司',
   industryDisplayPriority: ['软件服务', '银行'],
-  logoPath: (stock) => `/stock-logos/hk-${stock.code}.svg`,
+  logoPath: (stock) => heatmapLogoPath('hongkong', stock),
 };
 
 const US_HEATMAP_CONFIG: RegionalHeatmapConfig = {
@@ -158,7 +158,7 @@ const US_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   errorFallback: '美股热力图加载失败',
   defaultCoverage: '纳斯达克与纽交所总市值前 320 家公司',
   industryDisplayPriority: ['信息技术', '金融', '通讯服务', '通信服务'],
-  logoPath: (stock) => `/stock-logos/us-${stock.code}.svg`,
+  logoPath: (stock) => heatmapLogoPath('us', stock),
 };
 
 const CRYPTO_HEATMAP_CONFIG: RegionalHeatmapConfig = {
@@ -172,8 +172,7 @@ const CRYPTO_HEATMAP_CONFIG: RegionalHeatmapConfig = {
   errorFallback: '加密资产热力图加载失败',
   defaultCoverage: '主流加密资产市值前 120 项',
   industryDisplayPriority: ['公链与基础层', 'DeFi', 'Layer 2', '交易平台', 'AI 与算力', 'Meme'],
-  logoPath: (stock) => stock.logoUrl || '',
-  preloadLogos: false,
+  logoPath: (stock) => heatmapLogoPath('crypto', stock),
   formatPrice: formatCryptoPrice,
   formatMarketCap: formatUsdMarketCap,
   searchEntityLabel: '资产',
@@ -294,7 +293,6 @@ type RegionalHeatmapCacheEntry = {
 
 const regionalHeatmapClientCache = new Map<string, RegionalHeatmapCacheEntry>();
 const regionalHeatmapClientInFlight = new Map<string, Promise<ChinaHeatmapResponse>>();
-const regionalHeatmapPreloadedLogoUrls = new Set<string>();
 
 function regionalHeatmapStorageKey(endpoint: string) {
   return `${REGIONAL_HEATMAP_STORAGE_PREFIX}${encodeURIComponent(endpoint)}`;
@@ -325,15 +323,7 @@ function readRegionalHeatmapCache(config: RegionalHeatmapConfig) {
 }
 
 function preloadRegionalHeatmapLogos(config: RegionalHeatmapConfig, payload: ChinaHeatmapResponse) {
-  if (typeof Image === 'undefined' || !config.logoPath || config.preloadLogos === false) return;
-  payload.stocks.forEach((stock) => {
-    const logoUrl = config.logoPath?.(stock);
-    if (!logoUrl || regionalHeatmapPreloadedLogoUrls.has(logoUrl)) return;
-    regionalHeatmapPreloadedLogoUrls.add(logoUrl);
-    const image = new Image();
-    image.decoding = 'async';
-    image.src = logoUrl;
-  });
+  void prepareHeatmapLogoResources({ [config.endpoint]: payload });
 }
 
 function storeRegionalHeatmapCache(config: RegionalHeatmapConfig, data: ChinaHeatmapResponse) {
@@ -741,9 +731,9 @@ function StockCell({
               stock.name.slice(0, 1)
             ) : (
               <img
-                src={logoPath(stock)}
+                src={preloadedHeatmapLogoSrc(logoPath(stock), stock.fallbackLogoUrl)}
                 alt=""
-                loading="lazy"
+                loading="eager"
                 decoding="async"
                 draggable={false}
                 onError={(event) => {
@@ -822,6 +812,7 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
   const [initialCache] = useState(() => readRegionalHeatmapCache(requestConfig));
   const previousEndpoint = useRef(requestConfig.endpoint);
   const [data, setData] = useState<ChinaHeatmapResponse | undefined>(() => initialCache?.data);
+  useEffect(() => { if (data) preloadRegionalHeatmapLogos(requestConfig, data); }, [requestConfig, data]);
   const [loading, setLoading] = useState(() => !initialCache);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -1515,7 +1506,7 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
                 <span>{stock.name.slice(0, 1)}</span>
                 {config.logoPath ? (
                   <img
-                    src={config.logoPath(stock)}
+                    src={preloadedHeatmapLogoSrc(config.logoPath(stock), stock.fallbackLogoUrl)}
                     alt=""
                     className="pointer-events-none absolute inset-0 h-full w-full object-contain"
                     onError={(event) => {

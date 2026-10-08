@@ -3,6 +3,7 @@ import { rememberHeatmapSources } from './heatmapSources';
 import { rememberPreparedPublicData } from './publicDataClient';
 import { pageDataFetch, pageDataRevision, peekPageData, rememberPageData } from './pageDataClient';
 import type { NewsFeed } from './newsTypes';
+import { prepareHeatmapLogoResources } from './heatmapLogoPreload';
 
 declare global {
   interface Window {
@@ -36,6 +37,7 @@ export function prepareMarketData() {
     for (const key of marketBootstrapKeys(snapshot.sources)) {
       if (key in snapshot.resources) rememberPreparedPublicData(key, snapshot.resources[key]);
     }
+    void prepareHeatmapLogoResources(snapshot.resources);
     window.dispatchEvent(new Event(MARKET_DATA_PREPARED));
   }).catch(() => { marketAt = 0; }).finally(() => { marketFlight = undefined; });
   return marketFlight;
