@@ -4,6 +4,7 @@ import { PillNav } from './PillNav';
 import { UserMenu } from './UserMenu';
 import { primaryNavigation } from '../data/navigation';
 import { prepareGlobalMacroData } from '../lib/globalMacroTerminalPreload';
+import { prepareMarketData, prepareNewsData } from '../lib/pagePreparation';
 
 export function Shell({ children }: { children: ReactNode }) {
   const { hash, pathname } = useLocation();
@@ -14,6 +15,18 @@ export function Shell({ children }: { children: ReactNode }) {
   });
   const [touchNavigationVisible, setTouchNavigationVisible] = useState(false);
   const touchNavigationTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const prepare = () => {
+      if (document.hidden) return;
+      if (pathname !== '/market') void prepareMarketData();
+      if (pathname !== '/signals') void prepareNewsData();
+    };
+    prepare();
+    const timer = window.setInterval(prepare, 30_000);
+    document.addEventListener('visibilitychange', prepare);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', prepare); };
+  }, [pathname]);
 
   useEffect(() => {
     if (pathname === '/terminal') return;

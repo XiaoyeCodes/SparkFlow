@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invalidatePageData, pageDataFetch, peekPageData } from '../lib/pageDataClient';
+import { NEWS_DATA_PREPARED } from '../lib/marketPreload';
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Activity,
   AlertCircle,
@@ -72,6 +73,14 @@ function isChineseNewsItem(item: NewsItem) {
 export function Signals() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [feed, setFeed] = useState<NewsFeed | null>(() => peekPageData<NewsFeed>('/api/news-feed') ?? null);
+  useEffect(() => {
+    const acceptPrepared = () => {
+      const prepared = peekPageData<NewsFeed>('/api/news-feed');
+      if (prepared) setFeed(prepared);
+    };
+    window.addEventListener(NEWS_DATA_PREPARED, acceptPrepared);
+    return () => window.removeEventListener(NEWS_DATA_PREPARED, acceptPrepared);
+  }, []);
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState('');
@@ -177,7 +186,7 @@ export function Signals() {
     newsRequest.current?.abort();
     const controller = new AbortController();
     newsRequest.current = controller;
-    setLoading(true);
+    setLoading(force || !peekPageData('/api/news-feed'));
     setError('');
     try {
       const response = await pageDataFetch(force ? '/api/news-feed?refresh=1' : '/api/news-feed', { signal: controller.signal });
@@ -233,7 +242,7 @@ export function Signals() {
   };
 
   return (
-    <PageTransition>
+    <PageTransition instant>
       <div className="signals-page">
         <div className="signals-shell">
           <header className="signals-hud">
@@ -673,7 +682,6 @@ function NewsCardOrnament({ variant, serial }: { variant: ReturnType<typeof news
 }
 
 function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsItem; index: number; onSelectSource: (source: string) => void; sortMode: NewsSortMode; now: number }) {
-  const reducedMotion = useReducedMotion();
   const priority = newsPriority(item.weight);
   const visual = newsVisual(item);
   const decoration = newsCardDecoration(item);
@@ -704,7 +712,7 @@ function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsIte
   } as CSSProperties;
   return (
     <motion.article className={`signals-item is-${priority} tone-${visual.tone}`} style={itemStyle}
-      initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      initial={false} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: Math.min(index * 0.02, 0.16) }}>
       <NewsCardOrnament variant={decoration.variant} serial={decoration.serial} />
       <div className="signals-item-visual" aria-hidden="true">

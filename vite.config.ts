@@ -9,6 +9,7 @@ import { createPublicDataCache, createPublicSnapshotStore } from './server/publi
 import { createNewsPageCache } from './server/newsPageCache';
 import { createPagePreloadCache } from './server/pagePreloadCache';
 import { readGlobalMacroBootstrap } from './server/globalMacroBootstrap';
+import { readMarketBootstrap } from './server/marketBootstrap';
 import { createDailyBriefAiSummaryCache, isDailyBriefAiSummary } from './server/dailyBriefAiSummaryCache';
 import { createPublicDataHandler } from './server/publicDataHttp';
 import {
@@ -12363,6 +12364,19 @@ function allWeatherApiPlugin() {
       server.middlewares.use(async (req, res, next) => {
         try {
           const url = new URL(req.url || '/', 'http://127.0.0.1');
+          if (url.pathname === '/api/market/bootstrap' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await readMarketBootstrap(publicCache, (await readLocalIntegrationSettings()).heatmap));
+            return;
+          }
+          if (url.pathname === '/api/news-feed/prepared' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'private, no-store');
+            const feed = await newsPageCache.prepared();
+            if (!feed || url.searchParams.get('after') === `${feed.generatedAt}:${feed._pageCache?.storedAt}`) {
+              res.statusCode = 204; res.end();
+            } else sendJson(res, 200, feed);
+            return;
+          }
           if (url.pathname === '/api/global-macro/bootstrap' && req.method === 'GET') {
             res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 200, await readGlobalMacroBootstrap(publicCache));

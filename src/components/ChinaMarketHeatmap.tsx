@@ -11,10 +11,10 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { getMarketSessionStatus, type MarketSessionMarket } from '../lib/marketSessions';
-import { DEFAULT_HEATMAP_QUOTE_SOURCE } from '../lib/heatmapSources';
+import { DEFAULT_HEATMAP_QUOTE_SOURCE, peekPreparedHeatmapSources } from '../lib/heatmapSources';
 import {
   INTEGRATION_SETTINGS_CHANGED,
   loadLocalIntegrationSettings,
@@ -24,8 +24,9 @@ import {
   type IntegrationSettings,
 } from '../lib/integrations';
 import { mergeCryptoMiniTickers, parseCryptoMiniTickerMessage, type CryptoMiniTicker } from '../lib/cryptoHeatmapStream';
-import { publicDataFetch } from '../lib/publicDataClient';
+import { publicDataFetch, peekPublicData } from '../lib/publicDataClient';
 import { publicDataExpiresAt } from '../lib/publicDataPolicy';
+import { MARKET_DATA_PREPARED } from '../lib/marketPreload';
 
 type ChinaHeatmapStock = {
   code: string;
@@ -300,7 +301,9 @@ function regionalHeatmapStorageKey(endpoint: string) {
 }
 
 function readRegionalHeatmapCache(config: RegionalHeatmapConfig) {
-  const maxAgeMs = config.endpoint.includes('source=sina') ? 20_000 : REGIONAL_HEATMAP_SESSION_MAX_AGE_MS;
+  const prepared = peekPublicData<ChinaHeatmapResponse>(config.endpoint);
+  if (prepared?.stocks?.length) return { storedAt: 0, data: prepared };
+  const maxAgeMs = config.endpoint.includes('source=sina') ? 90_000 : REGIONAL_HEATMAP_SESSION_MAX_AGE_MS;
   const memoryCached = regionalHeatmapClientCache.get(config.endpoint);
   if (memoryCached && Date.now() < publicDataExpiresAt(memoryCached.data) && Date.now() - memoryCached.storedAt <= maxAgeMs) return memoryCached;
   regionalHeatmapClientCache.delete(config.endpoint);
@@ -810,15 +813,16 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
   const { ref, size } = useContainerSize();
   const heatmapMarket: HeatmapMarketId | null = config.sessionMarket === 'china' || config.sessionMarket === 'hongkong' || config.sessionMarket === 'us'
     ? config.sessionMarket : null;
-  const [quoteSource, setQuoteSource] = useState<HeatmapQuoteSource>(DEFAULT_HEATMAP_QUOTE_SOURCE);
-  const [sourceReady, setSourceReady] = useState(!heatmapMarket);
+  const [quoteSource, setQuoteSource] = useState<HeatmapQuoteSource>(() => heatmapMarket ? peekPreparedHeatmapSources()?.[heatmapMarket] || DEFAULT_HEATMAP_QUOTE_SOURCE : DEFAULT_HEATMAP_QUOTE_SOURCE);
+  const [sourceReady, setSourceReady] = useState(() => !heatmapMarket || Boolean(peekPreparedHeatmapSources()));
   const [switchingSource, setSwitchingSource] = useState(false);
   const requestConfig = useMemo(() => heatmapMarket
     ? { ...config, endpoint: `${config.endpoint}?source=${quoteSource}` }
     : config, [config, heatmapMarket, quoteSource]);
-  const initialCacheRef = useRef(heatmapMarket ? undefined : readRegionalHeatmapCache(config));
-  const [data, setData] = useState<ChinaHeatmapResponse | undefined>(() => initialCacheRef.current?.data);
-  const [loading, setLoading] = useState(() => !initialCacheRef.current);
+  const [initialCache] = useState(() => readRegionalHeatmapCache(requestConfig));
+  const previousEndpoint = useRef(requestConfig.endpoint);
+  const [data, setData] = useState<ChinaHeatmapResponse | undefined>(() => initialCache?.data);
+  const [loading, setLoading] = useState(() => !initialCache);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [activeIndustry, setActiveIndustry] = useState<string | null>(
@@ -851,6 +855,23 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
   const mountedRef = useRef(true);
   const [sessionNow, setSessionNow] = useState(() => new Date());
 
+  useLayoutEffect(() => {
+    const acceptPrepared = () => {
+      let preparedConfig = requestConfig;
+      if (heatmapMarket) {
+        const sources = peekPreparedHeatmapSources();
+        if (sources) {
+          setQuoteSource(sources[heatmapMarket]); setSourceReady(true);
+          preparedConfig = { ...config, endpoint: `${config.endpoint}?source=${sources[heatmapMarket]}` };
+        }
+      }
+      const cached = readRegionalHeatmapCache(preparedConfig);
+      if (cached) { setData(cached.data); setLoading(false); }
+    };
+    window.addEventListener(MARKET_DATA_PREPARED, acceptPrepared);
+    return () => window.removeEventListener(MARKET_DATA_PREPARED, acceptPrepared);
+  }, [config, heatmapMarket, requestConfig]);
+
   useEffect(() => {
     if (!heatmapMarket) return;
     let active = true;
@@ -877,7 +898,8 @@ function RegionalMarketHeatmap({ config, compact = false, onStockSelect }: { con
   useEffect(() => {
     if (!sourceReady) return;
     const cached = readRegionalHeatmapCache(requestConfig);
-    setData(cached?.data);
+    setData(current => cached?.data || (previousEndpoint.current === requestConfig.endpoint && current && Date.now() < publicDataExpiresAt(current) ? current : undefined));
+    previousEndpoint.current = requestConfig.endpoint;
     setLoading(!cached);
     setError('');
     setSelectedCode('');

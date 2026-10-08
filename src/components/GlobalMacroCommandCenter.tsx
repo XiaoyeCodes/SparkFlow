@@ -42,6 +42,7 @@ import { requestIsolatedJson } from '../lib/isolatedResource';
 import { publicDataFetch, peekPublicData } from '../lib/publicDataClient';
 import { startQuotePolling } from '../lib/realtimeQuotes';
 import { publicDataExpiresAt } from '../lib/publicDataPolicy';
+import { acquireTerminalGlobeRenderer, releaseTerminalGlobeRenderer, terminalEarthTexture, terminalEarthMaterial, terminalGlobePrepared, prepareTerminalGlobeResources } from '../lib/terminalGlobeResources';
 import { getMarketSessionStatus, getNextCoreMarketOpenAt } from '../lib/marketSessions';
 import { FinancialConditionsCard } from './FinancialConditionsCard';
 import type { FinancialConditionsPayload, FinancialConditionsSnapshot } from '../lib/financialConditionsTypes';
@@ -1298,7 +1299,7 @@ function HologramGlobe({
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(31, 1, 0.1, 40);
     camera.position.set(0, 0, 6.7);
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
+    const renderer = acquireTerminalGlobeRenderer();
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setClearColor(0x000000, 0);
     host.appendChild(renderer.domElement);
@@ -1308,18 +1309,13 @@ function HologramGlobe({
     root.rotation.set(0.21, 2.92, 0);
     scene.add(root);
 
-    const texture = new THREE.TextureLoader().load('/textures/earth-day.jpg');
+    const texture = terminalEarthTexture();
+    let disposed = false;
+    host.dataset.earthTexture = terminalGlobePrepared() ? 'ready' : 'preparing';
+    void prepareTerminalGlobeResources().then(() => { if (!disposed) host.dataset.earthTexture = 'ready'; }).catch(() => undefined);
     texture.colorSpace = THREE.SRGBColorSpace;
-    const earthGeometry = new THREE.SphereGeometry(1.72, 96, 96);
-    const earthMaterial = new THREE.MeshPhongMaterial({
-      map: texture,
-      color: '#8ddfff',
-      emissive: '#031421',
-      emissiveIntensity: 0.72,
-      shininess: 24,
-      transparent: true,
-      opacity: 0.88,
-    });
+    const earthGeometry = new THREE.SphereGeometry(1.72, 64, 48);
+    const earthMaterial = terminalEarthMaterial();
     const earth = new THREE.Mesh(earthGeometry, earthMaterial);
     root.add(earth);
 
@@ -1609,6 +1605,7 @@ function HologramGlobe({
 
     return () => {
       cancelAnimationFrame(animationFrame);
+      disposed = true;
       syncMarkerClustersRef.current = null;
       focusControllerRef.current = null;
       observer.disconnect();
@@ -1617,15 +1614,13 @@ function HologramGlobe({
       host.removeEventListener('pointerup', handleUp);
       host.removeEventListener('wheel', handleWheel);
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement);
-      texture.dispose();
       earthGeometry.dispose();
-      earthMaterial.dispose();
       graticuleGeometries.forEach((geometry) => geometry.dispose());
       graticuleMaterial.dispose();
       haloGeometry.dispose();
       haloMaterial.dispose();
       nodes.forEach(disposeMarkerNode);
-      renderer.dispose();
+      releaseTerminalGlobeRenderer();
     };
   }, [localCoordinateSpace]);
 

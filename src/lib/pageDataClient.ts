@@ -4,6 +4,7 @@ import { dailyBriefExpiresAt, isCurrentDailyBrief } from './dailyBriefFreshness.
 // tab memory, separate from the visitor-independent public dashboard cache.
 type Entry = { body: string; until: number; expiresAt: number };
 const entries = new Map<string, Entry>();
+const revisions = new Map<string, number>();
 const pending = new Map<string, { promise: Promise<Response>; controller: AbortController }>();
 const MAX_BYTES = 16 * 1024 * 1024;
 
@@ -51,6 +52,8 @@ export function rememberPageData(input: string, data: unknown) {
   if (!policy) return;
   const now = Date.now();
   const expiresAt = deadline(policy.key, data, now, policy.maxAgeMs);
+  const previous = entries.get(policy.key);
+  if (previous && expiresAt > now && Date.parse(JSON.parse(previous.body).generatedAt || '') > Date.parse((data as { generatedAt?: string }).generatedAt || '')) return;
   entries.delete(policy.key);
   if (expiresAt <= now) return;
   const body = JSON.stringify(data);
@@ -72,10 +75,13 @@ export function peekPageData<T>(input: string): T | undefined {
 export function invalidatePageData(input: string) {
   const key = resource(input)?.key;
   if (!key) return;
+  revisions.set(key, (revisions.get(key) || 0) + 1);
   entries.delete(key);
   pending.get(key)?.controller.abort();
   pending.delete(key);
 }
+
+export function pageDataRevision(input: string) { return revisions.get(resource(input)?.key || '') || 0; }
 
 function waitFor(promise: Promise<Response>, signal?: AbortSignal | null): Promise<Response> {
   if (!signal) return promise.then(response => response.clone());

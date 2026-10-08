@@ -120,11 +120,17 @@ git pull --ff-only
 
 ## 浏览器与页面切换
 
+股票市场使用 `GET /api/market/bootstrap` 一次读取12项已准备公共快照（指数、市场概况及各市场热力图）。接口同时返回公开的热力图来源选择，不返回集成设置中的凭据。浏览器收到HTML就开始预取，其他页面可见期间每30秒检查；热力图首次挂载直接读取有效快照，先测量容器后绘制，不再等待来源设置后清空已有数据。进入市场后仍按原来的频率更新行情。新浪热力图每3秒后台刷新，失败回退的硬期限为90秒，保留原报价与抓取时间，不能通过预取延长期限。
+
+新闻使用 `GET /api/news-feed/prepared` 读取当前订阅和排序配置对应的已准备结果；无有效快照时返回204，不等待抓取。HTML加载时及其他可见页面每30秒提前检查，未变化的快照返回204以避免重复传输整份新闻。进入新闻页先显示有效正文，普通后台同步保留内容且不显示重新加载状态；手动“刷新新闻”仍执行强制检查。订阅变更会失效浏览器缓存，变更前发出的迟到预取不能恢复已删除订阅的数据。
+
 全球宏观终端的31项首屏公共资源已经在本机后台预热。`GET /api/global-macro/bootstrap` 只打包当前有效的已准备快照，返回时不等待上游，也不触发额外抓取；缺失或过期资源直接跳过，各卡片随后独立补齐。
 
 浏览器收到HTML时就开始读取这份快照；应用启动预加载终端模块、地球贴图和地图文件。进入终端之前，每30秒在可见页面更新准备快照，首次进入即用缓存初始化宏观卡片、指数、汇率、商品、利率预期和情绪。进入终端后保留原有独立轮询与实时推送；每项快照仍使用原始保存时间和硬有效期，迟到的预加载结果不能覆盖更新的数据。只保存在当前标签页的有界公共缓存，不包含账户或个人数据。
 
 只在显式接入的公共请求上进行内存复用，不修改全局 `fetch`。慢数据直接复用窗口最多 15 秒，实时行情窗口为 0，每次轮询向服务器取最新缓存。页面初始绘制可先恢复尚未过硬期限的上次结果，再重新验证。某个页面取消请求不会取消其他页面共用的传输。手动刷新可跳过浏览器内存，但不能让每个访客强制抓取上游。
+
+地球贴图在应用启动后提前下载、解码、上传GPU，并预热地球材质；当前标签页保留一个WebGL渲染器、一张贴图和一个材质，切换离开终端后停止动画，返回时复用这些资源。行情、新闻和终端入口直接展示，取消整页淡出等待和模糊入场；新闻正文不再逐行隐藏后淡入。首次新浏览器仍需下载页面和图片；立即点击或GPU不可用时无法承诺零等待，数据与贴图准备相互独立，图片失败不阻塞数据展示。
 
 后端 `_publicCache.expiresAt` 同样约束热力图会话缓存和日级估值缓存。该功能不会把已过期缓存当成可用快照重新加载到页面；已显示的部分面板可能保留最后结果，但会提示不可用/过期，应以数据源时间为准。
 
@@ -163,6 +169,7 @@ npx tsc -b
 npx playwright test --config playwright.ibkr.config.ts tests/ibkr/public-data-cache.spec.ts
 npx playwright test --config playwright.ibkr.config.ts tests/ibkr/global-macro-preload.spec.ts
 npx playwright test --config playwright.ibkr.config.ts tests/ibkr/page-data-cache.spec.ts
+npx playwright test --config playwright.ibkr.config.ts tests/ibkr/page-preparation.spec.ts
 npx playwright test --config playwright.ibkr.config.ts tests/ibkr/daily-brief-ai-cache.spec.ts
 npx vite build
 ```

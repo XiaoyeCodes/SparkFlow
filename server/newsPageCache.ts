@@ -49,6 +49,11 @@ export function createNewsPageCache(options: {
   })().finally(() => { resolving = undefined; });
 
   return {
+    async prepared(): Promise<NewsFeed | undefined> {
+      const entry = await resolve();
+      const result = await entry.cache.readPrepared(entry.key);
+      return result && { ...result.data as NewsFeed, _pageCache: result.meta };
+    },
     async status() { return (await resolve()).cache.status(); },
     async get(force = false): Promise<NewsFeed> {
       const entry = await resolve();

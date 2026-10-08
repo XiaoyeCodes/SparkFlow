@@ -2,6 +2,9 @@ export type HeatmapMarketId = 'china' | 'hongkong' | 'us';
 export type HeatmapQuoteSource = 'eastmoney' | 'sina';
 
 export const DEFAULT_HEATMAP_QUOTE_SOURCE: HeatmapQuoteSource = 'sina';
+let preparedSources: Record<HeatmapMarketId, HeatmapQuoteSource> | undefined;
+export function peekPreparedHeatmapSources() { return preparedSources && { ...preparedSources }; }
+export function rememberHeatmapSources(value: unknown) { preparedSources = normalizeHeatmapSources(value); }
 export const HEATMAP_SOURCE_LABELS: Record<HeatmapQuoteSource, string> = {
   sina: '新浪财经',
   eastmoney: '东方财富',

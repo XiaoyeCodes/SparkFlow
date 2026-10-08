@@ -31,6 +31,7 @@
     "src/lib/chinaMacroNews.ts",
     "src/lib/publicDataPolicy.ts",
     "src/lib/globalMacroPreload.ts",
+    "src/lib/marketPreload.ts",
     "src/lib/heatmapSources.ts",
     "src/lib/ibkr/types.ts",
     "src/lib/ibkr/valuationTypes.ts",

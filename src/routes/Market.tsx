@@ -35,6 +35,7 @@ import { PageTransition } from '../components/PageTransition';
 import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
 import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
 import { preloadGlobalMacroTerminal } from '../lib/globalMacroTerminalPreload';
+import { MARKET_DATA_PREPARED } from '../lib/marketPreload';
 import { mergeQuoteRows } from '../lib/realtimeQuotes';
 import { INTEGRATION_SETTINGS_CHANGED, loadIntegrationSettings, loadLocalIntegrationSettings, type IntegrationSettings, type NewsItem } from '../lib/integrations';
 import { getMarketSessionStatus, type MarketSessionTone } from '../lib/marketSessions';
@@ -518,6 +519,17 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
   const [data, setData] = useState<MarketIntelligence | null>(() => peekPublicData<MarketIntelligence>('/api/public-market-intelligence') ?? null);
   const [valuationSnapshots, setValuationSnapshots] = useState<Partial<Record<Exclude<MarketChartMode, 'crypto'>, AShareValuationSnapshot>>>({});
   const [loadState, setLoadState] = useState<AsyncState>(() => peekPublicData('/api/public-market-intelligence') ? 'success' : 'loading');
+  useEffect(() => {
+    const acceptPrepared = () => {
+      const prepared = peekPublicData<MarketIntelligence>('/api/public-market-intelligence');
+      if (prepared) {
+        setData(current => ({ ...prepared, indices: mergeQuoteRows(current?.indices || [], prepared.indices) }));
+        setLoadState('success');
+      }
+    };
+    window.addEventListener(MARKET_DATA_PREPARED, acceptPrepared);
+    return () => window.removeEventListener(MARKET_DATA_PREPARED, acceptPrepared);
+  }, []);
   const [error, setError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [regionalRotations, setRegionalRotations] = useState<Partial<Record<MarketChartMode, MarketRotation>>>({});
@@ -1167,7 +1179,7 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
   }
 
   return (
-    <PageTransition>
+    <PageTransition instant>
       <section className="market-terminal min-h-screen px-3 pb-16 pt-[calc(var(--nav-height)+18px)] text-white sm:px-5 lg:px-7">
         <div className="market-terminal-frame mx-auto w-full max-w-[1780px]">
           <header className="market-terminal-hero mb-4 flex flex-col gap-5 pb-5 xl:flex-row xl:items-end xl:justify-between">

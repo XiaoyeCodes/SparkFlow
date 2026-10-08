@@ -1,5 +1,6 @@
 import { GLOBAL_MACRO_BOOTSTRAP_KEYS, type GlobalMacroBootstrap } from './globalMacroPreload';
 import { rememberPreparedPublicData } from './publicDataClient';
+import { prepareTerminalGlobeResources } from './terminalGlobeResources';
 
 declare global {
   interface Window { __sparkflowTerminalBootstrap?: Promise<GlobalMacroBootstrap | null> }
@@ -31,6 +32,7 @@ export function prepareGlobalMacroData() {
 }
 
 export function preloadGlobalMacroTerminal() {
+  void prepareTerminalGlobeResources().catch(() => undefined);
   pageModule ??= import('../components/GlobalMacroCommandCenter').catch(error => { pageModule = undefined; throw error; });
   return Promise.all([pageModule, prepareGlobalMacroData()]).then(([module]) => module);
 }

@@ -22,12 +22,13 @@ import { RiskRadar } from './routes/RiskRadar';
 
 export default function App() {
   const location = useLocation();
+  const preparedPage = ['/terminal', '/market', '/signals'].includes(location.pathname);
 
   return (
     <StartupGate>
       <Shell>
         <RouteScrollReset />
-        <AnimatePresence mode="wait" key={location.pathname === '/terminal' ? 'terminal' : 'pages'}>
+        <AnimatePresence mode="wait" key={preparedPage ? location.pathname : 'pages'}>
           <Routes location={location} key={location.pathname}>
             <Route path="/" element={<Home />} />
             <Route path="/signals" element={<Signals />} />

@@ -37,7 +37,7 @@ add('/api/china-gdp', 3600, 3600, true);
 add('/api/china-income', 60, 900, true);
 for (const market of ['china', 'hong-kong', 'us']) {
   add(`/api/${market}-market-heatmap?source=eastmoney`, 3, 180);
-  add(`/api/${market}-market-heatmap?source=sina`, 3, 15);
+  add(`/api/${market}-market-heatmap?source=sina`, 3, 90);
 }
 // The browser applies Binance's live mini-ticker stream every three seconds.
 // This REST snapshot is the resilient bootstrap/fallback, while its internally

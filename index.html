@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#000000" />
     <script>
+      window.__sparkflowMarketBootstrap = fetch('/api/market/bootstrap', {
+        cache: 'no-store', signal: AbortSignal.timeout(5000)
+      }).then(response => response.ok ? response.json() : null).catch(() => null);
+      window.__sparkflowNewsPrepared = fetch('/api/news-feed/prepared', {
+        cache: 'no-store', signal: AbortSignal.timeout(5000)
+      }).then(response => response.ok && response.status !== 204 ? response.json() : null).catch(() => null);
       window.__sparkflowTerminalBootstrap = fetch('/api/global-macro/bootstrap', {
         cache: 'no-store', signal: AbortSignal.timeout(2500)
       }).then(response => response.ok ? response.json() : null).catch(() => null);

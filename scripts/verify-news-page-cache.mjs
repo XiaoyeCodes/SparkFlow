@@ -38,6 +38,9 @@ try {
   assert.equal(stale._pageCache.state, 'stale', 'soft expiry renders immediately');
   assert.equal(stale.items[0].title, 'snapshot-1');
   assert.equal(calls, 2);
+  const prepared = await cache.prepared();
+  assert.equal(prepared.items[0].title, 'snapshot-1', 'prepared reads return immediately during a blocked update');
+  assert.equal(calls, 2, 'prepared reads do not add upstream work');
   const manual = cache.get(true);
   await new Promise(resolve => setImmediate(resolve));
   finish();

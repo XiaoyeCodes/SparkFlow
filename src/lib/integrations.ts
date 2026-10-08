@@ -1,5 +1,5 @@
 import type { NewsItem } from './newsTypes';
-import { normalizeHeatmapSources, type HeatmapMarketId, type HeatmapQuoteSource } from './heatmapSources';
+import { normalizeHeatmapSources, peekPreparedHeatmapSources, rememberHeatmapSources, type HeatmapMarketId, type HeatmapQuoteSource } from './heatmapSources';
 export type { HeatmapMarketId, HeatmapQuoteSource } from './heatmapSources';
 
 export type AiProviderId = 'openai' | 'zhipu' | 'deepseek' | 'qwen' | 'custom';
@@ -88,7 +88,7 @@ export function getProviderConfig(provider: AiProviderId) {
 }
 
 export function loadIntegrationSettings(): IntegrationSettings {
-  return defaultIntegrationSettings;
+  return { ...defaultIntegrationSettings, heatmap: peekPreparedHeatmapSources() || defaultIntegrationSettings.heatmap };
 }
 
 export async function loadLocalIntegrationSettings(): Promise<IntegrationSettings> {
@@ -102,9 +102,10 @@ export async function loadLocalIntegrationSettings(): Promise<IntegrationSetting
       obsidian: { ...defaultIntegrationSettings.obsidian, ...(payload.obsidian || {}) },
       heatmap: normalizeHeatmapSources(payload.heatmap),
     };
+    rememberHeatmapSources(settings.heatmap);
     return settings;
   } catch {
-    return defaultIntegrationSettings;
+    return loadIntegrationSettings();
   }
 }
 
@@ -124,6 +125,7 @@ export async function saveIntegrationSettings(settings: IntegrationSettings): Pr
     obsidian: defaultIntegrationSettings.obsidian,
     heatmap: normalizeHeatmapSources(payload.heatmap),
   };
+  rememberHeatmapSources(saved.heatmap);
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(INTEGRATION_SETTINGS_CHANGED, { detail: saved }));
   return saved;
 }
@@ -144,6 +146,7 @@ export async function saveHeatmapQuoteSource(market: HeatmapMarketId, source: He
     obsidian: defaultIntegrationSettings.obsidian,
     heatmap: normalizeHeatmapSources(payload.heatmap),
   };
+  rememberHeatmapSources(saved.heatmap);
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(INTEGRATION_SETTINGS_CHANGED, { detail: saved }));
   return saved;
 }
