@@ -126,7 +126,9 @@ export function BitcoinCycleChart() {
   }, [data, projectionEnabled]);
 
   useEffect(() => {
-    if (!containerRef.current || !data?.points.length) return;
+    // The chart container replaces the loading/error placeholder only after
+    // loading settles. Data can arrive in an earlier render than that switch.
+    if (loading || error || !containerRef.current || !data?.points.length) return;
     const container = containerRef.current;
     const chart = createChart(container, {
       width: container.clientWidth,
@@ -224,7 +226,7 @@ export function BitcoinCycleChart() {
       chart.remove();
       chartRef.current = null;
     };
-  }, [data, projectionEnabled, scaleMode, updateHalvingPositions]);
+  }, [data, loading, error, projectionEnabled, scaleMode, updateHalvingPositions]);
 
   const cycleBands = useMemo(() => {
     if (!data || halvingPositions.length === 0 || !containerRef.current) return [];
