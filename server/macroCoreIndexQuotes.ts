@@ -41,6 +41,7 @@ export function coreIndexHistoryQuote(
   symbol: string,
   history: Array<{ time: string; value: number }>,
   now = Date.now(),
+  sourceUrl = `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`,
 ) {
   const points = history.filter(point => Number.isFinite(point.value) && point.value > 0
     && Number.isFinite(Date.parse(point.time)) && Date.parse(point.time) <= now)
@@ -50,5 +51,5 @@ export function coreIndexHistoryQuote(
   if (!latest || !previous || now - Date.parse(latest.time) > 14 * 86400_000) return;
   return { symbol, price: latest.value, change: latest.value - previous.value,
     changePercent: (latest.value / previous.value - 1) * 100, updatedAt: latest.time,
-    sourceUrl: `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}` };
+    sourceUrl };
 }

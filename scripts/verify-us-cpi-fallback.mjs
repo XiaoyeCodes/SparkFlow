@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import { buildFredCpiRelease, preferCpiPrimary } from '../server/usCpiFallback.ts';
+
+const now = Date.parse('2026-10-13T00:00:00Z');
+const point = (month, value) => ({ time: `${month}-01T00:00:00.000Z`, value });
+const sa = [point('2026-07', 200), point('2026-08', 200.8)];
+const nsa = [point('2025-07', 100), point('2025-08', 100), point('2026-07', 103.3), point('2026-08', 103.4)];
+const report = buildFredCpiRelease(sa, nsa, now);
+assert.equal(report.period, '2026-08');
+assert.ok(Math.abs(report.cpi - 0.4) < 1e-10, 'monthly inflation uses seasonally adjusted indices');
+assert.ok(Math.abs(report.cpiYoy - 3.4) < 1e-10, 'annual inflation uses unadjusted indices');
+assert.ok(Math.abs(report.cpiPreviousYoy - 3.3) < 1e-10);
+assert.equal(report.cpiHistory.at(-1).time, '2026-08-01T00:00:00.000Z');
+assert.equal(report.sourceUrls.length, 2);
+assert.throws(() => buildFredCpiRelease(sa.slice(1), nsa, now), /统计期/, 'missing previous month cannot be bridged');
+assert.throws(() => buildFredCpiRelease(sa, nsa.filter(p => p.time !== point('2025-08', 1).time), now), /统计期/, 'missing year-ago baseline cannot be bridged');
+assert.throws(() => buildFredCpiRelease([...sa, point('2026-08', 201)], nsa, now), /冲突/);
+const aligned = buildFredCpiRelease([...sa, point('2026-06', 199)], nsa.filter(p => p.time !== point('2026-08', 1).time), now);
+assert.equal(aligned.period, '2026-07', 'two series with different release months cannot be spliced');
+assert.equal(aligned.cpiPreviousYoy, undefined, 'missing prior annual rate stays missing');
+assert.equal(buildFredCpiRelease([...sa, point('2027-08', 300), point('2026-09', NaN)], nsa, now).period, '2026-08');
+
+const primary = { period: '2026-09', source: 'BLS' };
+assert.deepEqual(await preferCpiPrimary(Promise.resolve(primary), new Promise(() => {}), () => undefined, 5), primary);
+assert.deepEqual(await preferCpiPrimary(Promise.reject(Error('HTTP 403')), Promise.resolve(report), () => undefined, 5), report);
+assert.deepEqual(await preferCpiPrimary(new Promise(() => {}), Promise.resolve(report), () => undefined, 1), report, 'blocked primary does not hold a ready backup');
+assert.deepEqual(await preferCpiPrimary(Promise.reject(Error('HTTP 403')), Promise.resolve(report), () => primary, 5), primary, 'late newer official release wins');
+assert.deepEqual(await preferCpiPrimary(Promise.reject(Error('HTTP 403')), Promise.resolve(report), () => ({ period: '2026-07' }), 5), report);
+await assert.rejects(preferCpiPrimary(Promise.reject(Error('HTTP 403')), Promise.reject(Error('FRED offline')), () => undefined, 5), /403/);
+assert.deepEqual(await preferCpiPrimary(Promise.resolve(primary), Promise.reject(Error('backup offline')), () => undefined, 5), primary);
+assert.equal((await preferCpiPrimary(Promise.resolve({period:'2026-07'}), Promise.resolve(report), () => undefined, 5)).period,'2026-08','older primary cannot hide a newer official fallback');
+await assert.rejects(preferCpiPrimary(new Promise(()=>{}),new Promise(()=>{}),()=>undefined,1),/预算/,'two stalled providers cannot hold a macro job indefinitely');
+console.log('CPI fallback: SA/NSA units, exact month/year baselines, period alignment, primary failure/timeout, provenance and newer-release preference passed.');

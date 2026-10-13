@@ -12,6 +12,11 @@ import { readGlobalMacroBootstrap } from './server/globalMacroBootstrap';
 import { readMarketBootstrap } from './server/marketBootstrap';
 import { createDailyBriefAiSummaryCache, isDailyBriefAiSummary } from './server/dailyBriefAiSummaryCache';
 import { createPublicDataHandler } from './server/publicDataHttp';
+import { buildFredCpiRelease, preferCpiPrimary, preferOfficialMacroPrimary } from './server/usCpiFallback';
+import { buildFredEmploymentReport, buildFredPpiReport, buildFredPceMetric } from './server/usMacroFallbacks';
+import { parseNewYorkFedEffr, latestEffectiveFedRate } from './server/effectiveFedRate';
+import { createCoreIndexHistoryLoader } from './server/coreIndexHistory';
+import { parseSinaVtQuote, parseTencentVtQuote, validGlobalEquityQuote } from './server/globalEquityQuote';
 import {
   parseBinanceMarketTickers,
   parseCoinGeckoMarketUniverse,
@@ -63,7 +68,7 @@ import { createDailyBriefRepairTasks } from './server/dailyBriefRepairTasks';
 import { createMarketCloseService } from './server/marketCloseService';
 import { collectCloseResearch } from './server/marketCloseData';
 import { createFinancialConditionsService } from './server/financialConditions';
-import { parseEmploymentHeadline, parseMacroMarketCalendar, macroComparison, assertMacroPeriodNotRegressed, type MacroMarketContext } from './server/usMacroRelease';
+import { parseEmploymentHeadline, parseMacroMarketCalendar, macroComparison, assertMacroPeriodNotRegressed, previousMacroPeriod, type MacroMarketContext } from './server/usMacroRelease';
 import type {
   DailyBriefEditorialMetric,
   DailyBriefEditorialSnapshot,
@@ -4718,7 +4723,7 @@ async function getSinaFastAssetQuotes() {
     { id: 'silver', code: 'hf_SI', symbol: 'SI=F' },
     { id: 'gas', code: 'hf_NG', symbol: 'NG=F' },
   ] as const;
-  const sourceUrl = `https://hq.sinajs.cn/list=${[...configs.map((item) => item.code), ...SINA_CURRENCY_CODES, SINA_US10Y_CODE, ...SINA_CORE_INDEX_CONFIGS.map(item => item.code)].join(',')}`;
+  const sourceUrl = `https://hq.sinajs.cn/list=${[...configs.map((item) => item.code), ...SINA_CURRENCY_CODES, SINA_US10Y_CODE, ...SINA_CORE_INDEX_CONFIGS.map(item => item.code), 'gb_vt'].join(',')}`;
   const text = await fetchText(sourceUrl, 2_500);
   const quotes = new Map<string, YahooFastQuote>();
   configs.forEach((config) => {
@@ -4742,6 +4747,8 @@ async function getSinaFastAssetQuotes() {
   const us10y = parseSinaUs10yQuote(text);
   if (us10y) quotes.set('us10y', us10y);
   parseSinaCoreIndexQuotes(text).forEach((quote, id) => quotes.set(id, quote));
+  const vt = parseSinaVtQuote(text);
+  if (vt) quotes.set('vt', vt);
   if (!quotes.size) throw new Error('新浪全球资产快照暂时不可用');
   return quotes;
 }
@@ -4881,9 +4888,9 @@ async function getFredSeries(seriesId: string) {
   const request = (async () => {
     let csv: string;
     try {
-      csv = await fetchRoutedText(sourceUrl, 'proxy', 18000, 'text/csv,text/plain,*/*');
-    } catch {
       csv = await fetchRoutedText(sourceUrl, 'direct', 12000, 'text/csv,text/plain,*/*');
+    } catch {
+      csv = await fetchRoutedText(sourceUrl, 'proxy', 18000, 'text/csv,text/plain,*/*');
     }
     const values = parseFredSeries(csv);
     if (!values.length) throw new Error(`${seriesId} 无可用 FRED 数据`);
@@ -5250,12 +5257,21 @@ type BlsReleaseReportSnapshot = {
   ppiPrevious?: number;
   ppiYoy?: number;
   ppiPreviousYoy?: number;
+  ppiHistory?: Array<{ time: string; value: number }>;
   cpi?: number;
   cpiYoy?: number;
+  cpiPreviousYoy?: number;
+  cpiHistory?: Array<{ time: string; value: number }>;
+  source?: string;
+  sourceUrls?: string[];
+  methodology?: string;
+  consensusSourceUrl?: string;
   unemployment?: number;
   unemploymentPrevious?: number;
   nonfarm?: number;
   nonfarmPrevious?: number;
+  nonfarmHistory?: Array<{ time: string; value: number }>;
+  unemploymentHistory?: Array<{ time: string; value: number }>;
   storedAt: number;
 };
 const blsReleaseReportCache = new Map<BlsReleaseReportSnapshot['family'], BlsReleaseReportSnapshot>();
@@ -5817,6 +5833,36 @@ async function getBlsReleaseReport(family: BlsReleaseReportSnapshot['family'], f
   return request.catch(error => { if (allowStale && cached) return cached; throw error; });
 }
 
+async function getCpiCardReport(): Promise<BlsReleaseReportSnapshot> {
+  const primary = getBlsReleaseReport('cpi', true, false);
+  const fallback = Promise.all([getFredSeries('CPIAUCSL'), getFredSeries('CPIAUCNS')])
+    .then(([adjusted, unadjusted]) => buildFredCpiRelease(adjusted, unadjusted));
+  return preferCpiPrimary<BlsReleaseReportSnapshot>(primary, fallback, () => {
+    const report = blsReleaseReportCache.get('cpi');
+    return report && Date.now() - report.storedAt < BLS_MACRO_CACHE_TTL_MS ? report : undefined;
+  });
+}
+
+async function getResilientBlsCardReport(family: 'ppi' | 'employment'): Promise<BlsReleaseReportSnapshot> {
+  const primary = getBlsReleaseReport(family, true, false);
+  const fallback = family === 'employment'
+    ? Promise.all([getFredSeries('PAYEMS'), getFredSeries('UNRATE')]).then(([jobs, rate]) => buildFredEmploymentReport(jobs, rate))
+    : Promise.all([getFredSeries('PPIFIS'), getFredSeries('PPIFID')]).then(([sa, nsa]) => buildFredPpiReport(sa, nsa));
+  return preferOfficialMacroPrimary<BlsReleaseReportSnapshot>(primary, fallback, () => {
+    const report = blsReleaseReportCache.get(family);
+    return report && Date.now() - report.storedAt < BLS_MACRO_CACHE_TTL_MS ? report : undefined;
+  });
+}
+
+async function getResilientPceMetric() {
+  const primary = getBeaPceMacroMetric(true, false).then(metric => ({ period: metric.updatedAt.slice(0, 7), metric }));
+  const fallback = getFredSeries('PCEPI').then(points => {
+    const metric = buildFredPceMetric(points);
+    return { period: metric.updatedAt.slice(0, 7), metric };
+  });
+  return (await preferOfficialMacroPrimary(primary, fallback, () => undefined)).metric;
+}
+
 async function getBlsReleaseMacroMetric(
   id: 'ppi' | 'cpi' | 'unemployment' | 'nonfarm',
   forceRefresh = false,
@@ -6290,6 +6336,10 @@ type IsolatedUsMacroCard = {
   changeDisplay: string;
   updatedAt: string;
   sourceUrl: string;
+  source?: string;
+  sourceUrls?: string[];
+  methodology?: string;
+  consensusSourceUrl?: string;
   status: 'delayed';
   history: Array<{ time: string; value: number }>;
   stats: Array<{ label: string; display: string }>;
@@ -6417,7 +6467,7 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
 
   if (id === 'pce') {
     const [official, optionalMarket] = await Promise.all([
-      getBeaPceMacroMetric(true, false).catch(() => undefined),
+      getResilientPceMetric().catch(() => undefined),
       optionalMacroContext(id),
     ]);
     const market = optionalMarket || (!official ? await getIsolatedMarketContext(id).catch(() => undefined) : undefined);
@@ -6426,7 +6476,8 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
       ? { period: officialPeriod, actual: official.value, sourceUrl: official.sourceUrl }
       : market;
     if (!context) throw new Error('BEA 和 PCE 市场数据均获取失败');
-    const { previous, consensus, change } = macroComparison(context.period, context.actual, undefined, market, priorHistory);
+    const officialPrevious = official?.history?.find(point => point.time.slice(0, 7) === previousMacroPeriod(context.period))?.value;
+    const { previous, consensus, change } = macroComparison(context.period, context.actual, officialPrevious, market, priorHistory);
     const { currentTime, history } = isolatedCardHistory(context.period, previous, context.actual);
     return {
       id,
@@ -6437,6 +6488,7 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
       changeDisplay: optionalDisplay(change, 2, 'p'),
       updatedAt: currentTime,
       sourceUrl: context.sourceUrl,
+      consensusSourceUrl: consensus === undefined ? undefined : market?.sourceUrl,
       status: 'delayed',
       history,
       stats: [
@@ -6450,7 +6502,7 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
 
   if (id === 'ppi' || id === 'cpi') {
     const [report, context] = await Promise.all([
-      getBlsReleaseReport(id, true, false),
+      id === 'cpi' ? getCpiCardReport() : getResilientBlsCardReport('ppi'),
       optionalMacroContext(id),
     ]);
     const actual = id === 'ppi' ? report.ppiYoy : report.cpiYoy;
@@ -6458,7 +6510,7 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
     if (actual === undefined || monthly === undefined) {
       throw new Error(`${id.toUpperCase()} 官方实际值缺失`);
     }
-    const { previous, consensus } = macroComparison(report.period, actual, id === 'ppi' ? report.ppiPreviousYoy : undefined, context, priorHistory);
+    const { previous, consensus } = macroComparison(report.period, actual, id === 'ppi' ? report.ppiPreviousYoy : report.cpiPreviousYoy, context, priorHistory);
     const { currentTime, history } = isolatedCardHistory(report.period, previous, actual);
     return {
       id,
@@ -6469,8 +6521,10 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
       changeDisplay: signedCardValue(monthly, 1, '%'),
       updatedAt: currentTime,
       sourceUrl: report.sourceUrl,
+      source: report.source, sourceUrls: report.sourceUrls, methodology: report.methodology,
+      consensusSourceUrl: consensus === undefined ? undefined : context?.sourceUrl,
       status: 'delayed',
-      history,
+      history: (id === 'cpi' ? report.cpiHistory : report.ppiHistory) || history,
       stats: [
         { label: '环比', display: signedCardValue(monthly, 1, '%') },
         { label: '同比值', display: signedCardValue(actual, 1, '%') },
@@ -6481,7 +6535,7 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
   }
 
   const [report, context] = await Promise.all([
-    getBlsReleaseReport('employment', true, false),
+    getResilientBlsCardReport('employment'),
     optionalMacroContext(id),
   ]);
   const actual = id === 'nonfarm' ? report.nonfarm : report.unemployment;
@@ -6503,9 +6557,11 @@ async function buildIsolatedUsMacroCard(id: IsolatedUsMacroCardId): Promise<Isol
     change,
     changeDisplay: optionalDisplay(change, nonfarm ? 0 : 1, nonfarm ? 'K' : 'p'),
     updatedAt: currentTime,
-    sourceUrl: report.sourceUrl,
+    sourceUrl: report.sourceUrls?.[id === 'nonfarm' ? 0 : 1] || report.sourceUrl,
+    source: report.source, sourceUrls: report.sourceUrls, methodology: report.methodology,
+    consensusSourceUrl: consensus === undefined ? undefined : context?.sourceUrl,
     status: 'delayed',
-    history,
+    history: (id === 'nonfarm' ? report.nonfarmHistory : report.unemploymentHistory) || history,
     stats: [
       { label: '实际', display: format(actual) },
       { label: '预期', display: format(consensus) },
@@ -6523,6 +6579,7 @@ async function refreshIsolatedUsMacroCard(id: IsolatedUsMacroCardId) {
       assertMacroPeriodNotRegressed(data.updatedAt, cached?.updatedAt);
       // Preserve same-release enrichment through transient expectation failures only.
       if (cached?.updatedAt.slice(0, 7) === data.updatedAt.slice(0, 7) && cached.value === data.value) {
+        if (!data.consensusSourceUrl) data.consensusSourceUrl = cached.consensusSourceUrl;
         data.stats = data.stats.map(stat => stat.display === '—' && /预期/.test(stat.label)
           ? cached.stats.find(previous => previous.label === stat.label) || stat : stat);
       }
@@ -7584,6 +7641,15 @@ function buildFedRateExpectation(
 }
 
 const isolatedCoreIndexLastGood = new Map<IsolatedGlobalMacroCoreIndexId, any>();
+const coreIndexHistoryLoader = createCoreIndexHistoryLoader({
+  fred: getFredSeries,
+  shanghai: async () => {
+    const data = await getTencentMarketCandles('sh000001', 32);
+    return { history: data.candles.map(point => ({ time: point.time, value: point.close })),
+      sourceUrl: 'https://gu.qq.com/sh000001/zs' };
+  },
+  yahoo: symbol => getYahooMacroQuote(symbol, '1mo'),
+});
 const isolatedFxRateLastGood = new Map<IsolatedGlobalMacroFxRateId, any>();
 const isolatedMarketAssetLastGood = new Map<IsolatedGlobalMacroAssetId, any>();
 let isolatedFedRateLastGood: ReturnType<typeof buildFedRateExpectation> | null = null;
@@ -7594,11 +7660,12 @@ async function loadIsolatedGlobalMacroCoreIndex(id: IsolatedGlobalMacroCoreIndex
   const config = globalMacroCoreIndexConfigs[id];
   try {
     const primary = await readFastAssetSource().catch(() => undefined);
-    const history = (yahooMacroQuoteCache.get(`${config.symbol}:1mo`)
+    const preparedHistory = coreIndexHistoryLoader.peek(id);
+    const history = preparedHistory?.history || (yahooMacroQuoteCache.get(`${config.symbol}:1mo`)
       || yahooMacroQuoteCache.get(`${config.symbol}:3mo`))?.history || [];
     const quote = (!primary?.error ? primary?.data?.get(id) : undefined)
       || (await readFastCoreIndexYahooSource().catch(() => undefined))?.data?.get(config.symbol)
-      || coreIndexHistoryQuote(config.symbol, history);
+      || coreIndexHistoryQuote(config.symbol, history, Date.now(), preparedHistory?.sourceUrl);
     if (!quote) throw new Error(`${config.name}最新行情暂不可用`);
     const index = {
       id: config.id,
@@ -7610,6 +7677,7 @@ async function loadIsolatedGlobalMacroCoreIndex(id: IsolatedGlobalMacroCoreIndex
       sourceUrl: quote.sourceUrl || config.sourceUrl,
       // History is supplied by the slow dashboard lane, never fetched per tick.
       history: history.slice(-22),
+      historySourceUrl: preparedHistory?.sourceUrl,
       status: fastQuoteStatus(quote.updatedAt),
     };
     isolatedCoreIndexLastGood.set(id, index);
@@ -7659,9 +7727,13 @@ async function refreshIsolatedFedRateExpectation() {
   const contractSymbol = getFedFundsMeetingContract(nextMeeting.date);
   const [futuresQuote, currentRateMetric] = await Promise.all([
     getYahooMacroQuote(contractSymbol, '1mo'),
-    Promise.any([
-      getFredMacroMetric('fedfunds', ['DFF'], '联邦基金有效利率', (value) => `${value.toFixed(2)}%`),
-      getFredMacroMetric('fedfunds', ['FEDFUNDS'], '联邦基金利率', (value) => `${value.toFixed(2)}%`),
+    latestEffectiveFedRate([
+      getFredMacroMetric('fedfunds', ['DFF'], '联邦基金有效利率', (value) => `${value.toFixed(2)}%`).then(metric => {
+        if (Date.now() - Date.parse(metric.updatedAt) > 14 * 86400_000 || Date.parse(metric.updatedAt) > Date.now()
+          || !Number.isFinite(metric.value) || metric.value < 0 || metric.value >= 30) throw new Error('DFF 观测无效或过期');
+        return metric;
+      }),
+      fetchExternalJson('https://markets.newyorkfed.org/api/rates/unsecured/effr/last/1.json', 6000).then(data => parseNewYorkFedEffr(data)),
     ]),
   ]);
   if (currentRateMetric.value === null || currentRateMetric.value === undefined) {
@@ -7673,6 +7745,7 @@ async function refreshIsolatedFedRateExpectation() {
     nextMeeting,
     contractSymbol,
   );
+  Object.assign(expectation, { currentRateUpdatedAt: currentRateMetric.updatedAt, currentRateSourceUrl: currentRateMetric.sourceUrl });
   isolatedFedRateLastGood = expectation;
   return expectation;
 }
@@ -7806,10 +7879,11 @@ type GlobalRiskSentimentMetric = {
   status: 'live' | 'delayed' | 'unavailable';
   history: Array<{ time: string; value: number }>;
   rating?: string;
-  provider: 'Yahoo Finance' | 'CNN';
+  provider: 'Yahoo Finance' | 'CNN' | 'FRED';
 };
 
 const globalRiskSentimentLastGood = new Map<GlobalRiskSentimentId, GlobalRiskSentimentMetric>();
+const riskSentimentRequests = new Map<GlobalRiskSentimentId, Promise<GlobalRiskSentimentMetric>>();
 
 function unavailableRiskSentimentMetric(
   id: GlobalRiskSentimentId,
@@ -7848,6 +7922,17 @@ async function getYahooRiskSentimentMetric(
     history: quote.history.slice(-30),
     provider: 'Yahoo Finance',
   };
+}
+
+async function getResilientRiskSentimentMetric(id: 'vix' | 'vxn', symbol: '^VIX' | '^VXN', label: string): Promise<GlobalRiskSentimentMetric> {
+  const primary = getYahooRiskSentimentMetric(id, symbol, label).then(metric => ({ period: metric.updatedAt!, metric }));
+  const seriesId = id === 'vix' ? 'VIXCLS' : 'VXNCLS';
+  const fallback = getFredMacroMetric(id, [seriesId], label, value => value.toFixed(2)).then(metric => {
+    if (Date.now() - Date.parse(metric.updatedAt) > 14 * 86400_000) throw new Error('波动率备用观测过期');
+    return { period: metric.updatedAt, metric: { ...metric, id, change: metric.change ?? null, provider: 'FRED' as const } };
+  });
+  const selected = await preferOfficialMacroPrimary(primary, fallback, () => undefined);
+  return selected.metric;
 }
 
 function cnnFearGreedRating(value: unknown, score: number) {
@@ -7920,17 +8005,17 @@ async function loadGlobalRiskSentiment() {
   const [vix, vxn, fearGreed] = await Promise.all([
     loadRiskSentimentMetric(
       'vix',
-      () => getYahooRiskSentimentMetric('vix', '^VIX', 'VIX 标普波动率指数'),
+      () => getIndependentRiskSentiment('vix'),
       unavailableRiskSentimentMetric('vix', 'VIX 标普波动率指数', 'https://finance.yahoo.com/quote/%5EVIX', 'Yahoo Finance'),
     ),
     loadRiskSentimentMetric(
       'vxn',
-      () => getYahooRiskSentimentMetric('vxn', '^VXN', 'VXN 纳斯达克100波动率指数'),
+      () => getIndependentRiskSentiment('vxn'),
       unavailableRiskSentimentMetric('vxn', 'VXN 纳斯达克100波动率指数', 'https://finance.yahoo.com/quote/%5EVXN', 'Yahoo Finance'),
     ),
     loadRiskSentimentMetric(
       'fear-greed',
-      getCnnFearGreedMetric,
+      () => getIndependentRiskSentiment('fear-greed'),
       unavailableRiskSentimentMetric('fear-greed', 'CNN 恐惧贪婪指数', 'https://www.cnn.com/markets/fear-and-greed', 'CNN'),
     ),
   ]);
@@ -7938,6 +8023,17 @@ async function loadGlobalRiskSentiment() {
     generatedAt: new Date().toISOString(),
     metrics: { vix, vxn, fearGreed },
   };
+}
+
+async function getIndependentRiskSentiment(id: GlobalRiskSentimentId) {
+  const running = riskSentimentRequests.get(id);
+  if (running) return running;
+  const request = (id === 'fear-greed' ? getCnnFearGreedMetric()
+    : getResilientRiskSentimentMetric(id, id === 'vix' ? '^VIX' : '^VXN', id === 'vix' ? 'VIX 标普波动率指数' : 'VXN 纳斯达克100波动率指数'))
+    .then(metric => { globalRiskSentimentLastGood.set(id, metric); return metric; })
+    .finally(() => riskSentimentRequests.delete(id));
+  riskSentimentRequests.set(id, request);
+  return request;
 }
 
 const globalMacroMetricLastGood = new Map<string, any>();
@@ -8010,7 +8106,8 @@ async function loadGlobalMarketsSection() {
     sourceUrl: config.quote?.sourceUrl || config.sourceUrl,
     // Apply primary/fallback quote metadata together; keep historical points below.
     ...latestCoreQuotes.get(config.id),
-    history: config.quote?.history?.slice(-22) || [],
+    history: coreIndexHistoryLoader.peek(config.id as IsolatedGlobalMacroCoreIndexId)?.history
+      || config.quote?.history?.slice(-22) || latestCoreQuotes.get(config.id)?.history || [],
     status: latestCoreQuotes.get(config.id)?.status || (config.quote ? 'delayed' as const : 'unavailable' as const),
   }));
 
@@ -8335,6 +8432,23 @@ const readFastGoldenDragonSource = createBudgetedFastQuoteSource(async () => {
 });
 const readFastGlobalIndexSource = createBudgetedFastQuoteSource(() => getEastMoneyGlobalFastQuotes());
 const readFastAssetSource = createBudgetedFastQuoteSource(() => getSinaFastAssetQuotes());
+const readFastGlobalEquitySource = createBudgetedFastQuoteSource(async () => {
+  const primary = readFastAssetSource().then(frame => frame.data?.get('vt'));
+  const secondary = fetchText('https://qt.gtimg.cn/q=usVT', 2500).then(raw => parseTencentVtQuote(raw, tencentIndexUpdatedAt));
+  const results = await Promise.allSettled([primary, secondary]);
+  const quotes = results.flatMap(result => result.status === 'fulfilled' && validGlobalEquityQuote(result.value) ? [result.value!] : []);
+  if (quotes.length) return quotes.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+  const backup = validGlobalEquityQuote((await getYahooFastQuotes(['VT'])).get('VT'));
+  if (!backup) throw new Error('VT 主备报价均不可用');
+  return backup;
+});
+
+async function loadGlobalEquityQuote() {
+  const quote = (await readFastGlobalEquitySource()).data;
+  if (!quote) throw new Error('VT 正在等待主备数据源');
+  return { ...quote, id: 'vt', name: '全球股票 VT', region: 'global' as const, latitude: 0, longitude: 0,
+    session: { label: '全球市场代理', tone: 'unknown' as const }, history: [] };
+}
 const readFastCryptoYahooSource = createBudgetedFastQuoteSource(() => getYahooFastCryptoQuotes());
 const readFastCryptoBinanceSource = createBudgetedFastQuoteSource(() => getBinanceFastCryptoQuotes());
 const readFastCryptoCoinGeckoSource = createBudgetedFastQuoteSource(() => getCoinGeckoFastCryptoQuotes());
@@ -8411,12 +8525,13 @@ async function loadGlobalMacroFastQuotes() {
     'DX-Y.NYB',
   ];
   if (!isPublicSourceRefresh()) refreshYahooFastQuotesInBackground(yahooSymbols);
-  const [equityResult, globalIndexResult, assetResult, cryptoResult, yahooMarketQuotes] = await Promise.all([
+  const [equityResult, globalIndexResult, assetResult, cryptoResult, yahooMarketQuotes, vtResult] = await Promise.all([
     readFastEquitySource(),
     readFastGlobalIndexSource(),
     readFastAssetSource(),
     readFastCryptoSource(),
     readFastDashboardYahooSource().then(result => result.data || new Map<string, YahooFastQuote>()),
+    readFastGlobalEquitySource(),
   ]);
   const yahoo = new Map(isPublicSourceRefresh() ? [] : yahooFastQuoteLastGood);
   yahooMarketQuotes.forEach((quote, symbol) => yahoo.set(symbol, quote));
@@ -8545,7 +8660,7 @@ async function loadGlobalMacroFastQuotes() {
     }];
   });
 
-  const vtQuote = yahoo.get('VT');
+  const vtQuote = vtResult.data || assetQuotes.get('vt') || yahoo.get('VT');
   const global = vtQuote ? {
     ...vtQuote,
     id: 'vt',
@@ -12287,8 +12402,18 @@ async function loadPublicDashboardResource(key: string): Promise<unknown> {
       if (!index || !validatePublicResource(key, { index })) throw new Error('该指数的最新行情暂不可用');
       return { generatedAt: generatedAt(), index };
     }
+    case '/api/global-macro-core-index-history': return { generatedAt: generatedAt(),
+      series: await coreIndexHistoryLoader.get(id as IsolatedGlobalMacroCoreIndexId) };
     case '/api/global-risk-sentiment': return loadGlobalRiskSentiment();
+    case '/api/global-risk-sentiment/vix':
+    case '/api/global-risk-sentiment/vxn':
+    case '/api/global-risk-sentiment/fear-greed': return { generatedAt: generatedAt(),
+      metric: await getIndependentRiskSentiment(url.pathname.split('/').at(-1) as GlobalRiskSentimentId) };
     case '/api/global-macro-fed-rate': return { generatedAt: generatedAt(), expectation: await loadIsolatedFedRateExpectation() };
+    case '/api/global-macro-global-equity': return { generatedAt: generatedAt(), quote: await loadGlobalEquityQuote() };
+    case '/api/global-macro-treasury-spread': return { generatedAt: generatedAt(), metric: await getFredMacroMetric(
+      'ust2y10y', ['T10Y2Y'], '美债 2Y-10Y 利差', value => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`,
+    ) };
     case '/api/global-macro-ppi-expectation': return { generatedAt: generatedAt(), macro: [await getUsPpiMacroMetric(false, true)] };
     case '/api/us-macro-card': return { generatedAt: generatedAt(), card: await getIsolatedUsMacroCard(id as IsolatedUsMacroCardId, true) };
     case '/api/fed-net-liquidity': return { generatedAt: generatedAt(), liquidity: await getFedNetLiquidity() };
@@ -12323,6 +12448,14 @@ function allWeatherApiPlugin() {
       const preloadEnvironment = { ...loadEnv(server.config.mode, rootDir, 'SPARKFLOW_'), ...process.env };
       const publicCache = preloadEnvironment.SPARKFLOW_PUBLIC_CACHE === '0' ? undefined : createPublicDataCache({
         resources: PUBLIC_DATA_POLICIES.map(policy => ({ ...policy,
+          fallbackAt: policy.key.startsWith('/api/us-macro-card?') ? data => {
+            const card = (data as { card?: IsolatedUsMacroCard }).card;
+            return card?.stale ? Date.parse(card.lastSuccessAt || '') : undefined;
+          } : policy.key === '/api/financial-conditions' ? data => {
+            const metrics = Object.values((data as { conditions: Record<string, { stale?: boolean; fetchedAt: string } | null> }).conditions).filter(metric => metric !== null);
+            return metrics.length && metrics.every(metric => metric!.stale)
+              ? Math.min(...metrics.map(metric => Date.parse(metric!.fetchedAt))) : undefined;
+          } : undefined,
           warm: preloadEnvironment.SPARKFLOW_PUBLIC_PRELOAD !== '0' && policy.warm,
           load: () => withPublicSourceRefresh(() => loadPublicDashboardResource(policy.key)), validate: data => validatePublicResource(policy.key, data),
         })),
@@ -12633,6 +12766,12 @@ function allWeatherApiPlugin() {
             return;
           }
 
+          if (['/api/global-risk-sentiment/vix', '/api/global-risk-sentiment/vxn', '/api/global-risk-sentiment/fear-greed'].includes(url.pathname) && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await loadPublicDashboardResource(url.pathname));
+            return;
+          }
+
           if (url.pathname === '/api/global-risk-sentiment') {
             res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 200, await loadGlobalRiskSentiment());
@@ -12653,12 +12792,32 @@ function allWeatherApiPlugin() {
             return;
           }
 
+          if (url.pathname === '/api/global-macro-core-index-history' && req.method === 'GET') {
+            const id = url.searchParams.get('id');
+            if (!id || !Object.hasOwn(globalMacroCoreIndexConfigs, id)) { sendJson(res, 400, { error: '不支持的核心指数' }); return; }
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await loadPublicDashboardResource(url.pathname + url.search));
+            return;
+          }
+
+          if (url.pathname === '/api/global-macro-global-equity' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, { generatedAt: new Date().toISOString(), quote: await loadGlobalEquityQuote() });
+            return;
+          }
+
           if (url.pathname === '/api/global-macro-fed-rate') {
             res.setHeader('Cache-Control', 'no-store');
             sendJson(res, 200, {
               generatedAt: new Date().toISOString(),
               expectation: await loadIsolatedFedRateExpectation(),
             });
+            return;
+          }
+
+          if (url.pathname === '/api/global-macro-treasury-spread' && req.method === 'GET') {
+            res.setHeader('Cache-Control', 'no-store');
+            sendJson(res, 200, await loadPublicDashboardResource(url.pathname));
             return;
           }
 

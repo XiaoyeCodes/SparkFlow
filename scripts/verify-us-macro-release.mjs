@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { buildFredCpiRelease } from '../server/usCpiFallback.ts';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
@@ -51,9 +52,12 @@ const context = vm.createContext({
   stripTags: macroText, asFiniteNumber: value => value === undefined || !Number.isFinite(Number(value)) ? undefined : Number(value),
   isolatedUsMacroCardCache: cache, isolatedUsMacroCardInFlight: new Map(), persistIsolatedUsMacroCards() {},
   getBlsReleaseReport: async () => { if (fail) throw new Error('test upstream failure'); return {period, nonfarm:162,nonfarmPrevious:21,unemployment:4.1,unemploymentPrevious:4.1,cpi:0.1,cpiYoy:3.4,ppi:0,ppiYoy:4.7,sourceUrl:'official'}; },
+  getCpiCardReport: async () => { if (fail) throw new Error('test upstream failure'); return { period, cpi: 0.1, cpiYoy: 3.4, sourceUrl: 'official' }; },
+  getResilientBlsCardReport: async () => { if (fail) throw new Error('test upstream failure'); return { period, nonfarm:162, nonfarmPrevious:21, unemployment:4.1, unemploymentPrevious:4.1, ppi:0, ppiYoy:4.7, sourceUrl:'official' }; },
   optionalMacroContext: async () => undefined,
   getIsolatedMarketContext: async () => ({ period, actual:51, previous:50, sourceUrl:'market' }),
   getBeaPceMacroMetric: async () => ({updatedAt: `${period}-01T00:00:00Z`,value:0.2,sourceUrl:'bea'}),
+  getResilientPceMetric: async () => ({updatedAt: `${period}-01T00:00:00Z`,value:0.2,sourceUrl:'bea'}),
 });
 vm.runInContext(ts.transpileModule(functions, {compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText, context);
 const employment = context.parseBlsReleaseReport('THE EMPLOYMENT SITUATION - AUGUST 2026. Total nonfarm payroll employment increased by 162,000 in August, and the unemployment rate was unchanged at 4.1 percent. The change for July was revised up by 44,000, from -23,000 to +21,000.', 'employment', 'test');
@@ -78,6 +82,19 @@ for (const id of ['nonfarm', 'unemployment', 'cpi', 'ppi', 'pmi', 'pce']) {
 }
 assert.equal(cache.get('nonfarm').data.change, 141);
 assert.equal(cache.get('pce').data.value, 0.2, 'BEA actual must not be overridden by a mismatched market actual');
+const fallbackCpi = buildFredCpiRelease(
+  [{ time: '2026-07-01', value: 200 }, { time: '2026-08-01', value: 200.8 }],
+  [{ time: '2025-07-01', value: 100 }, { time: '2025-08-01', value: 100 }, { time: '2026-07-01', value: 103.3 }, { time: '2026-08-01', value: 103.4 }],
+  Date.parse('2026-10-13T00:00:00Z'),
+);
+context.getCpiCardReport = async () => fallbackCpi;
+const cpiFallbackCard = await context.refreshIsolatedUsMacroCard('cpi');
+assert.equal(cpiFallbackCard.display, '+3.4%');
+assert.equal(cpiFallbackCard.stats.find(stat => stat.label === '环比').display, '+0.4%');
+assert.equal(cpiFallbackCard.stats.find(stat => stat.label === '前值').display, '+3.3%');
+assert.equal(cpiFallbackCard.stats.find(stat => stat.label === '预期').display, '—');
+assert.equal(cpiFallbackCard.source, 'FRED（原始来源 BLS）');
+assert.equal(cpiFallbackCard.sourceUrls.length, 2);
 fail = true;
 const stale = await context.refreshIsolatedUsMacroCard('nonfarm');
 assert.equal(stale.value, 162);

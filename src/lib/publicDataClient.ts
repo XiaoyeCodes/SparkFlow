@@ -115,7 +115,7 @@ export function publicDataFetch(input: string, init: RequestInit = {}): Promise<
         if (meta) notify(policy.key, meta);
         else if (!response.ok) notify(policy.key, { state: 'unavailable' });
         else if (notices.has(policy.key)) { notices.delete(policy.key); noticeVersion++; listeners.forEach(listener => listener()); }
-        if (response.ok && isUsablePublicPayload(data)) {
+        if (response.ok && (isUsablePublicPayload(data) || ((policy.key.startsWith('/api/us-macro-card?') || policy.key === '/api/financial-conditions') && validatePublicResource(policy.key, data)))) {
           const sourceExpiry = typeof data.validUntil === 'string' ? Date.parse(data.validUntil) : Infinity;
           const hardExpiry = meta?.expiresAt ? Date.parse(meta.expiresAt) : Infinity;
           const refreshAt = meta?.refreshAt ? Date.parse(meta.refreshAt) : Infinity;

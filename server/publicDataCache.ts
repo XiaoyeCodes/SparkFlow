@@ -9,8 +9,10 @@ export type PublicResource = {
   warm?: boolean;
   persist?: boolean;
   realtime?: boolean;
+  lane?: 'macro';
   load: () => Promise<unknown>;
   validate: (data: unknown) => boolean;
+  fallbackAt?: (data: unknown) => number | undefined;
 };
 export type PublicCacheMeta = {
   state: 'fresh' | 'stale';
@@ -19,7 +21,7 @@ export type PublicCacheMeta = {
   expiresAt: string;
 };
 type Snapshot = { version: 1; key: string; storedAt: number; data: unknown };
-type Entry = Snapshot & { expiresAt: number; refreshAt?: number; bytes: number; touchedAt: number; json: string };
+type Entry = Snapshot & { expiresAt: number; refreshAt?: number; fallback?: boolean; bytes: number; touchedAt: number; json: string };
 type Job = { resource: PublicResource; resolve: () => void; reject: (error: Error) => void; promise: Promise<void>; urgent: boolean };
 export type SnapshotStore = { read(key: string): Promise<string | null>; write(key: string, value: string): Promise<void> };
 
@@ -66,6 +68,7 @@ export function createPublicDataCache(options: {
   now?: () => number;
   concurrency?: number;
   realtimeConcurrency?: number;
+  macroConcurrency?: number;
   maxEntries?: number;
   maxBytes?: number;
   maxEntryBytes?: number;
@@ -76,6 +79,8 @@ export function createPublicDataCache(options: {
   // Reserve capacity for quotes; slow economic/news loaders cannot occupy it.
   const realtimeConcurrency = Math.max(1, Math.min(4, options.realtimeConcurrency ?? 4));
   const realtime = (resource: PublicResource) => resource.realtime === true;
+  const macroConcurrency = Math.max(1, Math.min(8, options.macroConcurrency ?? 6));
+  const macro = (resource: PublicResource) => !realtime(resource) && resource.lane === 'macro';
   const maxEntries = options.maxEntries ?? 160;
   const maxBytes = options.maxBytes ?? 32 * 1024 * 1024;
   const maxEntryBytes = options.maxEntryBytes ?? 2 * 1024 * 1024;
@@ -89,6 +94,7 @@ export function createPublicDataCache(options: {
   const failures = new Map<string, number>();
   let active = 0;
   let activeRealtime = 0;
+  let activeMacro = 0;
   const persistedAt = new Map<string, number>();
   let bytes = 0;
   let closed = false;
@@ -116,7 +122,8 @@ export function createPublicDataCache(options: {
     }
     // Detach from legacy loaders that may later mutate their own cached objects.
     const stable = JSON.parse(encoded) as Snapshot;
-    entries.set(resource.key, { ...stable, expiresAt, bytes: size, touchedAt: now(), json: JSON.stringify(stable.data) });
+    entries.set(resource.key, { ...stable, expiresAt, fallback: resource.fallbackAt?.(stable.data) !== undefined,
+      bytes: size, touchedAt: now(), json: JSON.stringify(stable.data) });
     bytes += size;
     return true;
   };
@@ -139,23 +146,34 @@ export function createPublicDataCache(options: {
     if (closed) return;
     while (queue.length) {
       const eligible = (job: Job) => realtime(job.resource)
-        ? activeRealtime < realtimeConcurrency : active - activeRealtime < concurrency;
+        ? activeRealtime < realtimeConcurrency : macro(job.resource)
+          ? activeMacro < macroConcurrency : active - activeRealtime - activeMacro < concurrency;
       let index = queue.findIndex(job => eligible(job) && job.urgent);
       if (index < 0) index = queue.findIndex(eligible);
       if (index < 0) break;
       const job = queue.splice(index, 1)[0];
       active++;
       if (realtime(job.resource)) activeRealtime++;
+      if (macro(job.resource)) activeMacro++;
       const startedAt = now();
       void (async () => {
         try {
           const data = await job.resource.load();
           if (closed) throw new Error('Public cache stopped');
-          const snapshot: Snapshot = { version: 1, key: job.resource.key, storedAt: now(), data };
+          const fallbackAt = job.resource.fallbackAt?.(data);
+          const snapshot: Snapshot = { version: 1, key: job.resource.key, storedAt: fallbackAt ?? now(), data };
           if (!put(snapshot, job.resource)) throw new Error('Public data invalid, expired or too large');
           if (realtime(job.resource)) entries.get(job.resource.key)!.refreshAt = startedAt + job.resource.refreshMs;
-          failures.delete(job.resource.key);
-          retryAt.delete(job.resource.key);
+          if (fallbackAt !== undefined) {
+            const count = (failures.get(job.resource.key) ?? 0) + 1;
+            failures.set(job.resource.key, count);
+            const retry = now() + Math.min(300_000, 5_000 * 2 ** Math.min(count - 1, 6));
+            retryAt.set(job.resource.key, retry);
+            entries.get(job.resource.key)!.refreshAt = retry;
+          } else {
+            failures.delete(job.resource.key);
+            retryAt.delete(job.resource.key);
+          }
           if (options.store && job.resource.persist !== false
             && (!realtime(job.resource) || !persistedAt.has(job.resource.key) || now() - persistedAt.get(job.resource.key)! >= 30_000)) {
             try { await options.store.write(job.resource.key, JSON.stringify(snapshot)); persistedAt.set(job.resource.key, now()); }
@@ -170,6 +188,7 @@ export function createPublicDataCache(options: {
         } finally {
           active--;
           if (realtime(job.resource)) activeRealtime--;
+          if (macro(job.resource)) activeMacro--;
           jobs.delete(job.resource.key);
           pump();
         }
@@ -206,7 +225,7 @@ export function createPublicDataCache(options: {
     entry.touchedAt = now();
     const refreshAt = Math.min(entry.refreshAt ?? entry.storedAt + resource.refreshMs, entry.expiresAt);
     const meta: PublicCacheMeta = {
-      state: now() < refreshAt ? 'fresh' : 'stale',
+      state: !entry.fallback && now() < refreshAt ? 'fresh' : 'stale',
       storedAt: new Date(entry.storedAt).toISOString(),
       refreshAt: new Date(refreshAt).toISOString(),
       expiresAt: new Date(entry.expiresAt).toISOString(),
@@ -264,15 +283,17 @@ export function createPublicDataCache(options: {
     },
     status() {
       return {
-        enabled: !closed, active, activeRealtime, queued: queue.length, entries: entries.size, bytes, maxBytes, diskErrors,
+        enabled: !closed, active, activeRealtime, activeMacro, queued: queue.length, entries: entries.size, bytes, maxBytes, diskErrors,
         resources: [...resources.values()].map(resource => {
           const entry = entries.get(resource.key);
           return {
-            key: resource.key, warm: Boolean(resource.warm), refreshMs: resource.refreshMs,
-            state: !entry || entry.expiresAt <= now() ? 'empty' : now() < (entry.refreshAt ?? entry.storedAt + resource.refreshMs) ? 'fresh' : 'stale',
+            key: resource.key, lane: realtime(resource) ? 'realtime' : macro(resource) ? 'macro' : 'normal',
+            warm: Boolean(resource.warm), refreshMs: resource.refreshMs,
+            state: !entry || entry.expiresAt <= now() ? 'empty' : !entry.fallback && now() < (entry.refreshAt ?? entry.storedAt + resource.refreshMs) ? 'fresh' : 'stale',
             storedAt: entry ? new Date(entry.storedAt).toISOString() : null,
             expiresAt: entry ? new Date(entry.expiresAt).toISOString() : null,
             refreshing: jobs.has(resource.key), failures: failures.get(resource.key) ?? 0,
+            queued: queue.some(job => job.resource.key === resource.key),
           };
         }),
       };

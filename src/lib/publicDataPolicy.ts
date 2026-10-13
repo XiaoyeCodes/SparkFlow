@@ -7,6 +7,7 @@ export type PublicDataPolicy = {
   clientMs: number;
   warm: boolean;
   realtime: boolean;
+  lane?: 'macro';
 };
 const policies = new Map<string, PublicDataPolicy>();
 export const REALTIME_QUOTE_INTERVAL_MS = 3_000;
@@ -14,7 +15,8 @@ const keyFor = (url: URL) => { url.searchParams.sort(); return url.pathname + ur
 function add(key: string, seconds: number, maxAgeSeconds: number, warm = true) {
   const canonical = keyFor(new URL(key, 'http://public.local'));
   policies.set(canonical, { key: canonical, refreshMs: seconds * 1000, maxAgeMs: maxAgeSeconds * 1000,
-    clientMs: seconds === 3 ? 0 : Math.min(seconds * 1000, 15_000), warm, realtime: seconds === 3 });
+    clientMs: seconds === 3 ? 0 : Math.min(seconds * 1000, 15_000), warm, realtime: seconds === 3,
+    ...(/^\/api\/(us-macro-card|global-macro-fed-rate|global-macro-treasury-spread|global-macro-core-index-history|financial-conditions|global-risk-sentiment)([/?]|$)/.test(canonical) ? { lane: 'macro' as const } : {}) });
 }
 
 // Finite allowlist: never broaden this to `/api/*`. No account, broker, research,
@@ -22,6 +24,7 @@ function add(key: string, seconds: number, maxAgeSeconds: number, warm = true) {
 add('/api/public-market-intelligence', 120, 600, true);
 add('/api/market-quotes', 3, 90, true);
 add('/api/global-macro-quotes', 3, 90, true);
+add('/api/global-macro-global-equity', 3, 3600, true);
 for (const section of ['indices', 'metrics', 'policy', 'news']) {
   const seconds = section === 'indices' ? 3 : section === 'policy' ? 600 : 120;
   add(`/api/china-macro-dashboard?section=${section}`, seconds, section === 'indices' ? 120 : 1800, true);
@@ -44,12 +47,15 @@ for (const market of ['china', 'hong-kong', 'us']) {
 // cached market-cap universe remains on a slower cadence.
 add('/api/crypto-market-heatmap', 60, 900, true);
 for (const id of ['nasdaq', 'sp500', 'shanghai', 'sox']) add(`/api/global-macro-core-index?id=${id}`, 3, 180);
+for (const id of ['nasdaq', 'sp500', 'shanghai', 'sox']) add(`/api/global-macro-core-index-history?id=${id}`, 300, 21600);
 for (const id of ['usd-jpy', 'usd-cny', 'usd-eur']) add(`/api/global-macro-fx-rate?id=${id}`, 3, 180);
 for (const id of ['vix', 'dxy', 'us10y', 'gold', 'brent', 'bitcoin', 'ethereum']) add(`/api/global-macro-asset?id=${id}`, 3, 180);
-for (const id of ['ppi', 'cpi', 'unemployment', 'nonfarm', 'pmi', 'pce']) add(`/api/us-macro-card?id=${id}`, 120, 900);
-add('/api/global-macro-fed-rate', 900, 1800);
+for (const id of ['ppi', 'cpi', 'unemployment', 'nonfarm', 'pmi', 'pce']) add(`/api/us-macro-card?id=${id}`, 120, 7 * 86400);
+add('/api/global-macro-fed-rate', 900, 21600);
+for (const id of ['vix', 'vxn', 'fear-greed']) add(`/api/global-risk-sentiment/${id}`, 120, 86400);
+add('/api/global-macro-treasury-spread', 120, 1800);
 for (const endpoint of ['global-risk-sentiment', 'global-macro-ppi-expectation', 'fed-net-liquidity', 'financial-conditions']) {
-  add(`/api/${endpoint}`, 120, endpoint === 'global-risk-sentiment' ? 300 : 900);
+  add(`/api/${endpoint}`, 120, endpoint === 'global-risk-sentiment' ? 300 : endpoint === 'financial-conditions' ? 7 * 86400 : 900);
 }
 const international = ['japan', 'korea', 'india', 'germany', 'france', 'uk'];
 for (const market of international) {
@@ -114,8 +120,26 @@ export function isUsablePublicPayload(data: unknown): boolean {
 }
 
 export function validatePublicResource(key: string, data: unknown): boolean {
-  if (!isUsablePublicPayload(data)) return false;
   const url = new URL(key, 'http://public.local');
+  if (url.pathname === '/api/financial-conditions') {
+    const conditions = (data as { conditions?: Record<string, any> } | null)?.conditions;
+    return Boolean(conditions && ['nfci', 'creditSpread'].some(id => {
+      const metric = conditions[id];
+      return metric && Number.isFinite(metric.value) && (id === 'nfci' || metric.value >= 0)
+        && Date.parse(metric.observedAt) <= Date.now() && Date.parse(metric.fetchedAt) <= Date.now()
+        && Date.now() - Date.parse(metric.fetchedAt) < 7 * 86400_000 && Array.isArray(metric.history);
+    }));
+  }
+  if (url.pathname === '/api/us-macro-card') {
+    const card = (data as { card?: Record<string, any> } | null)?.card;
+    if (!card || card.id !== url.searchParams.get('id') || !Number.isFinite(card.value)
+      || !Number.isFinite(Date.parse(card.updatedAt)) || Date.parse(card.updatedAt) > Date.now()
+      || !Array.isArray(card.stats) || !Array.isArray(card.history)) return false;
+    if (card.stale && (!Number.isFinite(Date.parse(card.lastSuccessAt))
+      || Date.parse(card.lastSuccessAt) > Date.now() || Date.now() - Date.parse(card.lastSuccessAt) >= 7 * 86400_000)) return false;
+    return isUsablePublicPayload({ ...card, stale: false });
+  }
+  if (!isUsablePublicPayload(data)) return false;
   const row = data as Record<string, unknown>;
   if (/^\/api\/(china|hong-kong|us)-market-heatmap$/.test(url.pathname)) {
     const source = resolveHeatmapQuoteSource(url.searchParams.get('source'));

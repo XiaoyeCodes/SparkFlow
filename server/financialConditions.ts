@@ -81,6 +81,7 @@ export function createFinancialConditionsService({ stateDir, getSeries, now = Da
     const read = (id: FinancialSeriesId) => {
       const metric = cache.get(id);
       if (!metric) return null;
+      if (now() - Date.parse(metric.fetchedAt) >= 7 * DAY) return null;
       return {
         ...metric,
         stale: metric.stale || now() - Date.parse(metric.observedAt) > (id === 'NFCI' ? 14 : 7) * DAY

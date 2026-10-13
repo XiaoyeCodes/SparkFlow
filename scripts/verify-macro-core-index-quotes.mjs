@@ -50,10 +50,10 @@ const extract = (a, b) => ts.transpile(source.slice(source.indexOf(a), source.in
 // Test production batch wiring, not only the standalone parser.
 let requestedUrl;
 const batch = new Function('SINA_CURRENCY_CODES', 'SINA_US10Y_CODE', 'SINA_CORE_INDEX_CONFIGS', 'fetchText', 'asFiniteNumber',
-  'currencyQuoteTime', 'parseSinaCurrencyQuotes', 'parseSinaUs10yQuote', 'parseSinaCoreIndexQuotes',
+  'currencyQuoteTime', 'parseSinaCurrencyQuotes', 'parseSinaUs10yQuote', 'parseSinaCoreIndexQuotes', 'parseSinaVtQuote',
   extract('async function getSinaFastAssetQuotes()', 'async function getCoinGeckoFastCryptoQuotes()') + ';return getSinaFastAssetQuotes;')(
   SINA_CURRENCY_CODES, SINA_US10Y_CODE, SINA_CORE_INDEX_CONFIGS, async url => { requestedUrl = url; return fixture; },
-  n => Number.isFinite(Number(n)) ? Number(n) : undefined, currencyQuoteTime, parseSinaCurrencyQuotes, parseSinaUs10yQuote, parseSinaCoreIndexQuotes);
+  n => Number.isFinite(Number(n)) ? Number(n) : undefined, currencyQuoteTime, parseSinaCurrencyQuotes, parseSinaUs10yQuote, parseSinaCoreIndexQuotes, () => undefined);
 assert.equal((await batch()).size, 4);
 for (const c of SINA_CORE_INDEX_CONFIGS) assert.ok(requestedUrl.includes(c.code));
 
@@ -66,13 +66,13 @@ let mode = 'primary', fallbackCalls = 0;
 const fallbackQuotes = new Map(SINA_CORE_INDEX_CONFIGS.map(c => [c.symbol, { price: 100, changePercent: -2,
   updatedAt: '2026-09-11T20:00:00.000Z', sourceUrl: configs[c.id].sourceUrl }]));
 const load = new Function('globalMacroCoreIndexConfigs', 'readFastAssetSource', 'readFastCoreIndexYahooSource',
-  'yahooMacroQuoteCache', 'fastQuoteStatus', 'isolatedCoreIndexLastGood', 'isPublicSourceRefresh', 'coreIndexHistoryQuote',
+  'yahooMacroQuoteCache', 'fastQuoteStatus', 'isolatedCoreIndexLastGood', 'isPublicSourceRefresh', 'coreIndexHistoryQuote', 'coreIndexHistoryLoader', 'Date',
   extract('async function loadIsolatedGlobalMacroCoreIndex(', 'async function loadIsolatedGlobalMacroFxRate(') + ';return loadIsolatedGlobalMacroCoreIndex;')(
   configs, async () => {
     if (mode === 'timeout') throw Error('Sina timeout');
     return { data: mode === 'primary' ? parsed : new Map() };
   }, async () => { fallbackCalls++; return { data: mode === 'both-failed' ? undefined : fallbackQuotes }; },
-  historyCache, () => 'delayed', lastGood, () => true, coreIndexHistoryQuote);
+  historyCache, () => 'delayed', lastGood, () => true, coreIndexHistoryQuote, { peek: () => undefined }, { now: () => monday });
 for (const c of SINA_CORE_INDEX_CONFIGS) {
   const q = await load(c.id);
   assert.equal(q.sourceUrl, c.sourceUrl);

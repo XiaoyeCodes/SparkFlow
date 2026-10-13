@@ -8,7 +8,7 @@ test(`terminal from ${entry} paints prepared cards while individual requests wai
   const now = Date.now();
   const meta = { state: 'fresh', storedAt: new Date(now).toISOString(), refreshAt: new Date(now + 60_000).toISOString(), expiresAt: new Date(now + 180_000).toISOString() };
   const metric = (id: string, label: string, value: number) => ({ id, label, value, display: String(value), change: 1, status: 'live',
-    updatedAt: new Date(now).toISOString(), sourceUrl: 'https://example.com', history: [{ time: '2026-10-01', value }] });
+    updatedAt: new Date(now).toISOString(), sourceUrl: 'https://example.com', history: [{ time: '2026-10-01', value }], stats: [] });
   const resources = {
     '/api/global-macro-dashboard?region=global&section=markets': { generatedAt: new Date(now).toISOString(), coreIndices: [{ id: 'nasdaq', name: '预热纳斯达克', symbol: '^NDX', price: 100, changePercent: 1, history: [], sourceUrl: 'https://example.com', status: 'live' }], _publicCache: meta },
     '/api/global-macro-dashboard?region=global&section=macro': { macro: [metric('ppi', 'PPI', 1)], _publicCache: meta },

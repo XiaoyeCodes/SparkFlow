@@ -36,6 +36,17 @@ const yahooLoader = loaderBody('async function getYahooMacroQuote(', 'async func
 });
 assert.equal((await yahooLoader('TEST')).price,100,'legacy fallback preserved');
 await assert.rejects(withPublicSourceRefresh(() => yahooLoader('TEST')), /offline/,'public refresh cannot renew an old Yahoo response');
+const fredRoutes = [];
+const fredLoader = loaderBody('async function getFredSeries(', 'async function getFredMacroMetric(', {
+  fredSeriesCache: new Map(), fredSeriesInFlight: new Map(),
+  fetchRoutedText: async (_url, route) => { fredRoutes.push(route); if (route === 'direct') throw Error('offline'); return 'csv'; },
+  parseFredSeries: () => [{ time: '2026-10-09T00:00:00Z', value: 0.44 }],
+});
+const fredValues = await Promise.all([fredLoader('T10Y2Y'), fredLoader('T10Y2Y')]);
+assert.deepEqual(fredRoutes, ['direct', 'proxy'], 'FRED prefers direct and concurrent cards share its proxy fallback');
+assert.deepEqual(fredValues[0], fredValues[1]);
+await fredLoader('T10Y2Y');
+assert.equal(fredRoutes.length, 2, 'successful FRED observation is reused across cards');
 let sourceNow = 10000;
 const budgeted = loaderBody('function createBudgetedFastQuoteSource<T>', 'const readFastEquitySource', {
   isPublicSourceRefresh, setTimeout, clearTimeout, Date: { now: () => sourceNow },
@@ -92,6 +103,29 @@ await bounded.tick(); await flush(); assert.equal(peak, 2);
 while (bounded.status().active || bounded.status().queued) { releases.splice(0).forEach(resolve => resolve()); await flush(); }
 assert.equal(peak, 2); assert.equal(bounded.status().entries, 3);
 bounded.stop();
+
+// Slow news/history jobs must not prevent independent economic cards or quotes
+// from starting. Each lane remains bounded and duplicate reads still coalesce.
+const laneReleases = [];
+const started = [];
+const lanes = createPublicDataCache({ concurrency: 1, macroConcurrency: 2, realtimeConcurrency: 1,
+  resources: [
+    { key: '/slow-news' }, { key: '/macro-1', lane: 'macro' }, { key: '/macro-2', lane: 'macro' },
+    { key: '/macro-3', lane: 'macro' }, { key: '/quote', realtime: true },
+  ].map(config => ({ ...resource, ...config, load: async () => {
+    started.push(config.key); await new Promise(resolve => laneReleases.push(resolve)); return { value: 1 };
+  } })),
+});
+await lanes.tick(); await flush();
+assert.deepEqual(started, ['/slow-news', '/macro-1', '/macro-2', '/quote']);
+assert.equal(lanes.status().activeMacro, 2);
+assert.equal(lanes.status().resources.find(item => item.key === '/macro-3').queued, true);
+assert.equal(lanes.status().resources.find(item => item.key === '/macro-1').queued, false);
+const sharedRead = lanes.read('/macro-1'); await flush();
+assert.equal(started.filter(key => key === '/macro-1').length, 1);
+while (lanes.status().active || lanes.status().queued) { laneReleases.splice(0).forEach(resolve => resolve()); await flush(); }
+await sharedRead;
+lanes.stop();
 
 const deadline = createPublicDataCache({ now: () => now, resources: [{ ...resource,
   load: async () => ({ value: 1, validUntil: new Date(now + 50).toISOString() }),

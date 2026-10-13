@@ -120,11 +120,21 @@ git pull --ff-only
 
 ## 浏览器与页面切换
 
+### 宏观卡片的并行与来源故障
+
+前端六个宏观分区、六张美国指标卡、利率预期、金融条件及行情分别发起请求。后端按任务类别保留独立并发额度：普通任务默认2、实时行情4、宏观卡片6；新闻/估值等慢任务不再占用宏观卡片额度。每个类别仍有上限，不等于所有上游请求无上限同时执行。状态接口的 `activeMacro`、每项 `lane` 和 `queued` 可区分正在抓取与尚在排队。
+
+美债10Y–2Y利差使用 `/api/global-macro-treasury-spread` 独立获取FRED T10Y2Y，并进入终端准备快照，页面每分钟检查，不再等待宏观聚合分区。已成功获取的独立美国指标也直接渲染，即使聚合分区尚未返回；宏观分区每分钟重试，避免首次失败后长期无法恢复。FRED序列优先直连，失败再代理，保留每条序列请求合并及原始观测日期。
+
+2026-10-13 本机排查观察到普通队列36项积压，PCE/宏观分区/利率预期三项读取超过20秒；BLS新闻稿直连和代理均返回403，FRED直连约0.2秒成功而代理5秒未响应。该观测只代表当时本机网络，不能承诺来源永久可用。独立并行解决互相等待，来源拒绝或没有有效快照时仍显示待更新，不能填造指标。
+
 股票市场使用 `GET /api/market/bootstrap` 一次读取12项已准备公共快照（指数、市场概况及各市场热力图）。接口同时返回公开的热力图来源选择，不返回集成设置中的凭据。浏览器收到HTML就开始预取，其他页面可见期间每30秒检查；热力图首次挂载直接读取有效快照，先测量容器后绘制，不再等待来源设置后清空已有数据。进入市场后仍按原来的频率更新行情。新浪热力图每3秒后台刷新，失败回退的硬期限为90秒，保留原报价与抓取时间，不能通过预取延长期限。
 
 新闻使用 `GET /api/news-feed/prepared` 读取当前订阅和排序配置对应的已准备结果；无有效快照时返回204，不等待抓取。HTML加载时及其他可见页面每30秒提前检查，未变化的快照返回204以避免重复传输整份新闻。进入新闻页先显示有效正文，普通后台同步保留内容且不显示重新加载状态；手动“刷新新闻”仍执行强制检查。订阅变更会失效浏览器缓存，变更前发出的迟到预取不能恢复已删除订阅的数据。
 
-全球宏观终端的31项首屏公共资源已经在本机后台预热。`GET /api/global-macro/bootstrap` 只打包当前有效的已准备快照，返回时不等待上游，也不触发额外抓取；缺失或过期资源直接跳过，各卡片随后独立补齐。
+全球宏观终端的40项首屏公共资源已经在本机后台预热。`GET /api/global-macro/bootstrap` 只打包当前有效的已准备快照，返回时不等待上游，也不触发额外抓取；缺失或过期资源直接跳过，各卡片随后独立补齐。
+
+核心指数的四条1M曲线使用独立 `/api/global-macro-core-index-history?id=…` 通道：纳斯达克100、标普500、费城半导体分别读取FRED `NASDAQ100`、`SP500`、`NASDAQSOX`，上证读取腾讯 `sh000001` 日K；Yahoo日线作为备用。每条曲线后台5分钟检查，快照最多6小时，保留来源和实际交易日期，最近22条有效观测用于绘制，不用实时价格伪造历史。前端先恢复准备快照，再独立同步；报价继续3秒更新，空历史的报价帧不能清除曲线，慢曲线不能覆盖更新的报价。历史不再依赖全球市场分区的几十条请求全部完成。
 
 浏览器收到HTML时就开始读取这份快照；应用启动预加载终端模块、地球贴图和地图文件。进入终端之前，每30秒在可见页面更新准备快照，首次进入即用缓存初始化宏观卡片、指数、汇率、商品、利率预期和情绪。进入终端后保留原有独立轮询与实时推送；每项快照仍使用原始保存时间和硬有效期，迟到的预加载结果不能覆盖更新的数据。只保存在当前标签页的有界公共缓存，不包含账户或个人数据。
 
@@ -168,6 +178,7 @@ npm run test:daily-brief-ai-cache
 npx tsc -b
 npx playwright test --config playwright.ibkr.config.ts tests/ibkr/public-data-cache.spec.ts
 npx playwright test --config playwright.ibkr.config.ts tests/ibkr/global-macro-preload.spec.ts
+npx playwright test --config playwright.ibkr.config.ts tests/ibkr/macro-card-loading.spec.ts
 npx playwright test --config playwright.ibkr.config.ts tests/ibkr/page-data-cache.spec.ts
 npx playwright test --config playwright.ibkr.config.ts tests/ibkr/page-preparation.spec.ts
 npx playwright test --config playwright.ibkr.config.ts tests/ibkr/daily-brief-ai-cache.spec.ts

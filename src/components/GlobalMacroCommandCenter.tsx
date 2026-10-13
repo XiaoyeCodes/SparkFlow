@@ -129,6 +129,7 @@ type Metric = {
     label: string;
     display: string;
   }>;
+  stale?: boolean;
 };
 type CpiMetric = {
   id: 'china-cpi' | 'us-cpi';
@@ -259,6 +260,7 @@ const ISOLATED_FX_RATE_IDS: IsolatedFxRateId[] = FX_RATE_META.map((item) => item
 const ISOLATED_MARKET_ASSET_IDS = ['vix', 'dxy', 'us10y', 'gold', 'brent', 'bitcoin', 'ethereum'] as const;
 type IsolatedMarketAssetId = (typeof ISOLATED_MARKET_ASSET_IDS)[number];
 type IsolatedCoreIndexPayload = { generatedAt: string; index: CoreIndex };
+type CoreIndexHistorySeries = { id: CoreIndex['id']; history: HistoryPoint[]; sourceUrl: string; updatedAt: string };
 type IsolatedFxRatePayload = { generatedAt: string; rate: Metric };
 type IsolatedMarketAssetPayload = { generatedAt: string; asset: Metric };
 type IsolatedFedRatePayload = { generatedAt: string; expectation: FedRateExpectation };
@@ -275,7 +277,7 @@ type RiskSentimentId = 'vix' | 'vxn' | 'fear-greed';
 type RiskSentimentMetric = Omit<Metric, 'id'> & {
   id: RiskSentimentId;
   rating?: string;
-  provider: 'Yahoo Finance' | 'CNN';
+  provider: 'Yahoo Finance' | 'CNN' | 'FRED';
 };
 type RiskSentimentPayload = {
   generatedAt: string;
@@ -285,6 +287,12 @@ type RiskSentimentPayload = {
     fearGreed: RiskSentimentMetric;
   };
 };
+
+function emptyRiskMetrics(): RiskSentimentPayload['metrics'] {
+  const metric = (id: RiskSentimentId): RiskSentimentMetric => ({ id, label: id, value: null, display: '待更新',
+    change: null, sourceUrl: '', status: 'unavailable', history: [], provider: id === 'fear-greed' ? 'CNN' : 'Yahoo Finance' });
+  return { vix: metric('vix'), vxn: metric('vxn'), fearGreed: metric('fear-greed') };
+}
 type FastQuotePayload = DashboardSectionPayload & {
   cadenceMs: number;
   coverage: {
@@ -962,10 +970,16 @@ function RiskSentimentSwitcher({
     change?: number | null;
     sourceUrl?: string;
     sourceStatus: string;
+    updatedAt?: string;
   };
 }) {
   const [activeId, setActiveId] = useState<RiskSentimentId>('vix');
-  const metric = activeId === 'fear-greed' ? metrics?.fearGreed : metrics?.[activeId];
+  const candidate = activeId === 'fear-greed' ? metrics?.fearGreed : metrics?.[activeId];
+  const candidateValid = candidate?.value !== null && candidate?.value !== undefined && Number.isFinite(candidate.value)
+    && candidate.status !== 'unavailable';
+  const preferFallback = activeId === 'vix' && fallbackVix.value !== null && fallbackVix.value !== undefined
+    && Number.isFinite(fallbackVix.value) && (!candidateValid || (fallbackVix.updatedAt || '') > (candidate.updatedAt || ''));
+  const metric = candidateValid && !preferFallback ? candidate : undefined;
   const nextId = RISK_SENTIMENT_ORDER[(RISK_SENTIMENT_ORDER.indexOf(activeId) + 1) % RISK_SENTIMENT_ORDER.length];
   const nextLabel = nextId === 'vix' ? 'VIX' : nextId === 'vxn' ? 'VXN' : 'CNN 恐惧贪婪指数';
   const value = metric?.value ?? (activeId === 'vix' ? fallbackVix.value : null);
@@ -975,7 +989,7 @@ function RiskSentimentSwitcher({
   const sourceStatus = metric
     ? metric.status === 'live' ? '实时' : metric.status === 'unavailable' ? '待更新' : '最近收盘'
     : activeId === 'vix' ? fallbackVix.sourceStatus : '待更新';
-  const provider = metric?.provider || (activeId === 'fear-greed' ? 'CNN' : 'Yahoo Finance');
+  const provider = metric?.provider || (activeId === 'fear-greed' ? 'CNN' : fallbackVix.sourceUrl?.includes('fred.stlouisfed.org') ? 'FRED' : 'Yahoo Finance');
   const temperature = activeId === 'vix'
     ? vixTemperature(value)
     : activeId === 'vxn'
@@ -1043,7 +1057,7 @@ function RiskSentimentSwitcher({
       <div className="macro-vix-status">
         <small>{temperature.summary}</small>
         <span className={trendClass(change)}>较前值 {pointChange(change)}</span>
-        {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noreferrer">{provider} · {sourceStatus}<ExternalLink size={9} /></a> : <i>{sourceStatus}</i>}
+        {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noreferrer" title={`观测日期：${metric?.updatedAt || fallbackVix.updatedAt || '来源未提供'}`}>{provider} · {sourceStatus}{metric?.provider === 'FRED' && metric.updatedAt ? ` · ${metric.updatedAt.slice(5, 10)}` : ''}<ExternalLink size={9} /></a> : <i>{sourceStatus}</i>}
       </div>
     </section>
   );
@@ -1097,6 +1111,7 @@ function MacroPulsePanel({
         change: vix?.change,
         sourceUrl: vix?.sourceUrl,
         sourceStatus: vix?.status === 'live' ? '实时' : vix?.status === 'unavailable' ? '待更新' : '最近收盘',
+        updatedAt: vix?.updatedAt,
         ...temperature,
       },
       sessions,
@@ -2162,12 +2177,22 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     && !peekPublicData<FastQuotePayload>('/api/global-macro-quotes')?.markets?.length);
   const [isolatedUsMacroCards, setIsolatedUsMacroCards] = useState(() => preparedRows<IsolatedUsMacroCardId, Metric>(ISOLATED_US_MACRO_CARD_IDS, '/api/us-macro-card', 'card'));
   const [isolatedCoreIndices, setIsolatedCoreIndices] = useState(() => preparedRows<CoreIndex['id'], CoreIndex>(ISOLATED_CORE_INDEX_IDS, '/api/global-macro-core-index', 'index'));
+  const [coreIndexHistories, setCoreIndexHistories] = useState(() => preparedRows<CoreIndex['id'], CoreIndexHistorySeries>(ISOLATED_CORE_INDEX_IDS, '/api/global-macro-core-index-history', 'series'));
   const [isolatedFxRates, setIsolatedFxRates] = useState(() => preparedRows<IsolatedFxRateId, Metric>(ISOLATED_FX_RATE_IDS, '/api/global-macro-fx-rate', 'rate'));
   const [isolatedMarketAssets, setIsolatedMarketAssets] = useState(() => preparedRows<IsolatedMarketAssetId, Metric>(ISOLATED_MARKET_ASSET_IDS, '/api/global-macro-asset', 'asset'));
   const [isolatedFedRateExpectation, setIsolatedFedRateExpectation] = useState<FedRateExpectation | null>(() => peekPublicData<IsolatedFedRatePayload>('/api/global-macro-fed-rate')?.expectation || null);
+  const [isolatedTreasurySpread, setIsolatedTreasurySpread] = useState<Metric | null>(() => peekPublicData<{ metric: Metric }>('/api/global-macro-treasury-spread')?.metric || null);
+  const [isolatedGlobalEquity, setIsolatedGlobalEquity] = useState<Quote | null>(() => peekPublicData<{ quote: Quote }>('/api/global-macro-global-equity')?.quote || null);
   const [financialConditions, setFinancialConditions] = useState<FinancialConditionsSnapshot | null>(() => peekPublicData<FinancialConditionsPayload>('/api/financial-conditions')?.conditions || null);
   const [financialConditionsFailed, setFinancialConditionsFailed] = useState(false);
-  const [riskSentiment, setRiskSentiment] = useState<RiskSentimentPayload['metrics'] | null>(() => peekPublicData<RiskSentimentPayload>('/api/global-risk-sentiment')?.metrics || null);
+  const [riskSentiment, setRiskSentiment] = useState<RiskSentimentPayload['metrics'] | null>(() => {
+    const metrics = peekPublicData<RiskSentimentPayload>('/api/global-risk-sentiment')?.metrics || emptyRiskMetrics();
+    for (const id of RISK_SENTIMENT_ORDER) {
+      const prepared = peekPublicData<{ metric: RiskSentimentMetric }>(`/api/global-risk-sentiment/${id}`)?.metric;
+      if (prepared?.value !== null && prepared?.value !== undefined && prepared.status !== 'unavailable') metrics[id === 'fear-greed' ? 'fearGreed' : id] = prepared;
+    }
+    return metrics;
+  });
   const lastFastQuoteFrameRef = useRef('');
   const worldHeatmapWarmupStartedRef = useRef(false);
   const phoneToggleHideTimerRef = useRef<number | null>(null);
@@ -2324,10 +2349,12 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       15 * 60_000,
     );
     const newsRefresh = window.setInterval(() => void load(['news'], false), 30_000);
+    const macroRefresh = window.setInterval(() => void load(['macro'], false), 60_000);
     return () => {
       window.clearInterval(historyRefresh);
       window.clearInterval(slowDataRefresh);
       window.clearInterval(newsRefresh);
+      window.clearInterval(macroRefresh);
     };
   }, [load]);
 
@@ -2382,6 +2409,11 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     };
 
     const stopLivePolls = [
+      startQuotePolling(async signal => {
+        const payload = await requestIsolatedJson<{ quote: Quote }>('/api/global-macro-global-equity',
+          { signal, maxAttempts: 1, timeoutMs: 10_000 });
+        if (!signal.aborted) setIsolatedGlobalEquity(current => mergeDashboardItems(current ? [current] : [], [payload.quote], true)[0]);
+      }),
       ...ISOLATED_CORE_INDEX_IDS.map(id => startQuotePolling(async signal => {
           const payload = await requestIsolatedJson<IsolatedCoreIndexPayload>(
             `/api/global-macro-core-index?id=${encodeURIComponent(id)}`,
@@ -2408,6 +2440,24 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       })),
     ];
 
+    // Slow daily curves have their own requests and never hold a live quote.
+    for (const id of ISOLATED_CORE_INDEX_IDS) {
+      const refreshHistory = async () => {
+        let delay = 300_000;
+        try {
+          const payload = await requestIsolatedJson<{ series: CoreIndexHistorySeries }>(
+            `/api/global-macro-core-index-history?id=${id}`,
+            { signal: controller.signal, maxAttempts: 1, timeoutMs: 30_000 });
+          if (!controller.signal.aborted && payload.series.id === id && payload.series.history.length >= 2) {
+            setCoreIndexHistories(current => !current[id] || payload.series.updatedAt >= current[id]!.updatedAt
+              ? { ...current, [id]: payload.series } : current);
+          }
+        } catch { delay = 30_000; }
+        schedule(() => void refreshHistory(), delay);
+      };
+      void refreshHistory();
+    }
+
     const refreshFedRate = async () => {
       try {
         const payload = await requestIsolatedJson<IsolatedFedRatePayload>(
@@ -2424,21 +2474,37 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     };
     void refreshFedRate();
 
-    const refreshRiskSentiment = async () => {
+    const refreshTreasurySpread = async () => {
       try {
-        const payload = await requestIsolatedJson<RiskSentimentPayload>(
-          '/api/global-risk-sentiment',
-          { signal: controller.signal },
-        );
-        if (controller.signal.aborted) return;
-        setRiskSentiment(payload.metrics);
-        schedule(() => void refreshRiskSentiment(), 15_000);
+        const payload = await requestIsolatedJson<{ metric: Metric }>('/api/global-macro-treasury-spread',
+          { signal: controller.signal, maxAttempts: 1, timeoutMs: 30_000 });
+        if (!controller.signal.aborted) setIsolatedTreasurySpread(payload.metric);
       } catch {
-        // Keep the last complete three-metric frame; the UI switch never triggers a request.
-        schedule(() => void refreshRiskSentiment(), 60_000);
+        // Keep this card's valid observation while its source retries independently.
       }
+      schedule(() => void refreshTreasurySpread(), 60_000);
     };
-    void refreshRiskSentiment();
+    void refreshTreasurySpread();
+
+    for (const id of RISK_SENTIMENT_ORDER) {
+      const refreshRiskMetric = async () => {
+        let delay = 15_000;
+        try {
+          const payload = await requestIsolatedJson<{ metric: RiskSentimentMetric }>(`/api/global-risk-sentiment/${id}`,
+            { signal: controller.signal, maxAttempts: 1, timeoutMs: 30_000 });
+          if (controller.signal.aborted) return;
+          const next = payload.metric, key = id === 'fear-greed' ? 'fearGreed' : id;
+          if (next.id !== id || next.value === null || !Number.isFinite(next.value) || next.status === 'unavailable') throw new Error('无有效波动率观测');
+          setRiskSentiment(current => {
+            const metrics = current || emptyRiskMetrics();
+            return !metrics[key].updatedAt || (next.updatedAt || '') >= metrics[key].updatedAt!
+              ? { ...metrics, [key]: next } : metrics;
+          });
+        } catch { delay = 60_000; }
+        schedule(() => void refreshRiskMetric(), delay);
+      };
+      void refreshRiskMetric();
+    }
 
     return () => {
       stopLivePolls.forEach(stop => stop());
@@ -2620,14 +2686,29 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const macroRiskMetrics = macro
     .filter((item) => !HIDDEN_MACRO_RISK_IDS.has(item.id))
     .map((item) => isolatedUsMacroCards[item.id as IsolatedUsMacroCardId] || item);
+  // Independent releases must render even if the aggregate macro response is
+  // still pending or failed. CPI retains its existing combined-card UI key.
+  for (const id of ['ppi', 'cpi', 'unemployment', 'nonfarm'] as const) {
+    const item = isolatedUsMacroCards[id];
+    const displayId = id === 'cpi' ? 'cpi-pce' : id;
+    if (item && !macroRiskMetrics.some(metric => metric.id === displayId)) {
+      macroRiskMetrics.push({ ...item, id: displayId });
+    }
+  }
   const usPmiMetric = isolatedUsMacroCards.pmi || data?.pmi?.find((item) => item.id === 'pmi-us');
   const usPceMetric = isolatedUsMacroCards.pce || macro.find((item) => item.id === 'cpi-pce');
-  const treasurySpread = macro.find((item) => item.id === 'ust2y10y');
+  const treasurySpread = isolatedTreasurySpread || macro.find((item) => item.id === 'ust2y10y');
   const isolatedCoreIndexValues = Object.values(isolatedCoreIndices).filter((item): item is CoreIndex => Boolean(item));
-  const coreIndices = mergeDashboardItems(data?.coreIndices || [], isolatedCoreIndexValues, true);
+  const coreIndices = mergeDashboardItems(data?.coreIndices || [], isolatedCoreIndexValues, true).map(item => {
+    const series = coreIndexHistories[item.id];
+    const existingDate = item.history[item.history.length - 1]?.time.slice(0, 10) || '';
+    return series && series.updatedAt.slice(0, 10) >= existingDate
+      ? { ...item, history: series.history } : item;
+  });
   const fedRateExpectation = isolatedFedRateExpectation || data?.fedRateExpectation || null;
-  const displayData = data || coreIndices.length || macro.length || commodities.length
-    ? { ...(data || EMPTY_DASHBOARD), coreIndices, macro, commodities, fedRateExpectation }
+  const globalEquity = mergeDashboardItems(data?.global ? [data.global] : [], isolatedGlobalEquity ? [isolatedGlobalEquity] : [], true)[0] || null;
+  const displayData = data || coreIndices.length || macro.length || commodities.length || globalEquity
+    ? { ...(data || EMPTY_DASHBOARD), coreIndices, macro, commodities, fedRateExpectation, global: globalEquity }
     : null;
   const exchangeRates = FX_RATE_META.flatMap((meta) => {
     const isolatedRate = isolatedFxRates[meta.id];
@@ -2638,7 +2719,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const markets = data?.markets || [];
   const aiSnapshot = buildMacroAiSnapshot({
     generatedAt: data?.generatedAt,
-    global: data?.global || null,
+    global: globalEquity,
     macroMetrics: [...macroRiskMetrics, ...(usPmiMetric ? [usPmiMetric] : []), ...(usPceMetric ? [usPceMetric] : [])],
     fedRateExpectation,
     financialConditions,
@@ -2721,7 +2802,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             <span className="macro-status-dot" />
             <div>
               <p className="macro-vt-label">GLOBAL EQUITY PROXY · 全球股票</p>
-              <p className="macro-vt-name"><span>VT</span><strong>{formatNumber(data?.global?.price)}</strong><b className={trendClass(data?.global?.changePercent)}>{signed(data?.global?.changePercent)}</b></p>
+              <p className="macro-vt-name" title={globalEquity ? `VT · 报价截至 ${globalEquity.updatedAt || '来源未提供时间'} · ${globalEquity.sourceUrl}` : '等待 VT 主备报价'}><span>VT</span><strong>{formatNumber(globalEquity?.price)}</strong><b className={trendClass(globalEquity?.changePercent)}>{signed(globalEquity?.changePercent)}</b></p>
             </div>
           </div>
           <IndexTickerTape items={data?.ticker || []} />
@@ -2806,7 +2887,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             <p className="macro-section-title">宏观风险指标</p>
             <div className="macro-metric-list">
               {macroRiskMetrics.map((item) => (
-                <a key={item.id} className={`macro-metric-row macro-metric-card-${item.id}${item.stats?.length || ['cpi-pce', 'unemployment', 'nonfarm'].includes(item.id) ? ' macro-metric-row-stats' : ''}`} href={item.id === 'cpi-pce' ? isolatedCpiMetric?.sourceUrl || item.sourceUrl : item.sourceUrl} target="_blank" rel="noreferrer">
+                <a key={item.id} title={`统计期 ${item.updatedAt?.slice(0, 7) || '未提供'}${item.stale ? ' · 来源更新失败，显示上次验证缓存' : ''}`} className={`macro-metric-row macro-metric-card-${item.id}${item.stats?.length || ['cpi-pce', 'unemployment', 'nonfarm'].includes(item.id) ? ' macro-metric-row-stats' : ''}`} href={item.id === 'cpi-pce' ? isolatedCpiMetric?.sourceUrl || item.sourceUrl : item.sourceUrl} target="_blank" rel="noreferrer">
                   {item.id === 'ppi' && item.stats?.length ? (() => {
                     const expectation = ppiExpectationState(item.stats);
                     return (
@@ -3178,7 +3259,7 @@ function FedRateExpectationCard({ expectation }: { expectation: FedRateExpectati
             </div>
           ))}
         </div>
-        <footer title={expectation ? `${expectation.method} · ${expectation.contractSymbol}` : '等待会议月 ZQ 期货与 FRED 数据'}>
+        <footer title={expectation ? `${expectation.method} · ${expectation.contractSymbol} · 期货截至 ${expectation.updatedAt} · 模型估算，非 CME 发布概率` : '等待会议月 ZQ 期货与 FRED 数据'}>
           <span className="macro-fed-countdown"><small>距 FOMC 决议</small><b>{countdown}</b></span>
           <span>CME 方法说明 <ExternalLink size={9} /></span>
         </footer>
