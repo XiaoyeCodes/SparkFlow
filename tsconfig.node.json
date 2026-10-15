@@ -30,6 +30,7 @@
     "src/lib/chinaRegionalEconomy.ts",
     "src/lib/chinaMacroNews.ts",
     "src/lib/publicDataPolicy.ts",
+    "src/lib/terminalRegionalIndices.ts",
     "src/lib/globalMacroPreload.ts",
     "src/lib/marketPreload.ts",
     "src/lib/heatmapSources.ts",

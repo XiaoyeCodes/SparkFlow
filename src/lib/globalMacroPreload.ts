@@ -3,6 +3,7 @@ export const GLOBAL_MACRO_BOOTSTRAP_KEYS = [
   ...['markets', 'macro', 'pmi', 'commodities', 'news', 'calendar'].map(section =>
     `/api/global-macro-dashboard?region=global&section=${section}`),
   '/api/global-macro-quotes',
+  '/api/global-macro-regional-indices',
   '/api/global-macro-global-equity',
   ...['ppi', 'cpi', 'unemployment', 'nonfarm', 'pmi', 'pce'].map(id => `/api/us-macro-card?id=${id}`),
   ...['nasdaq', 'sp500', 'shanghai', 'sox'].map(id => `/api/global-macro-core-index?id=${id}`),

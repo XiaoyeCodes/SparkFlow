@@ -26,6 +26,7 @@
     "test:cpi-fallback": "node --no-warnings --experimental-strip-types scripts/verify-us-cpi-fallback.mjs",
     "test:core-index-history": "node --no-warnings --experimental-strip-types scripts/verify-core-index-history.mjs",
     "test:terminal-reliability": "node --no-warnings --experimental-strip-types scripts/verify-terminal-data-reliability.mjs",
+    "test:terminal-regional-indices": "node --no-warnings --experimental-strip-types scripts/verify-terminal-regional-indices.mjs",
     "test:fed-liquidity": "node scripts/verify-fed-net-liquidity.mjs",
     "test:financial-conditions": "node --no-warnings --experimental-strip-types scripts/verify-financial-conditions.mjs",
     "test:isolated-market-data": "node --no-warnings --experimental-strip-types scripts/verify-isolated-market-resources.mjs",

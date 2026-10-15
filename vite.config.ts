@@ -16,6 +16,8 @@ import { buildFredCpiRelease, preferCpiPrimary, preferOfficialMacroPrimary } fro
 import { buildFredEmploymentReport, buildFredPpiReport, buildFredPceMetric } from './server/usMacroFallbacks';
 import { parseNewYorkFedEffr, latestEffectiveFedRate } from './server/effectiveFedRate';
 import { createCoreIndexHistoryLoader } from './server/coreIndexHistory';
+import { createTerminalRegionalIndexLoader } from './server/terminalRegionalIndices';
+import { reconcileTerminalRegionalIndices } from './src/lib/terminalRegionalIndices';
 import { parseSinaVtQuote, parseTencentVtQuote, validGlobalEquityQuote } from './server/globalEquityQuote';
 import {
   parseBinanceMarketTickers,
@@ -3537,7 +3539,7 @@ type GlobalMacroQuoteConfig = {
 };
 
 const globalMacroQuotes: GlobalMacroQuoteConfig[] = [
-  { id: 'china', name: '上证综指', symbol: '000001.SS', market: 'china', region: 'apac', latitude: 31.23824, longitude: 121.50668, timezone: 'Asia/Shanghai', sessions: [[9.5, 11.5], [13, 15]], closedDates: getMarketHolidayDates('china') },
+  { id: 'china', name: '上证指数', symbol: '000001.SS', market: 'china', region: 'apac', latitude: 31.23824, longitude: 121.50668, timezone: 'Asia/Shanghai', sessions: [[9.5, 11.5], [13, 15]], closedDates: getMarketHolidayDates('china') },
   { id: 'hongkong', name: '恒生指数', symbol: '^HSI', market: 'hongkong', region: 'apac', latitude: 22.28389, longitude: 114.15823, timezone: 'Asia/Hong_Kong', sessions: [[9.5, 12], [13, 16]], closedDates: getMarketHolidayDates('hongkong') },
   { id: 'japan', name: '日经225', symbol: '^N225', market: 'japan', region: 'apac', latitude: 35.6826, longitude: 139.7788, timezone: 'Asia/Tokyo', sessions: [[9, 11.5], [12.5, 15.5]], closedDates: getMarketHolidayDates('japan') },
   { id: 'korea', name: '韩国KOSPI', symbol: '^KS11', market: 'korea', region: 'apac', latitude: 37.5236, longitude: 126.92714, timezone: 'Asia/Seoul', sessions: [[9, 15.5]], closedDates: getMarketHolidayDates('korea') },
@@ -8041,7 +8043,13 @@ const globalPmiMetricLastGood = new Map<string, Awaited<ReturnType<typeof getGlo
 const globalCpiMetricLastGood = new Map<GlobalCpiMetric['id'], GlobalCpiMetric>();
 
 async function loadGlobalMarketsSection() {
+  const regionalRequest = loadTerminalRegionalIndices().catch(() => ({ markets: [], ticker: [] }));
   const quoteTaskFactories = globalMacroQuotes.map((config) => async () => {
+    if (config.id === 'china' || config.id === 'hongkong') {
+      const quote = (await regionalRequest).markets.find(item => item.id === config.id);
+      if (!quote) throw new Error(`${config.name}直连报价暂不可用`);
+      return { ...quote, quoteStale: false };
+    }
     const quote = config.id === 'nigeria'
       ? await getNgxAllShareQuote()
       : config.id === 'russia'
@@ -8111,15 +8119,25 @@ async function loadGlobalMarketsSection() {
     status: latestCoreQuotes.get(config.id)?.status || (config.quote ? 'delayed' as const : 'unavailable' as const),
   }));
 
+  const regional = await regionalRequest;
+  const regionalById = new Map(regional.markets.map(item => [item.id, item]));
+  const reconciled = reconcileTerminalRegionalIndices(
+    [...items.map(item => {
+      const live = regionalById.get(item.id);
+      return live ? { ...item, ...live, history: item.history } : item;
+    }), ...regional.markets.filter(item => !items.some(existing => existing.id === item.id))],
+    [...ticker.filter(item => !['china', 'hongkong'].includes(item.id)), ...regional.ticker],
+  );
+
   return {
     generatedAt: new Date().toISOString(),
-    quoteSource: 'Yahoo Finance + Stock Market Nigeria',
+    quoteSource: '新浪财经直连（上证/恒生，腾讯直连备用） + Yahoo Finance + Stock Market Nigeria',
     global: vtResult[0]?.status === 'fulfilled'
       ? { id: 'vt', name: '全球股票 VT', symbol: 'VT', region: 'global' as const, latitude: 0, longitude: 0, session: { label: '全球市场代理', tone: 'unknown' as const }, ...vtResult[0].value }
       : null,
-    ticker,
+    ticker: reconciled.ticker,
     coreIndices,
-    markets: items,
+    markets: reconciled.markets,
   };
 }
 
@@ -8432,6 +8450,22 @@ const readFastGoldenDragonSource = createBudgetedFastQuoteSource(async () => {
 });
 const readFastGlobalIndexSource = createBudgetedFastQuoteSource(() => getEastMoneyGlobalFastQuotes());
 const readFastAssetSource = createBudgetedFastQuoteSource(() => getSinaFastAssetQuotes());
+const readTerminalRegionalIndices = createTerminalRegionalIndexLoader(async url => {
+  // Explicit direct dispatcher bypasses the configured overseas/VPN proxy.
+  const response = await undiciFetch(url, { dispatcher: macroDirectAgent, signal: AbortSignal.timeout(2500),
+    headers: { Referer: 'https://finance.sina.com.cn/', 'User-Agent': 'Mozilla/5.0', Accept: 'text/plain,*/*' } });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+});
+async function loadTerminalRegionalIndices() {
+  const quotes = await readTerminalRegionalIndices();
+  const markets = quotes.flatMap(quote => {
+    const config = globalMacroQuotes.find(item => item.id === quote.id);
+    return config ? [{ ...quote, market: config.market, region: config.region, latitude: config.latitude,
+      longitude: config.longitude, session: globalSession(config), history: [] as Array<{ time: string; value: number }> }] : [];
+  });
+  return { generatedAt: new Date().toISOString(), markets, ticker: quotes };
+}
 const readFastGlobalEquitySource = createBudgetedFastQuoteSource(async () => {
   const primary = readFastAssetSource().then(frame => frame.data?.get('vt'));
   const secondary = fetchText('https://qt.gtimg.cn/q=usVT', 2500).then(raw => parseTencentVtQuote(raw, tencentIndexUpdatedAt));
@@ -8462,7 +8496,7 @@ const readFastCoreIndexYahooSource = createBudgetedFastQuoteSource(() => getYaho
   Object.values(globalMacroCoreIndexConfigs).map(item => item.symbol),
 ));
 const readFastDashboardYahooSource = createBudgetedFastQuoteSource(() => getYahooFastQuotes([
-  ...globalMacroQuotes.map(item => item.symbol),
+  ...globalMacroQuotes.filter(item => !['china', 'hongkong'].includes(item.id)).map(item => item.symbol),
   ...globalMacroCommodities.map(([, , symbol]) => symbol),
   ...globalMacroFxRates.map(item => item.symbol), 'VT', '^SOX', '^TNX', 'DX-Y.NYB',
 ]));
@@ -8507,6 +8541,7 @@ async function readFastCryptoSource() {
 }
 
 async function loadGlobalMacroFastQuotes() {
+  const regionalRequest = loadTerminalRegionalIndices().catch(() => ({ markets: [], ticker: [] }));
   const yahooMarketIds = new Set(['japan', 'india', 'germany', 'france', 'uk']);
   const yahooMarketSymbols = globalMacroQuotes
     .filter((item) => yahooMarketIds.has(item.id))
@@ -8516,7 +8551,7 @@ async function loadGlobalMacroFastQuotes() {
     ...globalMacroFxRates.map((item) => item.symbol),
   ];
   const yahooSymbols = [
-    ...globalMacroQuotes.map((item) => item.symbol),
+    ...globalMacroQuotes.filter(item => !['china', 'hongkong'].includes(item.id)).map((item) => item.symbol),
     ...globalMacroCommodities.map(([, , symbol]) => symbol),
     ...globalMacroFxRates.map((item) => item.symbol),
     'VT',
@@ -8546,7 +8581,12 @@ async function loadGlobalMacroFastQuotes() {
     ['us', 'sp500'],
   ]);
 
+  const regional = await regionalRequest;
+  const regionalById = new Map(regional.markets.map(item => [item.id, item]));
   const markets = globalMacroQuotes.flatMap((config) => {
+    const regionalQuote = regionalById.get(config.id);
+    if (regionalQuote) return [regionalQuote];
+    if (config.id === 'china' || config.id === 'hongkong') return [];
     const equityId = marketEquityIds.get(config.id);
     const quote = yahooMarketIds.has(config.id)
       ? yahoo.get(config.symbol)
@@ -8574,7 +8614,9 @@ async function loadGlobalMacroFastQuotes() {
   const tickerPool = new Map<string, { price: number; changePercent: number; updatedAt?: string; sourceUrl: string }>();
   markets.forEach((item) => tickerPool.set(item.id, item));
   equitySnapshots.forEach((item) => tickerPool.set(item.id, item));
+  regional.ticker.forEach(item => tickerPool.set(item.id === 'china' ? 'sse' : 'hsi', item));
   const ticker = globalMacroTickerConfigs.flatMap((config) => {
+    if (['china', 'hongkong'].includes(config.id) && !regionalById.has(config.id)) return [];
     const quote = tickerPool.get(config.sourceId);
     return quote ? [{
       id: config.id,
@@ -12378,6 +12420,7 @@ async function loadPublicDashboardResource(key: string): Promise<unknown> {
       return { generatedAt: generatedAt(), indices: quotes.indices, source: '东方财富 + 腾讯证券' };
     }
     case '/api/global-macro-quotes': return getCachedGlobalMacroFastQuotes();
+    case '/api/global-macro-regional-indices': return loadTerminalRegionalIndices();
     case '/api/china-macro-dashboard': return loadChinaMacroSection(url.searchParams.get('section') as ChinaMacroSectionName, true);
     case '/api/global-macro-dashboard': return loadGlobalMacroSection(url.searchParams.get('region') as GlobalMacroRegion, url.searchParams.get('section') as GlobalMacroSectionName);
     case '/api/china-fisher': return getChinaFisherSnapshot(url.searchParams.get('mode') as 'loan' | 'deposit');

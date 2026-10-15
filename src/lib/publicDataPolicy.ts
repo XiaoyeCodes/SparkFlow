@@ -1,4 +1,5 @@
 import { DEFAULT_HEATMAP_QUOTE_SOURCE, HEATMAP_SOURCE_LABELS, resolveHeatmapQuoteSource } from './heatmapSources.ts';
+import { validTerminalRegionalQuote, type TerminalRegionalQuote } from './terminalRegionalIndices.ts';
 
 export type PublicDataPolicy = {
   key: string;
@@ -24,6 +25,7 @@ function add(key: string, seconds: number, maxAgeSeconds: number, warm = true) {
 add('/api/public-market-intelligence', 120, 600, true);
 add('/api/market-quotes', 3, 90, true);
 add('/api/global-macro-quotes', 3, 90, true);
+add('/api/global-macro-regional-indices', 3, 180, true);
 add('/api/global-macro-global-equity', 3, 3600, true);
 for (const section of ['indices', 'metrics', 'policy', 'news']) {
   const seconds = section === 'indices' ? 3 : section === 'policy' ? 600 : 120;
@@ -141,6 +143,8 @@ export function validatePublicResource(key: string, data: unknown): boolean {
   }
   if (!isUsablePublicPayload(data)) return false;
   const row = data as Record<string, unknown>;
+  if (url.pathname === '/api/global-macro-regional-indices') return Array.isArray(row.markets)
+    && row.markets.length > 0 && row.markets.every(quote => validTerminalRegionalQuote(quote as TerminalRegionalQuote));
   if (/^\/api\/(china|hong-kong|us)-market-heatmap$/.test(url.pathname)) {
     const source = resolveHeatmapQuoteSource(url.searchParams.get('source'));
     return row.source === HEATMAP_SOURCE_LABELS[source] && isUsablePublicPayload({ stocks: row.stocks });

@@ -41,6 +41,7 @@ import { MacroAiAnalyst, type MacroAiRunState } from './MacroAiAnalyst';
 import { requestIsolatedJson } from '../lib/isolatedResource';
 import { publicDataFetch, peekPublicData } from '../lib/publicDataClient';
 import { startQuotePolling } from '../lib/realtimeQuotes';
+import { reconcileTerminalRegionalIndices } from '../lib/terminalRegionalIndices';
 import { publicDataExpiresAt } from '../lib/publicDataPolicy';
 import { acquireTerminalGlobeRenderer, releaseTerminalGlobeRenderer, terminalEarthTexture, terminalEarthMaterial, terminalGlobePrepared, prepareTerminalGlobeResources } from '../lib/terminalGlobeResources';
 import { getMarketSessionStatus, getNextCoreMarketOpenAt } from '../lib/marketSessions';
@@ -381,14 +382,18 @@ function mergeDashboardPayload(
   const global = payload.global === undefined || payload.global === null
     ? base.global
     : mergeDashboardItems(base.global ? [base.global] : [], [payload.global], preferFreshest)[0] || null;
+  const regional = reconcileTerminalRegionalIndices(
+    payload.markets ? mergeDashboardItems(base.markets, payload.markets, preferFreshest) : base.markets,
+    payload.ticker ? mergeDashboardItems(base.ticker, payload.ticker, preferFreshest) : base.ticker,
+  );
   return {
     ...base,
     ...payload,
     generatedAt: payload.generatedAt || base.generatedAt || new Date().toISOString(),
     global,
-    ticker: payload.ticker ? mergeDashboardItems(base.ticker, payload.ticker, preferFreshest) : base.ticker,
+    ticker: regional.ticker,
     coreIndices: payload.coreIndices ? mergeDashboardItems(base.coreIndices, payload.coreIndices, preferFreshest) : base.coreIndices,
-    markets: payload.markets ? mergeDashboardItems(base.markets, payload.markets, preferFreshest) : base.markets,
+    markets: regional.markets,
     macro: payload.macro ? mergeDashboardItems(base.macro, payload.macro, preferFreshest) : base.macro,
     cpi: payload.cpi ? mergeDashboardItems(base.cpi, payload.cpi, preferFreshest) : base.cpi,
     commodities: payload.commodities ? mergeDashboardItems(base.commodities, payload.commodities, preferFreshest) : base.commodities,
@@ -668,8 +673,9 @@ function IndexTickerTape({ items }: { items: TickerIndex[] }) {
       {items.map((item) => (
         <div
           className="macro-index-quote"
+          data-index-id={item.id}
           key={`${copy}-${item.id}`}
-          title={`${item.name} ${formatNumber(item.price)} ${signed(item.changePercent)}`}
+          title={`${item.name} ${formatNumber(item.price)} ${signed(item.changePercent)} · 报价截至 ${item.updatedAt || '来源未提供时间'} · ${item.sourceUrl}`}
         >
           <span className={trendClass(item.changePercent)} aria-hidden="true" />
           <div>
@@ -1646,6 +1652,8 @@ function HologramGlobe({
           key={quote.id}
           type="button"
           className={`macro-holo-label ${selectedId === quote.id ? 'active' : ''}`}
+          data-index-id={quote.id}
+          title={`${quote.name} ${formatNumber(quote.price)} ${signed(quote.changePercent)} · 报价截至 ${quote.updatedAt || '来源未提供时间'} · ${quote.sourceUrl}`}
           style={{ transform: `translate3d(${x}px, ${y}px, 0) translateX(-50%)` }}
           onPointerEnter={() => onPrefetch(quote)}
           onFocus={() => onPrefetch(quote)}
@@ -2164,7 +2172,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
       const part = peekPublicData<DashboardSectionPayload>(`/api/global-macro-dashboard?region=global&section=${section}`);
       if (part) prepared = mergeDashboardPayload(prepared, part, true);
     }
-    for (const endpoint of ['/api/global-macro-ppi-expectation', '/api/global-macro-quotes']) {
+    for (const endpoint of ['/api/global-macro-ppi-expectation', '/api/global-macro-quotes', '/api/global-macro-regional-indices']) {
       const part = peekPublicData<DashboardSectionPayload>(endpoint);
       if (part) prepared = mergeDashboardPayload(prepared, part, true);
     }
@@ -2409,6 +2417,18 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
     };
 
     const stopLivePolls = [
+      startQuotePolling(async signal => {
+        const payload = await requestIsolatedJson<DashboardSectionPayload>('/api/global-macro-regional-indices',
+          { signal, maxAttempts: 1, timeoutMs: 6000 });
+        if (!signal.aborted) {
+          setData(current => mergeDashboardPayload(current, payload, true));
+          setSelected(current => {
+            const incoming = payload.markets?.find(item => item.id === current?.id);
+            return current && incoming ? mergeDashboardItems([current], [incoming], true)[0] : current;
+          });
+          if (payload.markets?.length) setLoading(false);
+        }
+      }),
       startQuotePolling(async signal => {
         const payload = await requestIsolatedJson<{ quote: Quote }>('/api/global-macro-global-equity',
           { signal, maxAttempts: 1, timeoutMs: 10_000 });
