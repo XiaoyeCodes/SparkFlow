@@ -17,10 +17,14 @@ import {
   Sprout,
   X
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ModuleFrame } from '../components/ModuleFrame';
 import { bookCategories, books, type Book, type BookVisual } from '../data/content';
+import { financialFreedomSource } from '../data/financialFreedomBooks';
+
+const loadReader = () => import('../components/BookReader');
+const BookReader = lazy(loadReader);
 
 const visualStyles: Record<BookVisual, { bg: string; accent: string; Icon: typeof BookOpenText; motif: 'bars' | 'rings' | 'grid' | 'wave' | 'nodes' }> = {
   inequality: { bg: 'from-[#16120a] via-[#221808] to-[#060607]', accent: '#ffd27a', Icon: BarChart3, motif: 'bars' },
@@ -48,6 +52,7 @@ const visualStyles: Record<BookVisual, { bg: string; accent: string; Icon: typeo
 
 export function Stack() {
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
+  const [readingBook, setReadingBook] = useState<Book | null>(null);
   const categoryStats = useMemo(() => `${bookCategories.length} categories · ${books.length} books`, []);
 
   const scrollToCategory = (id: string) => {
@@ -58,20 +63,21 @@ export function Stack() {
   };
 
   useEffect(() => {
-    if (!selectedBook) return;
+    if (!selectedBook && !readingBook) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectedBook(null);
+      if (event.key === 'Escape') { setSelectedBook(null); setReadingBook(null); }
     };
 
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKeyDown);
 
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [selectedBook]);
+  }, [selectedBook, readingBook]);
 
   return (
     <ModuleFrame title="推荐书籍" kicker="Reading Stack">
@@ -93,8 +99,9 @@ export function Stack() {
                 用分类书架建立一套可复用的世界理解框架。
               </h2>
               <p className="mt-7 max-w-2xl text-sm leading-7 text-white/56 md:text-base">
-                现在的书单按学科和问题域组织：经济学与不平等、社会阶层、历史中国、认知决策、演化文明、政治秩序、系统技术。每本书都有一张生成式主题图，点击卡片可以展开完整介绍。
+                按学科和问题域建立自己的阅读框架。带有“在线阅读”标记的书籍，点击即可阅读原书；其他书籍可查看详细介绍与阅读问题。
               </p>
+              <a href={financialFreedomSource} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-2 text-xs text-[#ffd27a]/75 hover:text-[#ffd27a]">投资书籍来源 · Financial_freedom <ArrowRight size={14} /></a>
             </div>
           </motion.div>
 
@@ -142,7 +149,7 @@ export function Stack() {
                     book={book}
                     index={index}
                     sequence={categoryIndex * 4 + index}
-                    onSelect={() => setSelectedBook(book)}
+                    onSelect={() => book.documents?.length ? setReadingBook(book) : setSelectedBook(book)}
                   />
                 ))}
               </div>
@@ -154,11 +161,16 @@ export function Stack() {
       {typeof document !== 'undefined'
         ? createPortal(
             <AnimatePresence>
-              {selectedBook ? <BookDialog book={selectedBook} onClose={() => setSelectedBook(null)} /> : null}
+              {selectedBook ? <BookDialog book={selectedBook} onClose={() => setSelectedBook(null)} onRead={() => { setReadingBook(selectedBook); setSelectedBook(null); }} /> : null}
             </AnimatePresence>,
             document.body
           )
         : null}
+      {readingBook ? createPortal(
+        <Suspense fallback={<div className="fixed inset-0 z-[1000] grid place-items-center bg-[#111210] text-white" role="status"><div>正在打开阅读器…<button type="button" className="ml-4 underline" onClick={() => setReadingBook(null)}>关闭阅读器</button></div></div>}>
+          <BookReader book={readingBook} onClose={() => setReadingBook(null)} onDetails={() => { setSelectedBook(readingBook); setReadingBook(null); }} />
+        </Suspense>, document.body,
+      ) : null}
     </ModuleFrame>
   );
 }
@@ -168,6 +180,8 @@ function BookCard({ book, index, sequence, onSelect }: { book: Book; index: numb
     <motion.button
       type="button"
       onClick={onSelect}
+      onPointerEnter={() => { if (book.documents?.length) void loadReader(); }}
+      onFocus={() => { if (book.documents?.length) void loadReader(); }}
       className="group grid min-h-[360px] grid-rows-[180px_1fr] overflow-hidden rounded-lg border border-white/10 bg-[#10100e] text-left transition duration-300 hover:-translate-y-0.5 hover:border-[#ffd27a]/38 hover:bg-[#14130f] focus:outline-none focus:ring-2 focus:ring-[#ffd27a]/45"
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
@@ -186,7 +200,7 @@ function BookCard({ book, index, sequence, onSelect }: { book: Book; index: numb
         </div>
         <p className="font-serif text-base italic text-white/45">{book.author}</p>
         <p className="mt-4 line-clamp-3 text-sm leading-6 text-white/58">{book.note}</p>
-        <p className="mt-auto pt-5 text-xs font-semibold uppercase tracking-[0.16em] text-white/30">点击查看详细介绍</p>
+        <p className={`mt-auto flex items-center gap-2 pt-5 text-xs font-semibold ${book.documents?.length ? 'text-[#ffd27a]/85' : 'text-white/30'}`}>{book.documents?.length ? <><BookOpenText size={15} />在线阅读 · PDF{book.documents.length > 1 ? ` · ${book.documents.length} 个版本` : ''}</> : '点击查看详细介绍'}</p>
       </div>
     </motion.button>
   );
@@ -424,7 +438,7 @@ function FineLineMotif({ accent, index, visual }: { accent: string; index: numbe
   );
 }
 
-function BookDialog({ book, onClose }: { book: Book; onClose: () => void }) {
+function BookDialog({ book, onClose, onRead }: { book: Book; onClose: () => void; onRead: () => void }) {
   return (
     <motion.div
       className="fixed inset-0 z-50 grid place-items-center bg-black/76 px-4 py-6 backdrop-blur-xl"
@@ -462,6 +476,7 @@ function BookDialog({ book, onClose }: { book: Book; onClose: () => void }) {
           </div>
 
           <div className="space-y-6">
+            {book.documents?.length ? <button type="button" onClick={onRead} className="flex items-center gap-2 rounded-lg border border-[#ffd27a]/30 bg-[#ffd27a]/10 px-5 py-3 text-sm font-semibold text-[#ffd27a]"><BookOpenText size={18} />在线阅读原书<ArrowRight size={16} /></button> : null}
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-white/34">内容介绍</h3>
               <p className="text-base leading-8 text-white/68">{book.summary}</p>

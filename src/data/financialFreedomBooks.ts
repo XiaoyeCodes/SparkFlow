@@ -1,0 +1,133 @@
+import type { Book, BookDocument } from './content';
+
+export const financialFreedomSource = 'https://github.com/codeman008/Financial_freedom';
+// Pin the verified filenames to a revision so upstream renames cannot break the shelf.
+const revision = '322f1bc132e879e8ddbf4485d6a931735622f086';
+const pdf = (fileName: string, sizeBytes: number, label = 'PDF'): BookDocument => ({
+  label, fileName, sizeBytes,
+  url: `https://raw.githubusercontent.com/codeman008/Financial_freedom/${revision}/${encodeURIComponent(fileName)}`,
+  sourceUrl: `${financialFreedomSource}/blob/${revision}/${encodeURIComponent(fileName)}`,
+});
+
+export const financialFreedomBooks: Book[] = [
+  {
+    title: '富爸爸，穷爸爸', author: '罗伯特·清崎', visual: 'finance',
+    note: '从资产、负债与现金流入手，建立个人财务意识。',
+    summary: '通过两种不同的财富观念，讨论劳动收入、资产积累、现金流和财务教育之间的关系。',
+    why: '适合用来梳理个人收支与资产负债，进一步区分财务观念与具体投资方法。',
+    keyIdeas: ['资产与负债', '现金流', '财务教育'], readingPrompt: '你持有的哪些东西能够持续带来现金流？',
+    documents: [pdf('《富爸爸,穷爸爸》.pdf', 728152)],
+  },
+  {
+    title: '小狗钱钱', author: '博多·舍费尔', visual: 'finance',
+    note: '用故事理解储蓄、目标与长期积累。',
+    summary: '通过吉娅与小狗钱钱的故事，介绍记录目标、分配收入、储蓄习惯和基础理财观念。',
+    why: '适合作为个人理财入门，把抽象的财富目标转化成可以持续执行的日常习惯。',
+    keyIdeas: ['储蓄习惯', '目标管理', '复利'], readingPrompt: '你能从哪一个最小的储蓄习惯开始？',
+    documents: [pdf('《小狗钱钱》.pdf', 3800630)],
+  },
+  {
+    title: '穷查理宝典', author: '彼得·考夫曼 编', visual: 'wisdom',
+    note: '用多元思维模型理解投资、判断与人生选择。',
+    summary: '整理查理·芒格的演讲与思想，强调跨学科知识、理性判断和对认知偏误的警惕。',
+    why: '为投资分析提供跨学科的思维工具。', keyIdeas: ['多元思维模型', '逆向思考', '认知偏误'],
+    readingPrompt: '你的投资判断中遗漏了哪一种学科视角？',
+    documents: [pdf('《穷查理宝典》.pdf', 3668853)],
+  },
+  {
+    title: '纳瓦尔宝典', author: '埃里克·乔根森', visual: 'wisdom',
+    note: '围绕财富、判断力与幸福整理纳瓦尔的思考。',
+    summary: '从专长、杠杆、长期合作与独立判断切入，讨论财富创造和个人生活的选择。',
+    why: '帮助区分时间收入、可复制成果与长期积累。', keyIdeas: ['专长', '杠杆', '长期主义'],
+    readingPrompt: '哪些能力能随时间复利，而不是只按小时出售？',
+    documents: [pdf('《纳瓦尔宝典》.pdf', 3862962), pdf('《纳瓦尔宝典财富和幸福指南》.pdf', 3045825, '财富和幸福指南版')],
+  },
+  {
+    title: '投资中最简单的事', author: '邱国鹭', visual: 'finance',
+    note: '把投资回归企业价值、估值与能力圈。',
+    summary: '从投资实践出发，讨论价值判断、行业选择、竞争优势、估值以及投资中的常见误区。',
+    why: '有助于把复杂的市场信息整理成一套清晰的企业分析框架。',
+    keyIdeas: ['价值投资', '估值', '能力圈'], readingPrompt: '你的投资逻辑能否用几个可验证的事实说清楚？',
+    documents: [pdf('《投资中最简单的事》.pdf', 5541240)],
+  },
+  {
+    title: '聪明的投资者', author: '本杰明·格雷厄姆', visual: 'finance',
+    note: '理解安全边际、市场波动和投资纪律。',
+    summary: '围绕防御型与积极型投资者的不同选择，讨论投资与投机的区分、价格与价值以及安全边际。',
+    why: '适合用于建立投资原则，并审视自己如何面对市场情绪。',
+    keyIdeas: ['安全边际', '市场先生', '投资纪律'], readingPrompt: '你买入的价格为判断失误留下了多大余地？',
+    documents: [pdf('《聪明的投资者》(美)本杰明·格雷厄姆.pdf', 17700030)],
+  },
+  {
+    title: '指数基金投资指南', author: '银行螺丝钉', visual: 'finance',
+    note: '认识指数基金、估值与定投的基本方法。',
+    summary: '介绍指数基金的类型、选择思路、估值方法和定投实践，帮助建立长期投资的基础框架。',
+    why: '适合和自己的定投计划对照阅读，检查费用、分散程度和执行纪律。',
+    keyIdeas: ['指数基金', '估值', '定投'], readingPrompt: '你选择的指数到底代表哪些企业和风险？',
+    documents: [pdf('《指数基金投资指南》.pdf', 11569731)],
+  },
+  {
+    title: '投资最重要的事', author: '霍华德·马克斯', visual: 'cycle',
+    note: '从风险、周期和第二层次思维理解投资。',
+    summary: '围绕价值、风险、市场周期、逆向投资和运气，讨论长期投资中需要反复校准的判断。',
+    why: '有助于审视收益背后的风险，以及自身判断和市场共识的区别。',
+    keyIdeas: ['第二层次思维', '风险控制', '周期'], readingPrompt: '当前价格已经包含了怎样的市场预期？',
+    documents: [pdf('《投资最重要的事》.pdf', 18511342)],
+  },
+  {
+    title: '证券分析', author: '本杰明·格雷厄姆 / 戴维·多德', visual: 'finance',
+    note: '从财务、资产与收益能力分析证券价值。',
+    summary: '系统讨论证券分析的原则，结合财务数据、资产价值和收益能力评估不同类型的证券。',
+    why: '适合在掌握财报基础后，进一步训练价值评估和证据分析能力。',
+    keyIdeas: ['内在价值', '财务分析', '安全边际'], readingPrompt: '企业价值的哪些部分有可靠的数据支持？',
+    documents: [pdf('《证券分析》本杰明•格雷厄姆.pdf', 2253864)],
+  },
+  {
+    title: '怎样选择成长股', author: '菲利普·费雪', visual: 'finance',
+    note: '从经营品质与长期竞争力研究成长型企业。',
+    summary: '讨论企业研发、管理、销售、利润空间和成长潜力，强调深入调查与长期持有的关系。',
+    why: '可以补充仅看价格和财务指标的分析方式，关注企业发展的质地。',
+    keyIdeas: ['成长投资', '企业调研', '管理质量'], readingPrompt: '支撑企业未来增长的优势能持续多久？',
+    documents: [pdf('《怎样选择成长股》.pdf', 5896379), pdf('《怎样选择成长股最新全译版》.pdf', 23671244, '最新全译版')],
+  },
+  {
+    title: '一本书读懂财报', author: '肖星', visual: 'capital',
+    note: '把资产负债表、利润表与现金流量表联系起来。',
+    summary: '从企业经营出发解释三张财务报表的结构与关系，帮助读者理解利润、现金和资产的不同含义。',
+    why: '为企业分析打下基础，识别账面盈利与实际现金创造能力的差异。',
+    keyIdeas: ['三大报表', '现金流', '经营分析'], readingPrompt: '这家公司的利润最终变成了现金还是应收账款？',
+    documents: [pdf('《一本书读懂财报（全新修订版）》.pdf', 2480146, '全新修订版')],
+  },
+  {
+    title: '资产配置的艺术', author: '戴维·达斯特', visual: 'finance',
+    note: '从组合角度思考分散、相关性与风险承受力。',
+    summary: '讨论不同资产类别的特征、组合构建和配置调整，将投资目标与整体风险联系起来。',
+    why: '把注意力从单一标的转向整个资产组合的行为。',
+    keyIdeas: ['资产配置', '分散投资', '相关性'], readingPrompt: '市场承压时，你的不同资产会一起下跌吗？',
+    documents: [pdf('《资产配置的艺术(高清)》.pdf', 25400086, '高清版')],
+  },
+  {
+    title: '乌合之众', author: '古斯塔夫·勒庞', visual: 'mind',
+    note: '观察群体情绪、暗示与集体行为。',
+    summary: '从群体心理出发讨论情绪传播、信念和领导者对集体行为的影响。',
+    why: '可与行为金融学对读，思考市场情绪如何影响独立判断。',
+    keyIdeas: ['群体心理', '情绪传播', '独立判断'], readingPrompt: '你正在依据证据行动，还是受到群体情绪推动？',
+    documents: [pdf('《乌合之众》古斯塔夫·勒庞.pdf', 792245)],
+  },
+  {
+    title: '股票作手回忆录', author: '埃德温·勒费弗', visual: 'cycle',
+    note: '通过交易故事观察人性、风险与纪律。',
+    summary: '以交易者的经历为线索，呈现市场中的贪婪、恐惧、判断、仓位与执行问题。',
+    why: '适合用作行为复盘材料，反思交易决策与风险管理。',
+    keyIdeas: ['交易心理', '仓位管理', '执行纪律'], readingPrompt: '哪些失败来自判断，哪些失败来自没有执行自己的规则？',
+    documents: [pdf('《股票作手回忆录》.pdf', 3289912)],
+  },
+  {
+    title: '股市长线法宝', author: '杰里米·西格尔', visual: 'finance',
+    note: '从长期数据理解股票、债券与实际收益。',
+    summary: '结合长期资本市场历史，讨论股票收益、通胀、估值和持有期限之间的关系。',
+    why: '帮助用更长的观察窗口审视投资，同时检查历史结论所依赖的市场与样本。',
+    keyIdeas: ['长期收益', '通胀', '持有期限'], readingPrompt: '历史回报的结论在怎样的市场和期限下成立？',
+    documents: [pdf('《股市长线法宝（原书第5版）》.pdf', 18089613, '原书第 5 版')],
+  },
+];

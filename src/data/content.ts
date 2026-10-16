@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import { BookOpenText, Bot, Boxes, ChartNoAxesCombined, Landmark, Newspaper, Orbit, PenLine, Radar, Zap } from 'lucide-react';
+import { financialFreedomBooks } from './financialFreedomBooks';
 
 export type Gateway = {
   title: string;
@@ -63,6 +64,14 @@ export type BookVisual =
   | 'design'
   | 'technology';
 
+export type BookDocument = {
+  label: string;
+  fileName: string;
+  sizeBytes: number;
+  url: string;
+  sourceUrl: string;
+};
+
 export type Book = {
   title: string;
   author: string;
@@ -73,6 +82,7 @@ export type Book = {
   why: string;
   keyIdeas: string[];
   readingPrompt: string;
+  documents?: BookDocument[];
 };
 
 export type BookCategory = {
@@ -82,7 +92,7 @@ export type BookCategory = {
   books: Book[];
 };
 
-export const bookCategories: BookCategory[] = [
+const curatedBookCategories: BookCategory[] = [
   {
     id: 'economics-inequality',
     title: '经济学与不平等',
@@ -445,6 +455,19 @@ export const bookCategories: BookCategory[] = [
   }
 ];
 
+const existingTitles = new Set(curatedBookCategories.flatMap(category => category.books.map(book => book.title)));
+const documentsByTitle = new Map(financialFreedomBooks.map(book => [book.title, book.documents]));
+export const bookCategories: BookCategory[] = [
+  {
+    id: 'investment-wealth', title: '投资与财富管理',
+    subtitle: '从财务入门、企业分析到长期投资与资产配置，点击书籍即可在线阅读。',
+    books: financialFreedomBooks.filter(book => !existingTitles.has(book.title)),
+  },
+  ...curatedBookCategories.map(category => ({
+    ...category,
+    books: category.books.map(book => documentsByTitle.has(book.title) ? { ...book, documents: documentsByTitle.get(book.title) } : book),
+  })),
+];
 export const books: Book[] = bookCategories.flatMap((category) => category.books);
 
 export const projects = [
