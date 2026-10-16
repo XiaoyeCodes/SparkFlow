@@ -83,7 +83,7 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
     void pdf.getPage(page).then(pdfPage => {
       if (cancelled || !canvas.current) return;
       const base = pdfPage.getViewport({ scale: 1 });
-      const scale = Math.min(availableSize.width / base.width, availableSize.height / base.height, 1.5) * zoom;
+      const scale = Math.min(availableSize.width / base.width, availableSize.height / base.height) * zoom;
       const display = pdfPage.getViewport({ scale });
       // Bound raster memory on tablets and unusually large scanned pages.
       const ratio = Math.min(window.devicePixelRatio || 1, 2, 4096 / Math.max(display.width, display.height));
@@ -114,31 +114,28 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
           if (event.key === 'ArrowLeft') { event.preventDefault(); setPage(value => Math.max(1, value - 1)); }
           if (event.key === 'ArrowRight') { event.preventDefault(); setPage(value => Math.min(pdf.numPages, value + 1)); }
         }}>
-        <header className="book-reader-header">
-          <div><span>在线阅读 · PDF</span><h2 id="book-reader-title">{book.title}</h2><p>{book.author}</p></div>
-          <div className="book-reader-actions">
-            <button type="button" onClick={onDetails} aria-label="查看书籍介绍"><BookOpenText size={18} /><span>书籍介绍</span></button>
-            <a href={file.readerUrl} target="_blank" rel="noopener noreferrer" aria-label="打开原始 PDF"><ExternalLink size={18} /><span>原始文件</span></a>
-            <button ref={close} type="button" onClick={onClose} aria-label="关闭阅读器"><X size={21} /></button>
-          </div>
-        </header>
-        <div className="book-reader-toolbar">
+        <aside className="book-reader-sidebar" aria-label="书籍与翻页">
+          <header className="book-reader-header">
+            <span>在线阅读 · PDF</span><h2 id="book-reader-title">{book.title}</h2><p>{book.author}</p>
+          </header>
           <div className="book-reader-pages">
-            <button type="button" aria-label="上一页" disabled={!pdf || page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={19} /></button>
-            <label>第 <input aria-label="页码" type="number" min={1} max={pdf?.numPages ?? 1} value={pageInput} disabled={!pdf}
-              onChange={event => setPageInput(event.target.value)} onBlur={goToPage} onKeyDown={event => { if (event.key === 'Enter') goToPage(); }} /> 页</label>
-            <span aria-label="总页数">/ {pdf?.numPages ?? '—'}</span>
-            <button type="button" aria-label="下一页" disabled={!pdf || page >= pdf.numPages} onClick={() => setPage(value => value + 1)}><ChevronRight size={19} /></button>
+            <div className="book-reader-page-count">
+              <label>第 <input aria-label="页码" type="number" min={1} max={pdf?.numPages ?? 1} value={pageInput} disabled={!pdf}
+                onChange={event => setPageInput(event.target.value)} onBlur={goToPage} onKeyDown={event => { if (event.key === 'Enter') goToPage(); }} /> 页</label>
+              <span aria-label="总页数">/ {pdf?.numPages ?? '—'}</span>
+            </div>
+            <div className="book-reader-page-buttons">
+              <button type="button" aria-label="上一页" title="上一页（←）" disabled={!pdf || page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={19} /></button>
+              <button type="button" aria-label="下一页" title="下一页（→）" disabled={!pdf || page >= pdf.numPages} onClick={() => setPage(value => value + 1)}><ChevronRight size={19} /></button>
+            </div>
           </div>
           <div className="book-reader-options">
             {documents.length > 1 ? <select aria-label="书籍版本" value={version} onChange={event => setVersion(Number(event.target.value))}>
               {documents.map((document, index) => <option key={document.url} value={index}>{document.label}</option>)}
             </select> : <span className="book-reader-edition">{file.label}</span>}
-            <button type="button" aria-label="缩小" disabled={!pdf || zoom <= 0.6} onClick={() => setZoom(value => Math.max(0.6, +(value - 0.2).toFixed(1)))}><Minus size={17} /></button>
-            <button type="button" disabled={!pdf} onClick={() => setZoom(1)} aria-label="整页适应窗口" title="整页适应窗口">{zoom === 1 ? '整页' : `${Math.round(zoom * 100)}%`}</button>
-            <button type="button" aria-label="放大" disabled={!pdf || zoom >= 2} onClick={() => setZoom(value => Math.min(2, +(value + 0.2).toFixed(1)))}><Plus size={17} /></button>
           </div>
-        </div>
+          <footer className="book-reader-footer"><span>来源：Financial_freedom</span><a href={file.sourceUrl} target="_blank" rel="noopener noreferrer">查看来源 <ExternalLink size={12} /></a></footer>
+        </aside>
         <div ref={viewport} className="book-reader-viewport" aria-busy={loading || rendering}>
           {error ? <div className="book-reader-message" role="alert"><BookOpenText size={30} /><p>{error}</p>
             <button type="button" onClick={() => setRetry(value => value + 1)}><RotateCw size={16} />重新加载</button>
@@ -147,7 +144,18 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
           {!error && (loading || rendering) ? <p className="book-reader-loading" role="status">{loading ? `正在打开书籍 · ${(file.sizeBytes / 1048576).toFixed(1)} MB` : '正在显示页面…'}</p> : null}
           <canvas ref={canvas} role="img" aria-label={`${book.title} 第 ${page} 页`} style={{ display: pdf && !error ? 'block' : 'none', visibility: rendering ? 'hidden' : 'visible' }} />
         </div>
-        <footer className="book-reader-footer"><span>来源：Financial_freedom</span><a href={file.sourceUrl} target="_blank" rel="noopener noreferrer">查看来源 <ExternalLink size={12} /></a></footer>
+        <aside className="book-reader-controls" aria-label="阅读工具">
+          <div className="book-reader-actions">
+            <button ref={close} type="button" onClick={onClose} aria-label="关闭阅读器" title="关闭阅读器（Esc）"><X size={21} /></button>
+            <button type="button" onClick={onDetails} aria-label="查看书籍介绍" title="书籍介绍"><BookOpenText size={18} /></button>
+            <a href={file.readerUrl} target="_blank" rel="noopener noreferrer" aria-label="打开原始 PDF" title="打开本地 PDF"><ExternalLink size={18} /></a>
+          </div>
+          <div className="book-reader-zoom">
+            <button type="button" aria-label="缩小" title="缩小" disabled={!pdf || zoom <= 0.6} onClick={() => setZoom(value => Math.max(0.6, +(value - 0.2).toFixed(1)))}><Minus size={17} /></button>
+            <button type="button" disabled={!pdf} onClick={() => setZoom(1)} aria-label="整页适应窗口" title="整页适应窗口">{zoom === 1 ? '整页' : `${Math.round(zoom * 100)}%`}</button>
+            <button type="button" aria-label="放大" title="放大" disabled={!pdf || zoom >= 2} onClick={() => setZoom(value => Math.min(2, +(value + 0.2).toFixed(1)))}><Plus size={17} /></button>
+          </div>
+        </aside>
       </section>
     </div>
   );

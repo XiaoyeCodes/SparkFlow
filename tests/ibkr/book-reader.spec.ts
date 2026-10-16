@@ -57,7 +57,15 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 820, height: 1180 },
       return data.some((value, index) => index % 4 === 0 && value < 200);
     })).toBe(true);
     const initialHeight = await canvas.evaluate(element => element.getBoundingClientRect().height);
-    await page.setViewportSize({ ...size, height: Math.floor(size.height * 0.7) });
+    if (size.width >= 1100) {
+      expect(initialHeight).toBeGreaterThan(size.height * 0.9);
+      const pageBounds = await canvas.boundingBox();
+      const sidebarBounds = await dialog.locator('.book-reader-sidebar').boundingBox();
+      const toolsBounds = await dialog.locator('.book-reader-controls').boundingBox();
+      expect(sidebarBounds!.x + sidebarBounds!.width).toBeLessThanOrEqual(pageBounds!.x);
+      expect(toolsBounds!.x).toBeGreaterThanOrEqual(pageBounds!.x + pageBounds!.width);
+    }
+    await page.setViewportSize({ ...size, height: Math.min(480, Math.floor(size.height * 0.7)) });
     await expect.poll(() => canvas.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(initialHeight);
     await expect.poll(fitsWithoutScrolling).toBe(true);
     await page.setViewportSize(size);
