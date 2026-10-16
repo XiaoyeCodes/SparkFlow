@@ -18,7 +18,7 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
   const [loading, setLoading] = useState(true);
   const [rendering, setRendering] = useState(true);
   const [error, setError] = useState('');
-  const [width, setWidth] = useState(600);
+  const [availableSize, setAvailableSize] = useState({ width: 600, height: 600 });
   const canvas = useRef<HTMLCanvasElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLElement>(null);
@@ -42,7 +42,12 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
   useEffect(() => {
     const element = viewport.current;
     if (!element) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(200, entry.contentRect.width - 32)));
+    const observer = new ResizeObserver(([entry]) => {
+      // contentRect already excludes padding; leave one pixel for fractional rounding.
+      const width = Math.max(1, Math.floor(entry.contentRect.width) - 1);
+      const height = Math.max(1, Math.floor(entry.contentRect.height) - 1);
+      setAvailableSize(previous => previous.width === width && previous.height === height ? previous : { width, height });
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -74,11 +79,11 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
     let cancelled = false;
     let task: RenderTask | undefined;
     setRendering(true); setError('');
-    viewport.current?.scrollTo({ top: 0 });
+    viewport.current?.scrollTo({ top: 0, left: 0 });
     void pdf.getPage(page).then(pdfPage => {
       if (cancelled || !canvas.current) return;
       const base = pdfPage.getViewport({ scale: 1 });
-      const scale = Math.min(width / base.width, 1.5) * zoom;
+      const scale = Math.min(availableSize.width / base.width, availableSize.height / base.height, 1.5) * zoom;
       const display = pdfPage.getViewport({ scale });
       // Bound raster memory on tablets and unusually large scanned pages.
       const ratio = Math.min(window.devicePixelRatio || 1, 2, 4096 / Math.max(display.width, display.height));
@@ -91,7 +96,7 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
       if (!cancelled) { setRendering(false); setError('当前页无法显示，请重新加载或打开原始文件。'); }
     });
     return () => { cancelled = true; task?.cancel(); };
-  }, [pdf, page, width, zoom]);
+  }, [pdf, page, availableSize, zoom]);
 
   useEffect(() => { setPageInput(String(page)); }, [page]);
 
@@ -130,7 +135,7 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
               {documents.map((document, index) => <option key={document.url} value={index}>{document.label}</option>)}
             </select> : <span className="book-reader-edition">{file.label}</span>}
             <button type="button" aria-label="缩小" disabled={!pdf || zoom <= 0.6} onClick={() => setZoom(value => Math.max(0.6, +(value - 0.2).toFixed(1)))}><Minus size={17} /></button>
-            <button type="button" disabled={!pdf} onClick={() => setZoom(1)} title="重置为适合宽度">{Math.round(zoom * 100)}%</button>
+            <button type="button" disabled={!pdf} onClick={() => setZoom(1)} aria-label="整页适应窗口" title="整页适应窗口">{zoom === 1 ? '整页' : `${Math.round(zoom * 100)}%`}</button>
             <button type="button" aria-label="放大" disabled={!pdf || zoom >= 2} onClick={() => setZoom(value => Math.min(2, +(value + 0.2).toFixed(1)))}><Plus size={17} /></button>
           </div>
         </div>

@@ -49,15 +49,27 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 820, height: 1180 },
     await expect(canvas).toBeVisible();
     await expect(dialog.getByLabel('总页数')).toHaveText('/ 3');
     await expect(dialog.getByRole('button', { name: '上一页' })).toBeDisabled();
+    const fitsWithoutScrolling = () => dialog.locator('.book-reader-viewport').evaluate(element =>
+      element.getAttribute('aria-busy') === 'false' && element.scrollHeight <= element.clientHeight && element.scrollWidth <= element.clientWidth);
+    await expect.poll(fitsWithoutScrolling).toBe(true);
     await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => {
       const data = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
       return data.some((value, index) => index % 4 === 0 && value < 200);
     })).toBe(true);
+    const initialHeight = await canvas.evaluate(element => element.getBoundingClientRect().height);
+    await page.setViewportSize({ ...size, height: Math.floor(size.height * 0.7) });
+    await expect.poll(() => canvas.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(initialHeight);
+    await expect.poll(fitsWithoutScrolling).toBe(true);
+    await page.setViewportSize(size);
+    await expect.poll(() => canvas.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(initialHeight - 1);
     const beforeWidth = await canvas.evaluate(element => element.getBoundingClientRect().width);
     await dialog.getByRole('button', { name: '放大', exact: true }).click();
     await expect.poll(() => canvas.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(beforeWidth);
+    await dialog.getByRole('button', { name: '整页适应窗口' }).click();
+    await expect.poll(fitsWithoutScrolling).toBe(true);
     await dialog.getByRole('button', { name: '下一页' }).click();
     await expect(dialog.getByRole('img', { name: '富爸爸，穷爸爸 第 2 页' })).toBeVisible();
+    await expect.poll(fitsWithoutScrolling).toBe(true);
     await dialog.getByRole('spinbutton', { name: '页码' }).fill('3');
     await dialog.getByRole('spinbutton', { name: '页码' }).press('Enter');
     await expect(dialog.getByRole('img', { name: '富爸爸，穷爸爸 第 3 页' })).toBeVisible();
