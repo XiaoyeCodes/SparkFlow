@@ -10,7 +10,12 @@ for (let page = 1; page <= 3; page++) {
   sample.rect(20, 50, 100, 80, 'F');
 }
 const pdf = Buffer.from(sample.output('arraybuffer'));
-const rawPattern = 'https://raw.githubusercontent.com/codeman008/Financial_freedom/**';
+const localPdfPattern = /\/api\/books\/financial-freedom\?file=/;
+
+test.beforeEach(async ({ page }) => {
+  // Opening or switching books must work even when the browser cannot reach GitHub.
+  await page.route('https://raw.githubusercontent.com/**', route => route.abort());
+});
 
 test('all 17 source PDFs have unique, encoded reading links', () => {
   expect(financialFreedomBooks).toHaveLength(15);
@@ -22,6 +27,7 @@ test('all 17 source PDFs have unique, encoded reading links', () => {
     expect(decodeURIComponent(url.pathname.split('/').at(-1)!)).toBe(file.fileName);
     expect(file.fileName).toMatch(/\.pdf$/);
     expect(file.sourceUrl).toContain('/blob/322f1bc132e879e8ddbf4485d6a931735622f086/');
+    expect(new URL(file.readerUrl, 'http://books.local').searchParams.get('file')).toBe(file.fileName);
   }
 });
 
@@ -30,7 +36,9 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 820, height: 1180 },
     await page.setViewportSize(size);
     await page.route('**/api/**', route => route.fulfill({ status: 503, json: {} }));
     let requests = 0;
-    await page.route(rawPattern, route => { requests++; return route.fulfill({ body: pdf, contentType: 'application/pdf' }); });
+    let externalRequests = 0;
+    page.on('request', request => { if (request.url().includes('raw.githubusercontent.com')) externalRequests++; });
+    await page.route(localPdfPattern, route => { requests++; return route.fulfill({ body: pdf, contentType: 'application/pdf' }); });
     await page.goto('http://127.0.0.1:5187/stack');
     await expect(page.getByRole('heading', { name: '投资与财富管理', exact: true, level: 2 })).toBeVisible();
     expect(requests).toBe(0);
@@ -58,6 +66,7 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 820, height: 1180 },
     await dialog.getByRole('spinbutton', { name: '页码' }).press('Enter');
     await expect(dialog.getByRole('spinbutton', { name: '页码' })).toHaveValue('3');
     expect(requests).toBe(1);
+    expect(externalRequests).toBe(0);
     const bounds = await dialog.boundingBox();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.width).toBeLessThanOrEqual(size.width);
@@ -77,10 +86,12 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 820, height: 1180 },
 test('existing titles are deduplicated and both source editions open', async ({ page }) => {
   await page.route('**/api/**', route => route.fulfill({ status: 503, json: {} }));
   const filenames: string[] = [];
-  await page.route(rawPattern, route => { filenames.push(decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!)); return route.fulfill({ body: pdf, contentType: 'application/pdf' }); });
+  await page.route(localPdfPattern, route => { filenames.push(new URL(route.request().url()).searchParams.get('file')!); return route.fulfill({ body: pdf, contentType: 'application/pdf' }); });
   await page.goto('http://127.0.0.1:5187/stack');
   await expect(page.getByRole('heading', { name: '纳瓦尔宝典', exact: true, level: 3 })).toHaveCount(1);
   await expect(page.getByRole('heading', { name: '穷查理宝典', exact: true, level: 3 })).toHaveCount(1);
+  const firstShelf = page.locator('#category-investment-wealth');
+  await expect(firstShelf.locator('h3')).toHaveText(financialFreedomBooks.map(book => book.title));
   await page.getByRole('button', { name: /纳瓦尔宝典/ }).click();
   const dialog = page.getByRole('dialog', { name: '纳瓦尔宝典' });
   await expect(dialog.getByRole('img', { name: '纳瓦尔宝典 第 1 页' })).toBeVisible();
@@ -99,13 +110,13 @@ test('existing titles are deduplicated and both source editions open', async ({ 
 test('failed source has a useful retry and working external file links', async ({ page }) => {
   await page.route('**/api/**', route => route.fulfill({ status: 503, json: {} }));
   let attempts = 0;
-  await page.route(rawPattern, route => ++attempts === 1 ? route.fulfill({ status: 404 }) : route.fulfill({ body: pdf, contentType: 'application/pdf' }));
+  await page.route(localPdfPattern, route => ++attempts === 1 ? route.fulfill({ status: 404 }) : route.fulfill({ body: pdf, contentType: 'application/pdf' }));
   await page.goto('http://127.0.0.1:5187/stack');
   await page.getByRole('button', { name: /富爸爸，穷爸爸/ }).click();
   const dialog = page.getByRole('dialog', { name: '富爸爸，穷爸爸' });
-  await expect(dialog.getByRole('alert')).toContainText('书籍暂时无法加载');
-  await expect(dialog.getByRole('link', { name: '打开原始 PDF' })).toHaveAttribute('href', financialFreedomBooks[0].documents![0].url);
-  await expect(dialog.getByRole('link', { name: /前往 GitHub/ })).toHaveAttribute('href', financialFreedomBooks[0].documents![0].sourceUrl);
+  await expect(dialog.getByRole('alert')).toContainText('本地书籍暂时无法读取');
+  await expect(dialog.getByRole('link', { name: '打开原始 PDF' })).toHaveAttribute('href', financialFreedomBooks[0].documents![0].readerUrl);
+  await expect(dialog.getByRole('link', { name: '打开本地 PDF' })).toHaveAttribute('href', financialFreedomBooks[0].documents![0].readerUrl);
   await dialog.getByRole('button', { name: '重新加载' }).click();
   await expect(dialog.getByRole('img', { name: '富爸爸，穷爸爸 第 1 页' })).toBeVisible();
   expect(attempts).toBe(2);

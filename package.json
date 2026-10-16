@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "books:download": "node --no-warnings --experimental-strip-types scripts/download-reading-books.mjs",
+    "test:books": "node --no-warnings --experimental-strip-types scripts/verify-book-library.mjs",
     "test:macro-core-index-quotes": "node --no-warnings --experimental-strip-types scripts/verify-macro-core-index-quotes.mjs",
     "test:macro-currency-quotes": "node --no-warnings --experimental-strip-types scripts/verify-macro-currency-quotes.mjs",
     "test:realtime-quotes": "node --no-warnings --experimental-strip-types scripts/verify-realtime-quotes.mjs",

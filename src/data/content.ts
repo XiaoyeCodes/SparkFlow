@@ -69,6 +69,7 @@ export type BookDocument = {
   fileName: string;
   sizeBytes: number;
   url: string;
+  readerUrl: string;
   sourceUrl: string;
 };
 
@@ -455,17 +456,17 @@ const curatedBookCategories: BookCategory[] = [
   }
 ];
 
-const existingTitles = new Set(curatedBookCategories.flatMap(category => category.books.map(book => book.title)));
-const documentsByTitle = new Map(financialFreedomBooks.map(book => [book.title, book.documents]));
+const curatedByTitle = new Map(curatedBookCategories.flatMap(category => category.books.map(book => [book.title, book] as const)));
+const importedTitles = new Set(financialFreedomBooks.map(book => book.title));
 export const bookCategories: BookCategory[] = [
   {
     id: 'investment-wealth', title: '投资与财富管理',
     subtitle: '从财务入门、企业分析到长期投资与资产配置，点击书籍即可在线阅读。',
-    books: financialFreedomBooks.filter(book => !existingTitles.has(book.title)),
+    books: financialFreedomBooks.map(book => ({ ...book, ...curatedByTitle.get(book.title), documents: book.documents })),
   },
   ...curatedBookCategories.map(category => ({
     ...category,
-    books: category.books.map(book => documentsByTitle.has(book.title) ? { ...book, documents: documentsByTitle.get(book.title) } : book),
+    books: category.books.filter(book => !importedTitles.has(book.title)),
   })),
 ];
 export const books: Book[] = bookCategories.flatMap((category) => category.books);

@@ -21,6 +21,7 @@ export function createUserDataPaths(rootDir: string) {
     exportsDir: path.join(root, 'exports'),
     pdfExportsDir: path.join(root, 'exports', 'pdf'),
     reportsDir: path.join(root, 'reports'),
+    booksDir: path.join(root, 'books'),
   };
 }
 
@@ -47,6 +48,7 @@ export function initializeUserData(rootDir: string) {
     paths.settingsDir,
     paths.pdfExportsDir,
     paths.reportsDir,
+    paths.booksDir,
   ]) mkdirSync(directory, { recursive: true });
 
   const vibeAgent = path.join(rootDir, 'services', 'vibe-trading', 'agent');
@@ -69,6 +71,7 @@ export function initializeUserData(rootDir: string) {
     'settings/   Local model settings and API credentials',
     'exports/    Files exported from SparkFlow',
     'reports/    Generated research reports and report attachments',
+    'books/      Cached reading files from your book shelf',
     '',
     'This directory is local-only and excluded from Git. Back it up with the rest of your personal files.',
   ].join('\n'), 'utf8');

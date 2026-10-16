@@ -50,16 +50,21 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
   useEffect(() => {
     let cancelled = false;
     setPdf(undefined); setLoading(true); setRendering(true); setError(''); setPage(1); setPageInput('1'); setZoom(1);
-    const task = getDocument({ url: file.url, isEvalSupported: false });
+    const task = getDocument({
+      url: file.readerUrl, isEvalSupported: false,
+      cMapUrl: new URL('/api/books/pdf-assets/cmaps/', window.location.href).href,
+      cMapPacked: true,
+      standardFontDataUrl: new URL('/api/books/pdf-assets/standard_fonts/', window.location.href).href,
+    });
     const timeout = window.setTimeout(() => {
       if (cancelled) return;
-      cancelled = true; setLoading(false); setError('连接书籍文件超时，请重试或打开原始文件。');
+      cancelled = true; setLoading(false); setError('读取本地书籍超时，请重试或打开原始文件。');
       void task.destroy();
     }, 45_000);
     void task.promise.then(document => {
       if (!cancelled) { window.clearTimeout(timeout); setPdf(document); setLoading(false); }
     }).catch(() => {
-      if (!cancelled) { window.clearTimeout(timeout); setLoading(false); setError('书籍暂时无法加载，请检查网络后重试，也可以打开原始文件。'); }
+      if (!cancelled) { window.clearTimeout(timeout); setLoading(false); setError('本地书籍暂时无法读取，请重试；文件缺失或损坏时需重新下载。'); }
     });
     return () => { cancelled = true; window.clearTimeout(timeout); void task.destroy(); };
   }, [file.url, retry]);
@@ -108,7 +113,7 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
           <div><span>在线阅读 · PDF</span><h2 id="book-reader-title">{book.title}</h2><p>{book.author}</p></div>
           <div className="book-reader-actions">
             <button type="button" onClick={onDetails} aria-label="查看书籍介绍"><BookOpenText size={18} /><span>书籍介绍</span></button>
-            <a href={file.url} target="_blank" rel="noopener noreferrer" aria-label="打开原始 PDF"><ExternalLink size={18} /><span>原始文件</span></a>
+            <a href={file.readerUrl} target="_blank" rel="noopener noreferrer" aria-label="打开原始 PDF"><ExternalLink size={18} /><span>原始文件</span></a>
             <button ref={close} type="button" onClick={onClose} aria-label="关闭阅读器"><X size={21} /></button>
           </div>
         </header>
@@ -132,7 +137,7 @@ export default function BookReader({ book, onClose, onDetails }: { book: Book; o
         <div ref={viewport} className="book-reader-viewport" aria-busy={loading || rendering}>
           {error ? <div className="book-reader-message" role="alert"><BookOpenText size={30} /><p>{error}</p>
             <button type="button" onClick={() => setRetry(value => value + 1)}><RotateCw size={16} />重新加载</button>
-            <a href={file.sourceUrl} target="_blank" rel="noopener noreferrer">前往 GitHub 查看文件 <ExternalLink size={14} /></a>
+            <a href={file.readerUrl} target="_blank" rel="noopener noreferrer">打开本地 PDF <ExternalLink size={14} /></a>
           </div> : null}
           {!error && (loading || rendering) ? <p className="book-reader-loading" role="status">{loading ? `正在打开书籍 · ${(file.sizeBytes / 1048576).toFixed(1)} MB` : '正在显示页面…'}</p> : null}
           <canvas ref={canvas} role="img" aria-label={`${book.title} 第 ${page} 页`} style={{ display: pdf && !error ? 'block' : 'none', visibility: rendering ? 'hidden' : 'visible' }} />

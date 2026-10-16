@@ -17,6 +17,8 @@
     "vite.config.ts",
     "tailwind.config.ts",
     "src/data/marketCalendars.ts",
+    "src/data/content.ts",
+    "src/data/financialFreedomBooks.ts",
     "src/data/chinaProvinceEconomy.ts",
     "src/lib/newsTypes.ts",
     "src/lib/pageDataTypes.ts",

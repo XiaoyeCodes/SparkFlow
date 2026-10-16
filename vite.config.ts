@@ -1,5 +1,6 @@
 import { createRegionalEconomyService } from './server/chinaRegionalEconomy';
 import { initializeUserData, safeExportName } from './server/userData';
+import { bookLibraryPlugin } from './server/bookLibrary';
 import { createAssistantResearch } from './server/ibkrAssistantResearch';
 import regionalVerifiedSeed from './src/data/chinaRegionalVerified.json';
 import regionalSources from './src/data/chinaRegionalSources.json';
@@ -13411,6 +13412,7 @@ export default defineConfig({
       },
     }),
     dailyHotPlugin(),
+    bookLibraryPlugin(),
     allWeatherApiPlugin(),
   ],
   server: {
@@ -13418,6 +13420,7 @@ export default defineConfig({
       ignored: [
         // Runtime snapshots and browser profiles are generated data, not HMR inputs.
         '**/.sparkflow/**',
+        '**/UserData/**',
         '**/output/**',
         '**/tmp/**',
         '**/test-results/**',

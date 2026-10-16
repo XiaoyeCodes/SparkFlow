@@ -5,6 +5,7 @@ export const financialFreedomSource = 'https://github.com/codeman008/Financial_f
 const revision = '322f1bc132e879e8ddbf4485d6a931735622f086';
 const pdf = (fileName: string, sizeBytes: number, label = 'PDF'): BookDocument => ({
   label, fileName, sizeBytes,
+  readerUrl: `/api/books/financial-freedom?file=${encodeURIComponent(fileName)}`,
   url: `https://raw.githubusercontent.com/codeman008/Financial_freedom/${revision}/${encodeURIComponent(fileName)}`,
   sourceUrl: `${financialFreedomSource}/blob/${revision}/${encodeURIComponent(fileName)}`,
 });
