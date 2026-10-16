@@ -8,11 +8,13 @@ import {
   ChartNoAxesCombined,
   CircuitBoard,
   Dna,
+  ExternalLink,
   Landmark,
   Network,
   Orbit,
   Scale,
   ScrollText,
+  Search,
   Sparkles,
   Sprout,
   X
@@ -102,6 +104,29 @@ export function Stack() {
                 按学科和问题域建立自己的阅读框架。带有“在线阅读”标记的书籍，点击即可阅读原书；其他书籍可查看详细介绍与阅读问题。
               </p>
               <a href={financialFreedomSource} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-2 text-xs text-[#ffd27a]/75 hover:text-[#ffd27a]">投资书籍来源 · Financial_freedom <ArrowRight size={14} /></a>
+              <a
+                href="https://zh.z-lib.fm/"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="打开 Z-Library 图书搜索（新标签页）"
+                className="group mt-6 block rounded-xl border border-[#ffd27a]/20 bg-[#11110f] p-5 text-left transition duration-200 hover:border-[#ffd27a]/45 hover:bg-[#191710] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd27a]/60 focus-visible:ring-offset-4 focus-visible:ring-offset-[#0a0a09]"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-[#ffd27a]/20 bg-[#ffd27a]/[0.06] text-[#ffd27a]" aria-hidden="true"><Search size={21} strokeWidth={1.6} /></span>
+                    <div>
+                      <p className="text-[11px] font-semibold tracking-[0.16em] text-[#ffd27a]/70">图书搜索</p>
+                      <h3 className="mt-1 text-xl font-semibold text-white/90">Z-Library</h3>
+                    </div>
+                  </div>
+                  <ExternalLink size={17} className="mt-1 shrink-0 text-white/35 transition group-hover:text-[#ffd27a]" aria-hidden="true" />
+                </div>
+                <p className="mt-4 text-sm leading-6 text-white/55">查找想读的书籍，拓展你的阅读书单。</p>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/[0.07] pt-3">
+                  <span className="text-xs text-white/35">zh.z-lib.fm</span>
+                  <span className="inline-flex items-center gap-2 text-xs font-semibold text-[#ffd27a]/85">前往搜索 <ArrowRight size={14} className="transition group-hover:translate-x-1" aria-hidden="true" /></span>
+                </div>
+              </a>
             </div>
           </motion.div>
 
