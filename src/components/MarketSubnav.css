@@ -1,0 +1,9 @@
+@import '../styles/marketTheme.css';
+
+.market-subnav { display: flex; gap: 8px; width: fit-content; max-width: 100%; }
+.market-subnav a { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 13px 22px; border: 1px solid var(--market-line); color: var(--market-secondary); background: var(--market-control); border-radius: 13px; font-family: "Noto Serif SC", "Songti SC", serif; font-size: clamp(23px, 2.3vw, 36px); line-height: 1.25; letter-spacing: -.035em; font-weight: 600; white-space: nowrap; transition: background .15s, color .15s, border-color .15s; }
+.market-subnav svg { width: 23px; height: 23px; flex-shrink: 0; }
+.market-subnav a:hover { background: var(--market-hover); color: var(--market-heading); }
+.market-subnav a.active { background: var(--market-action-gradient); color: var(--market-action-ink); border-color: var(--market-accent); }
+.market-subnav a:focus-visible { outline: 2px solid var(--market-accent); outline-offset: 3px; }
+@media (max-width: 600px) { .market-subnav { width: 100%; gap: 7px; } .market-subnav a { flex: 1; gap: 8px; padding: 12px 13px; font-size: clamp(21px, 5.5vw, 27px); } .market-subnav svg { width: 19px; height: 19px; } }

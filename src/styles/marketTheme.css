@@ -1,0 +1,32 @@
+/* Research and title-switch palette; the original market dashboard owns its styles. */
+.market-subnav,
+.strategy-page {
+  --market-bg: #020708;
+  --market-panel: rgba(5, 13, 15, 0.965);
+  --market-panel-raised: rgba(8, 20, 21, 0.98);
+  --market-card: rgba(8, 19, 20, 0.96);
+  --market-line: rgba(105, 186, 169, 0.13);
+  --market-line-strong: rgba(103, 219, 194, 0.28);
+  --market-signal: #67dbc1;
+  --market-text: #dbe7e4;
+  --market-muted: #6c8280;
+  --market-dim: #405553;
+  --market-gold: #d9aa55;
+  --market-accent: #9adbd3;
+  --market-heading: #edf4f1;
+  --market-secondary: #9fb6b8;
+  --market-highlight: #c4e4e7;
+  --market-faint: #68818a;
+  --market-inset: #040b0f;
+  --market-control: #081216;
+  --market-hover: #0c1d23;
+  --market-selected: #102a34;
+  --market-selected-line: #2e5663;
+  --market-border: #203841;
+  --market-accent-soft: #78aeba;
+  --market-action-ink: #041415;
+  --market-action-gradient: linear-gradient(135deg, #9adbd3, #72b8c8);
+  --market-action-hover: linear-gradient(135deg, #b2e7e0, #89cbda);
+  --market-card-gradient: linear-gradient(145deg, rgba(10, 21, 27, .98), rgba(6, 14, 18, .98));
+  --market-focus-ring: rgba(114, 184, 200, .12);
+}

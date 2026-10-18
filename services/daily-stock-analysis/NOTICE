@@ -1,0 +1,12 @@
+Daily Stock Analysis — Copyright (c) 2026 ZhuLinsen
+Source: https://github.com/ZhuLinsen/daily_stock_analysis
+Revision: 7a21cd76952c7fe44a7fc5a6113a5b2b8a16bb32
+License: MIT (see LICENSE and THIRD_PARTY_NOTICES.md).
+
+SparkFlow bundles the upstream Python backend, providers, strategies and report
+templates unchanged. Its React frontend, scheduler, desktop application and
+GitHub workflows are not used. The integration lives in
+scripts/stock-strategy-worker.py and server/stockStrategy.ts.
+SparkFlow's public US quote/history/financial and RSS news adapters live in
+scripts/stock_strategy_data.py and scripts/stock_strategy_news.py. These are
+installed at runtime without editing the upstream modules.

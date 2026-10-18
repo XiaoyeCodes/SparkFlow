@@ -5,6 +5,7 @@ import { UserMenu } from './UserMenu';
 import { primaryNavigation } from '../data/navigation';
 import { prepareGlobalMacroData } from '../lib/globalMacroTerminalPreload';
 import { prepareAssistantData, prepareMarketData, prepareNewsData, prepareWorkbenchData } from '../lib/pagePreparation';
+import { loadStrategyState } from '../lib/stockStrategyClient';
 
 export function Shell({ children }: { children: ReactNode }) {
   const { hash, pathname } = useLocation();
@@ -23,6 +24,7 @@ export function Shell({ children }: { children: ReactNode }) {
       if (pathname !== '/signals') void prepareNewsData();
       if (pathname !== '/assistant') void prepareAssistantData();
       if (pathname !== '/ibkr') void prepareWorkbenchData();
+      if (pathname !== '/market/research') void loadStrategyState().catch(() => {});
     };
     prepare();
     const timer = window.setInterval(prepare, 30_000);

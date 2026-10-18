@@ -77,6 +77,7 @@ SparkFlow 面向希望自己掌握数据和研究过程的个人投资者与开�
 | 全球宏观终端 | 交互式 3D 地球、全球指数、VIX、美元、美债、商品、主要汇率、通胀与就业指标 |
 | 中国宏观主控台 | 信贷、PMI、通胀、政策利率、GDP、收入与区域经济图谱，保留来源与更新时间 |
 | 多市场热力图 | A 股、港股、美股、加密资产及多个海外股票市场，支持行业分组、搜索、缩放和交易日状态 |
+| 股票策略研究 | 股票市场下设市场情报与策略研究，集成 Daily Stock Analysis、15 种策略、报告追问与本地历史，复用现有模型设置；[使用说明](./docs/stock-strategy.md) |
 | 每日简报 | 宏观资产、情绪指标、BTC 价格区间、期货多空与 AI 市场解读的统一视图 |
 | 新闻情报 | RSS、国际媒体、社区热榜、GitHub、Hacker News、Hugging Face 与 AI 日报聚合，支持排序、去重和自定义订阅 |
 | AI 深度研究 | 流式研究过程、工具调用状态、历史会话、报告内追问，以及 Markdown、HTML、PDF 导出 |
@@ -269,6 +270,8 @@ npm run test:ibkr:e2e
 ## License
 
 根项目使用 [MIT License](./LICENSE)。`services/vibe-trading` 基于 [HKUDS/Vibe-Trading](https://github.com/HKUDS/Vibe-Trading) 的指定版本集成，相关版权、许可证与修改说明见该目录下的 `LICENSE` 和 `NOTICE`。
+
+`services/daily-stock-analysis` 基于 [ZhuLinsen/daily_stock_analysis](https://github.com/ZhuLinsen/daily_stock_analysis) 的固定版本，保留上游 MIT 许可证及第三方组件声明，详见该目录的 `LICENSE`、`NOTICE` 和 `THIRD_PARTY_NOTICES.md`。
 
 ---
 

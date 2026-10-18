@@ -208,7 +208,7 @@ export function IntegrationSettingsPanel({ compact = false, onChange }: Integrat
         </div>
 
       </div>
-      <p className="mt-3 text-xs leading-5 text-white/42">保存后会写入本机用户目录 <code className="text-white/58">.SparkFlow/apikey/integration-settings.json</code>；再次打开设置会直接读取该文件。</p>
+      <p className="mt-3 text-xs leading-5 text-white/42">保存后会写入项目用户数据目录 <code className="text-white/58">UserData/settings/integration-settings.json</code>；AI 助手与策略研究共用这份配置。</p>
       {saveError ? <p className="mt-2 text-xs text-rose-300">{saveError}</p> : null}
     </section>
   );

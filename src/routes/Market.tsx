@@ -32,6 +32,7 @@ import { BitcoinCycleChart } from '../components/BitcoinCycleChart';
 import { MarketTemperaturePanel } from '../components/MarketTemperaturePanel';
 import { MarketRiskWhitepaperLauncher } from '../components/MarketRiskWhitepaper';
 import { PageTransition } from '../components/PageTransition';
+import { MarketSubnav } from '../components/MarketSubnav';
 import { loadDailyMarketData, type CoreMarketMode } from '../lib/dailyMarketCache';
 import { peekPublicData, publicDataFetch } from '../lib/publicDataClient';
 import { preloadGlobalMacroTerminal } from '../lib/globalMacroTerminalPreload';
@@ -1180,15 +1181,11 @@ export function Market({ initialDashboardView = 'markets' }: { initialDashboardV
 
   return (
     <PageTransition instant>
-      <section className="market-terminal min-h-screen px-3 pb-16 pt-[calc(var(--nav-height)+18px)] text-white sm:px-5 lg:px-7">
+      <section className="market-terminal min-h-screen px-3 pb-16 pt-3 text-white sm:px-5 lg:px-7">
         <div className="market-terminal-frame mx-auto w-full max-w-[1780px]">
           <header className="market-terminal-hero mb-4 flex flex-col gap-5 pb-5 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <div className="market-terminal-eyebrow flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em]">
-                <Radar size={14} />
-                Market Intelligence Command
-              </div>
-              <h1 className="market-terminal-title mt-4 text-4xl font-semibold leading-none sm:text-5xl">市场情报与策略研究台</h1>
+              <MarketSubnav />
               <p className="market-terminal-subtitle mt-3 text-sm">实时指数、资金风向、中文新闻、券商研报与 Vibe-Trading 深度研究</p>
             </div>
             <div className="market-terminal-actions flex flex-wrap items-center gap-2">

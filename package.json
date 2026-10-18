@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "strategy:setup": "node scripts/setup-stock-strategy.mjs",
+    "test:stock-strategy": "node --no-warnings --experimental-strip-types scripts/verify-stock-strategy.mjs",
+    "test:stock-strategy:engine": "node --no-warnings --experimental-strip-types scripts/verify-stock-strategy-engine.mjs",
     "books:download": "node --no-warnings --experimental-strip-types scripts/download-reading-books.mjs",
     "test:books": "node --no-warnings --experimental-strip-types scripts/verify-book-library.mjs",
     "test:macro-core-index-quotes": "node --no-warnings --experimental-strip-types scripts/verify-macro-core-index-quotes.mjs",
@@ -37,7 +40,7 @@
     "test:china-provinces": "node --no-warnings --experimental-strip-types scripts/verify-china-province-government.mjs",
     "test:china-news": "node --no-warnings --experimental-strip-types scripts/verify-china-macro-news.mjs",
     "test:coze-report": "node --no-warnings --experimental-strip-types scripts/verify-coze-report-pipeline.mjs",
-    "predev": "npm run research:setup && npm run dailyhot:setup",
+    "predev": "npm run research:setup && npm run dailyhot:setup && npm run strategy:setup",
     "dev": "vite --host 127.0.0.1",
     "prebuild": "npm run dailyhot:setup",
     "build": "tsc -b && vite build",

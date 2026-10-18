@@ -38,7 +38,6 @@
 
 .market-terminal-hero {
   position: relative;
-  padding-top: 10px;
 }
 
 .market-terminal-hero::after { display: none; }

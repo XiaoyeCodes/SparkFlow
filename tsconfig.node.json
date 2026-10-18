@@ -25,6 +25,7 @@
     "src/lib/dailyBriefTypes.ts",
     "src/lib/dailyBriefFreshness.ts",
     "src/lib/marketCloseTypes.ts",
+    "src/lib/stockStrategyTypes.ts",
     "src/lib/financialConditionsTypes.ts",
     "src/lib/chinaFisherTypes.ts",
     "src/lib/chinaGdpTypes.ts",

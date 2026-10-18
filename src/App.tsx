@@ -1,4 +1,5 @@
 import { AnimatePresence } from 'framer-motion';
+import { lazy, Suspense } from 'react';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { Shell } from './components/Shell';
 import { Home } from './routes/Home';
@@ -20,6 +21,8 @@ import { DailyBrief } from './routes/DailyBrief';
 import { DailyBriefDetail } from './routes/DailyBriefDetail';
 import { RiskRadar } from './routes/RiskRadar';
 
+const StockStrategy = lazy(() => import('./routes/StockStrategy'));
+
 export default function App() {
   const location = useLocation();
   const preparedPage = ['/terminal', '/market', '/signals', '/assistant', '/ibkr'].includes(location.pathname);
@@ -36,6 +39,7 @@ export default function App() {
             <Route path="/trader" element={<Trader />} />
             <Route path="/terminal" element={<Market initialDashboardView="global" />} />
             <Route path="/market" element={<Market initialDashboardView="markets" />} />
+            <Route path="/market/research" element={<Suspense fallback={<div className="px-6 pt-32 text-white/60">正在打开策略研究…</div>}><StockStrategy /></Suspense>} />
             <Route path="/risk-radar" element={<RiskRadar />} />
             <Route path="/council" element={<DailyBrief />} />
             <Route path="/council/details/:section" element={<DailyBriefDetail />} />

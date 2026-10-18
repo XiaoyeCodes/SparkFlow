@@ -1,6 +1,7 @@
 import { createRegionalEconomyService } from './server/chinaRegionalEconomy';
 import { initializeUserData, safeExportName } from './server/userData';
 import { bookLibraryPlugin } from './server/bookLibrary';
+import { stockStrategyPlugin } from './server/stockStrategy';
 import { createAssistantResearch } from './server/ibkrAssistantResearch';
 import regionalVerifiedSeed from './src/data/chinaRegionalVerified.json';
 import regionalSources from './src/data/chinaRegionalSources.json';
@@ -13413,6 +13414,7 @@ export default defineConfig({
     }),
     dailyHotPlugin(),
     bookLibraryPlugin(),
+    stockStrategyPlugin(async () => (await readLocalIntegrationSettings()).ai),
     allWeatherApiPlugin(),
   ],
   server: {
