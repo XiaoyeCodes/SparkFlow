@@ -1,4 +1,5 @@
 import type { InfiniteMenuItem } from '../components/InfiniteMenu';
+import { NEWS_NOW_URL } from './newsNow';
 
 function makeCover(title: string, subtitle: string, accent: string, pattern: 'grid' | 'radar' | 'weather' | 'flight' | 'ship' | 'orbit' | 'news' | 'ai') {
   const encoded = encodeURIComponent(`
@@ -73,7 +74,7 @@ export const realtimeWindows: InfiniteMenuItem[] = [
   {
     title: '今日新闻',
     description: '今日热榜入口，用最短时间扫过中文互联网高热议题。',
-    link: 'https://newsnow.busiyi.world/c/hottest',
+    link: NEWS_NOW_URL,
     image: makeCover('NEWS', 'NEWSNOW', '#f97316', 'news')
   },
   {

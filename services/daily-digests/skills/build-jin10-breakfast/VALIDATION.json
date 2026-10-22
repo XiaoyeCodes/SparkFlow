@@ -1,0 +1,34 @@
+{
+  "package": "build-jin10-breakfast",
+  "version": "1.0.0-portable",
+  "validated_on": "2026-10-22",
+  "skill_frontmatter": "passed",
+  "unit_tests": 64,
+  "historical_sample": "2026-10-22T04:04:13Z",
+  "historical_sample_ready": false,
+  "verified_sample_rows": 9,
+  "source_paragraphs": 38,
+  "source_bold_spans": 17,
+  "full_original_body_html_txt_pdf": "passed",
+  "numeric_style": "Arial/Helvetica sans-serif, weight400, tabular lining figures",
+  "primary_output": "HTML",
+  "optional_pdf": {
+    "pages": 4,
+    "native_chinese_text": true,
+    "all_fonts_embedded": true,
+    "full_text_verified": true,
+    "all_pages_visually_inspected": true
+  },
+  "production_raw_snapshot_bypass": "rejected",
+  "production_unfilled_request": "rejected",
+  "production_collector": "agent-tool bridge; Python does not independently fetch nine assets",
+  "required_capabilities": [
+    "Python3.10+ and base requirements",
+    "Allowed source internet access",
+    "Agent read-only connected IBKR or exact verified public-source evidence; missing rows otherwise",
+    "Optional WeasyPrint70/Pango/CJK fonts and PyMuPDF for PDF"
+  ],
+  "privacy_scan": "No user email, private Library/Gmail IDs, credentials, or absolute host paths in distributed source/artifacts. One incidental public-source contact remains within unmodified historical web evidence.",
+  "side_effects": "No email or scheduling operations",
+  "browser_client_validation": "No actual mail/browser-client validation claimed; static HTML/PDF visual checks only"
+}

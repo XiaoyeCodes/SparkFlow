@@ -1,4 +1,3 @@
-import { MarketCloseReading } from '../components/MarketCloseReading';
 import { AlertTriangle, Bitcoin, Radio, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type {
@@ -523,8 +522,8 @@ export function DailyBrief() {
           ["Crypto F&G 变化", fearGreedChangeMetric(data.sentiment.cryptoFearGreed, "Crypto Fear & Greed"), changeClass(data.sentiment.cryptoFearGreed.change).replace("is-", "")],
         ].map(([label, metric, tone]) => { const item = metric as DailyBriefEditorialMetric; return <a className={`editorial-tile is-${tone || sentimentTone(item.value)}`} href={item.sourceUrl} target="_blank" rel="noreferrer" key={label as string}><span>{label as string}</span><strong>{item.display}</strong><small className="editorial-tile-status">{metricCurrentStatus(label as string, item)}</small></a>; }) : Array.from({ length: 6 }, (_, index) => <div className="editorial-tile" key={index}><span>同步中</span><strong>—</strong><small>等待数据</small></div>)}</div></div>
         <div className="editorial-added-visuals"><DailyBriefVisualDashboard data={data} analysis={day1Analysis} summary={summary} btc={btc} /></div>
-        <MarketCloseReading>
-
+        <div className="editorial-intelligence">
+          <div className="editorial-intelligence-head"><div><span>AI MARKET READING</span><b>Day1 Global 深度解读</b></div><em>AI 生成</em></div>
           {day1Analysis ? <>
             <div className="editorial-intelligence-grid">
               <article><header><span>01 / MACRO</span><b>宏观市场</b></header><p><Highlight text={day1Analysis.macroAnalysis} /></p></article>
@@ -533,7 +532,7 @@ export function DailyBrief() {
             {day1Analysis.actionSuggestions ? <article className="editorial-intelligence-action"><header><span>03 / PLAYBOOK</span><b>行动建议</b></header><p><Highlight text={day1Analysis.actionSuggestions} /></p></article> : null}
           </> : <div className="editorial-intelligence-list">{aiLines.map(([label, text], index) => <article key={label}><span>{String(index + 1).padStart(2, "0")}</span><div><b>{label}</b><p><Highlight text={text} /></p></div></article>)}</div>}
           <div className="editorial-intelligence-foot"><span>{day1Analysis ? "新闻与 AI 摘要 · Day1 Global" : `来源 · ${snapshot?.sources.filter((item) => item.ok).length || 0} 组专业接口`}</span><span>生成 · {shanghaiTime(day1Analysis?.generatedAt || snapshot?.generatedAt)}</span></div>
-        </MarketCloseReading>
+        </div>
         <div className="editorial-lead-foot"><AlertTriangle size={13} /><span>以上内容仅用于信息整理与风险检查，不构成任何投资建议。</span></div>
         <p className="editorial-intelligence-foot editorial-edition-status" role="status">{snapshot ? `更新 ${shanghaiTime(snapshot.generatedAt)} · 每小时后台更新，页面自动同步；行情截至生成时，休市沿用最近交易日数据${brief?._pageCache?.state === 'stale' ? ' · 新版准备中，显示上次成功缓存' : ''}` : '简报缓存准备中 · 每小时后台更新'}</p>
         {Object.values(snapshot?.repair || {}).some(item => item.state !== 'ready') ? <details className="editorial-intelligence-foot editorial-repair-status"><summary>部分数据待补齐（自动重试，不影响已缓存数据）</summary>{Object.entries(snapshot?.repair || {}).filter(([, item]) => item.state !== 'ready').map(([id, item]) => <p key={id}>{item.label} · {item.detail}</p>)}</details> : null}

@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "digests:setup": "node scripts/setup-daily-digests.mjs",
+    "test:digests": "node --no-warnings --experimental-strip-types --test tests/workbench/daily-digests*.test.mjs",
     "strategy:setup": "node scripts/setup-stock-strategy.mjs",
     "test:stock-strategy": "node --no-warnings --experimental-strip-types scripts/verify-stock-strategy.mjs",
     "test:stock-strategy:engine": "node --no-warnings --experimental-strip-types scripts/verify-stock-strategy-engine.mjs",
@@ -20,8 +22,6 @@
     "test:ibkr:workbench": "node scripts/verify-ibkr-workbench.mjs",
     "test:ibkr:unit": "node scripts/verify-ibkr-unit.mjs",
     "test:ibkr:e2e": "playwright test --config playwright.ibkr.config.ts",
-    "dailyhot:setup": "node scripts/setup-dailyhot.mjs",
-    "test:dailyhot": "node scripts/verify-dailyhot-service.mjs",
     "research:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap-vibe-trading.ps1",
     "logos:sync": "node scripts/sync-stock-logos.mjs",
     "logos:global": "node scripts/sync-global-heatmap-logos.mjs",
@@ -40,11 +40,10 @@
     "test:china-provinces": "node --no-warnings --experimental-strip-types scripts/verify-china-province-government.mjs",
     "test:china-news": "node --no-warnings --experimental-strip-types scripts/verify-china-macro-news.mjs",
     "test:coze-report": "node --no-warnings --experimental-strip-types scripts/verify-coze-report-pipeline.mjs",
-    "predev": "npm run research:setup && npm run dailyhot:setup && npm run strategy:setup",
+    "predev": "npm run digests:setup && npm run research:setup && npm run strategy:setup",
+    "prepreview": "npm run digests:setup",
     "dev": "vite --host 127.0.0.1",
-    "prebuild": "npm run dailyhot:setup",
     "build": "tsc -b && vite build",
-    "prepreview": "npm run dailyhot:setup",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

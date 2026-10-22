@@ -9,10 +9,9 @@ __pycache__/
 node_modules/.tmp
 .sparkflow/
 UserData/
-services/dailyhot/web-dist/
-services/dailyhot/api-runtime/
 services/vibe-trading/.venv/
 services/daily-stock-analysis/.venv/
+services/daily-digests/.venv/
 services/vibe-trading/agent/.env
 services/vibe-trading/agent/.env.*.tmp
 services/vibe-trading/agent/runs/

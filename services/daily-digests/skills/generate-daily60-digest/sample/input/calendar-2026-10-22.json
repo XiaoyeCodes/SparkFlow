@@ -1,0 +1,14 @@
+{
+  "gregorian_date": "2026-10-22",
+  "timezone": "Asia/Shanghai",
+  "weekday": "星期四",
+  "lunar_year": "丙午年",
+  "lunar_date": "九月十三",
+  "provider": "Hong Kong Observatory",
+  "source_url": "https://data.weather.gov.hk/weatherAPI/opendata/lunardate.php?date=2026-10-22",
+  "raw_response": {
+    "LunarYear": "丙午年，馬",
+    "LunarDate": "九月十三"
+  },
+  "checked_at_utc": "2026-10-22T03:44:51.792950+00:00"
+}

@@ -1,0 +1,14 @@
+# Requires Python >=3.11; tested on Python 3.12.14. System Pango and CJK fonts are separate prerequisites.
+weasyprint==70.0
+pydyf==0.13.0
+cffi==2.1.1
+pycparser==3.11
+tinyhtml5==2.1.0
+tinycss2==1.5.1
+cssselect2==0.10.1
+webencodings==0.6.1
+Pyphen==0.18.1
+Pillow==13.0.0
+fonttools==4.67.0
+Brotli==1.2.0
+zopfli==0.4.3

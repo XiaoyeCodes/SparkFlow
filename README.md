@@ -204,13 +204,15 @@ SparkFlow/
 │  └─ data/             内容与静态配置
 ├─ server/              行情、新闻、缓存、账户与研究 API
 ├─ services/
-│  ├─ dailyhot/         今日热榜本地运行时
+│  ├─ daily-stock-analysis/ 股票策略研究引擎
 │  └─ vibe-trading/     内置 Python 研究服务
 ├─ scripts/             启动、同步、诊断与验证脚本
 ├─ tests/               Node、Python 与 Playwright 测试
 ├─ public/              地球纹理和公开静态资源
 └─ docs/                设计记录、运行手册与数据核验文档
 ```
+
+“今日热榜”入口在新窗口打开 [NewsNow](https://newsnow.busiyi.world/)，无需在本机启动额外热榜服务。
 
 ## 验证与测试
 
@@ -232,6 +234,8 @@ npm run test:ibkr:e2e
 仓库还提供宏观数据、实时行情、每日简报、新闻聚合、区域经济、估值和账户研究等定向验证脚本，完整命令可在 [package.json](package.json) 中查看。浏览器测试使用合成账户和受控接口，不会连接真实账户、发送真实订单或自动生成付费报告。
 
 ## 项目文档
+
+- [地球页金十财经早餐](docs/daily-digests.md)：每日北京时间 08:00 生成，启动补生成和持久缓存；九项行情仅在生成时抓取，阅读页为窄版正文与细线几何装饰。
 
 - [公共数据缓存设计与运维](docs/public-data-cache.md)
 - [新闻来源、排序与容错](docs/news-sources-and-ranking.md)

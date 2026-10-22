@@ -29,7 +29,9 @@ import {
   X
 } from 'lucide-react';
 import { PageTransition } from '../components/PageTransition';
-import { Link, useSearchParams } from 'react-router-dom';
+import { DailyNewsDialog } from '../components/DailyNewsDialog';
+import { useSearchParams } from 'react-router-dom';
+import { NEWS_NOW_URL } from '../data/newsNow';
 import {
   buildNewsMarkdown,
   type NewsFeed,
@@ -85,6 +87,8 @@ export function Signals() {
   const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState('');
   const [aiText, setAiText] = useState('');
+  const [dailyNewsOpen, setDailyNewsOpen] = useState(false);
+  const closeDailyNews = useCallback(() => setDailyNewsOpen(false), []);
   const category = getNewsCategory(searchParams.get('category'));
   const sortParam = searchParams.get('sort');
   const sortMode: NewsSortMode = newsSortOptions.find(([id]) => id === sortParam)?.[0] ?? 'weight';
@@ -256,6 +260,9 @@ export function Signals() {
                 <h1>今日新闻</h1>
               </div>
               <div className="signals-actions">
+                <button type="button" className="signals-action is-primary signals-daily-news" onClick={() => setDailyNewsOpen(true)} aria-haspopup="dialog">
+                  <Newspaper size={15} />每日新闻
+                </button>
                 <ActionButton onClick={() => fetchNews(true)} loading={loading} icon={<RefreshCw size={14} />} label="刷新新闻" />
                 <ActionButton onClick={summarizeWithAi} loading={aiLoading} icon={<Sparkles size={14} />} label="AI 摘要" disabled={!visibleItems.length} />
               </div>
@@ -274,10 +281,12 @@ export function Signals() {
                   <small>8 CHANNELS · DIRECT ACCESS</small>
                 </header>
                 <nav className="signals-hud-portals-grid" aria-label="热榜与权威媒体官网">
-                  <Link
-                    className="signals-media-card is-hud-card is-dailyhot"
-                    to={{ pathname: '/signals/daily-hot', search: searchParams.toString() }}
-                    aria-label="打开今日热榜"
+                  <a
+                    className="signals-media-card is-hud-card is-newsnow"
+                    href={NEWS_NOW_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="打开 NewsNow 今日热榜（新窗口）"
                     style={{ '--portal-order': 0 } as CSSProperties}
                   >
                     <span className="signals-media-texture" aria-hidden="true" />
@@ -286,9 +295,9 @@ export function Signals() {
                       <span className="signals-media-scope">ALL · TREND</span>
                     </span>
                     <strong>今日热榜</strong>
-                    <span className="signals-media-description">全网榜单聚合</span>
-                    <span className="signals-media-card-foot"><span><i aria-hidden="true" /> LIVE</span><ArrowUpRight size={13} aria-hidden="true" /></span>
-                  </Link>
+                    <span className="signals-media-description">NewsNow 全网热点</span>
+                    <span className="signals-media-card-foot"><span><i aria-hidden="true" /> NEWSNOW</span><ArrowUpRight size={13} aria-hidden="true" /></span>
+                  </a>
                   {NEWS_PORTALS.map((portal, index) => (
                     <a
                       key={portal.id}
@@ -435,6 +444,7 @@ export function Signals() {
           {tickerItems.length ? <NewsTicker items={tickerItems} /> : null}
         </div>
       </div>
+      {dailyNewsOpen ? <DailyNewsDialog onClose={closeDailyNews} /> : null}
     </PageTransition>
   );
 }

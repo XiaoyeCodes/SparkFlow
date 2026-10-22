@@ -1,0 +1,9 @@
+# SparkFlow daily digest bridge
+
+The three `skills/` folders are vendored from the ZIP packages supplied by the user on 2026-10-22. Their parsers, validators, full text rules, templates, reference documents and approved artwork are preserved. Historical example outputs and PDF runtime dependencies are omitted. Daily60 sample/input is retained for offline vendor tests only; no production fallback loads it. Original manifests describe the supplied distributions, not the host scheduler.
+
+`worker.py` calls the original news parsers and validates target dates. Its only successful output is a newly produced `bundle.json` in a unique run directory. A failed new run cannot pick up a previous bundle. The native React reading view renders structured content in an original dark editorial layout; its semantic allowlist excludes source scripts, images and styles. The host's `server/dailyDigestTheme.ts` is retained for the legacy HTML endpoint.
+
+`server/dailyDigestMarkets.ts` collects nine explicitly labelled public market references once during Jin10 generation, in parallel with the news job, and merges them into the same atomic edition. It has primary/fallback validation and a last-good quote pool, with no minute polling. Startup and reading only restore committed snapshots. The original vendor quote contract and `treasury.py` are preserved as reference, not the new production collection path. See [instrument definitions and operating details](../../docs/daily-digests.md).
+
+The host in `server/dailyDigests.ts` owns all scheduling, locks, retries, process deadlines, atomic persistent snapshots and cancellation. `network.py` selects the project's direct/proxy routes while preserving vendor redirect restrictions and TLS verification. No email, ChatGPT automation, broker account access, source image scraping or model generation is enabled.

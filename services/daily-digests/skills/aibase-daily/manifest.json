@@ -1,0 +1,47 @@
+{
+  "package": "aibase-daily",
+  "design": "AIBase V7",
+  "version": "1.0.0",
+  "primary_output": "standalone HTML",
+  "optional_output": "paginated A4 PDF",
+  "email_or_scheduler_code": false,
+  "qa": {
+    "unit_tests_passed": 20,
+    "source_and_render_text_exact": true,
+    "accepted_v7_canonical_html_dom_equal": true,
+    "embedded_robot_png_exact": true,
+    "historical_sample_date": "2026-10-21",
+    "sample_pdf_pages": 3,
+    "sample_pdf_complete_text_verified": true,
+    "sample_pdf_all_pages_visually_reviewed": true,
+    "html_desktop_800_and_mobile_390_visually_reviewed": true,
+    "live_default_check": {
+      "beijing_date": "2026-10-22",
+      "status": "no_article_for_date",
+      "exit_code": 3,
+      "listed_articles_checked": 20,
+      "latest_verified_source_date": "2026-10-21",
+      "no_digest_generated": true
+    },
+    "offline_default_stale_input_rejected": true,
+    "weekend_skips_without_fetch": true
+  },
+  "files": {
+    "README.md": "cb37f6a13d6c25afe6a5fcd97e8e15e4f401bf90d02a89cd5ac4c25e7a80b7e5",
+    "SKILL.md": "2be7310136d44d7ac7fbb05b6fcbbbae042ca799b46a6c2527ce6d371f292a3b",
+    "assets/header.png": "2c3cfcb69863df4681322bab628e4252dde9dec43c8f647074d1f1636bc9ecd4",
+    "assets/template.html": "a4db85fed59bc228f42d644d82ea0041a6385ee0eb79e2b70a922af880f6bad9",
+    "examples/aibase-2026-10-21.html": "d16d430110cc9c0b540f58f142723587788f3e27de2aef54e1b7b22c0665bbee",
+    "examples/aibase-2026-10-21.json": "926984ea0205952fc81968ac5181182bc759d7e2d0f98d83a3464423018f68c6",
+    "examples/aibase-2026-10-21.pdf": "9f200b73c61f8f18d8f75acd9a1f70b3bf29acf5986d7a0cdd5b599528fc0f61",
+    "examples/aibase-2026-10-21.txt": "aac4be3262b0253e70ee3a2f8b30472278630761656838a8cb29f2bc80d58b10",
+    "references/browser-fallback.md": "bcc4c3bc3c74e40379baa5c4ce043a1b06d1f81f4afde5d14d1ddea4cb042b6f",
+    "requirements-pdf.txt": "453248d96fc86b3061777c90a9993f01a79e8420dfa33d6fef298c2bb3b69d1a",
+    "scripts/aibase_daily.py": "421e9b921417ffeee0d13a8e98917592c80418d4e8d4b82e440f0bffdd516f59",
+    "scripts/export_pdf.py": "ade69e7bad24ca32674fc248d459710f6b15abd31fcaa7d2622defced96a3d0e",
+    "scripts/qa_outputs.py": "469fb6d95b22c7994d697bf3e3899cea90b2ec6c7067e241b3cc668102e657ac",
+    "tests/fixtures/article-2026-10-21.html": "62dc5703f6b299495c245ef617bf3c768c4cbfdd117bea8714a280163d9db0f2",
+    "tests/fixtures/article-2026-10-21.json": "ad189b3faa3fad90f607c54b8f5c63128d365e8291b6c02553b0d1241fd41d0d",
+    "tests/test_aibase_daily.py": "2e665cff87c1172806fe1c52479890edb2d0fa1c833d907357cf32c3fd8a983b"
+  }
+}

@@ -1,3 +1,5 @@
+import { NEWS_NOW_URL } from './newsNow';
+
 export type CyberPortalIcon =
   | 'globe'
   | 'radar'
@@ -53,7 +55,7 @@ export const cyberPortalGroups: CyberPortalGroup[] = [
         title: '全网热榜雷达',
         englishTitle: 'TRENDING RADAR',
         description: '聚合多个中文平台热榜，快速判断公众议题与传播热度。',
-        url: 'https://newsnow.busiyi.world/c/hottest',
+        url: NEWS_NOW_URL,
         domain: 'newsnow.busiyi.world',
         icon: 'hot',
         variant: 'pulse'

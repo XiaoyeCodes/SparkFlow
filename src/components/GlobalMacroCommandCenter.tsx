@@ -19,6 +19,7 @@ import {
   Map as MapIcon,
   Maximize2,
   Minus,
+  Newspaper,
   Plus,
   RefreshCw,
   ShoppingBasket,
@@ -46,6 +47,7 @@ import { publicDataExpiresAt } from '../lib/publicDataPolicy';
 import { acquireTerminalGlobeRenderer, releaseTerminalGlobeRenderer, terminalEarthTexture, terminalEarthMaterial, terminalGlobePrepared, prepareTerminalGlobeResources } from '../lib/terminalGlobeResources';
 import { getMarketSessionStatus, getNextCoreMarketOpenAt } from '../lib/marketSessions';
 import { FinancialConditionsCard } from './FinancialConditionsCard';
+import { TerminalDailyDigests } from './TerminalDailyDigests';
 import type { FinancialConditionsPayload, FinancialConditionsSnapshot } from '../lib/financialConditionsTypes';
 import './GlobalMacroCommandCenter.css';
 
@@ -2165,6 +2167,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [phoneDesktopScale, setPhoneDesktopScale] = useState(1);
   const [phoneToggleVisible, setPhoneToggleVisible] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [dailyDigestsOpen, setDailyDigestsOpen] = useState(false);
   const [aiRunState, setAiRunState] = useState<MacroAiRunState>('idle');
   const [data, setData] = useState<Dashboard | null>(() => {
     let prepared: Dashboard | null = null;
@@ -2677,7 +2680,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setAiPanelOpen(false); setSelected(null); setModalMode(null); }
+      if (event.key === 'Escape') { setDailyDigestsOpen(false); setAiPanelOpen(false); setSelected(null); setModalMode(null); }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -2882,6 +2885,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                 >
                   <BrainCircuit size={16} strokeWidth={1.45} />
                 </button>
+                <button type="button" className={dailyDigestsOpen ? 'active' : ''} onClick={() => { setAiPanelOpen(false); setDailyDigestsOpen(true); }} aria-label="打开金十财经早餐" aria-expanded={dailyDigestsOpen} title="金十财经早餐"><Newspaper size={16} strokeWidth={1.45} /></button>
               </div>
             </div>
             {error ? <button type="button" className="macro-error" onClick={() => void load()}>{error} · 点击重试</button> : null}
@@ -2898,6 +2902,7 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
               onClose={() => setAiPanelOpen(false)}
               onStateChange={setAiRunState}
             />
+            {dailyDigestsOpen ? <TerminalDailyDigests onClose={() => { setDailyDigestsOpen(false); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[aria-label="打开金十财经早餐"]')?.focus()); }} /> : null}
             {loading ? <div className="macro-loading"><span />正在连接全球市场数据</div> : null}
           </div>
         </main>
