@@ -512,7 +512,7 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 .macro-country-focus button b { font-size: 10px; font-weight: 650; }
 .macro-country-focus button i { position: absolute; top: 7px; right: 6px; width: 4px; height: 4px; border: 1px solid var(--country-accent); border-radius: 50%; opacity: .38; }
 .macro-country-focus button.active i { background: var(--country-accent); opacity: 1; box-shadow: 0 0 8px var(--country-accent); animation: macro-country-lock-pulse 1.8s ease-in-out infinite; }
-.macro-mode-toggle { display: flex; overflow: hidden; border-radius: 6px; pointer-events: auto; }
+.macro-mode-toggle { display: grid; grid-template-columns: repeat(2, 38px); overflow: hidden; border-radius: 6px; pointer-events: auto; }
 .macro-mode-toggle button { width: 38px; height: 34px; }
 .macro-mode-toggle button + button { border-left: 0; }
 .macro-mode-toggle button.active { color: var(--macro-cyan); background: rgba(34, 211, 238, 0.14); border-color: var(--macro-border-strong); }
