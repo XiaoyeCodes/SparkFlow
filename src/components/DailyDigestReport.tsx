@@ -48,11 +48,11 @@ function newsContent(markup: string): { content: ReactNode; sections: string[] }
 function MarketRow({ row }: { row: DigestMarketRow }) {
   const q = row.quote;
   const change = q ? q.changeBp !== undefined ? `${signed(q.changeBp, 1)} bp` : `${signed(q.changePercent)}%` : '—';
-  const detail = q ? `${q.instrument}\n${q.basis}\n${q.delay}\n${q.quotedAt ? '来源报价：' + dateTime(q.quotedAt) : q.observationDate ? '官方公布：' + q.observationDate : '来源未给统计快照时刻'}\n本期采集：${dateTime(q.checkedAt)}` : row.error ?? '本期行情正在准备';
+  const detail = q ? `${q.source}${row.state === 'cached' ? ' · 上次成功缓存' : ''}\n${q.instrument}\n${q.basis}\n${q.delay}\n${q.quotedAt ? '来源报价：' + dateTime(q.quotedAt) : q.observationDate ? '官方公布：' + q.observationDate : '来源未给统计快照时刻'}\n本期采集：${dateTime(q.checkedAt)}` : row.error ?? '本期行情正在准备';
   return <a className={`digest-market-cell${row.state === 'cached' ? ' is-cached' : ''}`} href={q?.sourceUrl} target="_blank" rel="noopener noreferrer" title={detail} aria-label={`${row.name} ${q ? number(q.price) + ' ' + row.unit + ' ' + change + '，' + q.source : '暂无报价'}`}>
-    <div className="digest-market-label"><span>{row.name}</span><small>{row.id === 'MAGS' ? 'MAGS' : row.id === 'BRENT' ? '期货' : row.unit}</small></div>
-    <div className="digest-market-value"><strong>{q ? number(q.price) + (row.unit === '%' ? '%' : '') : '—'}</strong><span className={q && (q.changeBp ?? q.changePercent) > 0 ? 'is-up' : q && (q.changeBp ?? q.changePercent) < 0 ? 'is-down' : ''}>{change}</span></div>
-    <div className="digest-market-provenance"><span>{q?.source ?? '等待本期采集'}{row.state === 'cached' ? ' · 缓存' : ''}</span><time>{q?.quotedAt ? dateTime(q.quotedAt) : q?.observationDate ? q.observationDate.slice(5) + ' 公布' : q ? '24h统计' : ''}</time></div>
+    <div className="digest-market-label"><span>{row.name}</span></div>
+    <div className="digest-market-value"><strong>{q ? number(q.price) + (row.unit === '%' ? '%' : '') : '—'}</strong></div>
+    <span className={`digest-market-change${q && (q.changeBp ?? q.changePercent) > 0 ? ' is-up' : q && (q.changeBp ?? q.changePercent) < 0 ? ' is-down' : ''}`}>{change}</span>
   </a>;
 }
 
