@@ -12,7 +12,7 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-87cbb3?style=flat-square&labelColor=17241f)](./LICENSE) [![React](https://img.shields.io/badge/React-18-87cbb3?style=flat-square&labelColor=17241f)](./package.json) [![TypeScript](https://img.shields.io/badge/TypeScript-5-87cbb3?style=flat-square&labelColor=17241f)](./package.json) [![Python](https://img.shields.io/badge/Python-3.11+-87cbb3?style=flat-square&labelColor=17241f)](./services/vibe-trading/pyproject.toml)
 
-[产品全景](#features) · [特色功能](#highlights) · [视频演示](#demo) · [系统架构](#architecture) · [数据来源](#data-sources) · [快速开始](#quick-start)
+[产品演示](#demo) · [产品全景](#features) · [特色功能](#highlights) · [系统架构](#architecture) · [数据来源](#data-sources) · [快速开始](#quick-start)
 
 </div>
 
@@ -20,8 +20,18 @@
 
 SparkFlow 为个人投资者与开发者提供一套本地研究环境：用地球终端建立全球视野，用风险雷达理解市场压力，用简报与新闻核对背景，再把问题交给 AI 研究、策略回测和模拟账户继续验证。数据保留来源与时间，研究保留过程与报告，订单保留确认与回执。
 
-[![SparkFlow 全球宏观经济终端](./docs/images/sparkflow-global-terminal.png)](./docs/images/sparkflow-global-terminal.png)
-<p align="center"><sub>全球宏观经济终端 · 用户提供的实机截图 · 行情与时间均以截图时点为准</sub></p>
+<a id="demo"></a>
+
+<!-- sparkflow-intro:start -->
+<p align="center">
+  <a href="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-intro.mp4" title="观看 SparkFlow 1080p60 原版视频（含中文解说）">
+    <picture>
+      <source media="(prefers-reduced-motion: reduce)" srcset="./docs/media/sparkflow-poster.webp" />
+      <img src="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-intro.gif" alt="SparkFlow 完整 44 秒演示：全球宏观、市场热力图、新闻情报与 AI 研究，点击打开高清原片" width="100%" />
+    </picture>
+  </a>
+</p>
+<!-- sparkflow-intro:end -->
 
 <a id="features"></a>
 
@@ -45,7 +55,20 @@ SparkFlow 为个人投资者与开发者提供一套本地研究环境：用地�
 
 ## 特色功能
 
-### 01 / 风险雷达：让风险有结构，也有出处
+### 01 / 全球宏观终端：从地球视角，观察全球市场
+
+[![SparkFlow 全球宏观经济终端](./docs/images/sparkflow-global-terminal.png)](./docs/images/sparkflow-global-terminal.png)
+<p align="center"><sub>全球宏观经济终端 · 用户提供的实机截图 · 行情与时间均以截图时点为准</sub></p>
+
+以 3D 地球为中心，把全球权益指数、宏观指标和跨资产行情放在同一观察界面。查看区域市场变化时，可以同时对照通胀、就业、利率、商品与汇率，连接全球视野与具体市场。
+
+- **全球视角**：地球与地图展示区域市场，结合全球股指与市场入口，快速定位正在发生的变化。
+- **宏观对照**：通胀与就业、PMI、美债期限结构和利率预期，与股票、商品、外汇和加密行情同屏阅读。
+- **持续更新**：数据按资源独立加载，配合启动预热、后台刷新与本地缓存；来源与观测时间保留各自口径。
+
+实现见[全球宏观终端](./src/components/GlobalMacroCommandCenter.tsx)与[公共数据缓存](./docs/public-data-cache.md)。
+
+### 02 / 风险雷达：让风险有结构，也有出处
 
 [![双层风险雷达](./docs/images/sparkflow-risk-radar.png)](./docs/images/sparkflow-risk-radar.png)
 
@@ -57,7 +80,7 @@ SparkFlow 为个人投资者与开发者提供一套本地研究环境：用地�
 
 历史曲线属于同一规则下的风险重建与对照，不代表预测准确率或策略收益回测。实现见 [风险模型](./src/routes/RiskRadar.tsx)与[历史序列](./server/riskRadarTimeline.ts)。
 
-### 02 / 每日简报：从数据面板，进入市场叙事
+### 03 / 每日简报：从数据面板，进入市场叙事
 
 [![每日市场简报](./docs/images/sparkflow-daily-brief-current.png)](./docs/images/sparkflow-daily-brief-current.png)
 
@@ -69,7 +92,7 @@ SparkFlow 为个人投资者与开发者提供一套本地研究环境：用地�
 
 每日市场简报与账户简报分别服务于“市场环境”和“当前组合”，调度与数据边界独立。详见[简报配置](./docs/daily-briefing-setup.md)。
 
-### 03 / 模拟交易：把研究结论放进可核对的账户环境
+### 04 / 模拟交易：把研究结论放进可核对的账户环境
 
 [![IBKR Paper Trading 账户工作台](./docs/images/sparkflow-paper-account.png)](./docs/images/sparkflow-paper-account.png)
 <p align="center"><sub>IBKR Paper Trading 模拟账户展示 · 净值变化与投资收益分别呈现</sub></p>
@@ -83,7 +106,7 @@ SparkFlow 为个人投资者与开发者提供一套本地研究环境：用地�
 
 AI 研究与订单执行分开，实盘账户接入保持只读。见[账户工作台](./docs/runbooks/ibkr-account-workbench.md)与[订单故障隔离 ADR](./docs/adr/0007-isolate-paper-order-failures.md)。
 
-### 04 / AI 研究与策略：从一次问答，到持续积累
+### 05 / AI 研究与策略：从一次问答，到持续积累
 
 **AI 助手**展示研究进度、工具调用、报告与历史会话；账户页发起的研究也进入同一链路，报告内可以继续追问。**股票策略研究**集成 Daily Stock Analysis 的 15 种策略，复用现有模型配置，提供个股报告与策略问答。
 
@@ -91,7 +114,7 @@ AI 研究与订单执行分开，实盘账户接入保持只读。见[账户工�
 
 实现入口：[研究适配](./server/ibkrAssistantResearch.ts) · [股票策略桥接](./server/stockStrategy.ts) · [账户研究设计](./docs/account-assistant-research.md)。
 
-### 05 / 行情与情报：保留市场结构，也保留信息来处
+### 06 / 行情与情报：保留市场结构，也保留信息来处
 
 <table>
   <tr>
@@ -109,28 +132,6 @@ AI 研究与订单执行分开，实盘账户接入保持只读。见[账户工�
 ![A 股市场](./docs/images/sparkflow-market-heatmap.png)
 
 </details>
-
-<a id="demo"></a>
-
-## 44 秒产品演示
-
-<!-- sparkflow-intro:start -->
-<p align="center">
-  <a href="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-intro.mp4" title="观看 SparkFlow 1080p60 原版视频（含中文解说）">
-    <picture>
-      <source media="(prefers-reduced-motion: reduce)" srcset="./docs/media/sparkflow-poster.webp" />
-      <img src="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-intro.gif" alt="SparkFlow 完整 44 秒演示：全球宏观、市场热力图、新闻情报与 AI 研究，点击打开高清原片" width="100%" />
-    </picture>
-  </a>
-</p>
-<p align="center">
-  <a href="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-intro.mp4"><strong>▶ 观看 / 下载高清原片</strong></a>
-  &nbsp; · &nbsp; 44 秒 &nbsp; · &nbsp; 1080p60 &nbsp; · &nbsp; 中文解说
-</p>
-<p align="center">
-  <sub>上方为完整 44 秒无声循环动图 · 高清原片含中文解说、配乐与烧录字幕 · <a href="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-zh.srt">下载独立字幕</a> · 行情与新闻以录制时点为准</sub>
-</p>
-<!-- sparkflow-intro:end -->
 
 <a id="architecture"></a>
 
