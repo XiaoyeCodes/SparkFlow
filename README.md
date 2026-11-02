@@ -116,20 +116,19 @@ AI 研究与订单执行分开，实盘账户接入保持只读。见[账户工�
 
 <!-- sparkflow-intro:start -->
 <p align="center">
-  <a href="./docs/media/sparkflow-intro.mp4" title="观看 SparkFlow 完整介绍视频">
+  <a href="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-intro.mp4" title="观看 SparkFlow 1080p60 原版视频（含中文解说）">
     <picture>
       <source media="(prefers-reduced-motion: reduce)" srcset="./docs/media/sparkflow-poster.webp" />
-      <source type="image/webp" srcset="./docs/media/sparkflow-preview-hd.webp" />
-      <img src="./docs/media/sparkflow-poster.webp" alt="点击观看 SparkFlow：全球宏观、市场热力图、新闻情报与 AI 研究" width="100%" />
+      <img src="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-intro.gif" alt="SparkFlow 完整 44 秒演示：全球宏观、市场热力图、新闻情报与 AI 研究，点击打开高清原片" width="100%" />
     </picture>
   </a>
 </p>
 <p align="center">
-  <a href="./docs/media/sparkflow-intro.mp4"><strong>▶ 观看完整介绍视频</strong></a>
+  <a href="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-intro.mp4"><strong>▶ 观看 / 下载高清原片</strong></a>
   &nbsp; · &nbsp; 44 秒 &nbsp; · &nbsp; 1080p60 &nbsp; · &nbsp; 中文解说
 </p>
 <p align="center">
-  <sub>上方为 8 秒无声预览 · 完整影片含中文解说与<a href="./docs/media/sparkflow-zh.srt">字幕</a> · 行情与新闻以录制时点为准</sub>
+  <sub>上方为完整 44 秒无声循环动图 · 高清原片含中文解说、配乐与烧录字幕 · <a href="https://github.com/XiaoyeCodes/SparkFlow/releases/download/readme-demo-2026-11-02/sparkflow-zh.srt">下载独立字幕</a> · 行情与新闻以录制时点为准</sub>
 </p>
 <!-- sparkflow-intro:end -->
 
