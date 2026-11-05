@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Download, ExternalLink, Newspaper, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowLeft, Download, ExternalLink, Newspaper } from 'lucide-react';
 import { DAILY_DIGESTS, type DigestArticle, type DigestIndex } from '../lib/dailyDigestTypes';
 import { DailyDigestReport } from './DailyDigestReport';
 import './TerminalDailyDigests.css';
@@ -7,7 +7,7 @@ import './TerminalDailyDigests.css';
 let remembered: DigestIndex | null = null;
 const articles = new Map<string, DigestArticle>();
 
-export function TerminalDailyDigests({ onClose }: { onClose: () => void }) {
+export function TerminalDailyDigests({ onClose, navigation }: { onClose: () => void; navigation: ReactNode }) {
   const selected = 'jin10';
   const [index, setIndex] = useState<DigestIndex | null>(remembered);
   const [error, setError] = useState('');
@@ -15,8 +15,6 @@ export function TerminalDailyDigests({ onClose }: { onClose: () => void }) {
   const [articleError, setArticleError] = useState('');
   const [articleRetry, setArticleRetry] = useState(0);
   const reader = useRef<HTMLDivElement>(null);
-  const closeButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => { closeButton.current?.focus(); }, []);
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -78,7 +76,7 @@ export function TerminalDailyDigests({ onClose }: { onClose: () => void }) {
   return <section className="terminal-digests" aria-label="财经早餐阅读区" onKeyDown={event => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); }
   }}>
-    <button ref={closeButton} className="terminal-digests-close" type="button" onClick={onClose} aria-label="关闭财经早餐，返回地球"><X size={17} /></button>
+    <header className="terminal-digests-header">{navigation}</header>
     <div ref={reader} className="terminal-digests-reader" role="region" aria-label="金十财经早餐正文" tabIndex={0}>
       {article?.id === selected ? <DailyDigestReport article={article} />
         : <div className="terminal-digests-empty"><Newspaper size={34} strokeWidth={1} /><h3>{articleError || (item?.edition ? '正在读取本期内容' : item?.state === 'generating' ? '正在准备可阅读的本期内容' : error ? '暂时无法读取日报缓存' : '本期内容尚未准备好')}</h3>{articleError ? <button type="button" onClick={() => setArticleRetry(n => n + 1)}>重试读取</button> : item?.edition ? <p>读取本机已生成的缓存。</p> : <p>服务会在每日 {String(spec.hour).padStart(2, '0')}:00 自动生成。<br />错过时间后启动项目，会自动补生成；完成后会直接显示在这里。</p>}{item?.state === 'waiting' ? <p>来源尚未发布当天内容，系统会自动检查。</p> : null}</div>}

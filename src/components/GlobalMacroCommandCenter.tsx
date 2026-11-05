@@ -8,7 +8,6 @@ import * as THREE from 'three';
 import {
   ArrowRight,
   Bitcoin,
-  BrainCircuit,
   BriefcaseBusiness,
   CircleDollarSign,
   Droplets,
@@ -16,10 +15,8 @@ import {
   Factory,
   Globe2,
   Landmark,
-  Map as MapIcon,
   Maximize2,
   Minus,
-  Newspaper,
   Plus,
   RefreshCw,
   ShoppingBasket,
@@ -48,6 +45,7 @@ import { acquireTerminalGlobeRenderer, releaseTerminalGlobeRenderer, terminalEar
 import { getMarketSessionStatus, getNextCoreMarketOpenAt } from '../lib/marketSessions';
 import { FinancialConditionsCard } from './FinancialConditionsCard';
 import { TerminalDailyDigests } from './TerminalDailyDigests';
+import { TerminalViewSwitcher, type TerminalView } from './TerminalViewSwitcher';
 import type { FinancialConditionsPayload, FinancialConditionsSnapshot } from '../lib/financialConditionsTypes';
 import './GlobalMacroCommandCenter.css';
 
@@ -2168,7 +2166,25 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
   const [phoneToggleVisible, setPhoneToggleVisible] = useState(true);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [dailyDigestsOpen, setDailyDigestsOpen] = useState(false);
+  const [viewSwitcherActivated, setViewSwitcherActivated] = useState(false);
   const [aiRunState, setAiRunState] = useState<MacroAiRunState>('idle');
+  const activeTerminalView: TerminalView = aiPanelOpen ? 'ai' : dailyDigestsOpen ? 'digests' : view;
+  const marketViewVisible = !aiPanelOpen && !dailyDigestsOpen;
+  const switchTerminalView = (next: TerminalView) => {
+    setViewSwitcherActivated(true);
+    setAiPanelOpen(next === 'ai');
+    setDailyDigestsOpen(next === 'digests');
+    if (next === 'globe' || next === 'map') {
+      setView(next);
+      if (next === 'map') setGlobeFocus(null);
+    }
+  };
+  const viewControls = <TerminalViewSwitcher
+    activeView={activeTerminalView}
+    aiRunState={aiRunState}
+    onChange={switchTerminalView}
+    autoFocus={viewSwitcherActivated}
+  />;
   const [data, setData] = useState<Dashboard | null>(() => {
     let prepared: Dashboard | null = null;
     for (const section of GLOBAL_MACRO_SECTIONS) {
@@ -2873,22 +2889,9 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
                   </div>
                 ) : null}
               </div>
-              <div className="macro-mode-toggle">
-                <button type="button" className={view === 'globe' ? 'active' : ''} onClick={() => setView('globe')} title="全息地球"><Globe2 size={15} /></button>
-                <button type="button" className={view === 'map' ? 'active' : ''} onClick={() => { setGlobeFocus(null); setView('map'); }} title="平板地图"><MapIcon size={15} /></button>
-                <button
-                  type="button"
-                  className={`macro-ai-toggle ${aiPanelOpen ? 'active' : ''} ${aiRunState === 'connecting' || aiRunState === 'analyzing' ? 'is-running' : ''} ${aiRunState === 'completed' ? 'is-complete' : ''}`}
-                  onClick={() => setAiPanelOpen(true)}
-                  title="AI 市场分析"
-                  aria-label="打开 AI 市场分析舱"
-                >
-                  <BrainCircuit size={16} strokeWidth={1.45} />
-                </button>
-                <button type="button" className={dailyDigestsOpen ? 'active' : ''} onClick={() => { setAiPanelOpen(false); setDailyDigestsOpen(true); }} aria-label="打开金十财经早餐" aria-expanded={dailyDigestsOpen} title="金十财经早餐"><Newspaper size={16} strokeWidth={1.45} /></button>
-              </div>
+              {marketViewVisible ? viewControls : null}
             </div>
-            {error ? <button type="button" className="macro-error" onClick={() => void load()}>{error} · 点击重试</button> : null}
+            {marketViewVisible && error ? <button type="button" className="macro-error" onClick={() => void load()}>{error} · 点击重试</button> : null}
             <div className={`macro-globe-wrap ${view === 'map' ? 'flat' : ''}`}>
               {view === 'globe' ? (
                 markets.length ? <HologramGlobe markets={markets} selectedId={selected?.id} focusCountry={globeFocus} localCoordinateSpace={phoneDesktopMode} onSelect={openQuote} onPrefetch={warmQuoteHeatmap} onUnlockFocus={() => setGlobeFocus(null)} /> : null
@@ -2899,11 +2902,11 @@ export function GlobalMacroCommandCenter({ onOpenMarket }: { onOpenMarket: (mark
             <MacroAiAnalyst
               open={aiPanelOpen}
               snapshot={aiSnapshot}
-              onClose={() => setAiPanelOpen(false)}
+              navigation={viewControls}
               onStateChange={setAiRunState}
             />
-            {dailyDigestsOpen ? <TerminalDailyDigests onClose={() => { setDailyDigestsOpen(false); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[aria-label="打开金十财经早餐"]')?.focus()); }} /> : null}
-            {loading ? <div className="macro-loading"><span />正在连接全球市场数据</div> : null}
+            {dailyDigestsOpen ? <TerminalDailyDigests navigation={viewControls} onClose={() => switchTerminalView('globe')} /> : null}
+            {marketViewVisible && loading ? <div className="macro-loading"><span />正在连接全球市场数据</div> : null}
           </div>
         </main>
 

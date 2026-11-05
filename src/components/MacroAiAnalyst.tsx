@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, BrainCircuit, Building2, CalendarDays, Check, ChevronRight, Clock3, Copy, Download, FileArchive, Globe2, History, Landmark, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { Children, isValidElement, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { ArrowLeft, BrainCircuit, Building2, CalendarDays, Check, ChevronRight, Clock3, Copy, Download, FileArchive, Globe2, History, Landmark, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
+import { Children, isValidElement, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { buildMacroAiPrompt } from '../lib/macroAiPrompt';
@@ -559,12 +559,12 @@ function MacroAiMarkdown({
 export function MacroAiAnalyst({
   open,
   snapshot,
-  onClose,
+  navigation,
   onStateChange,
 }: {
   open: boolean;
   snapshot: string;
-  onClose: () => void;
+  navigation: ReactNode;
   onStateChange?: (state: MacroAiRunState) => void;
 }) {
   const initialHistory = useRef(readStoredReports());
@@ -1177,7 +1177,7 @@ export function MacroAiAnalyst({
             </div>
             <div className="macro-ai-header-state">
               <span className={running ? 'active' : view === 'report' ? 'completed' : ''}><i />{running ? '神经网络运行中' : view === 'report' ? '分析报告' : '系统待命'}</span>
-              <button type="button" onClick={onClose} title="关闭 AI 分析舱" aria-label="关闭 AI 分析舱"><X size={16} /></button>
+              {navigation}
             </div>
           </header>
 

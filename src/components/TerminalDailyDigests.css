@@ -1,8 +1,7 @@
 .terminal-digests { --digest-reading-surface:#061011; position:absolute; inset:0; z-index:45; display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:var(--digest-reading-surface); color:#d9ece5; font-family:Inter,"Microsoft YaHei",sans-serif; }
 .terminal-digests button,.terminal-digests a { -webkit-tap-highlight-color:transparent; }
 .terminal-digests button:focus-visible,.terminal-digests a:focus-visible,.terminal-digests summary:focus-visible { outline:2px solid #6ee0c3; outline-offset:-2px; }
-.terminal-digests-close { position:absolute;top:9px;right:10px;z-index:2;width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:3px;color:#9eafa2;background:var(--digest-reading-surface);cursor:pointer; }
-.terminal-digests-close:hover { background:#233229;color:#eeeade; }
+.terminal-digests-header { display:flex; flex-shrink:0; align-items:center; justify-content:flex-end; min-height:102px; padding:17px 22px; box-sizing:border-box; }
 .terminal-digests-reader { flex:1; min-width:0; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-width:none; -ms-overflow-style:none; container-name:digest-reader; container-type:inline-size; background:var(--digest-reading-surface); }
 .terminal-digests-reader::-webkit-scrollbar { display:none; width:0; height:0; }
 .terminal-digests-reader:focus-visible { outline:1px solid #ba987c; outline-offset:-1px; }
