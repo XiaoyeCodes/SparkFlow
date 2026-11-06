@@ -1,4 +1,5 @@
 import { createRegionalEconomyService } from './server/chinaRegionalEconomy';
+import { parseTradingViewVolatility, TRADINGVIEW_VOLATILITY_COLUMNS } from './server/tradingViewVolatility';
 import { initializeUserData, safeExportName } from './server/userData';
 import { bookLibraryPlugin } from './server/bookLibrary';
 import { stockStrategyPlugin } from './server/stockStrategy';
@@ -4961,22 +4962,7 @@ function yearlyPercentChanges(values: Array<{ time: string; value: number }>) {
 }
 
 async function getVixMacroMetric() {
-  try {
-    const quote = await getYahooMacroQuote('^VIX', '3mo');
-    return {
-      id: 'vix',
-      label: 'VIX 波动率',
-      value: quote.price,
-      display: quote.price.toFixed(2),
-      change: quote.change,
-      updatedAt: quote.updatedAt,
-      sourceUrl: quote.sourceUrl,
-      status: 'live' as const,
-      history: quote.history.slice(-48),
-    };
-  } catch {
-    return getFredMacroMetric('vix', ['VIXCLS'], 'VIX 波动率', (value) => value.toFixed(2));
-  }
+  return getResilientRiskSentimentMetric('vix', '^VIX', 'VIX 波动率');
 }
 
 async function getUsPpiMacroMetric(forceOfficial = false, waitForExpectation = false) {
@@ -7881,7 +7867,7 @@ type GlobalRiskSentimentMetric = {
   status: 'live' | 'delayed' | 'unavailable';
   history: Array<{ time: string; value: number }>;
   rating?: string;
-  provider: 'Yahoo Finance' | 'CNN' | 'FRED';
+  provider: 'Yahoo Finance' | 'CNN' | 'TradingView';
 };
 
 const globalRiskSentimentLastGood = new Map<GlobalRiskSentimentId, GlobalRiskSentimentMetric>();
@@ -7911,7 +7897,10 @@ async function getYahooRiskSentimentMetric(
   symbol: '^VIX' | '^VXN',
   label: string,
 ): Promise<GlobalRiskSentimentMetric> {
-  const quote = await getYahooMacroQuote(symbol, '1mo');
+  // An upstream failure must reach TradingView, not silently reuse Yahoo's cache.
+  const quote = await readYahooMacroQuote(symbol, '1mo');
+  if (!Number.isFinite(quote.price) || quote.price <= 0 || !Number.isFinite(Date.parse(quote.updatedAt))
+    || Date.now() - Date.parse(quote.updatedAt) > 7 * 86400_000) throw new Error(`${symbol} 报价无效或过期`);
   return {
     id,
     label,
@@ -7920,21 +7909,40 @@ async function getYahooRiskSentimentMetric(
     change: quote.change,
     updatedAt: quote.updatedAt,
     sourceUrl: quote.sourceUrl,
-    status: fastQuoteStatus(quote.updatedAt),
+    status: 'delayed',
     history: quote.history.slice(-30),
     provider: 'Yahoo Finance',
   };
 }
 
 async function getResilientRiskSentimentMetric(id: 'vix' | 'vxn', symbol: '^VIX' | '^VXN', label: string): Promise<GlobalRiskSentimentMetric> {
-  const primary = getYahooRiskSentimentMetric(id, symbol, label).then(metric => ({ period: metric.updatedAt!, metric }));
-  const seriesId = id === 'vix' ? 'VIXCLS' : 'VXNCLS';
-  const fallback = getFredMacroMetric(id, [seriesId], label, value => value.toFixed(2)).then(metric => {
-    if (Date.now() - Date.parse(metric.updatedAt) > 14 * 86400_000) throw new Error('波动率备用观测过期');
-    return { period: metric.updatedAt, metric: { ...metric, id, change: metric.change ?? null, provider: 'FRED' as const } };
-  });
-  const selected = await preferOfficialMacroPrimary(primary, fallback, () => undefined);
-  return selected.metric;
+  try {
+    return await getYahooRiskSentimentMetric(id, symbol, label);
+  } catch {
+    return getTradingViewRiskSentimentMetric(id, label);
+  }
+}
+
+async function getTradingViewRiskSentimentMetric(id: 'vix' | 'vxn', label: string): Promise<GlobalRiskSentimentMetric> {
+  const url = 'https://scanner.tradingview.com/global/scan';
+  const host = new URL(url).host;
+  const routes: FetchRoute[] = fastMarketRoutePreference.get(host) === 'proxy' ? ['proxy', 'direct'] : ['direct', 'proxy'];
+  let lastError: unknown;
+  for (const route of routes) {
+    try {
+      const response = await undiciFetch(url, {
+        method: 'POST', signal: AbortSignal.timeout(6500),
+        headers: { 'Content-Type': 'application/json', Origin: 'https://www.tradingview.com', 'User-Agent': 'Mozilla/5.0' },
+        body: JSON.stringify({ symbols: { tickers: [`CBOE:${id.toUpperCase()}`] }, columns: TRADINGVIEW_VOLATILITY_COLUMNS }),
+        ...(route === 'proxy' ? { dispatcher: foreignProxyAgent } : {}),
+      });
+      if (!response.ok) throw new Error(`TradingView HTTP ${response.status}`);
+      const metric = parseTradingViewVolatility(await response.json(), id);
+      fastMarketRoutePreference.set(host, route);
+      return { ...metric, id, label };
+    } catch (error) { lastError = error; }
+  }
+  throw lastError instanceof Error ? lastError : new Error('TradingView 波动率行情暂不可用');
 }
 
 function cnnFearGreedRating(value: unknown, score: number) {

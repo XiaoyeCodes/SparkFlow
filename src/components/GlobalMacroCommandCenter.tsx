@@ -278,7 +278,7 @@ type RiskSentimentId = 'vix' | 'vxn' | 'fear-greed';
 type RiskSentimentMetric = Omit<Metric, 'id'> & {
   id: RiskSentimentId;
   rating?: string;
-  provider: 'Yahoo Finance' | 'CNN' | 'FRED';
+  provider: 'Yahoo Finance' | 'CNN' | 'TradingView' | 'FRED';
 };
 type RiskSentimentPayload = {
   generatedAt: string;
@@ -982,20 +982,21 @@ function RiskSentimentSwitcher({
   const [activeId, setActiveId] = useState<RiskSentimentId>('vix');
   const candidate = activeId === 'fear-greed' ? metrics?.fearGreed : metrics?.[activeId];
   const candidateValid = candidate?.value !== null && candidate?.value !== undefined && Number.isFinite(candidate.value)
-    && candidate.status !== 'unavailable';
-  const preferFallback = activeId === 'vix' && fallbackVix.value !== null && fallbackVix.value !== undefined
-    && Number.isFinite(fallbackVix.value) && (!candidateValid || (fallbackVix.updatedAt || '') > (candidate.updatedAt || ''));
-  const metric = candidateValid && !preferFallback ? candidate : undefined;
+    && candidate.status !== 'unavailable' && candidate.provider !== 'FRED';
+  // Ignore legacy FRED snapshots while the new provider chain refreshes.
+  const fallbackAvailable = activeId === 'vix' && fallbackVix.value !== null && fallbackVix.value !== undefined
+    && Number.isFinite(fallbackVix.value) && !fallbackVix.sourceUrl?.includes('fred.stlouisfed.org');
+  const metric = candidateValid ? candidate : undefined;
   const nextId = RISK_SENTIMENT_ORDER[(RISK_SENTIMENT_ORDER.indexOf(activeId) + 1) % RISK_SENTIMENT_ORDER.length];
   const nextLabel = nextId === 'vix' ? 'VIX' : nextId === 'vxn' ? 'VXN' : 'CNN 恐惧贪婪指数';
-  const value = metric?.value ?? (activeId === 'vix' ? fallbackVix.value : null);
-  const display = metric?.display || (activeId === 'vix' ? fallbackVix.display : '待更新');
-  const change = metric?.change ?? (activeId === 'vix' ? fallbackVix.change : null);
-  const sourceUrl = metric?.sourceUrl || (activeId === 'vix' ? fallbackVix.sourceUrl : undefined);
+  const value = metric?.value ?? (fallbackAvailable ? fallbackVix.value : null);
+  const display = metric?.display || (fallbackAvailable ? fallbackVix.display : '待更新');
+  const change = metric?.change ?? (fallbackAvailable ? fallbackVix.change : null);
+  const sourceUrl = metric?.sourceUrl || (fallbackAvailable ? fallbackVix.sourceUrl : undefined);
   const sourceStatus = metric
-    ? metric.status === 'live' ? '实时' : metric.status === 'unavailable' ? '待更新' : '最近收盘'
-    : activeId === 'vix' ? fallbackVix.sourceStatus : '待更新';
-  const provider = metric?.provider || (activeId === 'fear-greed' ? 'CNN' : fallbackVix.sourceUrl?.includes('fred.stlouisfed.org') ? 'FRED' : 'Yahoo Finance');
+    ? activeId !== 'fear-greed' ? '延迟行情' : metric.status === 'live' ? '实时' : '最近收盘'
+    : fallbackAvailable ? '延迟行情' : '待更新';
+  const provider = metric?.provider || (activeId === 'fear-greed' ? 'CNN' : sourceUrl?.includes('tradingview.com') ? 'TradingView' : 'Yahoo Finance');
   const temperature = activeId === 'vix'
     ? vixTemperature(value)
     : activeId === 'vxn'
@@ -1063,7 +1064,7 @@ function RiskSentimentSwitcher({
       <div className="macro-vix-status">
         <small>{temperature.summary}</small>
         <span className={trendClass(change)}>较前值 {pointChange(change)}</span>
-        {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noreferrer" title={`观测日期：${metric?.updatedAt || fallbackVix.updatedAt || '来源未提供'}`}>{provider} · {sourceStatus}{metric?.provider === 'FRED' && metric.updatedAt ? ` · ${metric.updatedAt.slice(5, 10)}` : ''}<ExternalLink size={9} /></a> : <i>{sourceStatus}</i>}
+        {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noreferrer" title={`来源时间：${metric?.updatedAt || fallbackVix.updatedAt || '来源未提供'}`}>{provider} · {sourceStatus}<ExternalLink size={9} /></a> : <i>{sourceStatus}</i>}
       </div>
     </section>
   );
