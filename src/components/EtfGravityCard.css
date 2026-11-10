@@ -1,0 +1,34 @@
+.etf-gravity { margin: 14px 0; overflow: hidden; border: 1px solid var(--risk-border-soft); border-radius: 9px; background: var(--risk-panel); color: var(--risk-text); }
+.etf-gravity-head, .etf-gravity-foot { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; padding: 17px 20px; }
+.etf-gravity-head h2 { margin: 0; font-size: clamp(16px, 1.5vw, 22px); font-weight: 720; }
+.etf-gravity-head > div, .etf-gravity-foot > div, .etf-gravity-foot a, .etf-gravity-empty button { display: inline-flex; align-items: center; gap: 8px; }
+.etf-gravity-head time, .etf-gravity-proxy, .etf-gravity-foot { font-size: 11px; color: var(--risk-muted); }
+.etf-gravity-stale { color: #eac47a; font-size: 11px; }
+.etf-gravity-metrics { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: 8px; margin: 0 16px 8px; }
+.etf-gravity-metrics > div { padding: 12px 13px; border: 1px solid var(--risk-border-soft); border-radius: 7px; background: var(--risk-panel-2); }
+.etf-gravity-metrics > .is-vwap { border-left: 3px solid #e879f9; }
+.etf-gravity-metrics dt { font-size: 11px; color: var(--risk-muted); }
+.etf-gravity-metrics dd { margin: 3px 0 0; font: 700 clamp(16px, 1.65vw, 23px)/1.25 var(--font-mono, Consolas, monospace); font-variant-numeric: tabular-nums; }
+.etf-gravity-metrics dd.positive { color: #39ce80; }
+.etf-gravity-metrics dd.negative { color: #fa8983; }
+.etf-gravity-metrics dd.score { color: #facc15; }
+.etf-gravity-plot { width: 100%; min-width: 0; }
+.etf-gravity-foot { align-items: flex-start; border-top: 1px solid var(--risk-border-soft); padding-block: 10px; }
+.etf-gravity-foot details { flex: 1 1 160px; }
+.etf-gravity-foot summary { cursor: pointer; width: fit-content; }
+.etf-gravity-foot details p { max-width: 70ch; margin: 8px 0 0; line-height: 1.7; }
+.etf-gravity-foot > div { gap: 14px; }
+.etf-gravity-foot a:hover { color: var(--risk-green); }
+.etf-gravity-empty { min-height: 150px; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--risk-muted); font-size: 13px; }
+.etf-gravity[aria-busy="true"] .etf-gravity-empty { min-height: 610px; }
+.etf-gravity-empty button { color: var(--risk-green); }
+/* When the viewport has no right gutter, leave the upper-right corner to the ticker switch. */
+@media (max-width: 1980px) {
+  .etf-gravity-plot.js-plotly-plot .plotly .modebar { left: 8px; right: auto; }
+}
+@media (max-width: 700px) {
+  .etf-gravity[aria-busy="true"] .etf-gravity-empty { min-height: 575px; }
+  .etf-gravity-head, .etf-gravity-foot { padding-inline: 12px; }
+  .etf-gravity-metrics { margin-inline: 10px; grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .etf-gravity-metrics > div { padding: 8px 6px; }
+}

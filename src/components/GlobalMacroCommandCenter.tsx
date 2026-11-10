@@ -827,16 +827,25 @@ function vxnTemperature(value?: number | null): { tone: VixTone; label: string; 
   return { tone: 'stress', label: '科技过温', summary: '科技股尾部风险溢价显著抬升', percent };
 }
 
+const FEAR_GREED_BANDS = [
+  { end: 25, tone: 'extreme-fear', name: '极恐', label: '极度恐惧', summary: '防御情绪占优，市场可能出现非理性抛售' },
+  { end: 45, tone: 'fear', name: '恐惧', label: '恐惧', summary: '风险偏好偏弱，资金更重视防御与流动性' },
+  { end: 55, tone: 'neutral', name: '中性', label: '中性', summary: '多空情绪接近平衡，等待新的定价催化' },
+  { end: 75, tone: 'greed', name: '贪婪', label: '贪婪', summary: '风险偏好升温，注意拥挤交易逐步累积' },
+  { end: 100, tone: 'extreme-greed', name: '极贪', label: '极度贪婪', summary: '追涨情绪过热，需防范风险收益比恶化' },
+] as const;
+
+const fearGreedScaleStyle = {
+  gridTemplateColumns: FEAR_GREED_BANDS.map(({ end }, i) => `${end - (FEAR_GREED_BANDS[i - 1]?.end ?? 0)}%`).join(' '),
+};
+
 function fearGreedTemperature(value?: number | null, rating?: string) {
   if (value === undefined || value === null || !Number.isFinite(value)) {
     return { tone: 'unavailable' as const, label: '等待数据', summary: 'CNN 市场情绪值暂未更新', percent: 0 };
   }
-  const percent = Math.max(1, Math.min(99, value));
-  if (value < 25) return { tone: 'extreme-fear' as const, label: rating || '极度恐惧', summary: '防御情绪占优，市场可能出现非理性抛售', percent };
-  if (value < 45) return { tone: 'fear' as const, label: rating || '恐惧', summary: '风险偏好偏弱，资金更重视防御与流动性', percent };
-  if (value < 55) return { tone: 'neutral' as const, label: rating || '中性', summary: '多空情绪接近平衡，等待新的定价催化', percent };
-  if (value < 75) return { tone: 'greed' as const, label: rating || '贪婪', summary: '风险偏好升温，注意拥挤交易逐步累积', percent };
-  return { tone: 'extreme-greed' as const, label: rating || '极度贪婪', summary: '追涨情绪过热，需防范风险收益比恶化', percent };
+  const percent = Math.max(0, Math.min(100, value));
+  const band = FEAR_GREED_BANDS.find(({ end }) => percent < end) ?? FEAR_GREED_BANDS[FEAR_GREED_BANDS.length - 1];
+  return { tone: band.tone, label: rating || band.label, summary: band.summary, percent };
 }
 
 function pointChange(value?: number | null) {
@@ -1050,14 +1059,30 @@ function RiskSentimentSwitcher({
         ) : (
           <>
             <div className={`macro-fg-console ${temperature.tone}`}>
-              <button type="button" className="macro-vix-bulb macro-fg-bulb" onClick={cycleRiskSentiment} aria-label={`切换至${nextLabel}`} title={`切换至 ${nextLabel}`}><i /><span>{Math.round(value ?? 0)}</span></button>
-              <div className="macro-fg-screen" aria-hidden="true">
-                <span className="macro-vix-identity macro-fg-identity"><small>CNN F&amp;G</small><b>风险情绪</b></span>
-                <div className="macro-fg-spectrum"><i style={{ left: `${temperature.percent}%` }} /></div>
+              <button type="button" className="macro-vix-bulb macro-fg-bulb" onClick={cycleRiskSentiment} aria-label={`切换至${nextLabel}`} title={`切换至 ${nextLabel}`}><i aria-hidden="true" /></button>
+              <div className="macro-vxn-screen macro-fg-screen" aria-hidden="true">
+                <div className="macro-fg-gauge" style={{ '--fg-percent': `${temperature.percent}%` } as CSSProperties}>
+                  {temperature.tone !== 'unavailable' && <>
+                    <i className="macro-fg-fill"><i className="macro-fg-sweep" /></i>
+                    <i className="macro-fg-marker" />
+                  </>}
+                  <div className="macro-fg-ticks" style={fearGreedScaleStyle}>
+                    {FEAR_GREED_BANDS.map(band => <i key={band.tone} />)}
+                  </div>
+                </div>
+                <span className="macro-vix-identity"><small>CNN F&amp;G</small><b>风险情绪</b></span>
                 <span className="macro-vix-reading macro-fg-reading"><small>{temperature.label}</small><strong>{display}</strong></span>
               </div>
             </div>
-            <div className="macro-fg-scale" aria-hidden="true"><span>极恐</span><span>恐惧</span><span>中性</span><span>贪婪</span><span>极贪</span></div>
+            <div className="macro-fg-scale" aria-hidden="true" style={fearGreedScaleStyle}>
+              {FEAR_GREED_BANDS.map((band, i) => (
+                <span key={band.tone} style={{ color: `var(--fg-${band.tone})` }}>
+                  {i === 0 && <small className="macro-fg-zero">0</small>}
+                  {band.name}
+                  <small>{band.end}</small>
+                </span>
+              ))}
+            </div>
           </>
         )}
       </div>

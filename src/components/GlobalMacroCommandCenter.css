@@ -314,11 +314,22 @@
 .macro-vix-card.elevated { --vix-accent: var(--vix-elevated); --vix-glow: rgba(255, 184, 77, .2); }
 .macro-vix-card.stress { --vix-accent: var(--vix-stress); --vix-glow: rgba(255, 77, 109, .22); }
 .macro-vix-card.unavailable { --vix-accent: #65778b; --vix-glow: rgba(101, 119, 139, .15); }
-.macro-vix-card.extreme-fear { --vix-accent: #ff526d; --vix-glow: rgba(255, 82, 109, .24); }
-.macro-vix-card.fear { --vix-accent: #ff9f43; --vix-glow: rgba(255, 159, 67, .22); }
-.macro-vix-card.neutral { --vix-accent: #8ca0b5; --vix-glow: rgba(140, 160, 181, .17); }
-.macro-vix-card.greed { --vix-accent: #54e7b0; --vix-glow: rgba(84, 231, 176, .22); }
-.macro-vix-card.extreme-greed { --vix-accent: #1ff58b; --vix-glow: rgba(31, 245, 139, .24); }
+.macro-vix-card[data-risk-mode="fear-greed"] {
+  --fg-extreme-fear: #39da85;
+  --fg-fear: #a9e8ae;
+  --fg-neutral: #70baff;
+  --fg-greed: #ffcf58;
+  --fg-extreme-greed: #ff656b;
+  --fg-radar-size: 48px;
+  --fg-inset: 2px;
+  --fg-overlap: 16px;
+  --vix-glow: color-mix(in srgb, var(--vix-accent) 22%, transparent);
+}
+.macro-vix-card.extreme-fear { --vix-accent: var(--fg-extreme-fear); }
+.macro-vix-card.fear { --vix-accent: var(--fg-fear); }
+.macro-vix-card.neutral { --vix-accent: var(--fg-neutral); }
+.macro-vix-card.greed { --vix-accent: var(--fg-greed); }
+.macro-vix-card.extreme-greed { --vix-accent: var(--fg-extreme-greed); }
 .macro-risk-switcher[data-risk-mode="vxn"] { --vix-calm: #54d7ff; --vix-normal: var(--macro-green); --vix-elevated: #ff9f43; --vix-stress: var(--macro-red); }
 .macro-risk-meter-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .macro-risk-slide { min-width: 0; animation: macro-risk-enter .42s cubic-bezier(.22, .8, .22, 1) both; transform-origin: 18% 50%; }
@@ -371,25 +382,58 @@
 .macro-vxn-identity { left: 27px; }
 .macro-vxn-reading strong { color: color-mix(in srgb, var(--vix-accent) 82%, #fff); }
 .macro-vxn-scale { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.macro-fg-scale { display: grid; margin: 6px 5px 0 48px; color: #63778c; font: 5.5px "JetBrains Mono", monospace; white-space: nowrap; }
-
-.macro-fg-console { display: flex; align-items: center; min-width: 0; padding-left: 2px; }
-.macro-fg-bulb { border-width: 1px; }
-.macro-fg-bulb::before { position: absolute; inset: 5px; border: 1px solid color-mix(in srgb, var(--vix-accent) 44%, transparent); border-radius: 50%; content: ""; }
-.macro-fg-bulb > i { width: 27px; height: 27px; background: conic-gradient(from 205deg, #ff526d, #ffad4d, #8195a7, #54e7b0, #1ff58b); filter: saturate(.86); }
-.macro-fg-bulb > span { position: absolute; z-index: 2; color: #04100f; font: 700 11px Rajdhani, sans-serif; text-shadow: 0 1px rgba(255,255,255,.25); }
-.macro-fg-screen { position: relative; height: 48px; min-width: 0; flex: 1; margin-left: -16px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--vix-accent) 55%, transparent); border-radius: 0 999px 999px 0; background: radial-gradient(circle at 68% 50%, color-mix(in srgb, var(--vix-accent) 10%, transparent), transparent 31%), #050d0f; box-shadow: inset 0 0 18px rgba(0,0,0,.55), 0 0 15px var(--vix-glow); }
-.macro-fg-identity { left: 27px; }
-.macro-fg-spectrum { position: absolute; right: 74px; bottom: 9px; left: 72px; height: 5px; border-radius: 8px; background: linear-gradient(90deg, #ff526d 0 25%, #ffad4d 25% 45%, #8091a2 45% 55%, #54e7b0 55% 75%, #1ff58b 75%); box-shadow: 0 0 9px color-mix(in srgb, var(--vix-accent) 25%, transparent); }
-.macro-fg-spectrum > i { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; background: #fff; box-shadow: 0 0 7px #fff; transition: left .5s cubic-bezier(.22,.8,.22,1); }
+.macro-fg-console { display: flex; align-items: center; min-width: 0; padding-left: var(--fg-inset); }
+.macro-fg-bulb { flex-basis: var(--fg-radar-size); height: var(--fg-radar-size); }
+.macro-fg-bulb::before {
+  content: ""; position: absolute; inset: 5px; border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--vix-accent) 60%, transparent);
+  background: repeating-radial-gradient(circle, transparent 0 6px, var(--vix-glow) 6px 7px);
+}
+.macro-fg-bulb > i {
+  width: 32px; height: 32px; box-shadow: none;
+  background: conic-gradient(from -90deg, transparent 0 255deg, var(--vix-glow) 292deg, var(--vix-accent) 356deg, transparent 359deg);
+  animation: macro-fg-radar 3.4s linear infinite;
+}
+.macro-fg-bulb::after {
+  content: ""; position: absolute; z-index: 2; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--vix-accent); box-shadow: 0 0 6px var(--vix-accent);
+}
+.macro-fg-screen { margin-left: calc(0px - var(--fg-overlap)); }
+/* The tube overlaps the radar. Its usable scale starts at the radar's outer edge. */
+.macro-fg-gauge { position: absolute; inset: 3px 0 3px calc(var(--fg-overlap) - 1px); }
+.macro-fg-ticks { position: absolute; inset: 0; display: grid; pointer-events: none; }
+.macro-fg-ticks i + i { border-left: 1px solid var(--vix-glow); }
+.macro-fg-fill {
+  position: absolute; inset: 0 auto 0 0; width: var(--fg-percent); border-radius: 0 999px 999px 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--vix-accent) 10%, transparent), var(--vix-glow));
+  box-shadow: inset -4px 0 12px var(--vix-glow);
+  mask-image: linear-gradient(90deg, transparent, #000 min(6px, 30%));
+}
+.macro-fg-sweep {
+  display: block; width: 100%; height: 100%; transform-origin: left; border-radius: inherit;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--vix-accent) 8%, transparent) 62%, color-mix(in srgb, var(--vix-accent) 34%, transparent));
+  animation: macro-fg-scan 3.4s cubic-bezier(.28,.55,.44,1) infinite;
+}
+.macro-fg-marker {
+  position: absolute; z-index: 1; inset-block: 10%; left: clamp(0px, calc(var(--fg-percent) - 1px), calc(100% - 2px));
+  width: 2px; border-radius: 1px; background: var(--vix-accent); box-shadow: 0 0 6px var(--vix-glow);
+}
+.macro-vix-card.unavailable .macro-fg-bulb > i { animation: none; visibility: hidden; }
+@keyframes macro-fg-radar { to { transform: rotate(1turn); } }
+@keyframes macro-fg-scan {
+  0% { transform: scaleX(0); opacity: .85; }
+  75%, 88% { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
 .macro-fg-reading strong { color: color-mix(in srgb, var(--vix-accent) 78%, #fff); }
-.macro-fg-scale { grid-template-columns: repeat(5, 1fr); }
-.macro-fg-scale span { text-align: center; }
-.macro-fg-scale span:nth-child(1) { color: #ff526d; }
-.macro-fg-scale span:nth-child(2) { color: #ffad4d; }
-.macro-fg-scale span:nth-child(3) { color: #8091a2; }
-.macro-fg-scale span:nth-child(4) { color: #54e7b0; }
-.macro-fg-scale span:nth-child(5) { color: #1ff58b; }
+.macro-fg-scale {
+  display: grid; margin: 3px 1px 0 calc(var(--fg-inset) + var(--fg-radar-size));
+  font: 7px/1.2 "JetBrains Mono", monospace; white-space: nowrap;
+}
+.macro-fg-scale span { position: relative; padding-top: 10px; text-align: center; }
+.macro-fg-scale small { position: absolute; top: 0; right: 0; transform: translateX(50%); color: #99afa6; font: 7px/1 "JetBrains Mono", monospace; }
+.macro-fg-scale .macro-fg-zero { left: 0; right: auto; transform: none; }
+.macro-fg-scale span:last-child small { transform: none; }
 
 @keyframes macro-risk-enter { from { opacity: 0; filter: blur(3px); transform: translateX(8px) scale(.985); } to { opacity: 1; filter: blur(0); transform: translateX(0) scale(1); } }
 @keyframes macro-vxn-orbit { to { transform: rotate(1turn); } }
@@ -1321,7 +1365,8 @@ a.macro-next-event:hover { border-color: rgba(255, 184, 77, .42); background: li
 
 @media (prefers-reduced-motion: reduce) {
   .macro-clock-separator, .macro-live-badge > i, .macro-pulse-loader, .macro-index-track, .macro-news-track, .macro-risk-slide, .macro-vxn-bulb::after { animation: none; }
-  .macro-signal, .macro-region-pulse > div > i > em, .macro-vix-tube > i, .macro-vix-tube > em, .macro-fg-spectrum > i, .macro-holo-label, .macro-holo-leader { transition: none; }
+  .macro-fg-bulb > i, .macro-fg-sweep { animation: none; }
+  .macro-signal, .macro-region-pulse > div > i > em, .macro-vix-tube > i, .macro-vix-tube > em, .macro-holo-label, .macro-holo-leader { transition: none; }
   .macro-index-tape, .macro-news-window { overflow-x: auto; }
 }
 

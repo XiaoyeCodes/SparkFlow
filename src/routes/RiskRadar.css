@@ -26,6 +26,19 @@
 .risk-window-switch button, .risk-refresh, .risk-segment button { border: 0; border-radius: 7px; background: transparent; color: #9caf9f; cursor: pointer; }
 .risk-window-switch button { min-width: 42px; padding: 8px 10px; font-size: 11px; }
 .risk-window-switch button[aria-pressed="true"] { background: #75dfbd; color: #07120d; font-weight: 700; }
+.risk-switch-slot { display: grid; min-width: 104px; min-height: 41px; }
+.risk-snapshot-slot { display: flow-root; }
+.risk-window-switch.is-floating {
+  position: fixed;
+  z-index: 40;
+  top: calc(var(--nav-height) + 8px);
+  right: max(8px, env(safe-area-inset-right));
+  gap: 4px;
+  border: 1px solid #294437;
+  background: #0b1510;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 24%);
+}
+.risk-window-switch button:focus-visible { outline: 2px solid #b6f5d9; outline-offset: 1px; }
 .risk-refresh { display: inline-flex; height: 42px; align-items: center; gap: 8px; padding: 0 14px; border: 1px solid var(--risk-border); color: #cae2d5; }
 .risk-refresh:hover { border-color: rgba(112, 220, 186, .48); background: rgba(112, 220, 186, .06); }
 .risk-refresh:disabled { opacity: .55; cursor: wait; }
@@ -460,19 +473,8 @@
 .risk-timeline-mode { display: flex; gap: 3px; padding: 3px; border: 1px solid rgba(106, 179, 151, .18); border-radius: 8px; background: rgba(5, 16, 10, .6); }
 .risk-timeline-mode button { padding: 6px 10px; border: 0; border-radius: 5px; background: transparent; color: #83998e; font-size: 10px; cursor: pointer; }
 .risk-timeline-mode button[aria-pressed="true"] { background: rgba(96, 211, 175, .16); color: #80e2c3; }
-.risk-timeline-legend { display: flex; align-items: center; gap: 6px; }
-.risk-timeline-legend button { display: flex; align-items: stretch; flex-direction: column; gap: 4px; min-width: 112px; padding: 7px 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #aebeb6; font: 650 11px/1.3 "Segoe UI Variable Text", "Segoe UI", sans-serif; text-align: left; cursor: pointer; transition: border-color 150ms ease, background-color 150ms ease, opacity 150ms ease; }
-.risk-timeline-legend-primary { display: grid; grid-template-columns: 18px minmax(0, auto) auto; align-items: center; gap: 7px; }
-.risk-timeline-legend button:hover { border-color: rgba(118, 190, 162, .22); background: rgba(96, 211, 175, .06); }
-.risk-timeline-legend button[aria-pressed="true"] { border-color: rgba(118, 190, 162, .18); background: rgba(96, 211, 175, .08); }
-.risk-timeline-legend button[aria-pressed="false"] { opacity: .48; }
-.risk-timeline-legend button[aria-pressed="false"] i { box-shadow: none; filter: saturate(.35); }
-.risk-timeline-legend button:focus-visible { outline: 2px solid rgba(103, 224, 188, .7); outline-offset: 2px; }
-.risk-timeline-legend button:disabled { cursor: default; }
-.risk-timeline-legend i, .risk-timeline-tooltip i { display: inline-block; width: 17px; height: 2px; background: #67e0bc; box-shadow: 0 0 10px rgba(103, 224, 188, .3); }
-.risk-timeline-legend .qqq i, .risk-timeline-tooltip .qqq i { background: #89aef6; box-shadow: 0 0 10px rgba(137, 174, 246, .28); }
-.risk-timeline-legend b { color: #ecf4ef; font-variant-numeric: tabular-nums; }
-.risk-timeline-legend small { padding-left: 25px; color: #657a70; font: 500 8px/1.2 "SFMono-Regular", Consolas, monospace; }
+.risk-timeline-tooltip i { display: inline-block; width: 17px; height: 2px; background: #67e0bc; box-shadow: 0 0 10px rgba(103, 224, 188, .3); }
+.risk-timeline-tooltip .qqq i { background: #89aef6; box-shadow: 0 0 10px rgba(137, 174, 246, .28); }
 .risk-timeline-frame { position: relative; width: 100%; padding: 12px 18px 0 8px; touch-action: pan-y; }
 .risk-timeline-frame svg { display: block; width: 100%; height: auto; min-height: 310px; overflow: visible; }
 .risk-timeline-band.low { fill: rgba(35, 146, 105, .075); }
@@ -512,8 +514,6 @@
   .risk-timeline-tools { width: 100%; align-items: flex-start; }
   .risk-timeline-mode { width: 100%; }
   .risk-timeline-mode button { flex: 1; }
-  .risk-timeline-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .risk-timeline-legend button { width: 100%; min-width: 0; }
 }
 
 @media (max-width: 720px) {
@@ -596,8 +596,6 @@
 .risk-timeline-heading p { color: #a5b7ae; font-size: 12px; }
 .risk-timeline-cache-state { color: #91a69b; font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; font-size: 10px; font-weight: 600; }
 .risk-timeline-mode button { color: #9fb2a8; font-size: 11px; font-weight: 600; }
-.risk-timeline-legend button { color: #c0cec7; font-size: 12px; font-weight: 700; }
-.risk-timeline-legend small { color: #879b91; font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; font-size: 9px; font-weight: 600; }
 .risk-timeline-grid text,
 .risk-timeline-threshold text,
 .risk-timeline-year text { fill: #9cafA5; font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif; font-size: 11px; font-weight: 600; }

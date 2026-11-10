@@ -66,6 +66,7 @@ import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from '
 import { ibkrWorkbenchPlugin } from './server/ibkrWorkbench';
 import { ibkrValuationPlugin } from './server/ibkrValuation';
 import { getRiskRadarTimeline } from './server/riskRadarTimeline';
+import { loadGravityHistory } from './server/etfGravity';
 import { rankChinaMacroNews } from './src/lib/chinaMacroNews';
 import { parseEastmoneyRow } from './server/ibkrMarket';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
@@ -12455,6 +12456,11 @@ async function loadPublicDashboardResource(key: string): Promise<unknown> {
     case '/api/valuation-temperature': return market === 'china' ? getCachedChinaValuationDashboard() : getCachedRegionalValuationDashboard(market as RegionalValuationMode);
     case '/api/regional-market-content': return getCachedRegionalMarketContent(market as RegionalContentMode);
     case '/api/bitcoin-cycle-history': return getCachedBitcoinCycleHistory();
+    case '/api/risk-radar/gravity': {
+      const ticker = url.searchParams.get('ticker');
+      if (ticker !== 'SPY' && ticker !== 'QQQ') throw new Error('仅支持 SPY 或 QQQ');
+      return loadGravityHistory(ticker, fetchYahooFinanceJson);
+    }
     case '/api/us-market-system-status': return getCachedUsMarketSystemStatus();
     default: throw new Error('Unknown public resource');
   }
@@ -12731,6 +12737,16 @@ function allWeatherApiPlugin() {
               ? 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400'
               : 'private, max-age=300');
             sendJson(res, 200, await buildEquityReportChart(symbol, range));
+            return;
+          }
+
+          if (url.pathname === '/api/risk-radar/gravity') {
+            if (!['SPY', 'QQQ'].includes(url.searchParams.get('ticker') ?? '')) {
+              sendJson(res, 400, { error: '仅支持 SPY 或 QQQ' });
+              return;
+            }
+            res.setHeader('Cache-Control', 'public, max-age=300');
+            sendJson(res, 200, await loadPublicDashboardResource(url.pathname + url.search));
             return;
           }
 

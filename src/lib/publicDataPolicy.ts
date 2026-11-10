@@ -70,6 +70,7 @@ for (const market of ['china', 'hongkong', 'us', ...international]) {
 }
 for (const market of ['hongkong', 'us']) add(`/api/regional-market-content?market=${market}`, 300, 1800);
 add('/api/bitcoin-cycle-history', 21600, 43200);
+for (const ticker of ['SPY', 'QQQ']) add(`/api/risk-radar/gravity?ticker=${ticker}`, 3600, 7 * 86400, false);
 add('/api/us-market-system-status', 60, 180);
 
 export const PUBLIC_DATA_POLICIES: readonly PublicDataPolicy[] = [...policies.values()];

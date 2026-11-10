@@ -1,5 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  // Risk inputs have a ten-day validity window; replay the recorded session.
+  await page.clock.setFixedTime(new Date('2026-09-17T04:00:00Z'));
+  await page.route('**/api/risk-radar/gravity?**', route => {
+    const symbol = new URL(route.request().url()).searchParams.get('ticker');
+    return route.fulfill({ json: { symbol, validUntil: '2026-09-25T00:00:00Z',
+      points: Array.from({ length: 10 }, (_, index) => ({ date: `2026-09-${String(index + 1).padStart(2, '0')}`,
+        close: 100 + index, twap: 100, premium: index, level: index + 1, score: index * 10,
+        vwap: symbol === 'SPY' ? 95 : null })) } });
+  });
+});
+
 const prices = Array.from({ length: 520 }, (_, index) => ({
   time: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10),
   close: 470 + index * .28 + Math.sin(index / 12) * 8,
@@ -124,14 +136,38 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1024, height: 13
     await expect(page.locator('.risk-stress-thresholds')).toContainText('高风险线 70');
     await expect(page.locator('.risk-stress-list > div')).toHaveCount(4);
     const timelineChart = page.getByRole('region', { name: '近30年风险得分走势' });
+    const gravitySpy = page.getByRole('region', { name: 'SPY TWAP 重力风险模型' });
+    const gravityQqq = page.getByRole('region', { name: 'QQQ 对数价格与时间重力' });
+    await expect(gravitySpy.locator('.legendtoggle')).toHaveCount(13);
+    await expect(gravityQqq).toHaveCount(0);
+    await expect(gravitySpy).toHaveCSS('background-color', await page.locator('.risk-trend-panel').evaluate(node => getComputedStyle(node).backgroundColor));
+    const selector = page.getByRole('group', { name: '选择监测标的' });
+    await gravitySpy.scrollIntoViewIfNeeded();
+    await expect(selector).toHaveCSS('position', 'fixed');
+    const dock = await selector.boundingBox();
+    expect(dock!.x + dock!.width).toBeGreaterThan(viewport.width - 32);
+    expect(dock!.y).toBeGreaterThanOrEqual(await page.locator('#sparkflow-global-navigation').evaluate(node => node.getBoundingClientRect().bottom));
+    const gravityTop = (await gravitySpy.boundingBox())!.y;
+    await selector.getByRole('button', { name: 'QQQ', exact: true }).click();
+    await expect(gravityQqq.locator('.legendtoggle')).toHaveCount(12);
+    await expect(timelineChart.locator('[data-series="QQQ"]')).toHaveAttribute('d', /L/);
+    await expect(timelineChart.locator('[data-series="VOO"]')).toHaveCount(0);
+    await expect(timelineChart.getByRole('button', { name: /VOO|QQQ/ })).toHaveCount(0);
+    await expect(timelineChart.locator('.risk-timeline-heading')).not.toContainText(/(?:VOO|QQQ)\s*·/);
+    await expect(gravitySpy).toHaveCount(0);
+    await expect(selector.getByRole('button', { name: 'QQQ', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(async () => Math.abs((await gravityQqq.boundingBox())!.y - gravityTop)).toBeLessThan(100);
+    await selector.getByRole('button', { name: 'VOO', exact: true }).click();
+    await expect(gravitySpy.locator('.legendtoggle')).toHaveCount(13);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await expect(selector).toHaveCSS('position', 'static');
     await expect(timelineChart).toBeVisible();
     await expect(timelineChart).toContainText('0–39');
     await expect(timelineChart).toContainText('40–69');
     await expect(timelineChart).toContainText('70–100');
-    await expect(timelineChart.locator('.risk-timeline-line')).toHaveCount(2);
+    await expect(timelineChart.locator('.risk-timeline-line')).toHaveCount(1);
     await expect(timelineChart.locator('[data-series="VOO"]')).toHaveAttribute('d', /L/);
-    await expect(timelineChart.locator('[data-series="QQQ"]')).toHaveAttribute('d', /L/);
-    await expect(timelineChart.locator('.risk-timeline-legend .voo small')).toHaveText(/^\d{4}\/\d{2}$/);
+    await expect(timelineChart.locator('[data-series="QQQ"]')).toHaveCount(0);
     const timelineSvg = timelineChart.locator('.risk-timeline-frame svg');
     await timelineSvg.scrollIntoViewIfNeeded();
     for (const fraction of [.05, .5, .95]) {
@@ -149,23 +185,6 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1024, height: 13
       });
       expect(Math.abs(cursorX - pointer.x)).toBeLessThan(1.5);
     }
-    const indexSelector = timelineChart.getByRole('group', { name: '选择显示的指数' });
-    const vooToggle = indexSelector.getByRole('button', { name: /VOO/ });
-    const qqqToggle = indexSelector.getByRole('button', { name: /QQQ/ });
-    await expect(vooToggle).toHaveAttribute('aria-pressed', 'true');
-    await expect(qqqToggle).toHaveAttribute('aria-pressed', 'true');
-    const vooBox = await vooToggle.boundingBox();
-    const vooDateBox = await vooToggle.locator('small').boundingBox();
-    expect(vooBox).not.toBeNull();
-    expect(vooDateBox).not.toBeNull();
-    expect(vooDateBox!.y).toBeGreaterThan(vooBox!.y + 8);
-    await qqqToggle.click();
-    await expect(qqqToggle).toHaveAttribute('aria-pressed', 'false');
-    await expect(timelineChart.locator('[data-series="QQQ"]')).toHaveCount(0);
-    await expect(timelineChart.locator('[data-series="VOO"]')).toHaveCount(1);
-    await expect(vooToggle).toBeDisabled();
-    await qqqToggle.click();
-    await expect(timelineChart.locator('.risk-timeline-line')).toHaveCount(2);
     await expect(timelineChart).toContainText('历史快照已缓存');
     await timelineChart.getByRole('button', { name: '即时压力' }).click();
     await expect(timelineChart.getByRole('button', { name: '即时压力' })).toHaveAttribute('aria-pressed', 'true');
@@ -223,17 +242,20 @@ test('manual refresh updates the current snapshot and historical timeline togeth
   await expect(page.getByRole('button', { name: '刷新数据' })).toBeEnabled();
 });
 
-test('risk radar reloads from its one-hour local snapshot without another API request', async ({ page }) => {
+test('risk radar shows its local snapshot while revalidating on reload', async ({ page }) => {
   let valuationCalls = 0;
   let priceCalls = 0;
   const valuationUrls: string[] = [];
+  let releaseRevalidation!: () => void;
+  const pendingRevalidation = new Promise<void>(resolve => { releaseRevalidation = resolve; });
   await page.route('**/api/equity-report-chart?**', route => {
     priceCalls++;
     return route.fulfill({ json: { symbol: 'VOO', generatedAt: '2026-09-15T13:10:00.000Z', source: { label: '测试行情', url: 'https://example.com/voo' }, points: prices } });
   });
-  await page.route('**/api/ibkr-valuation/risk-radar**', route => {
+  await page.route('**/api/ibkr-valuation/risk-radar**', async route => {
     valuationCalls++;
     valuationUrls.push(route.request().url());
+    if (valuationCalls === 2) await pendingRevalidation;
     return route.fulfill({ json: valuation });
   });
   await mockRiskHistory(page);
@@ -244,14 +266,18 @@ test('risk radar reloads from its one-hour local snapshot without another API re
   expect(priceCalls).toBe(1);
 
   await page.reload();
+  try {
+    await expect.poll(() => valuationCalls).toBe(2);
+    await expect(page.getByRole('meter', { name: '市场崩盘风险指数' })).toBeVisible();
+  } finally {
+    releaseRevalidation();
+  }
   await expect(page.getByText('已缓存 · 每小时检查')).toBeVisible();
-  expect(valuationCalls).toBe(1);
-  expect(priceCalls).toBe(1);
 
   await page.getByRole('button', { name: '刷新数据' }).click();
-  await expect.poll(() => valuationCalls).toBe(2);
-  expect(priceCalls).toBe(2);
-  expect(valuationUrls.map(url => url.includes('fresh=1'))).toEqual([false, true]);
+  await expect.poll(() => valuationCalls).toBe(3);
+  await expect.poll(() => priceCalls).toBe(3);
+  expect(valuationUrls.map(url => url.includes('fresh=1'))).toEqual([false, false, true]);
 });
 
 test('VOO and QQQ use their own valuation, volatility, drawdown and continuous trend scores', async ({ page }) => {

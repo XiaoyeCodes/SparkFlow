@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Activity,
@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { PageTransition } from '../components/PageTransition';
+import { EtfGravityCard } from '../components/EtfGravityCard';
 import type { ValuationDashboard, ValuationMetric, ValuationSnapshot } from '../lib/ibkr/valuationTypes';
 import './RiskRadar.css';
 
@@ -420,7 +421,8 @@ async function fetchJson(url: string, timeoutMs: number, cache: RequestCache = '
   }
 }
 
-function RiskTimelineChart({ payload, weights, loading, refreshing, error, cacheStoredAt, current }: {
+function RiskTimelineChart({ ticker, payload, weights, loading, refreshing, error, cacheStoredAt, current }: {
+  ticker: Ticker;
   payload: RiskTimelinePayload | null;
   weights: DualWeights;
   loading: boolean;
@@ -431,29 +433,25 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
 }) {
   const [cursor, setCursor] = useState<{ fraction: number; frameX: number; frameWidth: number } | null>(null);
   const [mode, setMode] = useState<'overall' | 'vulnerability' | 'stress'>('overall');
-  const [visibleTickers, setVisibleTickers] = useState<Ticker[]>(['VOO', 'QQQ']);
   const model = useMemo(() => {
-    if (!payload?.series.length) return null;
-    const scored = payload.series.map(series => {
-      const points = series.points.flatMap(point => {
-        const result = calculateDualRisk(point.values, weights);
-        const score = mode === 'overall' ? result.overall : result[mode].score;
-        return score === null ? [] : [{ ...point, score }];
-      });
-      const currentScore = current ? current[mode] : null;
-      if (current?.ticker === series.ticker && currentScore !== null && current.date && points.length) {
-        const last = points[points.length - 1];
-        const livePoint = { ...last, date: current.date, score: currentScore };
-        if (Date.parse(current.date) > Date.parse(last.date)) points.push(livePoint);
-        else if (current.date === last.date) points[points.length - 1] = livePoint;
-      }
-      return { ...series, lastDate: points[points.length - 1]?.date ?? series.lastDate, points };
-    }).filter(series => series.points.length > 1);
-    const visibleSeries = scored.filter(series => visibleTickers.includes(series.ticker));
-    const stamps = visibleSeries.flatMap(series => series.points.map(point => Date.parse(point.date))).filter(Number.isFinite);
-    if (!stamps.length) return null;
-    const minTime = Math.min(...stamps);
-    const maxTime = Math.max(...stamps);
+    const series = payload?.series.find(item => item.ticker === ticker);
+    if (!series) return null;
+    const points = series.points.flatMap(point => {
+      const result = calculateDualRisk(point.values, weights);
+      const score = mode === 'overall' ? result.overall : result[mode].score;
+      return score === null ? [] : [{ ...point, score }];
+    });
+    const currentScore = current?.[mode] ?? null;
+    if (current?.ticker === ticker && currentScore !== null && current.date && points.length) {
+      const last = points[points.length - 1];
+      const livePoint = { ...last, date: current.date, score: currentScore };
+      if (Date.parse(current.date) > Date.parse(last.date)) points.push(livePoint);
+      else if (current.date === last.date) points[points.length - 1] = livePoint;
+    }
+    if (points.length < 2) return null;
+    const latest = points[points.length - 1];
+    const minTime = Date.parse(points[0].date);
+    const maxTime = Date.parse(latest.date);
     const width = 1200;
     const height = 420;
     const left = 94;
@@ -464,39 +462,20 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
     const plotHeight = height - top - bottom;
     const x = (date: string) => left + (Date.parse(date) - minTime) / Math.max(maxTime - minTime, 1) * plotWidth;
     const y = (score: number) => top + (100 - score) / 100 * plotHeight;
-    const paths = visibleSeries.map(series => ({
-      ...series,
-      path: series.points.map((point, index) => `${index ? 'L' : 'M'}${x(point.date).toFixed(2)},${y(point.score).toFixed(2)}`).join(' '),
-    }));
+    const path = points.map((point, index) => `${index ? 'L' : 'M'}${x(point.date).toFixed(2)},${y(point.score).toFixed(2)}`).join(' ');
     const firstYear = new Date(minTime).getUTCFullYear();
     const lastYear = new Date(maxTime).getUTCFullYear();
     const startTick = Math.ceil(firstYear / 5) * 5;
     const years = [firstYear, ...Array.from({ length: Math.max(0, Math.floor((lastYear - startTick) / 5) + 1) }, (_, index) => startTick + index * 5), lastYear]
       .filter((year, index, list) => list.indexOf(year) === index && year >= firstYear && year <= lastYear);
-    return { paths, series: scored, minTime, maxTime, width, height, left, right, top, bottom, plotWidth, plotHeight, x, y, years };
-  }, [current, mode, payload, visibleTickers, weights]);
-
-  const toggleTicker = useCallback((ticker: Ticker) => {
-    setVisibleTickers(currentTickers => {
-      if (!currentTickers.includes(ticker)) return [...currentTickers, ticker];
-      if (currentTickers.length === 1) return currentTickers;
-      return currentTickers.filter(currentTicker => currentTicker !== ticker);
-    });
-  }, []);
+    return { path, points, proxyLabel: series.proxyLabel, firstYear, lastYear,
+      minTime, maxTime, width, height, left, right, top, bottom, plotWidth, plotHeight, x, y, years };
+  }, [current, mode, payload, ticker, weights]);
 
   const hovered = useMemo(() => {
     if (!model || cursor === null) return null;
     const time = model.minTime + cursor.fraction * (model.maxTime - model.minTime);
-    const entries = model.paths.map(series => {
-      let best = series.points[0];
-      let distance = Math.abs(Date.parse(best.date) - time);
-      for (const point of series.points) {
-        const nextDistance = Math.abs(Date.parse(point.date) - time);
-        if (nextDistance < distance) { best = point; distance = nextDistance; }
-      }
-      return { ticker: series.ticker, point: best };
-    });
-    return { time, entries };
+    return model.points.reduce((best, point) => Math.abs(Date.parse(point.date) - time) < Math.abs(Date.parse(best.date) - time) ? point : best);
   }, [cursor, model]);
 
   return <section className="risk-panel risk-timeline" aria-label="近30年风险得分走势">
@@ -504,13 +483,7 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
       <div><span>DUAL-LAYER RISK RECONSTRUCTION</span><h2>近 30 年双层风险走势</h2><p>潜在脆弱性 + 即时市场压力 · 月末/本月最新交易日 · 当前权重实时重算</p></div>
       <div className="risk-timeline-tools"><span className={`risk-timeline-cache-state${payload?.cache?.stale ? ' is-stale' : ''}`}><RefreshCw size={11} className={refreshing || payload?.cache?.refreshing ? 'is-spinning' : ''}/>{refreshing || payload?.cache?.refreshing ? '正在更新历史快照' : payload?.cache?.stale ? '旧缓存 · 等待更新' : '历史快照已缓存'}{payload?.cache?.checkedAt || cacheStoredAt ? ` · ${formatDate(payload?.cache?.checkedAt || cacheStoredAt, true)}` : ''}</span><div className="risk-timeline-mode" aria-label="选择历史风险层">{([
         ['overall', '综合状态'], ['vulnerability', '潜在脆弱性'], ['stress', '即时压力'],
-      ] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{label}</button>)}</div>
-      {model ? <div className="risk-timeline-legend" role="group" aria-label="选择显示的指数">{model.series.map(series => {
-        const latest = series.points[series.points.length - 1];
-        const visible = visibleTickers.includes(series.ticker);
-        const isLastVisible = visible && visibleTickers.length === 1;
-        return <button type="button" key={series.ticker} className={series.ticker.toLowerCase()} aria-pressed={visible} disabled={isLastVisible} title={isLastVisible ? '至少保留一个指数' : `${visible ? '隐藏' : '显示'} ${series.ticker} · 截至 ${formatDate(latest.date)}`} onClick={() => toggleTicker(series.ticker)}><span className="risk-timeline-legend-primary"><i /><span>{series.ticker}</span><b>{latest.score.toFixed(1)}</b></span><small>{latest.date.slice(0, 7).replace('-', '/')}</small></button>;
-      })}</div> : null}</div>
+      ] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{label}</button>)}</div></div>
     </header>
     {loading && !model ? <div className="risk-timeline-state"><RefreshCw className="is-spinning" size={18}/>正在重建历史月度得分…</div> : error && !model ? <div className="risk-timeline-state is-error"><AlertTriangle size={18}/>{error}</div> : model ? <>
       <div className="risk-timeline-frame" onMouseLeave={() => setCursor(null)}>
@@ -526,7 +499,7 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
             frameWidth: frameRect.width,
           });
         }}>
-          <title id="risk-timeline-title">{model.paths.map(series => series.ticker).join(' 与 ')} 近30年{mode === 'overall' ? '综合风险' : mode === 'vulnerability' ? '潜在脆弱性' : '即时压力'}走势</title>
+          <title id="risk-timeline-title">{ticker} 近30年{mode === 'overall' ? '综合风险' : mode === 'vulnerability' ? '潜在脆弱性' : '即时压力'}走势</title>
           <desc id="risk-timeline-desc">纵轴从零到一百分，绿色为正常区，黄色为警戒区，红色为高风险区。</desc>
           <rect className="risk-timeline-band high" x={model.left} y={model.y(100)} width={model.plotWidth} height={model.y(70) - model.y(100)} />
           <rect className="risk-timeline-band elevated" x={model.left} y={model.y(70)} width={model.plotWidth} height={model.y(40) - model.y(70)} />
@@ -536,21 +509,46 @@ function RiskTimelineChart({ payload, weights, loading, refreshing, error, cache
           <text className="risk-timeline-zone-label elevated" x={18} y={(model.y(70) + model.y(40)) / 2}>警戒</text>
           <text className="risk-timeline-zone-label low" x={18} y={(model.y(40) + model.y(0)) / 2}>正常</text>
           {model.years.map(year => { const date = `${year}-01-01`; return <g key={year} className="risk-timeline-year"><line x1={model.x(date)} x2={model.x(date)} y1={model.top} y2={model.height - model.bottom} /><text x={model.x(date)} y={model.height - 22} textAnchor="middle">{year}</text></g>; })}
-          {model.paths.map(series => <path key={series.ticker} data-series={series.ticker} className={`risk-timeline-line ${series.ticker.toLowerCase()}`} d={series.path} />)}
+          <path data-series={ticker} className={`risk-timeline-line ${ticker.toLowerCase()}`} d={model.path} />
           {cursor !== null ? <line className="risk-timeline-cursor" x1={model.left + cursor.fraction * model.plotWidth} x2={model.left + cursor.fraction * model.plotWidth} y1={model.top} y2={model.height - model.bottom} /> : null}
         </svg>
-        {hovered && cursor ? <div className="risk-timeline-tooltip" style={{ left: Math.max(90, Math.min(cursor.frameWidth - 90, cursor.frameX)) }}><time>{formatDate(new Date(hovered.time).toISOString())}</time>{hovered.entries.map(entry => <span key={entry.ticker} className={entry.ticker.toLowerCase()}><i />{entry.ticker}<b>{entry.point.score.toFixed(1)}</b></span>)}</div> : null}
+        {hovered && cursor ? <div className="risk-timeline-tooltip" style={{ left: Math.max(90, Math.min(cursor.frameWidth - 90, cursor.frameX)) }}><time>{formatDate(hovered.date)}</time><span className={ticker.toLowerCase()}><i />{ticker}<b>{hovered.score.toFixed(1)}</b></span></div> : null}
       </div>
-      <div className="risk-timeline-meta"><div><b>0–39</b> 正常区 <b>40–69</b> 警戒区 <b>70–100</b> 高风险区</div><span>{mode === 'overall' ? '综合状态取两层较高值' : mode === 'vulnerability' ? '观察危机前累积的估值与杠杆脆弱性' : '观察信用、融资、波动与市场损伤'} · {model.paths.map(series => `${series.proxyLabel} ${series.firstDate.slice(0, 4)}–${series.lastDate.slice(0, 4)}`).join(' · ')}</span></div>
+      <div className="risk-timeline-meta"><div><b>0–39</b> 正常区 <b>40–69</b> 警戒区 <b>70–100</b> 高风险区</div><span>{mode === 'overall' ? '综合状态取两层较高值' : mode === 'vulnerability' ? '观察危机前累积的估值与杠杆脆弱性' : '观察信用、融资、波动与市场损伤'} · {model.proxyLabel} {model.firstYear}–{model.lastYear}</span></div>
       <div className="risk-timeline-notes"><p>{payload?.methodology.join(' ')}</p><div>{payload?.sources.map(source => <a key={source.label} href={source.url} target="_blank" rel="noopener noreferrer">{source.label}<ExternalLink size={10}/></a>)}</div></div>
     </> : <div className="risk-timeline-state">暂无可用历史序列</div>}
   </section>;
 }
 
+function RiskTickerSwitch({ ticker, onSelect }: { ticker: Ticker; onSelect: (value: Ticker) => void }) {
+  const slot = useRef<HTMLDivElement>(null);
+  const [floating, setFloating] = useState(false);
+
+  useEffect(() => {
+    const navHeight = document.getElementById('sparkflow-global-navigation')?.offsetHeight ?? 0;
+    const observer = new IntersectionObserver(([entry]) => {
+      setFloating(entry.boundingClientRect.bottom <= navHeight);
+    }, { rootMargin: `-${navHeight}px 0px 0px 0px` });
+    observer.observe(slot.current!);
+    return () => observer.disconnect();
+  }, []);
+
+  const buttons = <div role="group" aria-label="选择监测标的" className={`risk-window-switch${floating ? ' is-floating' : ''}`}>
+    {(['VOO', 'QQQ'] as const).map(value =>
+      <button type="button" key={value} aria-pressed={ticker === value} onClick={() => onSelect(value)}>{value}</button>)}
+  </div>;
+  // The page transition establishes a containing block for fixed descendants.
+  return <div className="risk-switch-slot" ref={slot}>{floating ? createPortal(buttons, document.body) : buttons}</div>;
+}
+
 export function RiskRadar() {
+  const [gravityRefresh, setGravityRefresh] = useState(0);
   const [initialCache] = useState(() => readRiskCache('VOO'));
   const [initialTimelineCache] = useState(() => readTimelineCache());
   const [ticker, setTicker] = useState<Ticker>('VOO');
+  const requestId = useRef(0);
+  const snapshotSlot = useRef<HTMLDivElement>(null);
+  const [reservedHeight, setReservedHeight] = useState(0);
   const [weights] = useState<Weights>(DEFAULT_WEIGHTS);
   const [dualWeights, setDualWeights] = useState<DualWeights>(DEFAULT_DUAL_WEIGHTS);
   const [prices, setPrices] = useState<PricePayload | null>(initialCache?.prices ?? null);
@@ -568,6 +566,7 @@ export function RiskRadar() {
   const [timelineError, setTimelineError] = useState('');
 
   const load = useCallback(async (force = false, revalidate = false) => {
+    const id = ++requestId.current;
     const saved = readRiskCache(ticker);
     if (!force && saved) {
       setPrices(saved.prices);
@@ -585,12 +584,14 @@ export function RiskRadar() {
         fetchJson(`/api/ibkr-valuation/risk-radar${force ? '?fresh=1' : ''}`, 15_000, force ? 'no-store' : 'no-cache'),
         fetchJson(`/api/risk-radar/history?ticker=${ticker}`, 15_000, 'no-cache'),
       ]);
+      if (id !== requestId.current) return;
       const nextValuation = valuationPayload as RiskRadarValuation;
       const nextHistory = historyPayload as RiskRadarHistory;
       let nextPrices = priceResult as PricePayload | null;
       let note = '';
       if (!completePriceHistory(nextPrices)) {
         const fullValuation = await fetchJson('/api/ibkr-valuation?years=5', 15_000, force ? 'no-cache' : 'default') as ValuationDashboard;
+        if (id !== requestId.current) return;
         const indexKey = ticker === 'VOO' ? 'spx' : 'ndx';
         const proxy = fullValuation.audit.inputs.series[indexKey];
         if (!proxy?.points?.length) throw new Error(`${ticker} 与对应指数历史均暂不可用`);
@@ -623,9 +624,12 @@ export function RiskRadar() {
       setCacheStoredAt(writeRiskCache(ticker, nextPrices, compact, nextHistory));
       setError(note);
     } catch (reason) {
+      if (id !== requestId.current) return;
       setError(saved ? '自动更新暂不可用，继续显示本地缓存。' : reason instanceof Error ? reason.message : '风险数据暂不可用');
     } finally {
-      setLoading(false); setRefreshing(false);
+      if (id === requestId.current) {
+        setLoading(false); setRefreshing(false); setReservedHeight(0);
+      }
     }
   }, [ticker]);
 
@@ -691,8 +695,20 @@ export function RiskRadar() {
   }, [guideOpen]);
 
   const refreshAll = useCallback(async () => {
+    setGravityRefresh(value => value + 1);
     await Promise.all([load(true), loadTimeline(true)]);
   }, [load, loadTimeline]);
+
+  function selectTicker(value: Ticker) {
+    if (ticker === value) return;
+    // Keep the gravity chart at its reading position while the upper panels reload.
+    const bounds = snapshotSlot.current?.getBoundingClientRect();
+    setReservedHeight(bounds && bounds.top < 0 ? bounds.height : 0);
+    requestId.current++;
+    setLoading(true);
+    setError('');
+    setTicker(value);
+  }
 
   const priceSeries = useMemo(() => {
     const points = (prices?.points || []).filter(point => finite(point.close) && point.close > 0);
@@ -773,17 +789,18 @@ export function RiskRadar() {
   const comparison = [{ label: '当前市场', date: formatDate(prices?.generatedAt), score: dualResult.overall }, ...historical];
   const pricePath = chartPath(priceSeries, 'close');
   const smaPath = chartPath(priceSeries, 'sma');
+  const snapshotReady = prices && valuation && history?.ticker === ticker;
 
   return <PageTransition><div className="risk-radar-page"><div className="risk-radar-shell">
     <header className="risk-hero">
       <div><span className="risk-kicker"><Gauge size={15} /> US STOCK CRASH MONITOR</span><h1>美股风险雷达</h1><p>双层模型分别识别危机前脆弱性与危机中的即时市场压力</p></div>
-      <div className="risk-hero-actions"><div className="risk-window-switch" aria-label="选择监测标的">
-        {(['VOO', 'QQQ'] as Ticker[]).map(value => <button type="button" key={value} aria-pressed={ticker === value} onClick={() => setTicker(value)}>{value}</button>)}
-      </div><button type="button" className="risk-refresh" onClick={() => void refreshAll()} disabled={refreshing || timelineRefreshing}><RefreshCw size={15} className={refreshing || timelineRefreshing ? 'is-spinning' : ''} />{refreshing || timelineRefreshing ? '更新中' : '刷新数据'}</button></div>
+      <div className="risk-hero-actions"><RiskTickerSwitch ticker={ticker} onSelect={selectTicker} />
+        <button type="button" className="risk-refresh" onClick={() => void refreshAll()} disabled={refreshing || timelineRefreshing}><RefreshCw size={15} className={refreshing || timelineRefreshing ? 'is-spinning' : ''} />{refreshing || timelineRefreshing ? '更新中' : '刷新数据'}</button></div>
     </header>
+    <div className="risk-snapshot-slot" ref={snapshotSlot} style={{ minHeight: !snapshotReady && loading ? reservedHeight : undefined }}>
     {error ? <div className="risk-alert" role="alert"><AlertTriangle size={16} />{error}{prices && valuation && history ? '，继续显示上次成功数据。' : ''}</div> : null}
-    {loading && (!prices || !valuation || !history) ? <div className="risk-loading"><RefreshCw className="is-spinning" size={20} />正在读取行情与历史风险快照…</div> : null}
-    {prices && valuation && history ? <>
+    {loading && !snapshotReady ? <div className="risk-loading"><RefreshCw className="is-spinning" size={20} />正在读取行情与历史风险快照…</div> : null}
+    {snapshotReady ? <>
       <section className={`risk-command ${band.tone}`} aria-label="风险指数与量化建议">
         <div className="risk-command-meter">
           <span className="risk-command-eyebrow">{targetLabel} 综合风险状态</span>
@@ -860,14 +877,19 @@ export function RiskRadar() {
         {pricePath && smaPath ? <><div className="risk-chart-wrap"><svg viewBox="0 0 1000 250" preserveAspectRatio="none" aria-label={`${targetLabel}价格与200日均线`}><defs><linearGradient id="riskArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#66dfbd" stopOpacity=".25" /><stop offset="1" stopColor="#66dfbd" stopOpacity="0" /></linearGradient></defs><path className="risk-chart-area" d={`${pricePath} L1000,250 L0,250 Z`} /><path className="risk-chart-trend" d={smaPath} /><path className="risk-chart-value" d={pricePath} /></svg></div><footer className="risk-chart-footer"><span>{formatDate(priceSeries[0]?.time)}</span><div><i className="actual" />{prices.symbol} 收盘 <i className="trend" />SMA200</div><span>{formatDate(priceSeries[priceSeries.length - 1]?.time)}</span></footer></> : <div className="risk-empty">尚无足够数据计算 200 日均线</div>}
       </section><section className="risk-panel risk-breakdown"><header className="risk-panel-heading"><div><span>TOP FACTOR CONTRIBUTIONS</span><h2>当前主要风险贡献</h2></div><Activity size={18} /></header><div className="risk-breakdown-list">{[...factors].sort((a, b) => (b.contribution ?? -1) - (a.contribution ?? -1)).slice(0, 8).map(factor => <div key={factor.id}><span>{factor.label}<small>{factor.id.startsWith('v-') ? '脆弱性层' : '压力层'} · 因子风险 {factor.score === null ? '待更新' : factor.score.toFixed(1)}</small></span><i><b style={{ width: `${factor.score ?? 0}%` }} /></i><strong>{factor.contribution === null ? '—' : factor.contribution.toFixed(1)}</strong></div>)}</div><p className="risk-score-formula">两层分别按各自有效权重归一化；综合状态取潜在脆弱性与即时市场压力中的较高值，因此危机前和危机中都不会被另一类低分抵消。</p></section></div>
 
+    </> : null}
+    </div>
+    <EtfGravityCard key={ticker} symbol={valuationTicker} refresh={gravityRefresh} />
+    {timeline || snapshotReady ? <>
       <RiskTimelineChart
+        ticker={ticker}
         payload={timeline}
         weights={dualWeights}
         loading={timelineLoading}
         refreshing={timelineRefreshing}
         error={timelineError}
         cacheStoredAt={timelineCacheStoredAt}
-        current={current?.time ? {
+        current={snapshotReady && current?.time ? {
           ticker,
           date: current.time,
           overall: dualResult.overall,
