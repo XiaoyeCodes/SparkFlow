@@ -12,7 +12,7 @@ export function createNewsPageCache(options: {
   version?: string;
 }) {
   const now = options.now ?? Date.now;
-  let current: { key: string; cache: ReturnType<typeof createPublicDataCache>; lastManualRefresh: number; manual?: Promise<void> } | undefined;
+  let current: { key: string; cache: ReturnType<typeof createPublicDataCache>; lastManualRefresh: number; forceNext: (force?: boolean) => void; manual?: Promise<void> } | undefined;
   let stopped = false;
   let resolving: Promise<NonNullable<typeof current>> | undefined;
   const resolve = () => resolving ??= (async () => {
@@ -22,19 +22,22 @@ export function createNewsPageCache(options: {
     if (stopped) throw new Error('News cache stopped');
     if (current?.key === key) return current;
     current?.cache.stop();
+    let forceSources = false;
     const cache = createPublicDataCache({
       now, concurrency: 1, maxEntries: 1, maxEntryBytes: 8 * 1024 * 1024,
       // One file is replaced on subscription changes. Its embedded key prevents
       // restoring a snapshot for a different configuration after a restart.
       store: { read: () => options.store.read('current'), write: (_, value) => options.store.write('current', value) },
-      resources: [{ key, refreshMs: 120_000, maxAgeMs: 1800_000, warm: true,
+      resources: [{ key, refreshMs: 30_000, maxAgeMs: 1800_000, warm: true,
         validate: value => {
           const data = value as NewsFeed;
           return Array.isArray(data?.items) && Array.isArray(data.sources)
             && data.sources.some(source => source.ok);
         },
         load: async () => {
-          const data = await options.load(true);
+          const force = forceSources;
+          forceSources = false;
+          const data = await options.load(force);
           const deadlines = data.sources.filter(source => source.stale && source.fetchedAt)
             .map(source => Date.parse(source.fetchedAt!) + 1800_000);
           const midnight = Math.floor((now() + 8 * 3600_000) / 86400_000) * 86400_000 + 16 * 3600_000;
@@ -43,7 +46,7 @@ export function createNewsPageCache(options: {
         },
       }],
     });
-    current = { key, cache, lastManualRefresh: -Infinity };
+    current = { key, cache, lastManualRefresh: -Infinity, forceNext: (force = true) => { forceSources = force; } };
     cache.start();
     return current;
   })().finally(() => { resolving = undefined; });
@@ -59,7 +62,8 @@ export function createNewsPageCache(options: {
       const entry = await resolve();
       if (force && !entry.manual && now() - entry.lastManualRefresh >= 15_000) {
         entry.lastManualRefresh = now();
-        entry.manual = entry.cache.refresh(entry.key).finally(() => { entry.manual = undefined; });
+        entry.forceNext();
+        entry.manual = entry.cache.refresh(entry.key).finally(() => { entry.forceNext(false); entry.manual = undefined; });
       }
       if (force && entry.manual) await entry.manual;
       const result = await entry.cache.read(entry.key);

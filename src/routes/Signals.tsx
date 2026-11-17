@@ -215,7 +215,8 @@ export function Signals() {
     };
     const timer = window.setInterval(update, 30_000);
     document.addEventListener('visibilitychange', update);
-    return () => { newsRequest.current?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', update); };
+    window.addEventListener('online', update);
+    return () => { newsRequest.current?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', update); window.removeEventListener('online', update); };
   }, [fetchNews]);
 
   const summarizeWithAi = async () => {

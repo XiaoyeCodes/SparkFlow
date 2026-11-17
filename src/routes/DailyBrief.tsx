@@ -17,6 +17,7 @@ import { DailyBriefVisualDashboard } from "../components/DailyBriefVisuals";
 import "./DailyBrief.css";
 import { invalidatePageData, pageDataFetch, peekPageData, rememberPageData } from '../lib/pageDataClient';
 import { isCurrentDailyBrief, nextDailyBriefUpdateAt } from '../lib/dailyBriefFreshness';
+import { hasBriefBtcTechnical, hasBriefCryptoHistory } from '../lib/dailyBriefCrypto';
 
 const money = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
@@ -123,12 +124,13 @@ function fearGreedChangeMetric(metric: DailyBriefEditorialMetric, sourceLabel: s
 
 function AssetCard({ quote, index }: { quote: DailyBriefUpstreamQuote; index: number }) {
   const displaySymbol = quote.symbol === "HYPE" ? "HYP" : quote.symbol;
-  const marketState = quote.marketState === "24H" ? "24H" : quote.marketState === "UNAVAILABLE" ? "OFFLINE" : "DELAYED";
+  const marketState = quote.status === 'cached' ? 'CACHE' : quote.marketState === "24H" ? "24H" : quote.marketState === "UNAVAILABLE" ? "OFFLINE" : "DELAYED";
   return <a
     className={`editorial-asset-card ${changeClass(quote.changePercent)}`}
     href={quote.sourceUrl || "#"}
     target="_blank"
     rel="noreferrer"
+    title={[quote.source, quote.updatedAt ? `报价截至 ${shanghaiTime(quote.updatedAt)}` : '', quote.status === 'cached' ? '上次成功的缓存报价' : ''].filter(Boolean).join(' · ') || undefined}
     style={{ "--asset-delay": `${index * 42}ms` } as CSSProperties}
   >
     <i className="editorial-asset-corner" />
@@ -376,6 +378,18 @@ export function DailyBrief() {
 
   const snapshot = brief?.snapshot;
   const data: DailyBriefEditorialSnapshot | undefined = snapshot?.editorial;
+  const cryptoNeedsRepair = Boolean(data && (['BTC', 'ETH', 'SOL'].some(symbol => {
+    const quote = data.crypto.find(item => item.symbol === symbol);
+    return !Number.isFinite(quote?.price ?? NaN) || !(Number(quote?.price) > 0) || !hasBriefCryptoHistory(quote?.history);
+  }) || !hasBriefBtcTechnical(data.btcTechnical)));
+  useEffect(() => {
+    const recover = () => {
+      if (document.visibilityState === 'visible' && !briefRequest.current) void load();
+    };
+    const timer = cryptoNeedsRepair ? window.setInterval(recover, 15_000) : undefined;
+    window.addEventListener('online', recover);
+    return () => { window.clearInterval(timer); window.removeEventListener('online', recover); };
+  }, [cryptoNeedsRepair, load]);
 
   useEffect(() => {
     if (!snapshot) { setModelSummary(null); return; }

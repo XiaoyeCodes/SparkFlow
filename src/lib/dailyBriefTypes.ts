@@ -255,6 +255,9 @@ export type DailyBriefUpstreamQuote = {
   marketState?: string;
   display?: string;
   sourceUrl?: string;
+  updatedAt?: string;
+  status?: 'live' | 'cached';
+  source?: string;
   history?: DailyBriefChartPoint[];
 };
 

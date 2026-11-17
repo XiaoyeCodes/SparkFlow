@@ -7,6 +7,7 @@ import { runDailyBriefRepairs } from '../server/dailyBriefRepair.ts';
 import { fillBriefGaps, createDailyBriefRepairTasks } from '../server/dailyBriefRepairTasks.ts';
 import { createDailyBriefService } from '../server/dailyBriefService.ts';
 import { dailyBriefEditionDate, isCurrentDailyBrief } from '../src/lib/dailyBriefFreshness.ts';
+import { hasBriefCryptoHistory } from '../src/lib/dailyBriefCrypto.ts';
 
 const date = '2026-09-14';
 let now = Date.parse(`${date}T01:10:00Z`);
@@ -64,11 +65,16 @@ assert.ok(cryptoFunction);
 const compiled = ts.transpileModule(cryptoFunction.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 let transportBody = '[]';
 const cryptoRequests = [];
-const cryptoLoader = new Function('fetchRoutedText', 'finiteNumber', 'round', 'editorialMetric', 'editorialAssetDisplay', `${compiled}; return fetchEditorialCryptoData;`)(
+let selectedSpotSymbols;
+const fakeMarket = {
+  spot: async symbols => { selectedSpotSymbols = symbols; cryptoRequests.push('spot'); return transportBody; },
+  history: async symbol => { cryptoRequests.push(`klines?symbol=${symbol}USDT`); return transportBody; },
+};
+const cryptoLoader = new Function('fetchRoutedText', 'finiteNumber', 'round', 'editorialMetric', 'editorialAssetDisplay', 'dailyBriefCryptoMarket', 'hasBriefCryptoHistory', `${compiled}; return fetchEditorialCryptoData;`)(
   async url => { cryptoRequests.push(url); return transportBody; },
   value => value == null || !Number.isFinite(Number(value)) ? null : Number(value),
   (value, digits) => Number(value.toFixed(digits)),
-  (value, display) => ({ ...metric(value), display }), (_symbol, value) => String(value ?? '—'));
+  (value, display) => ({ ...metric(value), display }), (_symbol, value) => String(value ?? '—'), fakeMarket, hasBriefCryptoHistory);
 transportBody = JSON.stringify([{ buyVol: '4', sellVol: '2' }]);
 const previous = base().editorial;
 previous.crypto = [{ symbol: 'BTC', name: 'BTC', price: 50, history: [{ time: date, value: 50 }] }];
@@ -78,6 +84,12 @@ assert.equal(cryptoRequests.length, 1); assert.match(cryptoRequests[0], /takerlo
 assert.equal(taker.derivativesSentiment.takerBuySellRatio, 2);
 assert.equal(taker.crypto.find(q => q.symbol === 'BTC').price, 50);
 assert.equal(taker.openInterest.value, 5000, 'dependent inputs survive independent repair');
+transportBody = JSON.stringify([{ symbol: 'BTCUSDT', lastPrice: 55, priceChangePercent: 1 }]);
+const zeroPrice = structuredClone(previous);
+zeroPrice.crypto[0].price = 0;
+const spotOnly = await cryptoLoader([0], zeroPrice);
+assert.deepEqual(selectedSpotSymbols, ['BTC', 'ETH', 'SOL'], 'invalid zero quotes are requested again');
+assert.equal(spotOnly.crypto.find(q => q.symbol === 'BTC').price, 55);
 cryptoRequests.length = 0;
 transportBody = JSON.stringify(Array.from({ length: 40 }, (_, index) => [Date.parse(date) + index * 86400_000, 50, 52, 48, 50 + index / 10, 10]));
 const historyOnly = await cryptoLoader([10], base().editorial);

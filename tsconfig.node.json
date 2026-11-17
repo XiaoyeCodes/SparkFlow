@@ -38,6 +38,7 @@
     "src/lib/globalMacroPreload.ts",
     "src/lib/marketPreload.ts",
     "src/lib/heatmapSources.ts",
+    "src/lib/dailyBriefCrypto.ts",
     "src/lib/ibkr/types.ts",
     "src/lib/ibkr/valuationTypes.ts",
     "src/lib/ibkr/store.ts",

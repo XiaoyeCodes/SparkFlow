@@ -12,9 +12,10 @@ const feed = () => ({ generatedAt: new Date(now).toISOString(), proxy: 'secret-p
   items: [{ title: `snapshot-${calls}` }] });
 let loader = async () => { calls++; return feed(); };
 const stops = [];
+const modes = [];
 function create() {
   const cache = createNewsPageCache({ now: () => now, version, subscriptions: async () => subscriptions, load: force => {
-    assert.equal(force, true); return loader();
+    modes.push(force); return loader();
   }, store });
   stops.push(cache.start());
   return cache;
@@ -23,6 +24,7 @@ try {
   let cache = create();
   const [first, duplicate] = await Promise.all([cache.get(), cache.get()]);
   assert.equal(calls, 1, 'prewarm and concurrent visitors share one fetch');
+  assert.equal(modes[0], false, 'background warmup respects per-source freshness and retry backoff');
   assert.deepEqual(first, duplicate);
   assert.equal(first._pageCache.state, 'fresh');
   assert.ok(data);
@@ -52,6 +54,7 @@ try {
   loader = async () => { calls++; return feed(); };
   await cache.get(true);
   assert.equal(calls, 3);
+  assert.equal(modes.at(-1), true, 'an explicit user refresh still refreshes all sources');
   subscriptions = [{ id: 'new', url: 'https://example.com/feed' }];
   assert.equal((await cache.get()).items[0].title, 'snapshot-4', 'changed subscriptions cannot restore old snapshot');
   assert.equal(calls, 4);

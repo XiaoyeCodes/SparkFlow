@@ -58,6 +58,7 @@ export type NewsFeed = {
     ok: boolean;
     count: number;
     error?: string;
+    nextRetryAt?: string;
     stale?: boolean;
     fetchedAt?: string;
     homepage?: string;

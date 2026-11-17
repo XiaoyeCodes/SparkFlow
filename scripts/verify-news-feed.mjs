@@ -12,7 +12,7 @@ async function loadTs(relative) {
   const code = outputText.replace(/from 'undici'/g, "from '" + pathToFileURL(require.resolve('undici')).href + "'");
   return import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
 }
-const { ADDITIONAL_NEWS_SOURCES, scoreNews, parseReadhub, parseAdditionalSource, parseSyndication, parseXTrends, parseAibaseList, parseAibaseDetail, beijingNewsDay, mergeNewsItems, createNewsFeedService, safeNewsUrl, validNewsDate } = await loadTs('../server/newsFeed.ts');
+const { ADDITIONAL_NEWS_SOURCES, scoreNews, parseReadhub, parseAdditionalSource, parseSyndication, parseXTrends, parseAibaseList, parseAibaseDetail, beijingNewsDay, mergeNewsItems, createNewsFeedService, safeNewsUrl, validNewsDate, validateNewsSourceResponse } = await loadTs('../server/newsFeed.ts');
 const { selectNewsItems, newsForSource, newsCategoryCounts } = await loadTs('../src/lib/newsPresentation.ts');
 const source = (id) => ADDITIONAL_NEWS_SOURCES.find((entry) => entry.id === id);
 const now = Date.parse('2026-08-28T12:00:00Z');
@@ -355,6 +355,10 @@ assert.equal(beijingNewsDay('2026-08-28T15:59:59Z'), '2026-08-28');
 assert.equal(beijingNewsDay('2026-08-28T16:00:00Z'), '2026-08-29');
 const todayList = dailyList([dailyRow(1, '2026-08-27 16:00:00'), dailyRow(2, '2026-08-28 16:00:00'), dailyRow(3, '2026-08-29 16:00:00')]);
 const todayDailies = parseAibaseList(todayList, now);
+assert.doesNotThrow(() => validateNewsSourceResponse(source('aibase'), todayList, now));
+assert.doesNotThrow(() => validateNewsSourceResponse({ ...source('aibase'), url: 'https://news.aibase.cn/daily/2' }, dailyDetail('2026-08-28 16:00:00'), now), 'AIBase detail responses use their own schema');
+assert.throws(() => validateNewsSourceResponse(source('bbc-world'), '<html>verification page</html>', now), /RSS|Atom/);
+assert.doesNotThrow(() => validateNewsSourceResponse(source('bbc-world'), '<rss><channel></channel></rss>', now), 'a valid empty feed is not a network error');
 assert.equal(todayDailies.length, 2);
 assert.equal(todayDailies[0].url, 'https://news.aibase.cn/daily/2');
 assert.equal(todayDailies[0].publishedAt, '2026-08-28T08:00:00.000Z');

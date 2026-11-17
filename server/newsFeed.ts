@@ -476,6 +476,15 @@ export function mergeNewsItems(items: NewsItem[]): NewsItem[] {
   return merged.sort((a, b) => b.weight - a.weight || (Date.parse(b.publishedAt || '') || 0) - (Date.parse(a.publishedAt || '') || 0));
 }
 
+export function validateNewsSourceResponse(source: NewsSource, text: string, now = Date.now()) {
+  if (source.kind === 'aibase') {
+    parseAibaseData(text, new URL(source.url).pathname.replace(/\/$/, '') === '/daily' ? 'getDailyNews' : 'getDailyNewsDetail');
+  } else {
+    const parsed = parseAdditionalSource(source, text, now);
+    if (!parsed.length && !['feed', 'reddit'].includes(source.kind) && !(source.kind === 'x-trends' && source.trendFilter === 'chinese')) throw new Error('来源内容校验失败');
+  }
+}
+
 export function createNewsFeedService(
   legacySources: NewsSource[],
   loadRss: (source: NewsSource & { kind: 'rss' }) => Promise<NewsItem[]>,
@@ -487,6 +496,7 @@ export function createNewsFeedService(
   const proxy = options.transport ? undefined : new ProxyAgent(proxyUrl);
   const sourceCache = new Map<string, { items: Candidate[]; at: number; route: 'direct' | 'proxy' }>();
   const routePreference = new Map<string, 'direct' | 'proxy'>();
+  const failures = new Map<string, { attempts: number; retryAt: number; error: string }>();
   let snapshot: NewsFeed | null = null;
   let snapshotAt = 0;
   let inFlight: Promise<NewsFeed> | null = null;
@@ -504,6 +514,7 @@ export function createNewsFeedService(
         if (!response.ok) throw new Error('HTTP ' + response.status);
         const text = await response.text();
         if (text.length > 5_000_000) throw new Error('新闻响应过大');
+        validateNewsSourceResponse(source, text, clock());
         routePreference.set(source.id, route);
         return { text, route };
       } catch (error) { lastError = error; }
@@ -511,7 +522,7 @@ export function createNewsFeedService(
     throw lastError instanceof Error ? lastError : new Error('新闻源连接失败');
   });
 
-  async function collect(): Promise<NewsFeed> {
+  async function collect(force: boolean): Promise<NewsFeed> {
     // The global board and its Chinese filter must use exactly the same snapshot.
     const trendRequests = new Map<string, ReturnType<Transport>>();
     const loadTrends = (source: NewsSource) => {
@@ -522,47 +533,59 @@ export function createNewsFeedService(
       let error: string | undefined;
       let stale = false;
       let cached = sourceCache.get(source.id);
-      try {
-        const load = async () => {
-          if (source.kind === 'rss') {
-            const candidates = await loadRss(source as NewsSource & { kind: 'rss' });
-            return { candidates, route: candidates[0]?.route || source.route };
-          }
-          const response = source.custom && options.customTransport ? await options.customTransport(source) : source.kind === 'x-trends' ? await loadTrends(source) : await transport(source);
-          if (source.kind === 'aibase') {
-            const dailies = parseAibaseList(response.text, clock());
-            const details = await Promise.all(dailies.map(async (daily) => {
-              const detail = await transport({ ...source, url: daily.url });
-              return { candidates: parseAibaseDetail(detail.text, daily, clock()), route: detail.route };
-            }));
-            return { candidates: details.flatMap((detail) => detail.candidates), route: details[0]?.route || response.route };
-          }
-          return { candidates: parseAdditionalSource(source, response.text, clock()), route: response.route };
-        };
-        let deadline: ReturnType<typeof setTimeout> | undefined;
-        let loaded: Awaited<ReturnType<typeof load>>;
+      const failure = failures.get(source.id);
+      const due = force || (failure ? failure.retryAt <= clock() : !cached
+        || beijingNewsDay(cached.at) !== beijingNewsDay(clock()) || clock() - cached.at >= 120_000);
+      if (due) {
         try {
-          loaded = await Promise.race([load(), new Promise<never>((_, reject) => {
-            deadline = setTimeout(() => reject(new Error('新闻源响应超时')), options.sourceTimeoutMs ?? 20_000);
-          })]);
-        } finally { clearTimeout(deadline); }
-        let { candidates } = loaded;
-        const { route } = loaded;
-        candidates = candidates.filter((item) => cleanNewsText(item.title) && safeNewsUrl(item.url, source.url));
-        if (!candidates.length && !['feed', 'aibase', 'reddit'].includes(source.kind) && !(source.kind === 'x-trends' && source.trendFilter === 'chinese')) throw new Error('未获取到有效条目，可能是空源或页面结构变化');
-        if (source.todayOnly) candidates = candidates.filter((item) => item.publishedAt && beijingNewsDay(item.publishedAt) === beijingNewsDay(clock()));
-        if (source.maxAgeHours) candidates = candidates.filter((item) => {
-          const date = validNewsDate(item.publishedAt, clock());
-          return date && clock() - Date.parse(date) <= source.maxAgeHours! * 3600_000;
-        });
-        candidates = candidates.slice(0, source.id === 'wallstreetcn' ? 20 : 30);
-        const at = clock();
-        cached = { items: candidates.map((item, index) => ({ ...item, sourceOrder: item.sourceOrder ?? index + 1, observedAt: new Date(at).toISOString(), route })), at, route };
-        sourceCache.set(source.id, cached);
-      } catch (err) {
-        error = err instanceof Error ? err.message : String(err);
-        stale = Boolean(cached && clock() - cached.at <= 30 * 60_000);
-        if (!stale) cached = undefined;
+          const load = async () => {
+            if (source.kind === 'rss') {
+              const candidates = await loadRss(source as NewsSource & { kind: 'rss' });
+              return { candidates, route: candidates[0]?.route || source.route };
+            }
+            const response = source.custom && options.customTransport ? await options.customTransport(source) : source.kind === 'x-trends' ? await loadTrends(source) : await transport(source);
+            if (source.kind === 'aibase') {
+              const dailies = parseAibaseList(response.text, clock());
+              const details = await Promise.all(dailies.map(async (daily) => {
+                const detail = await transport({ ...source, url: daily.url });
+                return { candidates: parseAibaseDetail(detail.text, daily, clock()), route: detail.route };
+              }));
+              return { candidates: details.flatMap((detail) => detail.candidates), route: details[0]?.route || response.route };
+            }
+            return { candidates: parseAdditionalSource(source, response.text, clock()), route: response.route };
+          };
+          let deadline: ReturnType<typeof setTimeout> | undefined;
+          let loaded: Awaited<ReturnType<typeof load>>;
+          try {
+            loaded = await Promise.race([load(), new Promise<never>((_, reject) => {
+              deadline = setTimeout(() => reject(new Error('新闻源响应超时')), options.sourceTimeoutMs ?? 20_000);
+            })]);
+          } finally { clearTimeout(deadline); }
+          let { candidates } = loaded;
+          const { route } = loaded;
+          candidates = candidates.filter((item) => cleanNewsText(item.title) && safeNewsUrl(item.url, source.url));
+          if (!candidates.length && !['rss', 'feed', 'aibase', 'reddit'].includes(source.kind) && !(source.kind === 'x-trends' && source.trendFilter === 'chinese')) throw new Error('未获取到有效条目，可能是空源或页面结构变化');
+          if (source.todayOnly) candidates = candidates.filter((item) => item.publishedAt && beijingNewsDay(item.publishedAt) === beijingNewsDay(clock()));
+          if (source.maxAgeHours) candidates = candidates.filter((item) => {
+            const date = validNewsDate(item.publishedAt, clock());
+            return date && clock() - Date.parse(date) <= source.maxAgeHours! * 3600_000;
+          });
+          candidates = candidates.slice(0, source.id === 'wallstreetcn' ? 20 : 30);
+          const at = clock();
+          cached = { items: candidates.map((item, index) => ({ ...item, sourceOrder: item.sourceOrder ?? index + 1, observedAt: new Date(at).toISOString(), route })), at, route };
+          sourceCache.set(source.id, cached);
+          failures.delete(source.id);
+        } catch (err) {
+          error = err instanceof Error ? err.message : String(err);
+          const attempts = (failure?.attempts ?? 0) + 1;
+          failures.set(source.id, { attempts, error, retryAt: clock() + Math.min(300_000, 30_000 * 2 ** Math.min(attempts - 1, 4)) });
+          stale = Boolean(cached && clock() - cached.at <= 30 * 60_000);
+          if (!stale) cached = undefined;
+        }
+      } else {
+        error = failure?.error;
+        stale = Boolean(error && cached && clock() - cached.at <= 30 * 60_000);
+        if (cached && clock() - cached.at > 30 * 60_000) cached = undefined;
       }
       const items = (cached?.items || [])
         .filter((item) => !source.todayOnly || (item.publishedAt && beijingNewsDay(item.publishedAt) === beijingNewsDay(clock())))
@@ -575,6 +598,7 @@ export function createNewsFeedService(
           id: source.id, label: source.label, category: source.category, categoryLabel: NEWS_CATEGORY_LABELS[source.category],
           origin: source.origin, route: cached?.route || source.route, ok: !error, count: items.length,
           stale, error, fetchedAt: cached ? new Date(cached.at).toISOString() : undefined,
+          nextRetryAt: failures.has(source.id) ? new Date(failures.get(source.id)!.retryAt).toISOString() : undefined,
           homepage: source.homepage || source.url, rankingKind: source.rankingKind,
           delivery: source.delivery, note: source.note, custom: source.custom, feedUrl: source.kind === 'feed' ? source.url : undefined,
           providerName: source.providerName, todayOnly: source.todayOnly, emptyMessage: source.emptyMessage
@@ -600,8 +624,8 @@ export function createNewsFeedService(
   return async (force = false): Promise<NewsFeed> => {
     if (inFlight) return inFlight;
     // Cache shared by the news and market pages; explicit refresh has a 15s minimum interval.
-    if (snapshot && beijingNewsDay(snapshotAt) === beijingNewsDay(clock()) && clock() - snapshotAt < (force ? 15_000 : 120_000)) return snapshot;
-    inFlight = collect();
+    if (snapshot && beijingNewsDay(snapshotAt) === beijingNewsDay(clock()) && clock() - snapshotAt < (force ? 15_000 : failures.size ? 30_000 : 120_000)) return snapshot;
+    inFlight = collect(force);
     try { snapshot = await inFlight; snapshotAt = clock(); return snapshot; }
     finally { inFlight = null; }
   };

@@ -36,19 +36,21 @@ function MacroBars({ data }: { data?: DailyBriefEditorialSnapshot }) {
 
 function BtcKeyLevelsChart({ data, btc }: { data?: DailyBriefEditorialSnapshot; btc?: DailyBriefUpstreamQuote }) {
   const levels = data?.btcTechnical;
-  const resistance = levels?.resistance ?? null;
-  const supportLow = levels?.supportLow ?? null;
-  const supportHigh = levels?.supportHigh ?? null;
+  const validLevel = (value?: number | null) => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  const resistance = validLevel(levels?.resistance);
+  const supportLow = validLevel(levels?.supportLow);
+  const supportHigh = validLevel(levels?.supportHigh);
   const points = (btc?.history || []).filter((point) => Number.isFinite(point.value) && point.value > 0).slice(-30);
-  if (points.length < 2 || !levels || resistance === null || supportLow === null || supportHigh === null) return <div className="brief-viz-empty">Binance 日线关键区间同步中</div>;
+  if (points.length < 2) return <div className="brief-viz-empty">BTC 日线暂不可用，后台将自动重试</div>;
   const width = 720, height = 235, left = 52, right = 82, top = 18, bottom = 30;
-  const values = [...points.map((point) => point.value), resistance, supportLow, supportHigh];
+  const values = [...points.map((point) => point.value), resistance, supportLow, supportHigh].filter((value): value is number => value !== null && Number.isFinite(value));
   const min = Math.min(...values) * .985;
   const max = Math.max(...values) * 1.015;
   const x = (index: number) => left + index / (points.length - 1) * (width - left - right);
   const y = (value: number) => top + (1 - (value - min) / (max - min || 1)) * (height - top - bottom);
   const path = points.map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(point.value).toFixed(1)}`).join(" ");
-  const supportY = y(supportHigh), supportHeight = Math.max(2, y(supportLow) - supportY);
+  const supportY = supportHigh !== null && supportLow !== null ? y(supportHigh) : null;
+  const supportHeight = supportY !== null && supportLow !== null ? Math.max(2, y(supportLow) - supportY) : 0;
   const latest = points[points.length - 1]!;
   const fearGreed = (data?.sentiment.cryptoHistory || []).filter((point) => Number.isFinite(point.value) && point.value >= 0 && point.value <= 100).slice(-30);
   const fearGreedPath = fearGreed.map((point, index) => {
@@ -58,17 +60,17 @@ function BtcKeyLevelsChart({ data, btc }: { data?: DailyBriefEditorialSnapshot; 
     return `${index ? "L" : "M"}${x(matchedIndex).toFixed(1)},${fearY.toFixed(1)}`;
   }).join(" ");
   const latestFearGreed = fearGreed[fearGreed.length - 1];
-  return <svg className="brief-btc-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Binance BTC 日线，${levels.lookbackDays}日结构、14日ATR计算的阻力位${resistance}美元，支撑区间${supportLow}至${supportHigh}美元`}>
+  return <svg className="brief-btc-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`BTC 日线，${levels?.lookbackDays ?? points.length}日结构；${resistance === null ? '尚未确认阻力位' : `阻力位${resistance}美元`}；${supportLow === null || supportHigh === null ? '尚未确认支撑区间' : `支撑区间${supportLow}至${supportHigh}美元`}`}>
     <defs><linearGradient id="brief-btc-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#78e9c7" stopOpacity=".3" /><stop offset="100%" stopColor="#78e9c7" stopOpacity="0" /></linearGradient></defs>
     {[0, .33, .66, 1].map((ratio) => { const gy = top + ratio * (height - top - bottom); return <line className="brief-chart-grid" x1={left} x2={width - right} y1={gy} y2={gy} key={ratio} />; })}
-    <rect className="brief-support-zone" x={left} y={supportY} width={width - left - right} height={supportHeight} rx="2" />
-    <line className="brief-resistance-line" x1={left} x2={width - right} y1={y(resistance)} y2={y(resistance)} />
+    {supportY !== null ? <rect className="brief-support-zone" x={left} y={supportY} width={width - left - right} height={supportHeight} rx="2" /> : null}
+    {resistance !== null ? <line className="brief-resistance-line" x1={left} x2={width - right} y1={y(resistance)} y2={y(resistance)} /> : null}
     {fearGreedPath ? <><path className="brief-fng-line" d={fearGreedPath} /><text className="brief-chart-label is-fng" x={left} y={top + 10}>F&amp;G 0–100</text>{latestFearGreed ? <text className="brief-chart-label is-fng" textAnchor="end" x={width - right} y={Math.max(top + 11, top + (1 - latestFearGreed.value / 100) * (height - top - bottom) - 7)}>F&amp;G {Math.round(latestFearGreed.value)}</text> : null}</> : null}
     <path d={`${path} L${x(points.length - 1)},${height - bottom} L${left},${height - bottom} Z`} fill="url(#brief-btc-fill)" />
     <path className="brief-btc-line" d={path} />
     <circle cx={x(points.length - 1)} cy={y(latest.value)} r="4" className="brief-btc-dot" />
-    <text className="brief-chart-label is-amber" x={width - right + 8} y={y(resistance) + 4}>阻力 ${moneyShort(resistance)}</text>
-    <text className="brief-chart-label is-rose" x={width - right + 8} y={supportY + supportHeight / 2 + 4}>支撑 {moneyShort(supportLow)}–{moneyShort(supportHigh)}</text>
+    {resistance !== null ? <text className="brief-chart-label is-amber" x={width - right + 8} y={y(resistance) + 4}>阻力 {moneyShort(resistance)}</text> : <text className="brief-chart-label is-amber" x={width - right + 8} y={top + 14}>阻力未确认</text>}
+    {supportY !== null && supportLow !== null && supportHigh !== null ? <text className="brief-chart-label is-rose" x={width - right + 8} y={supportY + supportHeight / 2 + 4}>支撑 {moneyShort(supportLow)}–{moneyShort(supportHigh)}</text> : <text className="brief-chart-label is-rose" x={width - right + 8} y={height - bottom}>支撑未确认</text>}
     <text className="brief-chart-label is-jade" x={Math.max(left, x(points.length - 1) - 42)} y={Math.max(top + 10, y(latest.value) - 10)}>{moneyShort(latest.value)}</text>
     <text className="brief-chart-date" x={left} y={height - 7}>{points[0]!.time.slice(5).replace("-", "/")}</text>
     <text className="brief-chart-date" textAnchor="end" x={width - right} y={height - 7}>{latest.time.slice(5).replace("-", "/")}</text>
@@ -157,7 +159,7 @@ export function DailyBriefVisualDashboard({ data, analysis, summary, btc }: { da
   return <div className="brief-viz-dashboard">
     <div className="brief-viz-primary-grid">
       <VizCard index="01 / MACRO" title="宏观资产强弱" source="Yahoo Finance · 延迟行情" className="is-macro"><MacroBars data={data} /></VizCard>
-      <VizCard index="02 / CRYPTO" title="BTC 价格与关键区间" source="Binance · 90D / 14D ATR" className="is-btc"><BtcKeyLevelsChart data={data} btc={btc} /></VizCard>
+      <VizCard index="02 / CRYPTO" title="BTC 价格与关键区间" source={data?.btcTechnical?.source || 'BTC/USDT · UTC 日线'} className="is-btc"><BtcKeyLevelsChart data={data} btc={btc} /></VizCard>
     </div>
     <div className="brief-viz-secondary-grid">
       <VizCard index="02A / CNN" title="CNN 7 项情绪指标" source="CNN · 实时" className="is-cnn"><CnnFearGreedComponents data={data} /></VizCard>

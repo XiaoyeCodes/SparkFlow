@@ -61,7 +61,7 @@ import {
 } from './src/data/chinaProvinceEconomy';
 import { CozeReportTaskService } from './server/cozeReportTasks';
 import { fetchOfficialMetrics, fetchOfficialNews, fetchExportMetric, createVerifiedMetricMerger, officialPeriod, alignChinaUsTenYearSpread, type OfficialMetric } from './server/chinaOfficialSources';
-import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, NEWS_RANKING_VERSION, parseSyndication, type NewsSource } from './server/newsFeed';
+import { ADDITIONAL_NEWS_SOURCES, createNewsFeedService, NEWS_RANKING_VERSION, parseSyndication, safeNewsUrl, type NewsSource } from './server/newsFeed';
 import { createSubscriptionStore, fetchPublicFeed, validateSubscription } from './server/newsSubscriptions';
 import { ibkrWorkbenchPlugin } from './server/ibkrWorkbench';
 import { ibkrValuationPlugin } from './server/ibkrValuation';
@@ -71,6 +71,9 @@ import { rankChinaMacroNews } from './src/lib/chinaMacroNews';
 import { parseEastmoneyRow } from './server/ibkrMarket';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
 import { createDailyBriefRepairTasks } from './server/dailyBriefRepairTasks';
+import { createDailyBriefCryptoMarket } from './server/dailyBriefCryptoMarket';
+import { hasBriefCryptoHistory } from './src/lib/dailyBriefCrypto';
+import { statsListingRss } from './server/newsOfficialListing';
 import { createFinancialConditionsService } from './server/financialConditions';
 import { parseEmploymentHeadline, parseMacroMarketCalendar, macroComparison, assertMacroPeriodNotRegressed, previousMacroPeriod, type MacroMarketContext } from './server/usMacroRelease';
 import type {
@@ -681,13 +684,13 @@ const impactKeywords = [
 
 const newsSources: NewsSourceConfig[] = [
   { id: 'ithome', label: 'IT之家', category: 'tech', sourceWeight: 66, origin: 'domestic', route: 'direct', url: 'https://www.ithome.com/rss/', kind: 'rss' },
-  { id: '36kr', label: '36氪', category: 'finance', sourceWeight: 68, origin: 'domestic', route: 'direct', url: 'https://36kr.com/feed', kind: 'rss' },
+  { id: '36kr', label: '36氪', category: 'finance', sourceWeight: 68, origin: 'domestic', route: 'direct', url: 'https://www.36kr.com/feed', kind: 'rss' },
   { id: 'huxiu', label: '虎嗅', category: 'tech', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://rss.huxiu.com/', kind: 'rss', mixed: true },
   { id: 'wallstreetcn', label: '华尔街见闻', category: 'finance', sourceWeight: 72, origin: 'domestic', route: 'direct', url: 'https://dedicated.wallstreetcn.com/rss.xml', kind: 'rss' },
   { id: 'chinanews-finance', label: '中新财经', category: 'finance', sourceWeight: 70, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/finance.xml', kind: 'rss' },
   { id: 'gov-cn', label: '中国政府网', category: 'livelihood', sourceWeight: 86, origin: 'domestic', route: 'direct', url: 'https://www.gov.cn/pushinfo/v150203/rss.xml', kind: 'rss' },
-  { id: 'stats-release', label: '国家统计局', category: 'finance', sourceWeight: 94, origin: 'domestic', route: 'direct', url: 'https://www.stats.gov.cn/sj/zxfb/rss.xml', kind: 'rss' },
-  { id: 'stats-interpretation', label: '国家统计局', category: 'finance', sourceWeight: 90, origin: 'domestic', route: 'direct', url: 'https://www.stats.gov.cn/sj/sjjd/rss.xml', kind: 'rss' },
+  { id: 'stats-release', label: '国家统计局 · 数据发布', category: 'finance', sourceWeight: 94, origin: 'domestic', route: 'direct', url: 'https://www.stats.gov.cn/sj/zxfb/', kind: 'rss' },
+  { id: 'stats-interpretation', label: '国家统计局 · 数据解读', category: 'finance', sourceWeight: 90, origin: 'domestic', route: 'direct', url: 'https://www.stats.gov.cn/sj/sjjd/', kind: 'rss' },
   { id: 'chinanews-society', label: '中新社会', category: 'society', sourceWeight: 66, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/society.xml', kind: 'rss' },
   { id: 'chinanews-world', label: '中新国际', category: 'world', sourceWeight: 68, origin: 'domestic', route: 'direct', url: 'https://www.chinanews.com.cn/rss/world.xml', kind: 'rss' },
 ];
@@ -742,19 +745,21 @@ function enrichNewsItem(
 function parseRssItems(xml: string, source: NewsSourceConfig): NewsItem[] {
   const blocks = xml.match(/<item[\s\S]*?<\/item>|<entry[\s\S]*?<\/entry>/gi) || [];
   const itemLimit = source.id === 'wallstreetcn' ? 20 : 12;
-  return blocks.slice(0, itemLimit).map((block, index) => {
-    const title = stripTags(pickXml(block, 'title')) || `${source.label} #${index + 1}`;
+  return blocks.slice(0, itemLimit).flatMap((block, index) => {
+    const title = stripTags(pickXml(block, 'title'));
     const linkFromTag = pickXml(block, 'link');
     const hrefMatch = block.match(/<link[^>]+href=["']([^"']+)["']/i);
     const link = decodeXml(hrefMatch?.[1] || linkFromTag).trim();
+    const articleUrl = safeNewsUrl(link, source.url);
+    if (!title || !articleUrl) return [];
     const summary = stripTags(pickXml(block, 'description') || pickXml(block, 'summary') || pickXml(block, 'content:encoded'));
     const publishedAt = parseDate(pickXml(block, 'pubDate') || pickXml(block, 'published') || pickXml(block, 'updated'));
 
-    return enrichNewsItem(
+    return [enrichNewsItem(
       {
         id: `${source.id}-${index}-${title}`,
         title,
-        url: link || source.url,
+        url: articleUrl,
         source: source.label,
         origin: source.origin,
         route: source.route,
@@ -762,7 +767,7 @@ function parseRssItems(xml: string, source: NewsSourceConfig): NewsItem[] {
         summary: summary.slice(0, 180)
       },
       source
-    );
+    )];
   });
 }
 
@@ -771,7 +776,9 @@ async function fetchNewsSource(source: NewsSourceConfig) {
   for (const route of ['direct', 'proxy'] as const) {
     try {
       const xml = await fetchRoutedText(source.url, route, route === 'direct' ? 4500 : 12000, 'application/rss+xml,application/atom+xml,application/xml,text/xml,*/*');
-      return parseRssItems(xml, { ...source, route });
+      const content = source.id === 'stats-release' || source.id === 'stats-interpretation' ? statsListingRss(xml, source.url) : xml;
+      if (!/<(?:rss|feed)\b/i.test(content)) throw new Error('新闻来源返回非 RSS/Atom 内容');
+      return parseRssItems(content, { ...source, route });
     } catch (error) {
       lastError = error;
     }
@@ -10092,11 +10099,24 @@ async function fetchEditorialYahooData() {
   return { indices, stocks, mag7Points, assetQuotes, macroVisualQuotes, errors };
 }
 
+const dailyBriefCryptoMarket = createDailyBriefCryptoMarket({
+  request: (url, route, timeout) => fetchRoutedText(url, route, timeout, 'application/json'),
+  store: createPublicSnapshotStore(path.join(sparkflowStateDir, 'daily-brief-crypto')),
+});
+
 async function fetchEditorialCryptoData(only?: readonly number[], previous?: DailyBriefEditorialSnapshot) {
   const spotUrl = 'https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22SOLUSDT%22%5D';
   let part = 0;
   const resilientFetch = async (url: string) => {
-    if (only && !only.includes(part++)) throw new Error('本次无需重试此来源');
+    const index = part++;
+    if (only && !only.includes(index)) throw new Error('本次无需重试此来源');
+    if (index === 0) return dailyBriefCryptoMarket.spot(previous
+      ? (['BTC', 'ETH', 'SOL'] as const).filter(symbol => {
+        const price = previous.crypto.find(q => q.symbol === symbol)?.price;
+        return !Number.isFinite(price ?? NaN) || !(Number(price) > 0);
+      })
+      : undefined);
+    if (index >= 10 && index <= 12) return dailyBriefCryptoMarket.history((['BTC', 'ETH', 'SOL'] as const)[index - 10]);
     try {
       return await fetchRoutedText(url, 'direct', 12_000, 'application/json');
     } catch {
@@ -10121,10 +10141,18 @@ async function fetchEditorialCryptoData(only?: readonly number[], previous?: Dai
   ]);
   const names: Record<string, string> = { BTCUSDT: '比特币', ETHUSDT: '以太坊', SOLUSDT: 'Solana' };
   const symbols: Record<string, string> = { BTCUSDT: 'BTC', ETHUSDT: 'ETH', SOLUSDT: 'SOL' };
+  const jsonResult = (result: PromiseSettledResult<string>, array = false): any => {
+    try {
+      const value = result.status === 'fulfilled' ? JSON.parse(result.value) : null;
+      return array ? Array.isArray(value) ? value : [] : value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch { return array ? [] : {}; }
+  };
+  const historyMeta = (result: PromiseSettledResult<string>) => jsonResult(result);
   const binanceCandles = (result: PromiseSettledResult<string>) => {
     if (result.status !== 'fulfilled') return [];
     try {
-      const rows = JSON.parse(result.value) as unknown;
+      const payload = JSON.parse(result.value);
+      const rows = Array.isArray(payload) ? payload : payload?.rows;
       return Array.isArray(rows) ? rows.flatMap((row) => {
         if (!Array.isArray(row)) return [];
         const timestamp = finiteNumber(row[0]);
@@ -10142,7 +10170,7 @@ async function fetchEditorialCryptoData(only?: readonly number[], previous?: Dai
   const btcCandles = binanceCandles(btcHistoryResult);
   const btcTechnical = (): DailyBriefEditorialSnapshot['btcTechnical'] => {
     // The in-progress daily candle is allowed for the displayed price but excluded from level detection.
-    const candles = btcCandles.slice(0, -1).slice(-90);
+    const candles = btcCandles.filter(candle => candle.time < new Date().toISOString().slice(0, 10)).slice(-90);
     if (candles.length < 30) return null;
     const latest = candles[candles.length - 1]!.close;
     const atrRows = candles.slice(-15);
@@ -10163,7 +10191,7 @@ async function fetchEditorialCryptoData(only?: readonly number[], previous?: Dai
     const support = pivotLows.filter((level) => level < latest).sort((left, right) => right - left)[0] ?? null;
     const halfBand = Math.max(atr14 * .35, latest * .004);
     return {
-      source: 'Binance BTCUSDT · 1D OHLCV',
+      source: `${historyMeta(btcHistoryResult).provider || 'Binance'} BTC/USDT · UTC 1D OHLCV`,
       lookbackDays: candles.length,
       atr14: round(atr14, 2),
       resistance: resistance === null ? null : round(resistance, 2),
@@ -10187,18 +10215,21 @@ async function fetchEditorialCryptoData(only?: readonly number[], previous?: Dai
   const histories: Record<string, DailyBriefUpstreamQuote['history']> = {
     BTC: binanceHistory(btcHistoryResult), ETH: binanceHistory(ethHistoryResult), SOL: binanceHistory(solHistoryResult), HYPE: hyperliquidHistory(),
   };
-  const spotRows = spotResult.status === 'fulfilled' ? JSON.parse(spotResult.value) as Array<Record<string, unknown>> : [];
+  const spotRows = jsonResult(spotResult, true) as Array<Record<string, unknown>>;
   const crypto: DailyBriefUpstreamQuote[] = spotRows.flatMap((row) => {
     const symbol = String(row.symbol || '');
     const price = finiteNumber(row.lastPrice);
     return symbols[symbol] && price !== null ? [{
       symbol: symbols[symbol], name: names[symbol], price, display: editorialAssetDisplay(symbols[symbol], price),
       changePercent: finiteNumber(row.priceChangePercent), marketState: '24H',
-      sourceUrl: `https://www.binance.com/en/trade/${symbols[symbol]}_USDT?type=spot`,
+      sourceUrl: typeof row.sourceUrl === 'string' ? row.sourceUrl : `https://www.binance.com/en/trade/${symbols[symbol]}_USDT?type=spot`,
+      updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : undefined,
+      status: row.cached ? 'cached' : 'live',
+      source: typeof row.source === 'string' ? row.source : 'Binance',
       history: histories[symbols[symbol]] || [],
     }] : [];
   });
-  const hyperliquidPayload = hyperliquidResult.status === 'fulfilled' ? JSON.parse(hyperliquidResult.value) as Record<string, any> : {};
+  const hyperliquidPayload = jsonResult(hyperliquidResult);
   const hyperliquidPrice = finiteNumber(hyperliquidPayload?.hyperliquid?.usd);
   crypto.push({
     symbol: 'HYPE', name: 'Hyperliquid', price: hyperliquidPrice,
@@ -10216,24 +10247,24 @@ async function fetchEditorialCryptoData(only?: readonly number[], previous?: Dai
     for (const old of previous.crypto) {
       const index = crypto.findIndex(item => item.symbol === old.symbol);
       const incoming = index >= 0 ? crypto[index] : undefined;
-      const merged = { ...old, ...(incoming?.price != null && old.price == null ? incoming : {}),
-        history: old.history?.length ? old.history : histories[old.symbol] || [] };
+      const merged = { ...old, ...(incoming?.price != null && (!Number.isFinite(old.price ?? NaN) || !(Number(old.price) > 0)) ? incoming : {}),
+        history: hasBriefCryptoHistory(old.history) ? old.history : histories[old.symbol]?.length ? histories[old.symbol] : old.history || [] };
       if (index >= 0) crypto[index] = merged; else crypto.push(merged);
     }
   }
-  const funding = fundingResult.status === 'fulfilled' ? JSON.parse(fundingResult.value) as Record<string, unknown> : {};
-  const openInterest = openInterestResult.status === 'fulfilled' ? JSON.parse(openInterestResult.value) as Record<string, unknown> : {};
-  const longShortRows = longShortResult.status === 'fulfilled' ? JSON.parse(longShortResult.value) as Array<Record<string, unknown>> : [];
+  const funding = jsonResult(fundingResult);
+  const openInterest = jsonResult(openInterestResult);
+  const longShortRows = jsonResult(longShortResult, true);
   const longShort = longShortRows.at(-1) || {};
-  const takerRows = takerRatioResult.status === 'fulfilled' ? JSON.parse(takerRatioResult.value) as Array<Record<string, unknown>> : [];
-  const topRows = topPositionResult.status === 'fulfilled' ? JSON.parse(topPositionResult.value) as Array<Record<string, unknown>> : [];
-  const oiHistoryRows = openInterestHistoryResult.status === 'fulfilled' ? JSON.parse(openInterestHistoryResult.value) as Array<Record<string, unknown>> : [];
+  const takerRows = jsonResult(takerRatioResult, true);
+  const topRows = jsonResult(topPositionResult, true);
+  const oiHistoryRows = jsonResult(openInterestHistoryResult, true);
   const taker = takerRows.at(-1) || {};
   const topPosition = topRows.at(-1) || {};
-  const global = dominanceResult.status === 'fulfilled' ? JSON.parse(dominanceResult.value) as Record<string, unknown> : {};
-  const liquidationVenuesPayload = liquidationVenuesResult.status === 'fulfilled' ? JSON.parse(liquidationVenuesResult.value) as { data?: { ts?: unknown; venues?: unknown } } : {};
+  const global = jsonResult(dominanceResult);
+  const liquidationVenuesPayload = jsonResult(liquidationVenuesResult);
   const binanceLiquidations = Array.isArray(liquidationVenuesPayload.data?.venues)
-    ? liquidationVenuesPayload.data.venues.find((venue): venue is Record<string, unknown> => Boolean(venue) && typeof venue === 'object' && String((venue as Record<string, unknown>).venue || '').toLowerCase() === 'binance')
+    ? liquidationVenuesPayload.data.venues.find((venue: unknown): venue is Record<string, unknown> => Boolean(venue) && typeof venue === 'object' && String((venue as Record<string, unknown>).venue || '').toLowerCase() === 'binance')
     : undefined;
   const liquidationTimestamp = finiteNumber(liquidationVenuesPayload.data?.ts);
   const liquidationTotal = finiteNumber(binanceLiquidations?.total);

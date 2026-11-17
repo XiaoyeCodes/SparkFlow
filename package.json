@@ -37,6 +37,7 @@
     "test:isolated-market-data": "node --no-warnings --experimental-strip-types scripts/verify-isolated-market-resources.mjs",
     "test:market-cache": "node --no-warnings --experimental-strip-types scripts/verify-daily-market-cache.mjs",
     "test:daily-brief": "node --no-warnings --experimental-strip-types scripts/verify-daily-briefing.mjs && node --no-warnings --experimental-strip-types scripts/verify-daily-brief-repair.mjs",
+    "test:source-recovery": "node --no-warnings --experimental-strip-types scripts/verify-source-recovery.mjs",
     "test:china-provinces": "node --no-warnings --experimental-strip-types scripts/verify-china-province-government.mjs",
     "test:china-news": "node --no-warnings --experimental-strip-types scripts/verify-china-macro-news.mjs",
     "test:coze-report": "node --no-warnings --experimental-strip-types scripts/verify-coze-report-pipeline.mjs",

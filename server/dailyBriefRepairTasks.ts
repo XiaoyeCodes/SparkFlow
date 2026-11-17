@@ -1,5 +1,6 @@
 import type { DailyBriefEditorialSnapshot as Editorial, DailyBriefSnapshot, DailyBriefUpstreamQuote as Quote } from '../src/lib/dailyBriefTypes.ts';
 import type { DailyBriefRepairTask } from './dailyBriefRepair.ts';
+import { hasBriefBtcTechnical, hasBriefCryptoHistory } from '../src/lib/dailyBriefCrypto.ts';
 
 // Only absent measurements/series are filled. Valid daily observations remain frozen.
 export function fillBriefGaps<T>(current: T, incoming: T): T {
@@ -52,8 +53,8 @@ const quoteIn = (e: Editorial, symbol: string) => e.crypto.find(item => item.sym
 export function createDailyBriefRepairTasks(loaders: BriefRepairLoaders): DailyBriefRepairTask[] {
   const tasks: DailyBriefRepairTask[] = [];
   const add = <T>(id: string, label: string, needed: (e: Editorial) => boolean, load: (e: Editorial) => Promise<T>,
-    apply: (e: Editorial, value: T, draft: DailyBriefSnapshot) => void, blocked?: () => string | undefined) => {
-    tasks.push({ id, label, needed: s => Boolean(s.editorial && needed(s.editorial)), blocked,
+    apply: (e: Editorial, value: T, draft: DailyBriefSnapshot) => void, blocked?: () => string | undefined, lane?: 'crypto-spot') => {
+    tasks.push({ id, label, needed: s => Boolean(s.editorial && needed(s.editorial)), blocked, lane,
       load: async s => { const value = await load(s.editorial!); return draft => apply(draft.editorial!, value, draft); } });
   };
 
@@ -91,7 +92,7 @@ export function createDailyBriefRepairTasks(loaders: BriefRepairLoaders): DailyB
     loaders.stockFear, (e, v) => { e.sentiment.stockFearGreed = fillBriefGaps(e.sentiment.stockFearGreed, v.metric); e.sentiment.stockComponents = fillBriefGaps(e.sentiment.stockComponents, v.components); });
 
   const cryptoParts: Array<[number, string, (e: Editorial) => boolean]> = [
-    [0, 'BTC/ETH/SOL现价', e => ['BTC', 'ETH', 'SOL'].some(s => missing(quoteIn(e, s)?.price))],
+    [0, 'BTC/ETH/SOL现价', e => ['BTC', 'ETH', 'SOL'].some(s => !(Number(quoteIn(e, s)?.price) > 0) || missing(quoteIn(e, s)?.price))],
     [1, '资金费率及标记价格', e => missing(e.onchain.fundingRate.value) || (missing(e.onchain.openInterest.value) && missing(e.derivativeInputs?.markPrice))],
     [2, '持仓量', e => missing(e.onchain.openInterest.value) && missing(e.derivativeInputs?.contracts)],
     [3, 'BTC账户多空比', e => missing(e.futuresLongShort?.longAccount) || missing(e.futuresLongShort?.shortAccount) || missing(e.futuresLongShort?.longShortRatio)],
@@ -101,20 +102,33 @@ export function createDailyBriefRepairTasks(loaders: BriefRepairLoaders): DailyB
     [7, 'BTC市值占比', e => missing(e.onchain.dominance.value)],
     [8, 'HYPE现价', e => missing(quoteIn(e, 'HYPE')?.price)],
     [9, 'Binance清算数据', e => missing(e.binanceLiquidations?.totalUsd) || missing(e.binanceLiquidations?.longUsd) || missing(e.binanceLiquidations?.shortUsd)],
-    [10, 'BTC历史及关键区间', e => !quoteIn(e, 'BTC')?.history?.length || !e.btcTechnical],
-    [11, 'ETH历史', e => !quoteIn(e, 'ETH')?.history?.length],
-    [12, 'SOL历史', e => !quoteIn(e, 'SOL')?.history?.length],
+    [10, 'BTC历史及关键区间', e => !hasBriefCryptoHistory(quoteIn(e, 'BTC')?.history) || !hasBriefBtcTechnical(e.btcTechnical)],
+    [11, 'ETH历史', e => !hasBriefCryptoHistory(quoteIn(e, 'ETH')?.history)],
+    [12, 'SOL历史', e => !hasBriefCryptoHistory(quoteIn(e, 'SOL')?.history)],
     [13, 'HYPE历史', e => !quoteIn(e, 'HYPE')?.history?.length],
   ];
   for (const [part, label, needed] of cryptoParts) add(`crypto:${part}`, label, needed,
     e => loaders.crypto([part], e), (e, value, draft) => {
       e.crypto = fillBriefGaps(e.crypto, value.crypto);
+      for (const incoming of value.crypto) {
+        if (!['BTC', 'ETH', 'SOL'].includes(incoming.symbol)) continue;
+        const quote = e.crypto.find(q => q.symbol === incoming.symbol);
+        if (quote && (missing(quote.price) || !(Number(quote.price) > 0)) && !missing(incoming.price) && Number(incoming.price) > 0) Object.assign(quote, { ...structuredClone(incoming), history: quote.history });
+        if (quote && !hasBriefCryptoHistory(quote.history) && hasBriefCryptoHistory(incoming.history)) quote.history = structuredClone(incoming.history);
+      }
       draft.markets = fillBriefGaps(draft.markets, e.crypto.map(q => ({ id: q.symbol.toLowerCase(), name: q.name, symbol: q.symbol,
         value: q.price, display: q.display || String(q.price ?? '—'), changePercent: q.changePercent, sourceUrl: q.sourceUrl })));
-      for (const group of e.assetGroups) if (group.id === 'crypto') group.items = fillBriefGaps(group.items, value.crypto);
+      for (const group of e.assetGroups) if (group.id === 'crypto') {
+        group.items = fillBriefGaps(group.items, value.crypto);
+        for (const quote of group.items) {
+          const incoming = e.crypto.find(item => item.symbol === quote.symbol);
+          if (incoming && (missing(quote.price) || !(Number(quote.price) > 0)) && !missing(incoming.price) && Number(incoming.price) > 0) Object.assign(quote, { ...structuredClone(incoming), history: quote.history });
+          if (incoming && !hasBriefCryptoHistory(quote.history) && hasBriefCryptoHistory(incoming.history)) quote.history = structuredClone(incoming.history);
+        }
+      }
       e.onchain = fillBriefGaps(e.onchain, { ...e.onchain, fundingRate: value.fundingRate, openInterest: value.openInterest, dominance: value.dominance });
       e.derivativeInputs = fillBriefGaps(e.derivativeInputs, value.derivativeInputs);
-      e.btcTechnical = fillBriefGaps(e.btcTechnical, value.btcTechnical);
+      if (!hasBriefBtcTechnical(e.btcTechnical) && hasBriefBtcTechnical(value.btcTechnical)) e.btcTechnical = structuredClone(value.btcTechnical);
       e.futuresLongShort = fillBriefGaps(e.futuresLongShort, value.futuresLongShort);
       e.derivativesSentiment = fillBriefGaps(e.derivativesSentiment, value.derivativesSentiment);
       e.binanceLiquidations = fillBriefGaps(e.binanceLiquidations, value.binanceLiquidations);
@@ -128,7 +142,7 @@ export function createDailyBriefRepairTasks(loaders: BriefRepairLoaders): DailyB
       const values = [e.futuresLongShort?.longAccount, ratio != null && ratio > 0 ? 50 + Math.max(-35, Math.min(35, Math.log(ratio) * 30)) : null,
         d?.topTraderLong, e.onchain.fundingRate.value != null ? 50 + Math.max(-20, Math.min(20, e.onchain.fundingRate.value * 200)) : null].filter((v): v is number => !missing(v));
       if (d && missing(d.score) && values.length >= 3) d.score = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length * 10) / 10;
-    });
+    }, undefined, part === 0 || part >= 10 && part <= 12 ? 'crypto-spot' : undefined);
 
   add('coinmetrics', 'MVRV及Puell', e => missing(e.sentiment.mvrvZScore.value) || missing(e.onchain.puellMultiple.value),
     loaders.coinMetrics, (e, v) => { e.sentiment.mvrvZScore = fillBriefGaps(e.sentiment.mvrvZScore, v.mvrvZScore); e.onchain.puellMultiple = fillBriefGaps(e.onchain.puellMultiple, v.puellMultiple); });
