@@ -45,6 +45,8 @@ import {
   newsCardDecoration,
   newsCategoryCounts,
   newsPriority,
+  newsScoreLevel,
+  NEWS_SCORE_LEVELS,
   newsForSource,
   newsSortOptions,
   newsTimestamp,
@@ -89,10 +91,10 @@ export function Signals() {
   const [aiText, setAiText] = useState('');
   const [dailyNewsOpen, setDailyNewsOpen] = useState(false);
   const closeDailyNews = useCallback(() => setDailyNewsOpen(false), []);
-  const category = getNewsCategory(searchParams.get('category'));
+  const sourceFilter = searchParams.get('source') || 'all';
+  const category = getNewsCategory(searchParams.get('category') ?? (sourceFilter === 'all' ? null : 'all'));
   const sortParam = searchParams.get('sort');
   const sortMode: NewsSortMode = newsSortOptions.find(([id]) => id === sortParam)?.[0] ?? 'weight';
-  const sourceFilter = searchParams.get('source') || 'all';
   const onlyChinese = searchParams.get('lang') !== 'all';
   const [displayLimit, setDisplayLimit] = useState(60);
   const setSortMode = (mode: NewsSortMode) => setSearchParams((current) => {
@@ -138,17 +140,16 @@ export function Signals() {
   const dailyMissing = !onlyChinese && selectedSource?.delivery === 'official-daily' && !newsForSource(currentItems, sourceFilter, now).length;
   const sourceEmptyMessage = selectedSource?.ok && !newsForSource(currentItems, sourceFilter, now).length ? selectedSource.emptyMessage : undefined;
   const displayedItems = visibleItems.slice(0, displayLimit);
-  const topWeight = currentItems.reduce((max, item) => Math.max(max, item.weight), 0);
+  const topWeight = visibleItems.reduce((max, item) => Math.max(max, item.weight), 0);
   const connectedSources = feed?.sources.filter((source) => source.ok).length ?? 0;
   const failedSources = feed?.sources.filter((source) => !source.ok).length ?? 0;
   const sortLabel = newsSortOptions.find(([id]) => id === sortMode)?.[1];
-  const tickerItems = useMemo(() => selectNewsItems(languageItems, 'all', 'heat', 'all', now).slice(0, 5), [languageItems, now]);
+  const tickerItems = useMemo(() => selectNewsItems(languageItems, category, 'weight', sourceFilter, now).slice(0, 5), [languageItems, category, sourceFilter, now]);
 
   const changeCategory = (next: NewsCategoryFilter) => {
     setSearchParams((current) => {
       const params = new URLSearchParams(current);
-      if (next === 'all') params.delete('category');
-      else params.set('category', next);
+      params.set('category', next);
       return params;
     });
   };
@@ -158,7 +159,7 @@ export function Signals() {
       const params = new URLSearchParams(current);
       if (source === 'all') params.delete('source');
       else params.set('source', source);
-      params.delete('category');
+      params.set('category', 'all');
       params.set('sort', ['all', 'international'].includes(source) ? 'weight' : 'source');
       return params;
     });
@@ -270,7 +271,7 @@ export function Signals() {
             <div className="signals-hud-command-row">
               <dl className="signals-stats">
                 <div><dt>新闻条目</dt><dd>{feed ? currentItems.length : '—'}<small>条</small></dd></div>
-                <div><dt>最高权重</dt><dd className="signals-accent">{feed?.items.length ? topWeight : '—'}<small>/ 100</small></dd></div>
+                <div><dt>当前分类最高权重</dt><dd className="signals-accent">{visibleItems.length ? topWeight : '—'}<small>/ 100</small></dd></div>
                 <div><dt>已连接数据源</dt><dd>{feed ? connectedSources : '—'}<small>{feed ? `/ ${feed.sources.length}` : ''}</small></dd></div>
                 <div><dt>最近同步</dt><dd className="signals-sync" title={feed ? formatNewsTime(feed.generatedAt) : undefined}>{loading ? '同步中…' : formatNewsSync(feed?.generatedAt, now)}</dd></div>
               </dl>
@@ -340,9 +341,9 @@ export function Signals() {
                 </nav>
                 <div className="signals-sidebar-meta">
                   <h2 className="signals-section-label">阅读优先级</h2>
-                  <div className="signals-legend"><span className="signals-priority is-high" /><span>高优先</span><small>≥ 78</small></div>
-                  <div className="signals-legend"><span className="signals-priority is-mid" /><span>值得看</span><small>58–77</small></div>
-                  <div className="signals-legend"><span className="signals-priority is-low" /><span>观察 / 低噪</span><small>&lt; 58</small></div>
+                  {NEWS_SCORE_LEVELS.map(level => <div className="signals-legend" key={level.min}>
+                    <span className="signals-priority" style={{ background: `rgb(${level.rgb})` }} /><span>{level.label}</span><small>{level.range}</small>
+                  </div>)}
                   <p className="signals-scoring-note">原榜名次与本站重要程度分开计算。点击权重查看评分依据，热度不代表可信度。</p>
                   {feed ? (
                     <details className="signals-sources">
@@ -402,14 +403,15 @@ export function Signals() {
                   <div>
                     <p><b>原榜顺序</b>：选择来源后保留其原始名次；全部来源按来源分组。RSS、每日论文与早报只保留原始条目顺序，不虚构热榜名次。</p>
                     <p><b>综合权重</b>：重要程度随发布时间连续衰减，公式为“热度微调后的重要程度 × 0.5^(经过小时 ÷ 半衰期) + 新稿加成”。半衰期为 3 + 重要程度 × 0.2 小时；越重要衰减越慢。新稿加成最高 8 分，约 45 分钟快速消退；超过 24 小时会加速退场。无发布时间扣 8 分，缓存内容扣 10 分。</p>
-                    <p><b>重要程度</b>：来源基准 35% + 事件影响 65%，由规则估算；预测、观点及娱乐话题限制得分，不把热搜名次当作事实可信度。</p>
+                    <p><b>金融事件</b>　来源基准占 35%，事件影响占 65%。数据发布预告最高 40 分，常规市场报价最高 57 分。实际数据明显偏离预期、利率决定或跨市场冲击可进入三枚火苗档。点击分数可查看本条新闻的依据和适用上限。</p>
+                    <p><b>多方报道</b>　近 48 小时内，同一事件每家发布方只计一次，24 小时后贡献减半。综合权重最多加 12 分，金融分类按最终分数排列。</p>
                     <p><b>热度优先</b>：原榜名次按 100 × exp(−(名次−1)/20) 归一化；无榜单但有热度时按来源内指标归一化。综合权重中，热度只对重要程度作 ±4 分以内的动态修正，不会取代内容重要性。原始热度另行保留，不直接比较 Stars、点赞数与搜索量。</p>
                     <p>无发布时间显示“时间待核验”。刷新共享缓存 2 分钟，手动刷新最短间隔 15 秒；失败缓存最多保留 30 分钟。</p>
                   </div>
                 </details>
               </div>
               {selectedSource ? <div className="signals-source-context"><span>{selectedSource.note || (selectedSource.rankingKind ? `保留${selectedSource.rankingKind}原始名次` : '该来源未提供热榜名次，原榜顺序按来源条目顺序显示')}{!selectedSource.ok ? ` 更新失败：${selectedSource.error}` : selectedSource.count === 0 ? ' 当前时间范围内暂无条目。' : ''}</span><a href={selectedSource.homepage} target="_blank" rel="noreferrer">查看来源 <ExternalLink size={11} /></a></div> : null}
-              {sourceFilter === 'international' ? <p className="signals-source-context">国际媒体聚合 · 内置源仅展示近 24 小时报道，自定义源保留订阅原始日期。官方 RSS 与 Google News 检索分别标注，英文内容保留原文。</p> : null}
+              {sourceFilter === 'international' ? <p className="signals-source-context">国际媒体展示近 24 小时报道，美联储货币政策公告保留 48 小时。自定义源保留订阅原始日期，英文内容保留原文。</p> : null}
               {sortMode === 'source' && ['all', 'international'].includes(sourceFilter) ? <p className="signals-source-context">按来源分组展示原始顺序，不将不同榜单的名次直接混排。</p> : null}
               <div className="signals-topbar">
                 <p role="status" aria-live="polite">当前显示 <b>{displayedItems.length}</b>{displayedItems.length < visibleItems.length ? ` / ${visibleItems.length}` : ''} 条<span className="signals-sort-description"> · 按<b>{sortLabel}</b>排序</span></p>
@@ -692,7 +694,10 @@ function NewsCardOrnament({ variant, serial }: { variant: ReturnType<typeof news
 }
 
 function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsItem; index: number; onSelectSource: (source: string) => void; sortMode: NewsSortMode; now: number }) {
-  const priority = newsPriority(item.weight);
+  const priorityScore = sortMode === 'importance' ? item.importance : item.weight;
+  const priority = newsPriority(priorityScore);
+  const level = newsScoreLevel(priorityScore);
+  const showFlames = sortMode !== 'heat' && sortMode !== 'source';
   const visual = newsVisual(item);
   const decoration = newsCardDecoration(item);
   const VisualIcon = visual.icon;
@@ -700,7 +705,7 @@ function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsIte
   const metric = sortMode === 'importance' ? item.importance : sortMode === 'heat' ? (item.sourceRank || item.sourceHeat ? item.heat : '—') : sortMode === 'source' ? (item.sourceRank || item.sourceOrder || '—') : item.weight;
   const itemStyle = {
     '--signals-item-rgb': visual.rgb,
-    '--signals-urgency-rgb': priority === 'high' ? '231, 107, 96' : priority === 'mid' ? '232, 173, 89' : visual.rgb,
+    '--signals-urgency-rgb': level.rgb,
     '--signals-card-border-alpha': decoration.borderAlpha.toFixed(3),
     '--signals-card-hover-border-alpha': Math.min(0.46, decoration.borderAlpha + 0.11).toFixed(3),
     '--signals-card-glow-alpha': decoration.glowAlpha.toFixed(3),
@@ -721,7 +726,7 @@ function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsIte
     '--signals-ornament-delay': `${decoration.delay}ms`
   } as CSSProperties;
   return (
-    <motion.article className={`signals-item is-${priority} tone-${visual.tone}`} style={itemStyle}
+    <motion.article className={`signals-item is-${priority} tone-${visual.tone}${showFlames ? ' has-priority-score' : ''}`} style={itemStyle}
       initial={false} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: Math.min(index * 0.02, 0.16) }}>
       <NewsCardOrnament variant={decoration.variant} serial={decoration.serial} />
@@ -749,9 +754,12 @@ function NewsRow({ item, index, onSelectSource, sortMode, now }: { item: NewsIte
         </div> : null}
       </div>
       <details className={`signals-score is-${priority}${sortMode === 'source' ? ' is-source' : ''}`}>
-        <summary aria-label={`${metricLabel} ${metric}，查看评分详情`}><span>{metricLabel}</span><strong>{metric}</strong><ChevronDown size={10} /></summary>
+        <summary aria-label={`${metricLabel} ${metric}${showFlames ? '，' + level.label : ''}，查看评分详情`}>
+          <span>{metricLabel}</span><strong>{metric}{showFlames && level.flames > 0 && <span className="signals-score-flames" aria-hidden="true">{Array.from({ length: level.flames }, (_, i) => <Flame key={i} size={11} />)}</span>}</strong><ChevronDown size={10} />
+        </summary>
         <div className="signals-score-popover">
-          <p>{item.weightLabel}</p>
+          <p>{newsScoreLevel(item.weight).label} · 综合权重 {item.weight}</p>
+          {item.ranking?.coverage && <p>{item.ranking.coverage.publishers} 家发布方报道同一事件，权重 +{item.ranking.coverage.bonus}</p>}
           <dl><div><dt>综合权重</dt><dd>{item.weight}</dd></div><div><dt>时效保留</dt><dd>{item.publishedAt ? `${item.recency}%` : '待核验'}</dd></div><div><dt>重要程度（估算）</dt><dd>{item.importance}</dd></div><div><dt>热度（归一化）</dt><dd>{item.sourceRank || item.sourceHeat ? item.heat : '未提供'}</dd></div></dl>
           {item.ranking ? <ul>{item.ranking.importanceReasons.map((reason) => <li key={reason}>{reason}</li>)}<li>{item.ranking.heatBasis}</li><li>{item.ranking.recencyBasis}</li></ul> : null}
           <small>各项得分满分 100</small>

@@ -23,3 +23,9 @@ SparkFlow-main/
 tmp/
 test-results/
 playwright-report/
+output/
+
+# Tencent Cloud EdgeOne
+.env
+.edgeone/*
+.tef_dist/*

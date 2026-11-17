@@ -31,7 +31,7 @@ export type NewsItem = {
   providerName?: string;
   boardObservedAt?: string;
   todayOnly?: boolean;
-  ranking?: { version: string; importanceReasons: string[]; heatBasis: string; recencyBasis: string };
+  ranking?: { version: string; importanceReasons: string[]; heatBasis: string; recencyBasis: string; weightCeiling?: number; coverage?: { publishers: number; bonus: number } };
   appearances?: NewsAppearance[];
 };
 

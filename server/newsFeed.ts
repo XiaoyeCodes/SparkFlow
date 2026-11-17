@@ -27,7 +27,7 @@ export type NewsSource = {
 type Candidate = Partial<NewsItem> & Pick<NewsItem, 'title' | 'url'>;
 type Transport = (source: NewsSource) => Promise<{ text: string; route: 'direct' | 'proxy' }>;
 
-export const NEWS_RANKING_VERSION = 'signals-v6';
+export const NEWS_RANKING_VERSION = 'signals-v8-financial-impact';
 export const NEWS_CATEGORY_LABELS: Record<NewsCategory, string> = {
   tech: '科技 / AI', finance: '金融 / 商业', society: '社会', livelihood: '民生 / 政策', world: '国际'
 };
@@ -35,6 +35,8 @@ export const NEWS_CATEGORY_LABELS: Record<NewsCategory, string> = {
 // Public endpoints verified against the linked aggregator and publisher pages.
 // RSS/editorial order is NOT advertised as a hot-list rank.
 export const ADDITIONAL_NEWS_SOURCES: NewsSource[] = [
+  { id: 'wallstreetcn-live', label: '华尔街见闻 · 实时快讯', category: 'finance', sourceWeight: 74, origin: 'domestic', route: 'direct', url: 'https://api-one.wallstcn.com/apiv1/content/lives?channel=global-channel&limit=60', homepage: 'https://wallstreetcn.com/live/global', kind: 'market-wire', mixed: true, maxAgeHours: 24 },
+  { id: 'fed-monetary', label: '美联储 · 货币政策公告', category: 'finance', sourceWeight: 95, origin: 'foreign', route: 'proxy', url: 'https://www.federalreserve.gov/feeds/press_monetary.xml', homepage: 'https://www.federalreserve.gov/monetarypolicy.htm', kind: 'feed', delivery: 'official-rss', maxAgeHours: 48 },
   { id: 'readhub', label: 'Readhub 24 小时热榜', category: 'tech', sourceWeight: 76, origin: 'domestic', route: 'direct', url: 'https://readhub.cn/hot', kind: 'readhub', rankingKind: '24 小时热榜', mixed: true },
   { id: 'weibo', label: '微博热搜', category: 'society', sourceWeight: 45, origin: 'domestic', route: 'direct', url: 'https://weibo.com/ajax/side/hotSearch', homepage: 'https://s.weibo.com/top/summary', kind: 'weibo', rankingKind: '热搜榜', mixed: true },
   { id: 'v2ex', label: 'V2EX 热门', category: 'tech', sourceWeight: 50, origin: 'domestic', route: 'proxy', url: 'https://www.v2ex.com/api/topics/hot.json', homepage: 'https://www.v2ex.com/?tab=hot', kind: 'v2ex', rankingKind: '热门榜', mixed: true },
@@ -140,6 +142,74 @@ export function parseSyndication(text: string, source: NewsSource): Candidate[] 
   });
 }
 
+// Match an action and its financial subject in the headline. A keyword in a
+// background paragraph alone is weak evidence of what actually happened.
+type FinanceEvent = { impact: number; reason: string; ceiling?: number };
+
+const scheduledRelease = /(?:即将|将于.{0,30}?|将|定于.{0,30}?)(?:公布|发布|揭晓)|公布在即|数据(?:前瞻|预告|提醒)|财经日历|经济日历|利率决议前瞻|\b(?:due (?:out|at|today)|to be released|will (?:be (?:released|published)|release|publish)|ahead of (?:the )?(?:release|decision))\b/i;
+
+function marketMove(title: string): FinanceEvent | undefined {
+  const benchmark = /股市|股指|国债|美债|布伦特|原油|黄金|汇率|人民币|兑(?:美元|日元|欧元)|恒指|恒生|创业板|沪指|沪深|深成指|科创50|日经|韩股|纳指|纳斯达克|标普|道指|\b(stocks|nikkei|hang seng|nasdaq|treasuries|bond yields?|yen|crude|s&p 500)\b/i;
+  const moves = title.split(/[，,；;。]/).filter(clause => benchmark.test(clause) && !/^(此前|早盘一度|盘中一度|一度|此前一度)/.test(clause.trim()));
+  if (!moves.length) return;
+  const change = /(?:涨|跌|下挫|攀升|下滑|升值|贬值|升|降|gains?|drops?|falls?|rises?|plunges?|surges?)(?:幅扩大至| by |[超过近幅达至约了\s])*(\d+(?:\.\d+)?)\s*[%％]/i;
+  const magnitudes = moves.map(clause => Number(clause.match(change)?.[1] || 0));
+  const largest = Math.max(...magnitudes);
+  const ratesShock = moves.some((clause, i) => (/(?:汇率|兑(?:美元|日元|欧元)|\byen\b)/i.test(clause) && magnitudes[i] >= 3)
+    || (/(?:国债|美债|treasur).{0,18}(?:收益率|yields?)/i.test(clause) && Number(clause.match(/(?:上[升行涨]|下[跌行降]|升|跌|rose|fell)\s*(\d+(?:\.\d+)?)\s*(?:个?基点|basis points|bps)/i)?.[1]) >= 25));
+  const broadSelloff = /(?:全球|环球|亚太|亚欧|欧美|global|world).{0,12}(?:股市|市场|stocks|markets)/i.test(title)
+    && /连跌|连涨|重挫|抛售|大跌|暴跌|sell.?off|plunge/i.test(title);
+  if (broadSelloff || ratesShock || moves.some(clause => /触发熔断|暂停交易|circuit breaker/i.test(clause)) || largest >= 5) {
+    return { impact: 92, reason: '跨市场联动、熔断或基准价格大幅波动' };
+  }
+  if (largest >= 2 || moves.some(clause => /历史新[高低]|创纪录|record (?:high|low)/i.test(clause))) {
+    return { impact: 65, reason: '单一市场明显波动', ceiling: 73 };
+  }
+  if (largest || moves.some(clause => /收盘|收涨|收跌|翻红|翻绿|连跌|连涨|基点/.test(clause))) {
+    return { impact: 46, reason: '常规市场报价', ceiling: 57 };
+  }
+}
+
+function financeEvent(title: string): FinanceEvent | undefined {
+  const authority = /央行|美联储|联储局|欧洲央行|日本银行|人民银行|财政部|证监会|金融监管总局|国务院|\b(fed|fomc|ecb|central bank|federal reserve)\b/i;
+  const policy = /降息|加息|降准|下调.{0,8}(?:利率|准备金率)|上调.{0,8}利率|维持.{0,10}利率|公布.{0,10}(?:利率|印花税)|货币政策决定|monetary policy (?:decision|statement)|issues FOMC statement|(?:cuts?|raises?|holds?|lowers?|maintains?).{0,25}\b(?:rates?|target range)\b/i;
+  const macroIndicator = /非农|通胀率|失业率|就业人数|失业金|社会融资规模|出口额|国内生产总值|居民消费价格|\b(gdp|cpi|ppi|payrolls|inflation|unemployment)\b/i;
+  const beforeSchedule = title.split(scheduledRelease)[0];
+  if (beforeSchedule !== title && (macroIndicator.test(title) || authority.test(title) || /利率决议/.test(title))
+    && !/(?:升至|降至|录得|同比增长|同比下降)\s*[-+]?\d/.test(beforeSchedule)) {
+    return { impact: 22, reason: '财经日历预告，尚待公布结果', ceiling: 40 };
+  }
+  const commentary = /偏好|倾向|讨论|建议|呼吁|押注|重申|可能|若|排除|预期.{0,12}(?:加息|降息)|sees? room|signals?|hints? at/i.test(title);
+  if (authority.test(title) && policy.test(title) && !commentary) return { impact: 99, reason: '货币政策决定' };
+  if (/(?:国务院|商务部|美国政府|欧盟|白宫|财政部|海关总署).{0,22}(?:宣布|通过|决定|实施|生效).{0,25}(?:关税|出口管制|贸易禁令)/.test(title)) return { impact: 93, reason: '公布贸易政策或跨境限制措施' };
+  if (/(?:债券?|债务|本息|兑付|付息).{0,12}违约(?!金|风险)|违约事件|破产(?:重整|清算|保护)|银行.{0,8}被接管|暂停兑付|债务重组|files? for bankruptcy|defaults? on/i.test(title)) return { impact: 90, reason: '信用或偿付风险事件' };
+  if (macroIndicator.test(title) && /同比|环比|录得|升至|降至|增至|增长|下降|\d(?:[.．]\d+)?\s*[%％万亿]|rose|fell|rises?|falls?/i.test(title)) {
+    const national = /全国|我国|中国|美国|欧元区|英国|日本|国家统计局|\bu\.?s\.?\b|eurozone|\bnational\b/i.test(title);
+    const regional = /上海|北京|深圳|广州|香港|广东|江苏|浙江|四川|山东|全省|全市|本市|本省|地区生产总值|对.{1,14}(?:进出口额|出口额)/.test(title);
+    if (!national && regional) return { impact: 60, reason: '地区或部分贸易伙伴经济数据', ceiling: 67 };
+    const expectations = title.match(/([-+]?\d+(?:\.\d+)?)\s*[%％]\s*[,，、；;]\s*(?:市场)?预期(?:为)?\s*([-+]?\d+(?:\.\d+)?)\s*[%％]/);
+    const surprise = expectations && Math.abs(Number(expectations[1]) - Number(expectations[2])) >= 0.2 - 1e-9;
+    if (surprise || /超出预期|超预期|[高低]于(?:市场)?预期|意外|创.{0,8}新[高低]|unexpected|surpris|than (?:expected|forecast)/i.test(title)) return { impact: 95, reason: '宏观数据出现预期差或触及新高低' };
+    return { impact: 78, reason: '宏观指标已公布，标题未指出显著预期差', ceiling: 77 };
+  }
+  const move = marketMove(title);
+  if (move) return move;
+  if (/并购|收购|acquires?|takeover/i.test(title)) {
+    const consideration = title.match(/(?:斥资|作价|耗资|出价|交易[额价][值格]?为?|收购价为?|要约价为?|以)\s*(\d+(?:\.\d+)?)\s*亿(美元|欧元|英镑|元|人民币)/);
+    if (consideration && Number(consideration[1]) >= (/美元|欧元|英镑/.test(consideration[2]) ? 100 : 1000)) return { impact: 91, reason: '披露大额收购对价' };
+    return { impact: 58, reason: '单笔公司收购，标题未披露达到高优先门槛的交易对价', ceiling: 67 };
+  }
+  const managementChange = /董事长|董事会|首席执行官|CEO|CFO/i.test(title) && /辞任|辞职|卸任|离任|被免职|接任|steps down|resigns?/i.test(title);
+  if (managementChange || /退市|停牌|重组获批|央行行长.{0,12}(?:卸任|辞任)/.test(title)) return { impact: 69, reason: '上市状态或管理层变动', ceiling: 77 };
+  if (/财报|季报|净利润|营收|业绩指引|earnings|revenue/i.test(title) && /公布|披露|亏损|扭亏|下调|上调|同比|增长|下滑|\d|reports?|cuts? guidance/i.test(title)) {
+    if (/大幅(?:上调|下调).{0,8}(?:业绩|指引)|撤回.{0,6}业绩指引|爆雷|withdraws?.{0,12}guidance/i.test(title)) return { impact: 85, reason: '企业业绩或指引出现重大变化' };
+    return { impact: 68, reason: '企业披露业绩或调整指引', ceiling: 77 };
+  }
+  const stockMove = title.match(/股价.{0,8}?(?:下跌|大跌|跌幅扩大至|跳水|飙升|大涨|上涨)(?:超|逾)?\s*(\d+(?:\.\d+)?)\s*[%％]/);
+  if (stockMove && Number(stockMove[1]) >= 10) return { impact: 74, reason: '单只股票价格大幅波动', ceiling: 77 };
+  return undefined;
+}
+
 function categoryFor(title: string, fallback: NewsCategory): NewsCategory {
   if (/医保|社保|住房|养老|教育|学校|就业|薪酬|裁员|减员|应届生|发改委|国务院|气象|台风|地震|洪水|灾害|救援/.test(title)) return 'livelihood';
   if (/美联储|央行|利率|财政|股市|IPO|财报|融资|并购|收购|营收|利润|证券|退市|汇率|金融|比特币/i.test(title)) return 'finance';
@@ -149,12 +219,16 @@ function categoryFor(title: string, fallback: NewsCategory): NewsCategory {
   return fallback;
 }
 const score = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+const weightLabel = (weight: number) => weight >= 78 ? '高优先' : weight >= 68 ? '重点' : weight >= 58 ? '值得看' : '观察';
 
 export function scoreNews(candidate: Candidate, source: NewsSource, now = Date.now()): NewsItem {
   const title = cleanNewsText(candidate.title);
   const summary = cleanNewsText(candidate.summary).slice(0, 280);
   const text = title + ' ' + summary;
-  const category = source.mixed ? categoryFor(title, 'society') : candidate.category || source.category;
+  const event = financeEvent(title);
+  const financialSubject = /股指|股价|股票|股市|创业板指|央行|加息|降息|国债|美债|财政部|证券|证监会|金融监管|上市公司|IPO|净利润|ETF|并购|股权|融资|交易所|董事长|首席执行官|\b(CEO|Fed|earnings|bond yields?|stock market|tariffs?)\b/i.test(title);
+  const category = financialSubject || event ? 'finance'
+    : source.mixed ? categoryFor(title, 'society') : candidate.category || source.category;
   const publishedAt = validNewsDate(candidate.publishedAt, now);
   const observedAt = validNewsDate(candidate.observedAt, now) || new Date(now).toISOString();
   const sourceRank = Number.isInteger(candidate.sourceRank) && candidate.sourceRank! > 0 ? candidate.sourceRank : undefined;
@@ -162,22 +236,31 @@ export function scoreNews(candidate: Candidate, source: NewsSource, now = Date.n
   const hasConcreteEvent = /发布|实施|通过|批准|公布|财报|并购|收购|开源|上线|破获|预警|\b(launch|release|acquir|announc|approv|enact|merger|earnings)\w*/i.test(title);
   const isEditorialFeature = !hasConcreteEvent
     && /慰安妇|受害者后代|幸存者|人物特写|人物故事|口述|回忆录|历史回顾|往事/.test(text);
-  let impact = 35;
-  if (!isEditorialFeature && /降息|加息|央行|美联储|财政|监管|制裁|战争|通胀|GDP|CPI|医保|社保|就业|地震|台风|洪水|救援|\b(inflation|central bank|earthquake|federal reserve|interest rates?|rate cuts?|rate hikes?|sanctions?|war|ceasefire|tariffs?|elections?|unemployment|floods?|hurricanes?|regulation)\b/i.test(text)) {
+  let impact = event?.impact ?? 35;
+  if (event) reasons.push(event.reason);
+  if (!event && !isEditorialFeature && /降息|加息|央行|美联储|财政|监管|制裁|战争|通胀|GDP|CPI|医保|社保|就业|地震|台风|洪水|救援|\b(inflation|central bank|earthquake|federal reserve|interest rates?|rate cuts?|rate hikes?|sanctions?|war|ceasefire|tariffs?|elections?|unemployment|floods?|hurricanes?|regulation)\b/i.test(category === 'finance' ? title.replace(/AI央行|AI 央行/gi, '') : text)) {
     impact += 35; reasons.push('涉及宏观政策或公共影响');
   }
-  if (hasConcreteEvent) {
+  if (!event && hasConcreteEvent) {
     impact += 18; reasons.push('标题包含具体事件或发布');
   }
-  if (/大模型|芯片|半导体|算力|机器人|人工智能|\b(AI|LLM|agent|model|paper|research)\b/i.test(text)) {
+  if (category !== 'finance' && /大模型|芯片|半导体|算力|机器人|人工智能|\b(AI|LLM|agent|model|paper|research)\b/i.test(text)) {
     impact += 12; reasons.push('科技或产业进展');
   }
+  let weightCeiling = event?.ceiling;
   let importance = score(source.sourceWeight * 0.35 + score(impact) * 0.65);
-  if (/预测|预计|有望|据悉|传闻|知情人士|爆料|可能|研究机构.{0,18}将|料将|或将|\b(rumor|reportedly|may|could)\b/i.test(title)) {
+  if (/预测|预计|有望|据悉|传闻|知情人士|爆料|可能|研究机构.{0,18}将|料将|或将|拟.{0,6}(?:收购|并购)|上行空间|\b(rumor|reportedly|may|could|is said to|set to|upside)\b/i.test(title)) {
     importance = Math.min(importance, 58); reasons.push('预测或未证实信息，重要程度上限 58');
+    if (category === 'finance') weightCeiling = Math.min(weightCeiling ?? 100, 64);
   }
-  if (/观点|解读|评论|专栏|自曝|建议|如何|怎么看|警告：|\b(opinion|why|how to)\b/i.test(title)) {
+  if (/观点|解读|评论|专栏|自曝|建议|如何|怎么看|警告：|真正挑战|看点|偏好.{0,6}(?:加息|降息)|(?:高盛|摩根大通|瑞银|分析师)(?:认为|[：:])|\b(opinion|why|how to)\b/i.test(title)) {
     importance = Math.min(importance, 65); reasons.push('观点或解读，重要程度上限 65');
+    if (category === 'finance') weightCeiling = Math.min(weightCeiling ?? 100, 71);
+  }
+  if (category === 'finance' && !event) weightCeiling = Math.min(weightCeiling ?? 100, 77);
+  if (weightCeiling !== undefined) {
+    importance = Math.min(importance, weightCeiling);
+    reasons.push('此类消息综合权重上限 ' + weightCeiling);
   }
   if (/综艺|明星|演唱会|粉丝|恋情|景甜|王俊凯|票房|电影|电视剧|娱乐|文娱|八卦/.test(title)) {
     importance = Math.min(importance, 42); reasons.push('娱乐话题，重要程度上限 42');
@@ -207,6 +290,7 @@ export function scoreNews(candidate: Candidate, source: NewsSource, now = Date.n
     weight = Math.min(weight, 57); reasons.push('无榜单热度的特写或回顾，综合权重上限 57');
   }
   if (!publishedAt) reasons.push('缺少发布时间，无法获得新稿加成并扣 8 分');
+  if (weightCeiling !== undefined) weight = Math.min(weight, weightCeiling);
   if (candidate.stale) weight = Math.max(0, weight - 10);
   return {
     ...candidate,
@@ -217,9 +301,9 @@ export function scoreNews(candidate: Candidate, source: NewsSource, now = Date.n
     providerName: source.providerName, todayOnly: source.todayOnly,
     sourceRank, sourceRankLabel: sourceRank ? source.rankingKind : undefined,
     heat, importance, recency, weight,
-    weightLabel: weight >= 78 ? '高优先' : weight >= 58 ? '值得看' : weight >= 38 ? '观察' : '低噪',
+    weightLabel: weightLabel(weight),
     ranking: {
-      version: NEWS_RANKING_VERSION, importanceReasons: reasons,
+      version: NEWS_RANKING_VERSION, importanceReasons: reasons, weightCeiling,
       heatBasis: sourceRank ? '原榜名次归一化；仅对重要程度作 ±4 分以内微调' : hasHeat ? '来源内热度归一化；仅对重要程度作 ±4 分以内微调' : '来源未提供热度，不作热度修正',
       recencyBasis: publishedAt
         ? `重要程度半衰期 ${halfLifeHours.toFixed(1)} 小时；当前保留 ${recency}%；新稿加成 ${freshnessBonus.toFixed(1)}`
@@ -363,6 +447,18 @@ export function parseXTrends(html: string, now = Date.now(), options: { region?:
 }
 
 export function parseAdditionalSource(source: NewsSource, text: string, now = Date.now()): Candidate[] {
+  if (source.kind === 'market-wire') {
+    const rows = JSON.parse(text).data?.items;
+    if (!Array.isArray(rows)) throw new Error('快讯列表格式已变化');
+    return rows.flatMap((row, index) => {
+      const body = cleanNewsText(row.content_text || row.content);
+      const title = cleanNewsText(row.title) || body.split(/[。！？]/)[0].slice(0, 120);
+      const url = safeNewsUrl(row.uri);
+      if (!title || !url) return [];
+      return [{ title, url, summary: body.startsWith(title) ? body.slice(title.length).replace(/^[。！？\s]+/, '') : body,
+        publishedAt: validNewsDate(row.display_time, now), sourceOrder: index + 1 }];
+    });
+  }
   if (source.kind === 'feed') return parseSyndication(text, source);
   if (source.kind === 'aibase') return parseAibaseList(text, now);
   if (source.kind === 'x-trends') return parseXTrends(text, now, { region: source.trendRegion, chineseOnly: source.trendFilter === 'chinese' });
@@ -454,25 +550,97 @@ function appearanceOf(item: NewsItem): NewsAppearance {
   return appearance;
 }
 
-export function mergeNewsItems(items: NewsItem[]): NewsItem[] {
+// Similar titles can differ by a crucial number, negation or direction. Keep
+// those separate, as well as previews and follow-up commentary.
+function financeHeadline(item: NewsItem) {
+  if (scheduledRelease.test(item.title)) return;
+  if (item.category !== 'finance' || !item.publishedAt || /前瞻|预计|预测|有望|传闻|否认|可能|解读|评论|据悉|呼吁|重申|偏好|未|考虑|倾向|据传|若|或将|\?|？|preview|denies|expects?|could|unlikely/i.test(item.title)) return;
+  const normalized = item.title.normalize('NFKC').toLowerCase().replace(/^(?:快讯|快报|突发|breaking)[:\s]+/i, '');
+  const title = normalized.replace(/[\s\p{P}]/gu, '');
+  // Only unqualified rate decisions with an explicit institution and size
+  // have a common key across substantially different wordings.
+  const rate = normalized.replace(/\s/g, '').match(/^(美联储|欧洲央行|日本央行|中国人民银行|英国央行)(?:宣布|决定)?(?:将)?(加息|降息|上调(?:基准|政策)?利率|下调(?:基准|政策)?利率)(\d+(?:\.\d+)?)(?:个)?基点[。！!]?$/);
+  const rateKey = rate && [rate[1], /降息|下调/.test(rate[2]) ? 'cut' : 'hike', rate[3]].join('|');
+  if (title.length < 12 && !rateKey) return;
+  const grams = new Set<string>();
+  for (let i = 0; i + 2 < title.length; i++) grams.add(title.slice(i, i + 3));
+  const quantities = item.title.normalize('NFKC').match(/[-+]?\d+(?:\.\d+)?\s*(?:%|个基点|基点|亿美元|亿元|万亿|bp)?/gi) || [];
+  const directions = item.title.match(/加息|降息|降准|上调|下调|上涨|下跌|增长|下降|维持|取消|暂停|否决|未获|尚未|没有|不再|\b(?:not|cuts?|hikes?|raises?|holds?)\b/gi) || [];
+  return { grams, subject: title.slice(0, 4), rateKey, guard: [...quantities, ...directions].sort().join('|'), time: Date.parse(item.publishedAt) };
+}
+
+type FinanceHeadline = NonNullable<ReturnType<typeof financeHeadline>>;
+function sameFinanceHeadline(a: FinanceHeadline, b: FinanceHeadline) {
+  if (Math.abs(a.time - b.time) > 24 * 36e5) return false;
+  if (a.rateKey && b.rateKey) return a.rateKey === b.rateKey;
+  if (a.subject !== b.subject || a.guard !== b.guard) return false;
+  let shared = 0;
+  for (const gram of a.grams) if (b.grams.has(gram)) shared++;
+  return shared >= 10 && shared / Math.max(a.grams.size, b.grams.size) >= 0.80;
+}
+
+function publisherKey(entry: NewsAppearance) {
+  const channel = entry.sourceId || '';
+  if (channel.startsWith('x-trends')) return 'trends24';
+  if (entry.delivery === 'google-news') return channel + '.com';
+  const host = new URL(entry.url).hostname.toLowerCase();
+  // A wire, an RSS feed and a republication linking to the same publisher
+  // share one vote. Never treat unrelated .com.cn domains as one publisher.
+  if (/(?:^|\.)wallstreetcn\.com$/.test(host)) {
+    const attribution = (entry.title + ' ' + (entry.summary || '')).match(/[（(](彭博|路透|新华社|央视新闻)[）)]/);
+    if (attribution) return ({ '彭博': 'bloomberg.com', '路透': 'reuters.com', '新华社': 'news.cn', '央视新闻': 'cctv.com' })[attribution[1] as '彭博' | '路透' | '新华社' | '央视新闻'];
+    return 'wallstreetcn.com';
+  }
+  if (/(?:^|\.)chinanews\.com(?:\.cn)?$/.test(host)) return 'chinanews';
+  const parts = host.split('.');
+  return parts.slice(/\.(?:com\.cn|gov\.cn|co\.uk|com\.au)$/.test(host) ? -3 : -2).join('.');
+}
+
+function addCoverageWeight(item: NewsItem, now: number) {
+  const byPublisher = new Map<string, number>();
+  for (const report of item.appearances || []) {
+    if (report.stale || !report.publishedAt) continue;
+    const age = (now - Date.parse(report.publishedAt)) / 36e5;
+    if (!(age >= 0 && age <= 48)) continue;
+    const publisher = publisherKey(report);
+    byPublisher.set(publisher, Math.max(byPublisher.get(publisher) || 0, 0.5 ** (age / 24)));
+  }
+  if (byPublisher.size < 2 || !item.ranking) return;
+  const evidence = [...byPublisher.values()].sort((a,b) => b-a).slice(1);
+  const bonus = Math.min(12, Math.round(6 * Math.log2(1 + evidence.reduce((a,b) => a+b, 0))));
+  const original = item.weight;
+  item.weight = Math.min(item.ranking.weightCeiling ?? 100, score(item.weight + bonus));
+  item.weightLabel = weightLabel(item.weight);
+  item.ranking = { ...item.ranking, coverage: { publishers: byPublisher.size, bonus: item.weight - original } };
+}
+
+export function mergeNewsItems(items: NewsItem[], now = Date.now()): NewsItem[] {
   const byUrl = new Map<string, NewsItem>();
   const byTitle = new Map<string, NewsItem>();
   const merged: NewsItem[] = [];
+  const financeHeadlines: Array<{ item: NewsItem; headline: FinanceHeadline }> = [];
   for (const item of [...items].sort((a, b) => Number(Boolean(a.stale)) - Number(Boolean(b.stale)) || b.weight - a.weight)) {
     if (!safeNewsUrl(item.url) || !item.title) continue;
     const key = canonicalUrl(item.url);
-    const titleKey = item.title.toLowerCase().replace(/[\s\p{P}]/gu, '');
-    const prior = byUrl.get(key) || (titleKey.length >= 12 ? byTitle.get(titleKey) : undefined);
+    const titleKey = item.title.normalize('NFKC').toLowerCase().replace(/[\s，,。!！?“”「」：:]/gu, '');
+    const headline = financeHeadline(item);
+    const sameTitle = titleKey.length >= 12 ? byTitle.get(titleKey) : undefined;
+    const separateEditions = sameTitle?.category === 'finance' && sameTitle.publishedAt && item.publishedAt
+      && Math.abs(Date.parse(sameTitle.publishedAt) - Date.parse(item.publishedAt)) > 24 * 36e5;
+    const prior = byUrl.get(key) || (!separateEditions && sameTitle)
+      || (headline && financeHeadlines.find(previous => previous.item.sourceId !== item.sourceId && sameFinanceHeadline(headline, previous.headline))?.item);
     if (prior) {
       if (!prior.appearances!.some((entry) => entry.sourceId === item.sourceId)) prior.appearances!.push(appearanceOf(item));
       byUrl.set(key, prior);
       if (titleKey.length >= 12) byTitle.set(titleKey, prior);
     } else {
       const entry = { ...item, appearances: [appearanceOf(item)] };
+      if (headline) financeHeadlines.push({ item: entry, headline });
       merged.push(entry); byUrl.set(key, entry);
       if (titleKey.length >= 12) byTitle.set(titleKey, entry);
     }
   }
+  for (const event of merged) addCoverageWeight(event, now);
   return merged.sort((a, b) => b.weight - a.weight || (Date.parse(b.publishedAt || '') || 0) - (Date.parse(a.publishedAt || '') || 0));
 }
 
@@ -484,7 +652,7 @@ export function createNewsFeedService(
 ) {
   const sources = [...legacySources, ...(options.additionalSources ?? ADDITIONAL_NEWS_SOURCES)];
   const clock = options.now || Date.now;
-  const proxy = options.transport ? undefined : new ProxyAgent(proxyUrl);
+  const proxy = options.transport || !proxyUrl ? undefined : new ProxyAgent(proxyUrl);
   const sourceCache = new Map<string, { items: Candidate[]; at: number; route: 'direct' | 'proxy' }>();
   const routePreference = new Map<string, 'direct' | 'proxy'>();
   let snapshot: NewsFeed | null = null;
@@ -492,7 +660,7 @@ export function createNewsFeedService(
   let inFlight: Promise<NewsFeed> | null = null;
   const transport: Transport = options.transport || (async (source) => {
     const preferred = routePreference.get(source.id) || source.route;
-    const routes: Array<'direct' | 'proxy'> = preferred === 'direct' ? ['direct', 'proxy'] : ['proxy', 'direct'];
+    const routes: Array<'direct' | 'proxy'> = !proxy ? ['direct'] : preferred === 'direct' ? ['direct', 'proxy'] : ['proxy', 'direct'];
     let lastError: unknown;
     for (const route of routes) {
       try {
@@ -555,7 +723,7 @@ export function createNewsFeedService(
           const date = validNewsDate(item.publishedAt, clock());
           return date && clock() - Date.parse(date) <= source.maxAgeHours! * 3600_000;
         });
-        candidates = candidates.slice(0, source.id === 'wallstreetcn' ? 20 : 30);
+        candidates = candidates.slice(0, source.kind === 'market-wire' ? 60 : 30);
         const at = clock();
         cached = { items: candidates.map((item, index) => ({ ...item, sourceOrder: item.sourceOrder ?? index + 1, observedAt: new Date(at).toISOString(), route })), at, route };
         sourceCache.set(source.id, cached);
@@ -586,7 +754,7 @@ export function createNewsFeedService(
       result.items = result.items.filter((item) => !item.todayOnly || (item.publishedAt && beijingNewsDay(item.publishedAt) === beijingNewsDay(clock())));
       result.status.count = result.items.length;
     }
-    const items = mergeNewsItems(results.flatMap((result) => result.items));
+    const items = mergeNewsItems(results.flatMap((result) => result.items), clock());
     return {
       generatedAt: new Date(clock()).toISOString(), proxy: proxyUrl, rankingVersion: NEWS_RANKING_VERSION,
       items, sources: results.map((result) => result.status),

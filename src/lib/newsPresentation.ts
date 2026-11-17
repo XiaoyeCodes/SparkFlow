@@ -24,6 +24,7 @@ export const newsSortOptions: Array<[NewsSortMode, string]> = [
 ];
 
 export function getNewsCategory(value: string | null): NewsCategoryFilter {
+  if (!value) return 'finance';
   return newsCategories.find(([id]) => id === value)?.[0] ?? 'all';
 }
 
@@ -45,7 +46,10 @@ export function newsForSource(items: NewsItem[], source = 'all', now = Date.now(
     const appearances = item.appearances.filter(isToday);
     if (!appearances.length) return [];
     const lead = appearances.find((entry) => entry.sourceId === item.sourceId) || appearances[0];
-    return [{ ...item, ...lead, appearances }];
+    // The aggregate has an event score. A specific source keeps its own
+    // score and original rank, and expired appearances cannot add a bonus.
+    return appearances.length === item.appearances.length
+      ? [item] : [{ ...item, ...lead, appearances }];
   });
   if (source === 'all') return current;
   return current.flatMap((item) => {
@@ -97,7 +101,7 @@ function sortByDiversifiedWeight(items: NewsItem[]) {
 
 export function selectNewsItems(items: NewsItem[], category: NewsCategoryFilter, sort: NewsSortMode, source = 'all', now = Date.now()) {
   const filtered = newsForSource(items, source, now).filter((item) => category === 'all' || item.category === category);
-  if (sort === 'weight' && source === 'all') return sortByDiversifiedWeight(filtered);
+  if (sort === 'weight' && source === 'all' && category !== 'finance') return sortByDiversifiedWeight(filtered);
   return filtered.sort((a, b) => {
     const timeDifference = newsTimestamp(b.publishedAt) - newsTimestamp(a.publishedAt);
     if (sort === 'source') {
@@ -113,6 +117,17 @@ export function selectNewsItems(items: NewsItem[], category: NewsCategoryFilter,
 
 export function newsPriority(weight: number) {
   return weight >= 78 ? 'high' : weight >= 58 ? 'mid' : 'low';
+}
+
+export const NEWS_SCORE_LEVELS = [
+  { min: 78, label: '高优先', range: '78–100', flames: 3, rgb: '255, 116, 98' },
+  { min: 68, label: '重点', range: '68–77', flames: 2, rgb: '255, 163, 82' },
+  { min: 58, label: '值得看', range: '58–67', flames: 1, rgb: '231, 198, 107' },
+  { min: 0, label: '观察', range: '0–57', flames: 0, rgb: '154, 182, 184' },
+] as const;
+
+export function newsScoreLevel(value: number) {
+  return NEWS_SCORE_LEVELS.find(level => value >= level.min) ?? NEWS_SCORE_LEVELS[3];
 }
 
 export const NEWS_CARD_DECORATION_VARIANTS = ['orbit', 'circuit', 'radar', 'vector'] as const;

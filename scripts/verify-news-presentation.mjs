@@ -9,7 +9,7 @@ const { outputText } = ts.transpileModule(source, {
 });
 const {
   formatNewsSync, formatNewsTime, getNewsCategory, newsCategoryCounts,
-  newsCardDecoration, newsPriority, newsTimestamp, selectNewsItems, formatDailyNewsEdition, PINNED_NEWS_SOURCE_IDS
+  newsCardDecoration, newsPriority, newsScoreLevel, newsTimestamp, selectNewsItems, formatDailyNewsEdition, PINNED_NEWS_SOURCE_IDS
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const items = [
@@ -51,7 +51,9 @@ assert.equal(counts.filter((category) => category.id !== 'all').reduce((sum, cat
 assert.equal(newsCategoryCounts([]).every((category) => category.count === 0), true);
 assert.equal(getNewsCategory('finance'), 'finance');
 assert.equal(getNewsCategory('all'), 'all');
-assert.equal(getNewsCategory(null), 'all');
+assert.equal(getNewsCategory(null), 'finance');
+assert.deepEqual([57, 58, 68, 78].map(score => newsScoreLevel(score).flames), [0, 1, 2, 3]);
+assert.deepEqual(selectNewsItems(repeatedSourceItems, 'finance', 'weight').map(item => item.weight), [81,81,81,77,76]);
 assert.equal(getNewsCategory('unknown'), 'all');
 assert.equal(newsPriority(78), 'high');
 assert.equal(newsPriority(77), 'mid');

@@ -200,7 +200,59 @@ assert.equal(newsForSource(internationalMerged, 'international').length, 1);
 assert.equal(newsForSource(internationalMerged, 'international')[0].sourceId, 'reuters');
 assert.equal(newsForSource([duplicateA], 'international').length, 0);
 assert.ok(scoreNews({ title: 'Federal Reserve announces interest rate cuts', url: 'https://example.com/policy' }, source('nyt-world'), now).importance > scoreNews({ title: 'A day at the office', url: 'https://example.com/neutral' }, source('nyt-world'), now).importance);
-assert.equal(ADDITIONAL_NEWS_SOURCES.filter((s) => ['official-rss', 'google-news'].includes(s.delivery)).length, 10);
+assert.equal(ADDITIONAL_NEWS_SOURCES.filter((s) => ['official-rss', 'google-news'].includes(s.delivery)).length, 11);
+const report = (title, publisher, path = 'a') => scoreNews({
+  title, url: 'https://' + publisher + '/' + path, publishedAt: new Date(now - 36e5).toISOString()
+}, {...official, id: publisher + path, sourceWeight: 74}, now);
+const decision = report('美联储宣布下调基准利率25个基点', 'one.example');
+const secondReport = report('快讯：美联储宣布下调基准利率25个基点', 'two.example');
+const mirror = report(secondReport.title, 'www.two.example', 'mirror');
+const eventFeed = mergeNewsItems([decision, secondReport, mirror], now);
+assert.equal(eventFeed.length, 1);
+assert.equal(eventFeed[0].ranking.coverage.publishers, 2);
+assert.ok(eventFeed[0].weight > decision.weight);
+assert.equal(newsForSource(eventFeed, 'all', now)[0].weight, eventFeed[0].weight);
+assert.equal(newsForSource(eventFeed, decision.sourceId, now)[0].weight, decision.weight);
+assert.equal(mergeNewsItems([decision, secondReport], now + 49 * 36e5)[0].ranking.coverage, undefined);
+assert.equal(mergeNewsItems([decision, report('美联储宣布下调基准利率50个基点', 'two.example')], now).length, 2);
+assert.equal(mergeNewsItems([decision, report('美联储宣布上调基准利率25个基点', 'two.example')], now).length, 2);
+assert.equal(mergeNewsItems([decision, report('美联储降息25基点', 'two.example')], now).length, 1);
+assert.equal(mergeNewsItems([decision, report('美联储降息2.5基点', 'two.example')], now).length, 2);
+const marketMove = report('全球股市四连跌，韩股下挫2%', 'one.example');
+// Replay the financial wire at publication time, when the freshness bonus is largest.
+const freshWire = (title, host = 'wire.example') => scoreNews({
+  title, url: 'https://' + host + '/' + encodeURIComponent(title), publishedAt: new Date(now).toISOString()
+}, {...source('wallstreetcn-live'), id: host}, now);
+const calendar = freshWire('提醒：北京时间15:00，将公布英国9月三个月ILO失业率、英国10月失业金申请人数变动等数据');
+const result = freshWire('英国9月三个月ILO失业率 4.6%，预期 4.7%，前值 4.7%');
+const surprise = freshWire('英国9月三个月ILO失业率 5.0%，预期 4.7%，前值 4.7%');
+const close = freshWire('日经225指数收盘下跌1.3%，报58,860.43点');
+const swing = freshWire('创业板指跌超2%，早盘一度涨超1%，科创50指数回落翻绿，此前一度涨超3%');
+const deal = freshWire('加拿大养老基金和欧洲股权投资公司Nordic Capital联手收购Cary股权，公司估值30亿欧元');
+assert.ok(calendar.weight <= 40 && calendar.importance <= 40);
+assert.ok(result.weight > calendar.weight && result.weight < 78);
+assert.ok(surprise.weight >= 78 && surprise.weight > result.weight);
+assert.ok(close.weight < 58 && swing.weight > close.weight && swing.weight < 78);
+assert.ok(freshWire('沪指午后翻红，早盘一度跌超5%').weight < 58);
+assert.ok(deal.weight < 68 && freshWire(deal.title.replace('30亿', '300亿')).weight < 68, 'Valuation is not deal consideration');
+for (const title of ['美联储宣布自下月起下调基准利率25个基点', '亚洲股市触发熔断', '日经225指数收盘下跌5.2%', '美国10年期国债收益率上行30个基点', '两家企业签订协议，以150亿美元收购半导体公司']) {
+  assert.ok(freshWire(title).weight >= 78, title);
+}
+assert.ok(marketMove.weight > swing.weight && marketMove.weight > deal.weight);
+const repeatedPreview = mergeNewsItems([calendar, freshWire(calendar.title, 'second.example'), freshWire(calendar.title, 'third.example')], now);
+assert.equal(repeatedPreview.length, 1);
+assert.equal(repeatedPreview[0].ranking.coverage.publishers, 3);
+assert.ok(repeatedPreview[0].weight <= 40, 'Coverage and freshness cannot lift a reminder past its ceiling');
+assert.equal(mergeNewsItems([calendar, result], now).length, 2);
+assert.ok(marketMove.weight > report('今年前10月上海对APEC其他经济体进出口额同比增逾两成', 'two.example').weight);
+for (const title of ['摩根大通：CUDA护城河正在瓦解，英伟达面临的真正挑战不止于CEO离职','这些情形需要向公司支付违约金','美联储官员重申偏好小步加息']) {
+  assert.ok(marketMove.weight > report(title, 'two.example').weight, title);
+}
+const wire = parseAdditionalSource(source('wallstreetcn-live'), JSON.stringify({data:{items:[{
+  uri:'https://wallstreetcn.com/livenews/1',display_time:now / 1000,content_text:'创业板指跌超2%。早盘一度上涨。'
+}]}}), now);
+assert.equal(wire[0].title, '创业板指跌超2%');
+assert.equal(wire[0].publishedAt, new Date(now).toISOString());
 console.log('International checks passed: RSS/Atom, original order, publisher attribution, 24h window, empty feeds and English scoring.');
 
 const { validateFeedUrl, validateSubscription, isPublicIpv4, createSubscriptionStore, fetchPublicFeed } = await loadTs('../server/newsSubscriptions.ts');
