@@ -2,13 +2,14 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { ProxyAgent, fetch as upstreamFetch } from 'undici';
+import { Agent, ProxyAgent, fetch as upstreamFetch } from 'undici';
+import { configuredProxy, publicStateDirectory } from './runtimeConfig.ts';
 import type { ValuationInputs, ValuationSeries } from '../src/lib/ibkr/valuationTypes.ts';
 
 type Point = ValuationSeries['points'][number];
 type SeriesKey = keyof ValuationInputs['series'];
 const root = process.cwd();
-const stateDir = path.join(root, '.sparkflow', 'valuation');
+const stateDir = path.join(publicStateDirectory(root), 'valuation');
 const DAY = 86_400_000;
 const SOURCES = {
   pe: ['World PE Ratio · SPY ETF 市盈率', 'https://worldperatio.com/index/sp-500/'],
@@ -21,7 +22,8 @@ const SOURCES = {
   cape: ['Robert Shiller / Multpl · CAPE', 'https://www.multpl.com/shiller-pe/table/by-month'],
   treasury2y: ['新浪财经 · 美国2年期国债', 'https://stock.finance.sina.com.cn/forex/globalbd/cn2yt.html'],
 } as const;
-const proxy = new ProxyAgent(process.env.SPARKFLOW_VALUATION_PROXY || 'http://127.0.0.1:7890');
+const proxyUrl = configuredProxy('SPARKFLOW_VALUATION_PROXY');
+const proxy = proxyUrl ? new ProxyAgent(proxyUrl) : new Agent();
 let cache: { at: number; data: ValuationInputs } | undefined;
 let flight: Promise<ValuationInputs> | undefined;
 const slowCache = new Map<SeriesKey, { at: number; value: ValuationSeries }>();

@@ -53,16 +53,20 @@ export function initializeUserData(rootDir: string) {
     paths.strategyResearchDir,
   ]) mkdirSync(directory, { recursive: true });
 
-  const vibeAgent = path.join(rootDir, 'services', 'vibe-trading', 'agent');
-  copyLegacy(path.join(rootDir, '.sparkflow', 'ibkr-workbench'), paths.ibkrWorkbenchDir, ['worker.lock']);
-  copyLegacy(path.join(rootDir, '.sparkflow', 'ibkr-terminal'), paths.ibkrTerminalDir);
-  copyLegacy(path.join(vibeAgent, 'sessions'), paths.assistantSessionsDir);
-  copyLegacy(path.join(vibeAgent, 'runs'), paths.assistantRunsDir);
-  copyLegacy(path.join(vibeAgent, 'uploads'), paths.assistantUploadsDir);
-  copyLegacy(path.join(vibeAgent, '.env'), paths.vibeEnvFile);
-  copyLegacy(path.join(homedir(), '.SparkFlow', 'apikey', 'integration-settings.json'), paths.integrationSettingsFile);
-  copyLegacy(path.join(rootDir, '.sparkflow', 'integration-settings.json'), paths.integrationSettingsFile);
-  copyLegacy(path.join(rootDir, '.sparkflow', 'coze-reports'), path.join(paths.reportsDir, 'coze-reports'));
+  // A production build must not import the builder's desktop credentials or
+  // account history, even when its clean source is built on that same computer.
+  if (process.env.SPARKFLOW_IMPORT_LEGACY_DATA !== '0') {
+    const vibeAgent = path.join(rootDir, 'services', 'vibe-trading', 'agent');
+    copyLegacy(path.join(rootDir, '.sparkflow', 'ibkr-workbench'), paths.ibkrWorkbenchDir, ['worker.lock']);
+    copyLegacy(path.join(rootDir, '.sparkflow', 'ibkr-terminal'), paths.ibkrTerminalDir);
+    copyLegacy(path.join(vibeAgent, 'sessions'), paths.assistantSessionsDir);
+    copyLegacy(path.join(vibeAgent, 'runs'), paths.assistantRunsDir);
+    copyLegacy(path.join(vibeAgent, 'uploads'), paths.assistantUploadsDir);
+    copyLegacy(path.join(vibeAgent, '.env'), paths.vibeEnvFile);
+    copyLegacy(path.join(homedir(), '.SparkFlow', 'apikey', 'integration-settings.json'), paths.integrationSettingsFile);
+    copyLegacy(path.join(rootDir, '.sparkflow', 'integration-settings.json'), paths.integrationSettingsFile);
+    copyLegacy(path.join(rootDir, '.sparkflow', 'coze-reports'), path.join(paths.reportsDir, 'coze-reports'));
+  }
 
   const readme = path.join(paths.root, 'README.txt');
   if (!existsSync(readme)) writeFileSync(readme, [

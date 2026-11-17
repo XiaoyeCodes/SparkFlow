@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { link, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { publicStateDirectory } from './runtimeConfig.ts';
 import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ValuationDashboard, ValuationInputs, ValuationLookback } from '../src/lib/ibkr/valuationTypes.ts';
@@ -23,7 +24,7 @@ export function createValuationService(options: {
   stateDir?: string;
   load?: (options?: { force?: boolean }) => Promise<ValuationInputs>;
 } = {}) {
-  const directory = path.join(options.stateDir ?? path.resolve('.sparkflow'), 'valuation-audit');
+  const directory = path.join(options.stateDir ?? publicStateDirectory(), 'valuation-audit');
   const load = options.load ?? loadValuationInputs;
   let latest: StoredSnapshot | null = null;
   let pending: Promise<StoredSnapshot> | null = null;

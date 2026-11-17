@@ -1,4 +1,5 @@
-import { ProxyAgent, fetch as upstreamFetch } from 'undici';
+import { Agent, ProxyAgent, fetch as upstreamFetch } from 'undici';
+import { configuredProxy, publicStateDirectory } from './runtimeConfig.ts';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -56,8 +57,9 @@ export type RiskTimelinePayload = {
 const DAY = 86_400_000;
 const CACHE_MS = 60 * 60_000;
 const MAX_STALE_MS = 14 * DAY;
-const CACHE_FILE = path.join(process.cwd(), '.sparkflow', 'risk-radar-timeline.json');
-const proxy = new ProxyAgent(process.env.SPARKFLOW_VALUATION_PROXY || 'http://127.0.0.1:7890');
+const CACHE_FILE = path.join(publicStateDirectory(), 'risk-radar-timeline.json');
+const proxyUrl = configuredProxy('SPARKFLOW_VALUATION_PROXY');
+const proxy = proxyUrl ? new ProxyAgent(proxyUrl) : new Agent();
 type TimelineCache = { at: number; checkedAt: number; value: RiskTimelinePayload; error: string | null };
 let cache: TimelineCache | null = null;
 let flight: Promise<RiskTimelinePayload> | null = null;

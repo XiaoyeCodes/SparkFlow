@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { configuredProxy } from './runtimeConfig.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { createUserDataPaths } from './userData.ts';
@@ -131,7 +132,7 @@ export function createStockStrategyService(options: {
       await persist(job);
       let result: StrategyJob['result'];
       const previousReport = job.mode === 'chat' ? jobs.get(job.sessionId)?.result?.report : undefined;
-      await runner({ ...publicJob(job), ai, previousReport, dataDir: options.directory, proxyUrl: process.env.SPARKFLOW_STRATEGY_PROXY || 'http://127.0.0.1:7890' }, event => {
+      await runner({ ...publicJob(job), ai, previousReport, dataDir: options.directory, proxyUrl: configuredProxy('SPARKFLOW_STRATEGY_PROXY') }, event => {
         if (controller.signal.aborted) return;
         if (event.type === 'progress') {
           job.progress = Math.max(job.progress, Math.min(95, Number(event.progress) || 5));

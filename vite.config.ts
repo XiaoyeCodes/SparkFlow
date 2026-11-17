@@ -4,6 +4,7 @@ import { initializeUserData, safeExportName } from './server/userData';
 import { bookLibraryPlugin } from './server/bookLibrary';
 import { stockStrategyPlugin } from './server/stockStrategy';
 import { dailyDigestsPlugin } from './server/dailyDigestsPlugin';
+import { configuredProxy, publicStateDirectory } from './server/runtimeConfig';
 import { createAssistantResearch } from './server/ibkrAssistantResearch';
 import regionalVerifiedSeed from './src/data/chinaRegionalVerified.json';
 import regionalSources from './src/data/chinaRegionalSources.json';
@@ -94,11 +95,11 @@ import type {
 
 const rootDir = process.cwd();
 const allWeatherDataDir = path.join(rootDir, 'public', 'allweather', 'data');
-const foreignProxyUrl = 'http://127.0.0.1:7890';
-const foreignProxyAgent = new ProxyAgent(foreignProxyUrl);
+const foreignProxyUrl = configuredProxy();
+const foreignProxyAgent = foreignProxyUrl ? new ProxyAgent(foreignProxyUrl) : new Agent();
 // Keep release requests independent of the dashboard's long-lived market/news connections.
 const macroDirectAgent = new Agent({ connections: 4 });
-const macroProxyAgent = new ProxyAgent({ uri: foreignProxyUrl, connections: 4 });
+const macroProxyAgent = foreignProxyUrl ? new ProxyAgent({ uri: foreignProxyUrl, connections: 4 }) : new Agent({ connections: 4 });
 const getChinaFisherSnapshot = createChinaFisherService((url) => fetchMacroSourceText(url, 'direct', 10_000));
 const getChinaGdpSnapshot = createChinaGdpService((url) => fetchMacroSourceText(url, 'direct', 10_000));
 const getChinaIncomeSnapshot = createChinaIncomeService((url) => fetchMacroSourceText(url, 'direct', 5_000));
@@ -112,7 +113,7 @@ async function fetchMacroSourceText(url: string, route: 'direct' | 'proxy', time
   return response.text();
 }
 const vibeTradingRoot = process.env.VIBE_TRADING_ROOT || path.join(rootDir, 'services', 'vibe-trading');
-const sparkflowStateDir = path.join(rootDir, '.sparkflow');
+const sparkflowStateDir = publicStateDirectory(rootDir);
 const userData = initializeUserData(rootDir);
 const financialConditionsService = createFinancialConditionsService({ stateDir: sparkflowStateDir, getSeries: getFredSeries });
 const legacyIntegrationSettingsFile = path.join(sparkflowStateDir, 'integration-settings.json');
@@ -744,7 +745,7 @@ function enrichNewsItem(
 
 function parseRssItems(xml: string, source: NewsSourceConfig): NewsItem[] {
   const blocks = xml.match(/<item[\s\S]*?<\/item>|<entry[\s\S]*?<\/entry>/gi) || [];
-  const itemLimit = source.id === 'wallstreetcn' ? 20 : 12;
+  const itemLimit = source.category === 'finance' ? 30 : 12;
   return blocks.slice(0, itemLimit).flatMap((block, index) => {
     const title = stripTags(pickXml(block, 'title'));
     const linkFromTag = pickXml(block, 'link');

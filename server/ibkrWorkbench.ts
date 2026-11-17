@@ -1044,7 +1044,7 @@ export function ibkrWorkbenchPlugin(options: { fetchJson: JsonFetcher; fetchLogo
         if (req.method !== 'POST') return json({ error: '接口不存在' }, 404);
         instance.assertAvailable();
         const data = await body(req, endpoint === 'backtests/run' ? 4 * 1024 * 1024 : 32000);
-        if (endpoint === 'connect') return json(await instance.mcp.begin(`http://127.0.0.1:${port()}`));
+        if (endpoint === 'connect') return json(await instance.mcp.begin(process.env.SPARKFLOW_CLOUD_MODE === '1' ? process.env.SPARKFLOW_PUBLIC_ORIGIN! : `http://127.0.0.1:${port()}`));
         if (endpoint === 'disconnect') { await instance.disconnect(); return json({ ok: true, detail: instance.mcp.detail }); }
         if (endpoint === 'source') { const value = z.object({ source: z.enum(['mcp', 'gateway']), gatewayMode: z.enum(['live', 'paper']).optional(), accountKey: z.string().regex(/^live:[a-zA-Z0-9:_-]+$/).optional() }).strict().parse(data); await instance.select(value.source, value.accountKey, value.gatewayMode); return json({ ok: true }); }
         if (endpoint === 'gateway-connect') { await instance.connectGateway(); return json(await instance.state()); }
