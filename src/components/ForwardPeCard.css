@@ -12,6 +12,22 @@
 .pe-legend .pe-median { border-top: 2px dotted #8baba0; }
 .pe-legend .pe-band { height: 8px; border: 1px solid #527762; background: rgba(109,202,165,.12); }
 .pe-legend .pe-monthly-reference i { width: 6px; height: 6px; margin-inline: 4px; transform: rotate(45deg); border: 0; background: #94baf5; }
+.pe-chart { position: relative; }
+/* Keep the valuation curve and percentile band visible in the gaps between dashes. */
+.pe-chart .hoverlayer line.spikeline:not([stroke-dasharray]) { stroke: none; }
+.pe-tooltip {
+  position: absolute; z-index: 2; pointer-events: none;
+  box-sizing: border-box; width: 164px; max-width: 100%; padding: 9px 12px;
+  border: 1px solid rgb(153 204 176 / 28%); border-radius: 8px;
+  background: rgb(13 29 22 / 70%); color: var(--risk-text);
+  box-shadow: 0 3px 12px rgb(0 0 0 / 14%); backdrop-filter: blur(2px);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.pe-tooltip[aria-hidden="true"] { visibility: hidden; }
+.pe-tooltip time, .pe-tooltip small { display: block; min-height: 16px; line-height: 16px; }
+.pe-tooltip small { color: #b4c7bc; font-size: 11px; }
+.pe-tooltip > div { display: flex; align-items: baseline; justify-content: space-between; margin: 3px 0; line-height: 20px; }
+.pe-tooltip strong { color: var(--pe-line-color); font-size: 15px; }
 .pe-coverage { margin: 0; padding: 0 20px 12px; color: var(--risk-muted); font-size: 12px; line-height: 1.6; }
 .pe-coverage a { color: #a8c8f8; text-decoration: underline; text-underline-offset: 2px; }
 .forward-pe[aria-busy="true"] .etf-gravity-empty { min-height: 300px; }
