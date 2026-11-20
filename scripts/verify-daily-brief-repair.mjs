@@ -1,3 +1,4 @@
+import { withinBriefDeadline } from '../server/dailyBriefDeadline.ts';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -70,11 +71,11 @@ const fakeMarket = {
   spot: async symbols => { selectedSpotSymbols = symbols; cryptoRequests.push('spot'); return transportBody; },
   history: async symbol => { cryptoRequests.push(`klines?symbol=${symbol}USDT`); return transportBody; },
 };
-const cryptoLoader = new Function('fetchRoutedText', 'finiteNumber', 'round', 'editorialMetric', 'editorialAssetDisplay', 'dailyBriefCryptoMarket', 'hasBriefCryptoHistory', `${compiled}; return fetchEditorialCryptoData;`)(
+const cryptoLoader = new Function('fetchBriefText', 'finiteNumber', 'round', 'editorialMetric', 'editorialAssetDisplay', 'dailyBriefCryptoMarket', 'hasBriefCryptoHistory', 'withinBriefDeadline', `${compiled}; return fetchEditorialCryptoData;`)(
   async url => { cryptoRequests.push(url); return transportBody; },
   value => value == null || !Number.isFinite(Number(value)) ? null : Number(value),
   (value, digits) => Number(value.toFixed(digits)),
-  (value, display) => ({ ...metric(value), display }), (_symbol, value) => String(value ?? '—'), fakeMarket, hasBriefCryptoHistory);
+  (value, display) => ({ ...metric(value), display }), (_symbol, value) => String(value ?? '—'), fakeMarket, hasBriefCryptoHistory, withinBriefDeadline);
 transportBody = JSON.stringify([{ buyVol: '4', sellVol: '2' }]);
 const previous = base().editorial;
 previous.crypto = [{ symbol: 'BTC', name: 'BTC', price: 50, history: [{ time: date, value: 50 }] }];

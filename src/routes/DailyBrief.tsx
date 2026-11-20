@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type {
   DailyBriefChartPoint,
   DailyBriefAiSummaryResponse,
+  DailyBriefArchivePreview,
   DailyBriefAssetGroup,
   DailyBriefEditorialEvent,
   DailyBriefEditorialMetric,
@@ -16,33 +17,22 @@ import type {
 import { DailyBriefVisualDashboard } from "../components/DailyBriefVisuals";
 import "./DailyBrief.css";
 import { invalidatePageData, pageDataFetch, peekPageData, rememberPageData } from '../lib/pageDataClient';
-import { isCurrentDailyBrief, nextDailyBriefUpdateAt } from '../lib/dailyBriefFreshness';
+import { compareBriefRevisions, isCurrentDailyBrief, nextDailyBriefUpdateAt } from '../lib/dailyBriefFreshness';
 import { hasBriefBtcTechnical, hasBriefCryptoHistory } from '../lib/dailyBriefCrypto';
 
 const money = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
 async function requestJson<T>(url: string, init?: RequestInit) {
-  const attempts = !init?.method || init.method === "GET" ? 2 : 1;
-  let lastError: unknown;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      const response = await pageDataFetch(url, { headers: { Accept: "application/json" }, ...init });
-      const text = await response.text();
-      if (!text.trim()) throw new Error(`接口返回空内容（${response.status}）`);
-      let payload: T & { detail?: string };
-      try {
-        payload = JSON.parse(text) as T & { detail?: string };
-      } catch {
-        throw new Error(response.ok ? "接口返回的数据不完整，请重试" : `请求失败（${response.status}）`);
-      }
-      if (!response.ok) throw new Error(payload.detail || `请求失败（${response.status}）`);
-      return payload;
-    } catch (error) {
-      if (init?.signal?.aborted) throw error;
-      lastError = error;
-    }
+  const response = await pageDataFetch(url, { headers: { Accept: "application/json" }, ...init });
+  const text = await response.text();
+  let payload: T & { detail?: string };
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error(response.ok ? "接口返回的数据不完整，请重试" : `请求失败（${response.status}）`);
   }
-  throw lastError instanceof Error ? lastError : new Error("请求失败，请重试");
+  if (!response.ok) throw new Error(payload?.detail || `请求失败（${response.status}）`);
+  return payload;
 }
 
 function shanghaiTime(value?: string) {
@@ -317,6 +307,7 @@ export function DailyBrief() {
   const [brief, setBrief] = useState<DailyBriefResponse | null>(() => peekPageData<DailyBriefResponse>('/api/daily-brief') ?? null);
   const [loading, setLoading] = useState(() => !peekPageData('/api/daily-brief'));
   const [error, setError] = useState("");
+  const [archive, setArchive] = useState<DailyBriefArchivePreview | null>(null);
   const [modelSummary, setModelSummary] = useState<DailyBriefSummary | null>(null);
   const [, setModelSummaryState] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
   const [aiRefreshNonce, setAiRefreshNonce] = useState(0);
@@ -329,6 +320,7 @@ export function DailyBrief() {
   const load = useCallback(async (refresh = false) => {
     briefRequest.current?.abort();
     const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort('brief-timeout'), 55_000);
     briefRequest.current = controller;
     setLoading(true);
     setError("");
@@ -343,20 +335,22 @@ export function DailyBrief() {
       const payload = refresh ? await requestJson<DailyBriefResponse>("/api/daily-brief/refresh", { method: "POST", signal: controller.signal }) : await requestJson<DailyBriefResponse>("/api/daily-brief", { signal: controller.signal });
       if (controller.signal.aborted) return;
       if (!isCurrentDailyBrief(payload.snapshot)) {
-        invalidatePageData('/api/daily-brief');
-        setBrief(null);
-        setModelSummary(null);
         throw new Error('最近24小时内的简报缓存尚未就绪，后台正在准备。');
       }
       if (refresh) rememberPageData('/api/daily-brief', payload);
-      setBrief(payload);
+      setBrief(current => current && isCurrentDailyBrief(current.snapshot)
+        && compareBriefRevisions(current.snapshot, payload.snapshot) > 0 ? current : payload);
       if (refresh) setAiRefreshNonce((current) => current + 1);
     } catch (reason) {
-      if (controller.signal.aborted) return;
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (briefRequest.current !== controller) return;
+      if (controller.signal.reason === 'brief-timeout') setError('简报请求超时，页面会自动重试。');
+      else if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      if (!controller.signal.aborted) setLoading(false);
-      if (briefRequest.current === controller) briefRequest.current = null;
+      window.clearTimeout(timeout);
+      if (briefRequest.current === controller) {
+        if (!controller.signal.aborted || controller.signal.reason === 'brief-timeout') setLoading(false);
+        briefRequest.current = null;
+      }
     }
   }, []);
 
@@ -377,19 +371,30 @@ export function DailyBrief() {
   }, [brief?.snapshot.generatedAt, load]);
 
   const snapshot = brief?.snapshot;
+  const awaitingEdition = !snapshot;
+  useEffect(() => {
+    if (!awaitingEdition) { setArchive(null); return; }
+    const controller = new AbortController();
+    void requestJson<{ previous: DailyBriefArchivePreview | null }>('/api/daily-brief/status?view=archive-preview', { signal: controller.signal })
+      .then(result => { if (!controller.signal.aborted) setArchive(result.previous); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [awaitingEdition]);
   const data: DailyBriefEditorialSnapshot | undefined = snapshot?.editorial;
   const cryptoNeedsRepair = Boolean(data && (['BTC', 'ETH', 'SOL'].some(symbol => {
     const quote = data.crypto.find(item => item.symbol === symbol);
     return !Number.isFinite(quote?.price ?? NaN) || !(Number(quote?.price) > 0) || !hasBriefCryptoHistory(quote?.history);
   }) || !hasBriefBtcTechnical(data.btcTechnical)));
+  const needsEarlyRetry = awaitingEdition || cryptoNeedsRepair || brief?._pageCache?.state === 'stale'
+    || Boolean(data && (data.sentiment.vix.value == null || !data.sentiment.stockComponents.length || data.futuresLongShort?.longAccount == null));
   useEffect(() => {
     const recover = () => {
       if (document.visibilityState === 'visible' && !briefRequest.current) void load();
     };
-    const timer = cryptoNeedsRepair ? window.setInterval(recover, 15_000) : undefined;
+    const timer = needsEarlyRetry ? window.setInterval(recover, 15_000) : undefined;
     window.addEventListener('online', recover);
     return () => { window.clearInterval(timer); window.removeEventListener('online', recover); };
-  }, [cryptoNeedsRepair, load]);
+  }, [needsEarlyRetry, load]);
 
   useEffect(() => {
     if (!snapshot) { setModelSummary(null); return; }
@@ -519,6 +524,17 @@ export function DailyBrief() {
     };
   }, [assetGroups]);
 
+  if (!snapshot) return <main className="daily-brief-editorial"><section className="editorial-wrap" aria-label="每日简报">
+    <h2>每日简报</h2>
+    <p role="status">{error || '正在获取本期行情与资讯，数据就绪后会自动显示。'}</p>
+    {archive && <article className="editorial-archive">
+      <h3>上期简报摘要 · <time dateTime={archive.date}>{archive.date}</time></h3>
+      <p>{archive.headline}</p>
+      {archive.titles.length > 0 && <ul>{archive.titles.map((title, index) => <li key={index}>{title}</li>)}</ul>}
+    </article>}
+    {error && <button className="editorial-refresh-all" type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={15} /><span>重新加载</span></button>}
+  </section></main>;
+
   return <div className="daily-brief-editorial" style={{ "--editorial-side-dock-height": sideDockHeight ? `${sideDockHeight}px` : "auto" } as CSSProperties}>
     {assetGroups.length ? <>
       <aside className="editorial-side-dock is-left" aria-label="市场数据左侧轨道" ref={leftDockRef}><Mag7DataPanel data={data} />{leftAssetGroups.map((group) => <AssetGroupPanel group={group} key={group.id} />)}</aside>
@@ -526,7 +542,7 @@ export function DailyBrief() {
     </> : null}
     <div className="editorial-wrap">
       {error ? <div className="editorial-error">{error}</div> : null}
-      {brief?.cache.stale || brief?._pageCache?.state === 'stale' ? <p role="status" className="editorial-intelligence-foot">本日版次已缓存，更新未完成；可稍后手动刷新重试。</p> : null}
+      {brief?.cache.stale || brief?._pageCache?.state === 'stale' ? <p role="status" className="editorial-intelligence-foot">当前显示 {snapshot.date} {shanghaiTime(snapshot.generatedAt)} 的缓存简报，新版就绪后会自动显示。</p> : null}
 
       <section className="editorial-lead" aria-label="预留数据区域">
         <div className="editorial-lead-metrics"><div className="editorial-tile-grid">{data ? [

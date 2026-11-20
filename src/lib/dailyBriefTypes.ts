@@ -305,6 +305,12 @@ export type DailyBriefSnapshot = {
   day1?: DailyBriefDay1Snapshot;
 };
 
+export type DailyBriefArchivePreview = {
+  date: string;
+  headline: string;
+  titles: string[];
+};
+
 export type DailyBriefResponse = {
   _pageCache?: import('./pageDataTypes').PageCacheMeta;
   snapshot: DailyBriefSnapshot;

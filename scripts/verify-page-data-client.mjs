@@ -51,6 +51,14 @@ try {
   assert.equal(peekPageData('/api/daily-brief'), undefined, 'expired server response cannot repopulate the cache');
   rememberPageData('/api/daily-brief', { ...brief('2026-09-15'), cache: { stale: true } });
   assert.ok(peekPageData('/api/daily-brief'), 'recent fallback renders while its hourly replacement loads');
+  const repaired = brief('2026-09-15');
+  repaired.snapshot.summary.headline = '修复后';
+  now += 1000;
+  repaired.snapshot.updatedAt = new Date(now).toISOString();
+  rememberPageData('/api/daily-brief', repaired);
+  rememberPageData('/api/daily-brief', brief('2026-09-15'));
+  rememberPageData('/api/daily-brief', brief('2026-09-14'));
+  assert.equal(peekPageData('/api/daily-brief').snapshot.summary.headline, '修复后', 'late and expired responses cannot evict the repaired version');
   now = Date.parse('2026-09-15T15:59:59Z');
   rememberPageData('/api/news-feed', feed());
   now += 1000;

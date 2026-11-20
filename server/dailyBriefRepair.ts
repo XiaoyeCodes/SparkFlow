@@ -1,4 +1,5 @@
 import type { DailyBriefSnapshot } from '../src/lib/dailyBriefTypes.ts';
+import { withinBriefDeadline } from './dailyBriefDeadline.ts';
 
 export type DailyBriefRepairTask = {
   id: string;
@@ -32,7 +33,7 @@ export async function runDailyBriefRepairs(options: {
         let patch: ((draft: DailyBriefSnapshot) => void) | undefined;
         let error = blocked;
         if (!blocked) {
-          try { patch = await task.load(structuredClone(current)); }
+          try { patch = await withinBriefDeadline(task.load(structuredClone(current)), 40_000); }
           catch { error = '数据源请求失败，稍后自动重试'; }
         }
         await options.commit(draft => {

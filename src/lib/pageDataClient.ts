@@ -1,4 +1,4 @@
-import { dailyBriefExpiresAt, isCurrentDailyBrief } from './dailyBriefFreshness.ts';
+import { compareBriefRevisions, dailyBriefExpiresAt, isCurrentDailyBrief } from './dailyBriefFreshness.ts';
 
 // Page-local data may include configured subscriptions or AI output. Keep it in
 // tab memory, separate from the visitor-independent public dashboard cache.
@@ -63,6 +63,10 @@ export function rememberPageData(input: string, data: unknown) {
   const now = Date.now();
   const expiresAt = deadline(policy.key, data, now, policy.maxAgeMs);
   const previous = entries.get(policy.key);
+  if (policy.key === '/api/daily-brief' && previous && previous.expiresAt > now) {
+    const incoming = (data as { snapshot?: { generatedAt: string; updatedAt?: string } } | null)?.snapshot;
+    if (expiresAt <= now || !incoming || compareBriefRevisions(JSON.parse(previous.body).snapshot, incoming) > 0) return;
+  }
   if (previous && expiresAt > now && Date.parse(JSON.parse(previous.body).generatedAt || '') > Date.parse((data as { generatedAt?: string }).generatedAt || '')) return;
   entries.delete(policy.key);
   if (expiresAt <= now) return;
@@ -118,7 +122,7 @@ export function pageDataFetch(input: string, init: RequestInit = {}): Promise<Re
   let active = pending.get(policy.key);
   if (!active) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 120_000);
+    const timer = setTimeout(() => controller.abort(), policy.key === '/api/daily-brief' ? 55_000 : 120_000);
     const promise = (async () => {
       try {
         const response = await fetch(input, { ...init, cache: 'no-store', signal: controller.signal });

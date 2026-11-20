@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createDailyBriefService, getDailyBriefWindow, getNextDailyBriefRun } from '../server/dailyBriefService.ts';
@@ -12,7 +12,10 @@ let gated = false;
 const snapshot = (window, index) => ({ version: 18, date: window.date, slot: window.slot,
   generatedAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString(), summaryMode: 'rules',
   summary: { headline: `snapshot-${index}`, regime: 'test', tone: 'balanced', highlights: [], risks: [], watchlist: [], portfolioNotes: [] },
-  markets: [], macro: [], news: [], sources: [], errors: [], portfolio: { connected: false, positions: [] } });
+  markets: [], macro: [], news: [], sources: [], errors: [], portfolio: { connected: false, positions: [] },
+  editorial: { signals: { coverage: 0 }, onchain: {}, indices: [], stocks: [], crypto: [], macroAssets: [], assetGroups: [],
+    marketSeries: [], events: [], sentiment: { stockComponents: [], vix: { value: null }, stockFearGreed: { value: null },
+      cryptoFearGreed: { value: null }, mvrvZScore: { value: null } } } });
 const until = async predicate => {
   for (let i = 0; i < 200; i++) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)); }
   throw new Error('timed out');
@@ -53,10 +56,17 @@ try {
   await until(() => warmed.length === 2);
   const file = path.join(root, 'daily-brief', '2026-10-08', 'morning.json');
   assert.equal(JSON.parse(await readFile(file, 'utf8')).summary.headline, 'snapshot-2');
+  const pointer = path.join(root, 'daily-brief', 'latest.json');
+  await writeFile(pointer, '{truncated');
   const restart = createDailyBriefService({ stateDir: root, now: () => new Date(now), generate: async () => { throw Error('must restore'); } });
   const stop = restart.schedule();
   assert.equal((await restart.getForPage()).snapshot.summary.headline, 'snapshot-2');
   await restart.refreshIfDue(); stop();
+  assert.equal(await restart.archivePreview(), null);
+  await writeFile(pointer, JSON.stringify(visitors[0].snapshot));
+  assert.equal((await restart.latest()).summary.headline, 'snapshot-2', 'a newer dated file wins over an older valid pointer');
+  await writeFile(pointer, JSON.stringify({ ...visitors[0].snapshot, generatedAt: new Date(now).toISOString(), editorial: undefined }));
+  assert.equal((await restart.latest()).summary.headline, 'snapshot-2', 'a partial snapshot cannot hide the working dashboard');
   now = Date.parse('2026-10-08T04:00:00Z'); fail = true;
   const failed = await service.refreshIfDue();
   assert.equal(failed.snapshot.summary.headline, 'snapshot-2');
@@ -77,6 +87,42 @@ try {
   now += 25 * 3600_000; fail = true;
   await assert.rejects(service.getForPage(), /过期/, 'snapshots cannot stay usable forever');
   assert.equal((await service.latest()).date, '2026-10-09');
+  assert.deepEqual(await service.archivePreview(), { date: '2026-10-09', headline: (await service.latest()).summary.headline, titles: [] });
+  const archivedDate = (await service.latest()).date;
+  await rm(pointer);
+  const afterLongBreak = createDailyBriefService({ stateDir: root, now: () => new Date(now + 3 * 86400_000), generate: async () => { throw Error('offline'); } });
+  assert.equal((await afterLongBreak.archivePreview()).date, archivedDate, 'a restart can recover the previous edition from its archive alone');
+  let finishSlow;
+  let requests = 0;
+  const cold = createDailyBriefService({ stateDir: path.join(root, 'cold'), generationTimeoutMs: 100, now: () => new Date(now),
+    generate: async window => {
+      const edition = snapshot(window, ++requests);
+      if (requests === 1) await new Promise(resolve => { finishSlow = resolve; });
+      return edition;
+    } });
+  await assert.rejects(cold.getForPage(), /超时/);
+  assert.equal(await cold.archivePreview(), null, 'a first installation cannot invent an archived edition');
+  assert.equal(cold.status().refreshing, false, 'a hanging source releases the shared generation');
+  now += 60_001;
+  assert.equal((await cold.getForPage()).snapshot.summary.headline, 'snapshot-2', 'retry can acquire the edition lock');
+  finishSlow();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await cold.latest()).summary.headline, 'snapshot-2', 'timed-out work cannot publish over the retry');
+  let validMarket = true;
+  const marketService = createDailyBriefService({ stateDir: path.join(root, 'market-outage'), now: () => new Date(now),
+    generate: async window => {
+      const result = snapshot(window, 1);
+      result.editorial.sentiment.vix.value = validMarket ? 20 : null;
+      result.news = [{ title: '实时新闻' }];
+      return result;
+    } });
+  const good = await marketService.getForPage();
+  now += 3600_000; validMarket = false;
+  const partial = await marketService.refreshIfDue();
+  assert.equal(partial.snapshot.generatedAt, good.snapshot.generatedAt, 'news alone cannot replace all dashboard readings');
+  assert.equal(partial.cache.stale, true);
+  now += 60_001; validMarket = true;
+  assert.notEqual((await marketService.refreshIfDue()).snapshot.generatedAt, good.snapshot.generatedAt);
   console.log('Hourly briefing: background generation, immediate stale reads, coalescing, disk recovery, hourly/midnight updates, model prewarm and backoff passed.');
 } finally {
   const cleanupTarget = path.resolve(root);

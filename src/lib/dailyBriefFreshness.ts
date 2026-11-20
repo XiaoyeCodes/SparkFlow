@@ -17,6 +17,13 @@ export function dailyBriefExpiresAt(snapshot: { generatedAt?: string }) {
   return Date.parse(snapshot.generatedAt || '') + DAILY_BRIEF_MAX_AGE_MS;
 }
 
+type BriefRevision = { generatedAt: string; updatedAt?: string };
+
+export function compareBriefRevisions(a: BriefRevision, b: BriefRevision) {
+  return Date.parse(a.generatedAt) - Date.parse(b.generatedAt)
+    || Date.parse(a.updatedAt || a.generatedAt) - Date.parse(b.updatedAt || b.generatedAt);
+}
+
 export function isFreshDailyBrief(snapshot: { date?: string; generatedAt?: string } | undefined, now = Date.now()) {
   return isCurrentDailyBrief(snapshot, now)
     && Math.floor(Date.parse(snapshot!.generatedAt!) / DAILY_BRIEF_REFRESH_MS) === Math.floor(now / DAILY_BRIEF_REFRESH_MS);

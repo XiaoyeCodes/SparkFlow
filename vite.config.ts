@@ -71,6 +71,7 @@ import { loadGravityHistory } from './server/etfGravity';
 import { rankChinaMacroNews } from './src/lib/chinaMacroNews';
 import { parseEastmoneyRow } from './server/ibkrMarket';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
+import { withinBriefDeadline } from './server/dailyBriefDeadline';
 import { createDailyBriefRepairTasks } from './server/dailyBriefRepairTasks';
 import { createDailyBriefCryptoMarket } from './server/dailyBriefCryptoMarket';
 import { hasBriefCryptoHistory } from './src/lib/dailyBriefCrypto';
@@ -4472,12 +4473,12 @@ function globalSession(config: GlobalMacroQuoteConfig, now = new Date()) {
 const yahooMacroQuoteCache = new Map<string, Awaited<ReturnType<typeof readYahooMacroQuote>>>();
 const yahooMacroQuoteCachedAt = new Map<string, number>();
 
-async function readYahooMacroQuote(symbol: string, range = '1mo') {
+async function readYahooMacroQuote(symbol: string, range = '1mo', readText = fetchExternalText) {
   const historyWindow = range === 'max'
     ? `period1=${Math.floor(Date.UTC(1990, 0, 1) / 1000)}&period2=${Math.floor(Date.now() / 1000) + 86400}`
     : `range=${range}`;
   const requestUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${historyWindow}&interval=1d&events=history`;
-  const text = await fetchExternalText(requestUrl, 13000, 'application/json,text/plain,*/*');
+  const text = await readText(requestUrl, 13000, 'application/json,text/plain,*/*');
   const payload = JSON.parse(text) as Record<string, any>;
   const result = payload?.chart?.result?.[0];
   const times = Array.isArray(result?.timestamp) ? result.timestamp as number[] : [];
@@ -9914,6 +9915,7 @@ async function generateDailyBriefAiSummary(input: {
     model,
     prompt,
     useProxy: storedAi.useProxy ?? defaults.useProxy,
+    signal: AbortSignal.timeout(90_000),
   });
   const jsonText = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   const parsed: unknown = JSON.parse(jsonText);
@@ -9978,9 +9980,38 @@ function unavailableEditorialMetric(label: string, source: string, sourceUrl: st
   return editorialMetric(null, '暂无数据', source, sourceUrl, { label, note, status: 'unavailable' });
 }
 
+// Keep the brief's short requests independent of live quotes, SSE and bulk backfills.
+const briefDirect = new Agent({ connections: 8 });
+const briefProxy = foreignProxyUrl ? new ProxyAgent({ uri: foreignProxyUrl, connections: 8 }) : undefined;
+
+async function fetchBriefRoute(url: string, route: FetchRoute, timeout: number) {
+  const isCnn = new URL(url).hostname === 'production.dataviz.cnn.io';
+  const response = await undiciFetch(url, {
+    dispatcher: route === 'proxy' && briefProxy ? briefProxy : briefDirect,
+    signal: AbortSignal.timeout(timeout),
+    headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json,text/plain,*/*',
+      ...(isCnn ? { Referer: 'https://www.cnn.com/markets/fear-and-greed', Origin: 'https://www.cnn.com' } : {}) },
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.text();
+}
+
+async function fetchBriefText(url: string, timeout = 10_000) {
+  if (!briefProxy) return fetchBriefRoute(url, 'direct', timeout);
+  const directFirst = new URL(url).hostname === 'api.alternative.me';
+  try {
+    return await fetchBriefRoute(url, directFirst ? 'direct' : 'proxy', 4500);
+  } catch {
+    return fetchBriefRoute(url, directFirst ? 'proxy' : 'direct', timeout);
+  }
+}
+
 async function fetchEditorialCryptoFearGreed() {
   const sourceUrl = 'https://api.alternative.me/fng/?limit=90';
-  const payload = JSON.parse(await fetchRoutedText(sourceUrl, 'direct', 12_000, 'application/json')) as Record<string, any>;
+  const payload = JSON.parse(await fetchBriefText(sourceUrl)) as Record<string, any>;
   const rows = Array.isArray(payload?.data) ? payload.data as Array<Record<string, unknown>> : [];
   const history = rows.flatMap((row) => {
     const value = finiteNumber(row.value);
@@ -10001,7 +10032,7 @@ async function fetchEditorialCryptoFearGreed() {
 
 async function fetchEditorialStockFearGreed() {
   const sourceUrl = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
-  const payload = JSON.parse(await fetchFastMarketText(sourceUrl, 15_000)) as Record<string, any>;
+  const payload = JSON.parse(await fetchBriefText(sourceUrl)) as Record<string, any>;
   const current = payload?.fear_and_greed;
   const value = finiteNumber(current?.score);
   const previous = finiteNumber(current?.previous_close);
@@ -10033,12 +10064,21 @@ async function fetchEditorialStockFearGreed() {
 }
 
 async function fetchEditorialYahooData() {
+  const quotes = new Map<string, ReturnType<typeof readYahooMacroQuote>>();
+  const load = (symbol: string) => {
+    let quote = quotes.get(symbol);
+    if (!quote) {
+      quote = withinBriefDeadline(readYahooMacroQuote(symbol, '3mo', fetchBriefText), 17_000);
+      quotes.set(symbol, quote);
+    }
+    return quote;
+  };
   const configs = [...editorialIndexConfigs, ...editorialStockConfigs] as ReadonlyArray<readonly [string, string]>;
   const [results, assetResults] = await Promise.all([
-    Promise.allSettled(configs.map(async ([symbol, name]) => ({ symbol, name, quote: await getYahooMacroQuote(symbol, '3mo') }))),
+    Promise.allSettled(configs.map(async ([symbol, name]) => ({ symbol, name, quote: await load(symbol) }))),
     Promise.allSettled([...editorialAssetYahooConfigs, ...editorialMacroVisualYahooConfigs].map(async (config) => ({
       symbol: config.yahooSymbol,
-      quote: await getYahooMacroQuote(config.yahooSymbol, '3mo'),
+      quote: await load(config.yahooSymbol),
     }))),
   ]);
   const assetQuoteMap = new Map(assetResults.flatMap((result) => result.status === 'fulfilled'
@@ -10101,14 +10141,14 @@ async function fetchEditorialYahooData() {
 }
 
 const dailyBriefCryptoMarket = createDailyBriefCryptoMarket({
-  request: (url, route, timeout) => fetchRoutedText(url, route, timeout, 'application/json'),
+  request: fetchBriefRoute,
   store: createPublicSnapshotStore(path.join(sparkflowStateDir, 'daily-brief-crypto')),
 });
 
 async function fetchEditorialCryptoData(only?: readonly number[], previous?: DailyBriefEditorialSnapshot) {
   const spotUrl = 'https://api.binance.com/api/v3/ticker/24hr?symbols=%5B%22BTCUSDT%22,%22ETHUSDT%22,%22SOLUSDT%22%5D';
   let part = 0;
-  const resilientFetch = async (url: string) => {
+  const fetchPart = async (url: string) => {
     const index = part++;
     if (only && !only.includes(index)) throw new Error('本次无需重试此来源');
     if (index === 0) return dailyBriefCryptoMarket.spot(previous
@@ -10118,12 +10158,9 @@ async function fetchEditorialCryptoData(only?: readonly number[], previous?: Dai
       })
       : undefined);
     if (index >= 10 && index <= 12) return dailyBriefCryptoMarket.history((['BTC', 'ETH', 'SOL'] as const)[index - 10]);
-    try {
-      return await fetchRoutedText(url, 'direct', 12_000, 'application/json');
-    } catch {
-      return fetchRoutedText(url, 'proxy', 20_000, 'application/json');
-    }
+    return fetchBriefText(url);
   };
+  const resilientFetch = (url: string) => withinBriefDeadline(fetchPart(url), 16_000);
   const [spotResult, fundingResult, openInterestResult, longShortResult, takerRatioResult, topPositionResult, openInterestHistoryResult, dominanceResult, hyperliquidResult, liquidationVenuesResult, btcHistoryResult, ethHistoryResult, solHistoryResult, hypeHistoryResult] = await Promise.allSettled([
     resilientFetch(spotUrl),
     resilientFetch('https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT'),
@@ -10316,13 +10353,17 @@ async function fetchEditorialCryptoData(only?: readonly number[], previous?: Dai
   };
 }
 
+function unavailableGlassnodeMetrics(note: string) {
+  const missing = (label: string) => unavailableEditorialMetric(label, 'Glassnode API', 'https://docs.glassnode.com/basic-api/endpoints', note);
+  return { mvrvZScore: missing('MVRV Z-Score'), lthSupplyRatio: missing('LTH 持有比例'), sopr: missing('SOPR'), lthSopr: missing('LTH-SOPR'), puellMultiple: missing('Puell Multiple') };
+}
+
 async function fetchGlassnodeEditorialMetrics(only?: readonly string[]) {
   const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
   const env = loadEnv(mode, rootDir, '');
   const apiKey = String(process.env.GLASSNODE_API_KEY || env.GLASSNODE_API_KEY || '').trim();
   const sourceUrl = 'https://docs.glassnode.com/basic-api/endpoints';
-  const missing = (label: string) => unavailableEditorialMetric(label, 'Glassnode API', sourceUrl, '需在 .env.local 配置 GLASSNODE_API_KEY；未授权时不使用其他指标替代。');
-  if (!apiKey) return { mvrvZScore: missing('MVRV Z-Score'), lthSupplyRatio: missing('LTH 持有比例'), sopr: missing('SOPR'), lthSopr: missing('LTH-SOPR'), puellMultiple: missing('Puell Multiple') };
+  if (!apiKey) return unavailableGlassnodeMetrics('需在 .env.local 配置 GLASSNODE_API_KEY；未授权时不使用其他指标替代。');
   const getLatest = async (path: string) => {
     if (only && !only.includes(path)) throw new Error('本次无需重试此指标');
     const url = `https://api.glassnode.com/v1/metrics/${path}?a=BTC&i=24h&api_key=${encodeURIComponent(apiKey)}`;
@@ -10346,7 +10387,7 @@ async function fetchGlassnodeEditorialMetrics(only?: readonly string[]) {
 
 async function fetchCoinMetricsEditorialFallback() {
   const sourceUrl = 'https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=CapMVRVCur,CapMrktCurUSD,IssTotUSD&frequency=1d&start_time=2010-07-18&page_size=10000';
-  const payload = JSON.parse(await fetchRoutedText(sourceUrl, 'direct', 30_000, 'application/json')) as {
+  const payload = JSON.parse(await fetchBriefText(sourceUrl, 15_000)) as {
     data?: Array<{ time?: string; CapMVRVCur?: string | null; CapMrktCurUSD?: string | null; IssTotUSD?: string | null }>;
   };
   const rows = (payload.data || []).flatMap((row) => {
@@ -10490,9 +10531,12 @@ async function fetchDay1BtcMetrics(): Promise<DailyBriefEditorialSnapshot['day1B
 
 async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefSnapshot['slot'] }): Promise<DailyBriefSnapshot> {
   const generatedAt = new Date().toISOString();
-  const [cryptoFearResult, stockFearResult, yahooResult, cryptoResult, glassnodeResult, coinMetricsFallbackResult, cycleResult, newsResult, calendarResult, day1Result, day1MetricsResult] = await Promise.allSettled([
-    fetchEditorialCryptoFearGreed(), fetchEditorialStockFearGreed(), fetchEditorialYahooData(), fetchEditorialCryptoData(),
-    fetchGlassnodeEditorialMetrics(), fetchCoinMetricsEditorialFallback(), getCachedBitcoinCycleHistory(), getNewsFeed(), loadGlobalCalendarSection(), fetchDay1DailyBrief(), fetchDay1BtcMetrics(),
+  // Publish available sources together even if an optional upstream stops responding.
+  const collect = <T>(work: Promise<T>) => withinBriefDeadline(work, 22_000);
+  const [vixResult, cryptoFearResult, stockFearResult, coinMetricsFallbackResult, cryptoResult, glassnodeResult, cycleResult, newsResult, calendarResult, day1Result, day1MetricsResult, yahooResult] = await Promise.allSettled([
+    collect(readYahooMacroQuote('^VIX', '1mo', fetchBriefText)), collect(fetchEditorialCryptoFearGreed()), collect(fetchEditorialStockFearGreed()), collect(fetchCoinMetricsEditorialFallback()),
+    collect(fetchEditorialCryptoData()), collect(fetchGlassnodeEditorialMetrics()), collect(getCachedBitcoinCycleHistory()), collect(getNewsFeed()),
+    collect(loadGlobalCalendarSection()), collect(fetchDay1DailyBrief()), collect(fetchDay1BtcMetrics()), collect(fetchEditorialYahooData()),
   ]);
   const errors: string[] = [];
   const rejected = (label: string, result: PromiseSettledResult<unknown>) => {
@@ -10524,7 +10568,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     btcTechnical: null,
     derivativeInputs: { markPrice: null, contracts: null },
   };
-  const glassnodeChain = glassnodeResult.status === 'fulfilled' ? glassnodeResult.value : await fetchGlassnodeEditorialMetrics();
+  const glassnodeChain = glassnodeResult.status === 'fulfilled' ? glassnodeResult.value : unavailableGlassnodeMetrics('来源暂不可用，后台将自动重试。');
   const coinMetricsFallback = coinMetricsFallbackResult.status === 'fulfilled' ? coinMetricsFallbackResult.value : null;
   const chain = {
     ...glassnodeChain,
@@ -10540,7 +10584,7 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
   const wma200 = wmaWindow.length >= 1300 ? wmaWindow.reduce((sum, point) => sum + point.value, 0) / wmaWindow.length : null;
   const wmaMultiple = latestBtc !== null && wma200 ? latestBtc / wma200 : null;
   const wmaMetric = editorialMetric(wmaMultiple, wmaMultiple === null ? '暂无数据' : `${wmaMultiple.toFixed(2)}x`, 'Coin Metrics Community API', 'https://docs.coinmetrics.io/api/v4/', { status: wmaMultiple === null ? 'unavailable' : 'delayed', note: 'BTC 日度参考价 / 最近 1400 个日度样本均值。' });
-  const vixQuote = await getYahooMacroQuote('^VIX', '1mo').catch(() => null);
+  const vixQuote = vixResult.status === 'fulfilled' ? vixResult.value : null;
   const vix = editorialMetric(vixQuote?.price ?? null, vixQuote ? vixQuote.price.toFixed(2) : '暂无数据', 'Yahoo Finance', 'https://finance.yahoo.com/quote/%5EVIX', { change: vixQuote?.change ?? null, status: vixQuote ? 'delayed' : 'unavailable' });
 
   const topInputs = [
@@ -10576,6 +10620,10 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     weight: 100 - index * 3,
     url: item.url || day1.sourceUrl,
   })) || fallbackNews;
+  const hasQuote = [...yahoo.indices, ...yahoo.stocks, ...yahoo.assetQuotes, ...yahoo.macroVisualQuotes, ...cryptoData.crypto].some(quote => Number(quote.price) > 0);
+  if (!hasQuote && !news.length && [vix.value, stockFear.metric.value, cryptoFear.metric.value, cryptoData.futuresLongShort.longAccount].every(value => value == null)) {
+    throw new Error('本次未取得可用行情或新闻，后台将自动重试。');
+  }
   const calendarPayload = calendarResult.status === 'fulfilled' ? calendarResult.value : { calendar: [] };
   const events = calendarPayload.calendar.map((event) => ({ id: event.id, date: event.date, time: event.time, title: event.title, source: event.source, url: event.url }));
   const markets = [...yahoo.indices, ...cryptoData.crypto].map((item) => compactMarket(item, item.symbol.toLowerCase()));
@@ -10588,28 +10636,8 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     `链上指标可用度 ${[chain.mvrvZScore, chain.lthSupplyRatio, chain.sopr, chain.lthSopr, chain.puellMultiple].filter((item) => item.value !== null).length}/5。`,
   ];
   fallback.watchlist = events.map((event) => `${event.date.slice(5).replace('-', '/')} ${event.title}`);
-  const aiSummary = day1 ? null : await generateDailyBriefAiSummary({
-    date: window.date,
-    slot: window.slot,
-    markets,
-    macro,
-    news,
-    positions: [],
-    fallback,
-    context: {
-      sentiment: { cryptoFearGreed: cryptoFear.metric, stockFearGreed: stockFear.metric, vix, mvrvZScore: chain.mvrvZScore },
-      signals,
-      indices: yahoo.indices,
-      stocks: yahoo.stocks,
-      crypto: cryptoData.crypto,
-      onchain: { puellMultiple: chain.puellMultiple, fundingRate: cryptoData.fundingRate, openInterest: cryptoData.openInterest, dominance: cryptoData.dominance },
-      events,
-    },
-  }).catch((error) => {
-    errors.push(`AI 摘要：${error instanceof Error ? error.message : String(error)}`);
-    return null;
-  });
-  const summary = aiSummary || fallback;
+  // The existing model summary cache enriches this edition after publication.
+  const summary = fallback;
   const issue = Math.max(1, Math.floor((Date.parse(`${window.date}T00:00:00Z`) - Date.parse('2026-01-01T00:00:00Z')) / 86_400_000) + 1);
   const yahooGroup = (group: 'defensive' | 'technology' | 'crypto') => yahoo.assetQuotes
     .filter((item) => item.group === group)
@@ -10648,13 +10676,13 @@ async function buildDailyBriefSnapshot(window: { date: string; slot: DailyBriefS
     { id: 'alternative-fng', label: 'Alternative.me · Crypto Fear & Greed', ok: cryptoFear.metric.value !== null, fetchedAt: generatedAt },
     { id: 'cnn-fng', label: 'CNN Markets · Fear & Greed', ok: stockFear.metric.value !== null, fetchedAt: generatedAt },
     { id: 'yahoo-market', label: 'Yahoo Finance · 美股与 VIX 延迟行情', ok: yahoo.indices.length > 0, fetchedAt: generatedAt },
-    { id: 'binance-market', label: 'Binance · 加密现货与永续合约', ok: cryptoData.crypto.length > 0, fetchedAt: generatedAt },
+    { id: 'binance-market', label: 'Binance / OKX · 加密行情', ok: cryptoData.crypto.some(item => ['BTC', 'ETH', 'SOL'].includes(item.symbol) && Number(item.price) > 0) || cryptoData.futuresLongShort.longAccount != null, fetchedAt: generatedAt },
     { id: 'coinmetrics-chain', label: 'Coin Metrics · BTC 日度参考价与衍生链上指标', ok: Boolean(cycle) || Boolean(coinMetricsFallback), fetchedAt: generatedAt },
     { id: 'glassnode-chain', label: 'Glassnode · 专业链上指标', ok: chain.sopr.value !== null, detail: chain.sopr.note, fetchedAt: generatedAt },
     { id: 'day1-global', label: 'Day1 Global · 编辑新闻与 AI 日报', ok: Boolean(day1), detail: day1 ? '当前新闻主源；保留其编辑排序与 AI 摘要。' : '不可用时自动回退至 SparkFlow 新闻聚合。', fetchedAt: day1?.fetchedAt || generatedAt },
     { id: 'news-feed', label: 'SparkFlow · 新闻聚合兜底', ok: !day1 && fallbackNews.length > 0, detail: day1 ? 'Day1 Global 已作为新闻主源。' : 'Day1 Global 暂时不可用，正在展示聚合新闻。', fetchedAt: generatedAt },
   ];
-  return { version: 18, date: window.date, slot: window.slot, generatedAt, updatedAt: generatedAt, summaryMode: aiSummary ? 'ai' : 'rules', summary, markets, macro, news, portfolio: { connected: false, positions: [], detail: '每日策略不读取 IBKR 持仓。' }, sources, errors, editorial, day1 };
+  return { version: 18, date: window.date, slot: window.slot, generatedAt, updatedAt: generatedAt, summaryMode: 'rules', summary, markets, macro, news, portfolio: { connected: false, positions: [], detail: '每日策略不读取 IBKR 持仓。' }, sources, errors, editorial, day1 };
 }
 
 const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir, generate: buildDailyBriefSnapshot,
@@ -10663,7 +10691,7 @@ const dailyBriefService = createDailyBriefService({ stateDir: sparkflowStateDir,
     if (config.apiKey.trim() && config.model.trim()) await dailyBriefAiSummaryCache.get(snapshot, config);
   },
   repairTasks: () => createDailyBriefRepairTasks({
-    yahoo: (symbol, range) => withPublicSourceRefresh(() => readYahooMacroQuote(symbol, range)),
+    yahoo: (symbol, range) => readYahooMacroQuote(symbol, range, fetchBriefText),
     yahooConfigs: [
       ...editorialStockConfigs.map(([symbol, name]) => ({ symbol, name, displaySymbol: symbol, kind: 'stock' as const })),
       ...editorialIndexConfigs.map(([symbol, name]) => ({ symbol, name, displaySymbol: symbol.replace(/^\^/, ''), kind: 'index' as const })),
@@ -12554,6 +12582,7 @@ function allWeatherApiPlugin() {
         console.error('[daily-brief] scheduled generation failed:', error);
       });
       server.httpServer?.once('close', stopDailyBriefScheduler);
+      server.httpServer?.once('close', () => { void briefDirect.destroy(); void briefProxy?.destroy(); });
       // Warm the slow consensus page without delaying the first dashboard response.
       void getPpiMarketContext(false).catch(() => undefined);
       void getNonfarmMarketContext(false).catch(() => undefined);
@@ -12661,9 +12690,12 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/daily-brief' && req.method === 'GET') {
             res.setHeader('Cache-Control', 'private, no-cache');
-            const window = getDailyBriefWindow();
-            const response = await dailyBriefService.getForPage(window);
-            sendJson(res, 200, response);
+            try {
+              sendJson(res, 200, await dailyBriefService.getForPage());
+            } catch {
+              res.setHeader('Retry-After', '15');
+              sendJson(res, 503, { detail: '每日简报暂未就绪，页面会自动重试。' });
+            }
             return;
           }
 
@@ -12702,6 +12734,10 @@ function allWeatherApiPlugin() {
 
           if (url.pathname === '/api/daily-brief/status' && req.method === 'GET') {
             res.setHeader('Cache-Control', 'no-store');
+            if (url.searchParams.get('view') === 'archive-preview') {
+              sendJson(res, 200, { previous: await dailyBriefService.archivePreview() });
+              return;
+            }
             sendJson(res, 200, {
               window: getDailyBriefWindow(),
               latest: await dailyBriefService.latest(),

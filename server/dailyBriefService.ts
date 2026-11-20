@@ -11,15 +11,19 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { dailyBriefDate, dailyBriefExpiresAt, isCurrentDailyBrief, isFreshDailyBrief, nextDailyBriefUpdateAt } from '../src/lib/dailyBriefFreshness.ts';
+import { compareBriefRevisions, dailyBriefDate, dailyBriefExpiresAt, isCurrentDailyBrief, isFreshDailyBrief, nextDailyBriefUpdateAt } from '../src/lib/dailyBriefFreshness.ts';
 import { runDailyBriefRepairs, type DailyBriefRepairTask } from './dailyBriefRepair.ts';
+import { withinBriefDeadline } from './dailyBriefDeadline.ts';
 import type {
+  DailyBriefArchivePreview,
   DailyBriefResponse,
   DailyBriefSlot,
   DailyBriefSnapshot,
 } from "../src/lib/dailyBriefTypes";
 
-const LOCK_STALE_MS = 20 * 60_000;
+// An interrupted desktop process may leave a lock with no writer. Normal
+// generation is bounded to 45 s; leave room for the atomic disk writes.
+const LOCK_STALE_MS = 90_000;
 const HISTORY_DAYS = 90;
 
 type BriefWindow = { date: string; slot: DailyBriefSlot };
@@ -45,14 +49,19 @@ async function exists(filePath: string) {
 
 function isSnapshot(value: unknown): value is DailyBriefSnapshot {
   const item = value as Partial<DailyBriefSnapshot> | null;
+  const editorial = item?.editorial;
   return Boolean(
     item &&
     item.version === 18 &&
     /^\d{4}-\d{2}-\d{2}$/.test(item.date || "") &&
     dailyBriefDate(item.generatedAt || '') === item.date &&
     ["morning", "midday", "evening"].includes(item.slot || "") &&
-    item.summary &&
-    Array.isArray(item.markets),
+    typeof item.summary?.headline === 'string' && Array.isArray(item.summary.highlights) &&
+    Array.isArray(item.markets) && Array.isArray(item.news) && Array.isArray(item.sources) &&
+    editorial?.signals && editorial.onchain && editorial.sentiment?.vix && editorial.sentiment.cryptoFearGreed &&
+    editorial.sentiment.stockFearGreed && editorial.sentiment.mvrvZScore &&
+    [editorial.indices, editorial.stocks, editorial.crypto, editorial.macroAssets, editorial.assetGroups,
+      editorial.marketSeries, editorial.events, editorial.sentiment.stockComponents].every(Array.isArray),
   );
 }
 
@@ -65,6 +74,16 @@ async function readSnapshot(filePath: string) {
   }
 }
 
+function hasDashboardReadings(snapshot: DailyBriefSnapshot) {
+  const e = snapshot.editorial;
+  if (!e) return false;
+  return [e.sentiment.vix.value, e.sentiment.cryptoFearGreed.value, e.sentiment.stockFearGreed.value,
+    e.sentiment.mvrvZScore.value, e.futuresLongShort?.longAccount].some(Number.isFinite)
+    || [...e.indices, ...e.stocks, ...e.macroAssets, ...e.crypto, ...e.assetGroups.flatMap(group => group.items)]
+      .some(quote => Number(quote.price) > 0)
+    || e.crypto.some(quote => quote.symbol === 'BTC' && (quote.history?.length ?? 0) > 1);
+}
+
 async function atomicJsonWrite(filePath: string, value: unknown) {
   await mkdir(path.dirname(filePath), { recursive: true });
   const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
@@ -75,6 +94,7 @@ async function atomicJsonWrite(filePath: string, value: unknown) {
 export function createDailyBriefService(options: {
   stateDir: string;
   generate: GenerateBrief;
+  generationTimeoutMs?: number;
   repairTasks?: () => DailyBriefRepairTask[];
   onSnapshot?: (snapshot: DailyBriefSnapshot) => Promise<unknown>;
   now?: () => Date;
@@ -140,7 +160,7 @@ export function createDailyBriefService(options: {
     for (let attempt = 0; attempt < 40; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 250));
       const snapshot = await readSnapshot(filePath);
-      if (snapshot) return snapshot;
+      if (snapshot && isFreshDailyBrief(snapshot, clock().getTime())) return snapshot;
     }
     return null;
   }
@@ -193,6 +213,7 @@ export function createDailyBriefService(options: {
       const peer = await waitForPeer(locations.file);
       if (peer) {
         memory.set(locations.key, peer);
+        currentSnapshot = peer;
         return {
           snapshot: peer,
           cache: { hit: true, key: locations.key, generated: false },
@@ -203,19 +224,23 @@ export function createDailyBriefService(options: {
         memory.set(locations.key, stale);
         return {
           snapshot: stale,
-          cache: { hit: true, key: locations.key, generated: false },
+          cache: { hit: true, key: locations.key, generated: false, stale: true },
         };
       }
       throw new Error("每日简报正在由另一任务生成，请稍后重试");
     }
     try {
-      const snapshot = await options.generate(window);
+      const snapshot = await withinBriefDeadline(options.generate(window), options.generationTimeoutMs ?? 45_000);
       if (
         !isSnapshot(snapshot) ||
         snapshot.date !== window.date ||
         snapshot.slot !== window.slot
       )
         throw new Error("每日简报生成结果无效");
+      const previous = cached ?? currentSnapshot;
+      if (previous && isCurrentDailyBrief(previous, clock().getTime()) && !hasDashboardReadings(snapshot) && hasDashboardReadings(previous)) {
+        throw new Error('本次行情尚未就绪，继续显示上一份有效简报。');
+      }
       await atomicJsonWrite(locations.file, snapshot);
       await atomicJsonWrite(path.join(root, "latest.json"), snapshot);
       memory.set(locations.key, snapshot);
@@ -258,7 +283,31 @@ export function createDailyBriefService(options: {
   }
 
   async function latest() {
-    return readSnapshot(path.join(root, "latest.json"));
+    // The dated edition is committed before latest.json. A crash between the
+    // two renames can leave a missing, corrupt, or older pointer.
+    const now = clock().getTime();
+    const dates = [dailyBriefDate(now), dailyBriefDate(now - 86_400_000)];
+    const candidates = await Promise.all([
+      readSnapshot(path.join(root, 'latest.json')),
+      ...dates.map(date => readSnapshot(pathsFor({ date, slot: 'morning' }).file)),
+    ]);
+    const usable = candidates.filter((item): item is DailyBriefSnapshot => !!item && Date.parse(item.generatedAt) <= now);
+    if (usable.length) return usable.sort((a, b) => compareBriefRevisions(b, a))[0];
+    const directories = await readdir(root, { withFileTypes: true }).catch(() => []);
+    const olderDates = directories.filter(entry => entry.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(entry.name) && entry.name < dates[1])
+      .map(entry => entry.name).sort().reverse().slice(0, HISTORY_DAYS);
+    for (const date of olderDates) {
+      const archived = await readSnapshot(pathsFor({ date, slot: 'morning' }).file);
+      if (archived?.date === date) return archived;
+    }
+    return null;
+  }
+
+  async function archivePreview(): Promise<DailyBriefArchivePreview | null> {
+    await restoreLatest();
+    const saved = currentSnapshot;
+    if (!saved || isCurrentDailyBrief(saved, clock().getTime())) return null;
+    return { date: saved.date, headline: saved.summary.headline, titles: (saved.news || []).slice(0, 3).map(item => item.title) };
   }
 
   async function getForPage(window = getDailyBriefWindow(clock())): Promise<DailyBriefResponse> {
@@ -380,7 +429,7 @@ export function createDailyBriefService(options: {
     return `${snapshot.date}/${snapshot.slot}`;
   }
 
-  return { get, getForPage, latest, refreshIfDue, schedule, root,
+  return { get, getForPage, latest, archivePreview, refreshIfDue, schedule, root,
     status: () => ({ generatedAt: currentSnapshot?.generatedAt || null, refreshing: running.size > 0,
       nextUpdateAt: getNextDailyBriefRun(clock()).toISOString(), retryAt: retryAt ? new Date(retryAt).toISOString() : null }) };
 }

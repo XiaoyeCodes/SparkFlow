@@ -58,6 +58,9 @@
 .is-spinning { animation: editorial-spin .8s linear infinite; }
 @keyframes editorial-spin { to { transform: rotate(360deg); } }
 .editorial-error { margin: 14px 0 0; padding: 10px 12px; border: 1px solid rgba(194, 112, 124, .35); border-radius: 7px; color: #e8a5ae; font-size: 12px; }
+.editorial-archive { max-width: 72ch; margin: 18px 0; padding: 14px 18px; border-left: 2px solid var(--ed-border-strong); background: var(--ed-panel); color: var(--ed-dim); line-height: 1.7; }
+.editorial-archive h3 { margin: 0 0 6px; color: var(--ed-text); font-size: 15px; }
+.editorial-archive ul { list-style: disc; padding-left: 1.25em; }
 
 .editorial-lead { --rating-accent: var(--ed-brass-bright); margin-top: 10px; padding: 0 20px 18px; overflow: hidden; border: 1px solid var(--ed-border); border-top: 0; border-radius: 8px; background: linear-gradient(145deg, rgba(9, 25, 25, .97), rgba(5, 14, 16, .98)); box-shadow: inset 0 1px rgba(188, 238, 226, .03), 0 18px 55px rgba(0, 0, 0, .2); }
 .editorial-lead.tone-calm { --rating-accent: var(--ed-jade-bright); }
