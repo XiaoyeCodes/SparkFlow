@@ -53,16 +53,17 @@ export function EtfGravityCard({ symbol, refresh }: { symbol: GravitySymbol; ref
 
   const last = history?.points[history.points.length - 1];
   const spy = symbol === 'SPY';
+  const vwap = last?.vwap;
+  const relativeVwap = last && vwap != null && vwap > 0 ? (last.close / vwap - 1) * 100 : null;
   const metrics = last ? [
     { label: '收盘价', value: money(last.close) },
     { label: '200 周 TWAP', value: money(last.twap) },
     { label: '溢价 / 折价', value: percent(last.premium), tone: last.premium >= 0 ? 'positive' : 'negative' },
     { label: '重力风险', value: `${last.score.toFixed(1)}/100`, tone: 'score' },
-    ...(spy && last.vwap !== null ? [
-      { label: 'VWAP · 2020 年起', value: money(last.vwap), accent: true },
-      { label: '相对 VWAP', value: percent((last.close / last.vwap - 1) * 100), accent: true,
-        tone: last.close >= last.vwap ? 'positive' : 'negative' },
-    ] : [{ label: '风险等级', value: `${last.level}/10` }]),
+    { label: '风险等级', value: `${last.level}/10` },
+    { label: 'VWAP · 2020 年起', value: vwap != null ? money(vwap) : '—', accent: true },
+    { label: '相对 VWAP', value: relativeVwap === null ? '—' : percent(relativeVwap), accent: true,
+      tone: relativeVwap === null ? undefined : relativeVwap >= 0 ? 'positive' : 'negative' },
   ] : [];
   return <section className="etf-gravity" aria-busy={!history && !failed} aria-labelledby={`gravity-${symbol}`} id={`etf-gravity-${symbol.toLowerCase()}`}>
     <header className="etf-gravity-head">
@@ -80,7 +81,7 @@ export function EtfGravityCard({ symbol, refresh }: { symbol: GravitySymbol; ref
       {failed && <button type="button" onClick={() => setAttempt(value => value + 1)}><RefreshCw size={13}/> 重试</button>}</div>}
     <footer className="etf-gravity-foot">
       <details><summary>计算口径</summary><p>按美股已收盘的复权日线计算。TWAP 取过去 200 个自然周内交易日收盘价的算术平均。将收盘价相对 TWAP 的溢价，按全历史第 1、99 百分位截断并线性映射为 0–100 分，每 10 分一档。历史颜色会随全样本更新。2020 年前显示每周最后一个交易日，此后显示每日。</p>
-        {spy && <p>VWAP 从 2020 年首个交易日累计，以成交量加权每日复权最高价、最低价与收盘价的均值。</p>}</details>
+        <p>VWAP 从 2020 年首个交易日起，用 {symbol} 每日成交量加权当日复权最高价、最低价与收盘价的均值。相对 VWAP 表示最新复权收盘价高于或低于该均价的百分比。</p></details>
       <div><a href={`https://finance.yahoo.com/quote/${symbol}/history/`} target="_blank" rel="noreferrer">Yahoo Finance <ArrowUpRight size={12}/></a>
         <a href={references[symbol]} target="_blank" rel="noreferrer">参考图表 <ArrowUpRight size={12}/></a></div>
     </footer>

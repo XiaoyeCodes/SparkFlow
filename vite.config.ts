@@ -68,6 +68,9 @@ import { ibkrWorkbenchPlugin } from './server/ibkrWorkbench';
 import { ibkrValuationPlugin } from './server/ibkrValuation';
 import { getRiskRadarTimeline } from './server/riskRadarTimeline';
 import { loadGravityHistory } from './server/etfGravity';
+import { createNasdaqPeService, nasdaqPublicationReader } from './server/nasdaqForwardPe';
+import nasdaqPeSeed from './server/data/nasdaqForwardPe.json';
+import forwardPeConsensus from './server/data/forwardPeConsensus.json';
 import { rankChinaMacroNews } from './src/lib/chinaMacroNews';
 import { parseEastmoneyRow } from './server/ibkrMarket';
 import { createDailyBriefService, getDailyBriefWindow } from './server/dailyBriefService';
@@ -115,6 +118,8 @@ async function fetchMacroSourceText(url: string, route: 'direct' | 'proxy', time
 }
 const vibeTradingRoot = process.env.VIBE_TRADING_ROOT || path.join(rootDir, 'services', 'vibe-trading');
 const sparkflowStateDir = publicStateDirectory(rootDir);
+const nasdaqPe = createNasdaqPeService(nasdaqPeSeed, forwardPeConsensus,
+  createPublicSnapshotStore(path.join(sparkflowStateDir, 'nasdaq-forward-pe')), nasdaqPublicationReader(foreignProxyAgent));
 const userData = initializeUserData(rootDir);
 const financialConditionsService = createFinancialConditionsService({ stateDir: sparkflowStateDir, getSeries: getFredSeries });
 const legacyIntegrationSettingsFile = path.join(sparkflowStateDir, 'integration-settings.json');
@@ -12516,6 +12521,11 @@ async function loadPublicDashboardResource(key: string): Promise<unknown> {
     case '/api/valuation-temperature': return market === 'china' ? getCachedChinaValuationDashboard() : getCachedRegionalValuationDashboard(market as RegionalValuationMode);
     case '/api/regional-market-content': return getCachedRegionalMarketContent(market as RegionalContentMode);
     case '/api/bitcoin-cycle-history': return getCachedBitcoinCycleHistory();
+    case '/api/risk-radar/forward-pe': {
+      const ticker = url.searchParams.get('ticker');
+      if (ticker !== 'VOO' && ticker !== 'QQQ') throw new Error('仅支持 VOO 或 QQQ');
+      return nasdaqPe.history(ticker);
+    }
     case '/api/risk-radar/gravity': {
       const ticker = url.searchParams.get('ticker');
       if (ticker !== 'SPY' && ticker !== 'QQQ') throw new Error('仅支持 SPY 或 QQQ');
@@ -12543,6 +12553,10 @@ function allWeatherApiPlugin() {
         cacheFile: path.join(sparkflowStateDir, 'china-regional-economy.json'),
         seed: regionalVerifiedSeed as unknown as RegionalSnapshot, sources: regionalSources });
       regionalEconomy.start();
+      void nasdaqPe.refresh();
+      const peTimer = setInterval(() => { void nasdaqPe.refresh(); }, 12 * 3600_000);
+      peTimer.unref();
+      server.httpServer?.once('close', () => clearInterval(peTimer));
       server.httpServer?.once('close', () => regionalEconomy.stop());
 
       const preloadEnvironment = { ...loadEnv(server.config.mode, rootDir, 'SPARKFLOW_'), ...process.env };
@@ -12808,9 +12822,10 @@ function allWeatherApiPlugin() {
             return;
           }
 
-          if (url.pathname === '/api/risk-radar/gravity') {
-            if (!['SPY', 'QQQ'].includes(url.searchParams.get('ticker') ?? '')) {
-              sendJson(res, 400, { error: '仅支持 SPY 或 QQQ' });
+          if (url.pathname === '/api/risk-radar/gravity' || url.pathname === '/api/risk-radar/forward-pe') {
+            const tickers = url.pathname.endsWith('/gravity') ? ['SPY', 'QQQ'] : ['VOO', 'QQQ'];
+            if (!tickers.includes(url.searchParams.get('ticker') ?? '')) {
+              sendJson(res, 400, { error: '仅支持 ' + tickers.join(' 或 ') });
               return;
             }
             res.setHeader('Cache-Control', 'public, max-age=300');

@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { PageTransition } from '../components/PageTransition';
 import { EtfGravityCard } from '../components/EtfGravityCard';
+import { ForwardPeCard } from '../components/ForwardPeCard';
+import type { PeRange } from '../lib/forwardPe';
 import type { ValuationDashboard, ValuationMetric, ValuationSnapshot } from '../lib/ibkr/valuationTypes';
 import './RiskRadar.css';
 
@@ -542,7 +544,8 @@ function RiskTickerSwitch({ ticker, onSelect }: { ticker: Ticker; onSelect: (val
 }
 
 export function RiskRadar() {
-  const [gravityRefresh, setGravityRefresh] = useState(0);
+  const [chartRefresh, setChartRefresh] = useState(0);
+  const [peRange, setPeRange] = useState<PeRange>(10);
   const [initialCache] = useState(() => readRiskCache('VOO'));
   const [initialTimelineCache] = useState(() => readTimelineCache());
   const [ticker, setTicker] = useState<Ticker>('VOO');
@@ -695,7 +698,7 @@ export function RiskRadar() {
   }, [guideOpen]);
 
   const refreshAll = useCallback(async () => {
-    setGravityRefresh(value => value + 1);
+    setChartRefresh(value => value + 1);
     await Promise.all([load(true), loadTimeline(true)]);
   }, [load, loadTimeline]);
 
@@ -879,7 +882,8 @@ export function RiskRadar() {
 
     </> : null}
     </div>
-    <EtfGravityCard key={ticker} symbol={valuationTicker} refresh={gravityRefresh} />
+    <EtfGravityCard key={ticker} symbol={valuationTicker} refresh={chartRefresh} />
+    <ForwardPeCard key={'pe-' + ticker} ticker={ticker} refresh={chartRefresh} years={peRange} onRangeChange={setPeRange} />
     {timeline || snapshotReady ? <>
       <RiskTimelineChart
         ticker={ticker}

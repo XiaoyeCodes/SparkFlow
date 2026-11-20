@@ -38,16 +38,14 @@ for (const symbol of ['SPY', 'QQQ']) {
   near(last.twap, inWindow.reduce((sum, value) => sum + value, 0) / inWindow.length);
   near(last.premium, (adjusted.at(-1) / last.twap - 1) * 100);
   assert.equal(points[0].vwap, null);
-  if (symbol === 'SPY') {
-    const q = indicators.quote[0];
-    let turnover = 0, shares = 0;
-    for (const [i, date] of dates.entries()) {
-      if (date < '2020-01-01') continue;
-      shares += q.volume[i];
-      turnover += q.volume[i] * (q.high[i] + q.low[i] + q.close[i]) / 6;
-    }
-    near(last.vwap, turnover / shares);
-  } else assert.equal(last.vwap, null);
+  const q = indicators.quote[0];
+  let turnover = 0, shares = 0;
+  for (const [i, date] of dates.entries()) {
+    if (date < '2020-01-01') continue;
+    shares += q.volume[i];
+    turnover += q.volume[i] * (q.high[i] + q.low[i] + q.close[i]) / 6;
+    near(points.find(point => point.date === date).vwap, turnover / shares);
+  }
   assert.ok(points.some(p => p.score === 0 && p.level === 1));
   assert.ok(points.some(p => p.score === 100 && p.level === 10));
   assert.throws(() => buildGravityHistory(symbol, payload, sessionEnd + 9 * day), /尚未更新/);

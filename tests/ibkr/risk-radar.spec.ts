@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
     return route.fulfill({ json: { symbol, validUntil: '2026-09-25T00:00:00Z',
       points: Array.from({ length: 10 }, (_, index) => ({ date: `2026-09-${String(index + 1).padStart(2, '0')}`,
         close: 100 + index, twap: 100, premium: index, level: index + 1, score: index * 10,
-        vwap: symbol === 'SPY' ? 95 : null })) } });
+        vwap: symbol === 'SPY' ? 95 : 80 })) } });
   });
 });
 
@@ -139,6 +139,8 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1024, height: 13
     const gravitySpy = page.getByRole('region', { name: 'SPY TWAP 重力风险模型' });
     const gravityQqq = page.getByRole('region', { name: 'QQQ 对数价格与时间重力' });
     await expect(gravitySpy.locator('.legendtoggle')).toHaveCount(13);
+    await expect(gravitySpy.locator('dl > div').filter({ hasText: '风险等级' })).toContainText('10/10');
+    await expect(gravitySpy.locator('.is-vwap dd')).toHaveText(['$95.00', '+14.74%']);
     await expect(gravityQqq).toHaveCount(0);
     await expect(gravitySpy).toHaveCSS('background-color', await page.locator('.risk-trend-panel').evaluate(node => getComputedStyle(node).backgroundColor));
     const selector = page.getByRole('group', { name: '选择监测标的' });
@@ -149,7 +151,9 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1024, height: 13
     expect(dock!.y).toBeGreaterThanOrEqual(await page.locator('#sparkflow-global-navigation').evaluate(node => node.getBoundingClientRect().bottom));
     const gravityTop = (await gravitySpy.boundingBox())!.y;
     await selector.getByRole('button', { name: 'QQQ', exact: true }).click();
-    await expect(gravityQqq.locator('.legendtoggle')).toHaveCount(12);
+    await expect(gravityQqq.locator('.legendtoggle')).toHaveCount(13);
+    await expect(gravityQqq.locator('dl > div').filter({ hasText: '风险等级' })).toContainText('10/10');
+    await expect(gravityQqq.locator('.is-vwap dd')).toHaveText(['$80.00', '+36.25%']);
     await expect(timelineChart.locator('[data-series="QQQ"]')).toHaveAttribute('d', /L/);
     await expect(timelineChart.locator('[data-series="VOO"]')).toHaveCount(0);
     await expect(timelineChart.getByRole('button', { name: /VOO|QQQ/ })).toHaveCount(0);

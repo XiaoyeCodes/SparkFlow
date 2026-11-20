@@ -15,8 +15,8 @@ function traces({ symbol, points }: GravityHistory, compact: boolean): Data[] {
     { type: 'scatter', mode: 'lines', name: '200 周 TWAP', x: dates, y: points.map(point => point.twap),
       line: { color: spy ? '#3b82f6' : '#a855f7', width: 2.5 }, hovertemplate: '%{x|%Y-%m-%d}<br>TWAP $%{y:,.2f}<extra></extra>' },
   ];
-  if (spy) {
-    const volumeWeighted = points.filter(point => point.vwap !== null);
+  const volumeWeighted = points.filter(point => point.vwap != null);
+  if (volumeWeighted.length) {
     result.push({ type: 'scatter', mode: 'lines', name: 'VWAP · 2020 起', x: volumeWeighted.map(point => point.date),
       y: volumeWeighted.map(point => point.vwap), line: { color: '#e879f9', width: 2.2 },
       hovertemplate: '%{x|%Y-%m-%d}<br>VWAP $%{y:,.2f}<extra></extra>' });
@@ -73,6 +73,6 @@ export default function EtfGravityPlot({ history }: { history: GravityHistory })
       .catch(() => { if (current) setFailed(true); });
     return () => { current = false; };
   }, [series, compact, history.symbol]);
-  return <><div className="etf-gravity-plot" ref={host} role="group" aria-label={`${history.symbol} 对数价格、200 周均线与十档风险图`} />
+  return <><div className="etf-gravity-plot" ref={host} role="group" aria-label={`${history.symbol} 对数价格、200 周均线、2020 年起 VWAP 与十档风险图`} />
     {failed && <p role="alert">图表绘制失败，请刷新页面重试。</p>}</>;
 }

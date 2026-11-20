@@ -4,8 +4,9 @@ import { createPagePreloadCache, PAGE_PRELOAD_RESOURCES } from '../server/pagePr
 import { PUBLIC_DATA_POLICIES } from '../src/lib/publicDataPolicy.ts';
 
 assert.deepEqual(PUBLIC_DATA_POLICIES.filter(resource => !resource.warm).map(resource => resource.key).sort(),
-  ['/api/risk-radar/gravity?ticker=QQQ', '/api/risk-radar/gravity?ticker=SPY'],
-  'ETF gravity charts load on demand; the other fixed public resources warm without visitors');
+  ['/api/risk-radar/forward-pe?ticker=QQQ', '/api/risk-radar/forward-pe?ticker=VOO',
+    '/api/risk-radar/gravity?ticker=QQQ', '/api/risk-radar/gravity?ticker=SPY'],
+  'ETF valuation and gravity charts load on demand; the other fixed public resources warm without visitors');
 let now = 1_000_000;
 const saved = new Map();
 const store = { read: async key => saved.get(key) || null, write: async (key, value) => { saved.set(key, value); } };

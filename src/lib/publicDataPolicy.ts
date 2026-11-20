@@ -71,6 +71,7 @@ for (const market of ['china', 'hongkong', 'us', ...international]) {
 for (const market of ['hongkong', 'us']) add(`/api/regional-market-content?market=${market}`, 300, 1800);
 add('/api/bitcoin-cycle-history', 21600, 43200);
 for (const ticker of ['SPY', 'QQQ']) add(`/api/risk-radar/gravity?ticker=${ticker}`, 3600, 7 * 86400, false);
+for (const ticker of ['VOO', 'QQQ']) add(`/api/risk-radar/forward-pe?ticker=${ticker}`, 3600, 7 * 86400, false);
 add('/api/us-market-system-status', 60, 180);
 
 export const PUBLIC_DATA_POLICIES: readonly PublicDataPolicy[] = [...policies.values()];
@@ -144,6 +145,17 @@ export function validatePublicResource(key: string, data: unknown): boolean {
   }
   if (!isUsablePublicPayload(data)) return false;
   const row = data as Record<string, unknown>;
+  if (url.pathname === '/api/risk-radar/forward-pe') {
+    const latest = Array.isArray(row.reports) ? row.reports[row.reports.length - 1] : undefined;
+    return row.ticker === url.searchParams.get('ticker') && Array.isArray(row.consensus) && row.consensus.length > 0
+      && Number.isFinite(latest?.value) && latest.value > 0 && Date.parse(latest.date) <= Date.now()
+      && /^https:\/\/www\.nasdaq\.com\/docs\//.test(latest.url);
+  }
+  if (url.pathname === '/api/risk-radar/gravity') {
+    const last = Array.isArray(row.points) ? row.points[row.points.length - 1] : undefined;
+    // Older QQQ snapshots have no VWAP. Rebuild them from the source bars.
+    return row.symbol === url.searchParams.get('ticker') && Number.isFinite(last?.vwap) && last.vwap > 0;
+  }
   if (url.pathname === '/api/global-macro-regional-indices') return Array.isArray(row.markets)
     && row.markets.length > 0 && row.markets.every(quote => validTerminalRegionalQuote(quote as TerminalRegionalQuote));
   if (/^\/api\/(china|hong-kong|us)-market-heatmap$/.test(url.pathname)) {

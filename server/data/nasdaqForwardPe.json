@@ -1,0 +1,44 @@
+[
+  {
+    "date": "2026-08-05",
+    "VOO": 20.04,
+    "QQQ": 22.11,
+    "url": "https://www.nasdaq.com/docs/global-indexes/global-markets-dashboard-august-7-2026"
+  },
+  {
+    "date": "2026-08-17",
+    "VOO": 19.94,
+    "QQQ": 22.21,
+    "url": "https://www.nasdaq.com/docs/global-indexes/Global-Markets-Dashboard-8-21-26"
+  },
+  {
+    "date": "2026-09-15",
+    "VOO": 19,
+    "QQQ": 20.66,
+    "url": "https://www.nasdaq.com/docs/global-indexes/global-markets-dashboard-september-18-2026"
+  },
+  {
+    "date": "2026-09-28",
+    "VOO": 19.1,
+    "QQQ": 21.74,
+    "url": "https://www.nasdaq.com/docs/global-indexes/global-markets-dashboard-october-2-2026"
+  },
+  {
+    "date": "2026-10-13",
+    "VOO": 19.12,
+    "QQQ": 21.36,
+    "url": "https://www.nasdaq.com/docs/global-indexes/global-markets-dashboard-oct-16-2026"
+  },
+  {
+    "date": "2026-10-28",
+    "VOO": 18.74,
+    "QQQ": 20.3,
+    "url": "https://www.nasdaq.com/docs/global-indexes/global-markets-dashboard-oct-30-2026"
+  },
+  {
+    "date": "2026-11-10",
+    "VOO": 18.12,
+    "QQQ": 18.69,
+    "url": "https://www.nasdaq.com/docs/global-indexes/global-markets-dashboard-nov-13-2026"
+  }
+]

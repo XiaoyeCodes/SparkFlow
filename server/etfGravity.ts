@@ -40,9 +40,9 @@ function closedBars(payload: YahooChart, symbol: GravitySymbol, now: number): Da
     if (!positive(close) || (bars.length && date <= bars[bars.length - 1].date)) throw new Error('ETF 日线不完整');
     let turnover = 0;
     let volume = 0;
-    if (symbol === 'SPY' && date >= VWAP_START) {
+    if (date >= VWAP_START) {
       const raw = quote.close?.[index], high = quote.high?.[index], low = quote.low?.[index], shares = quote.volume?.[index];
-      if (!positive(raw) || !positive(high) || !positive(low) || !positive(shares)) throw new Error('缺少 SPY 量价数据');
+      if (!positive(raw) || !positive(high) || !positive(low) || !positive(shares)) throw new Error(`缺少 ${symbol} 量价数据（${date}）`);
       volume = shares;
       turnover = ((high + low + raw) / 3) * (close / raw) * volume;
     }
